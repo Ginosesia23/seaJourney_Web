@@ -1,3 +1,28 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "hero-background",
+      "description": "An aerial view of a turquoise ocean meeting a sandy beach with cliffs.",
+      "imageUrl": "https://images.unsplash.com/photo-1758898256889-790ccd45c328?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwzfHxvY2VhbiUyMGNvYXN0bGluZXxlbnwwfHx8fDE3NjEyMjgyMjB8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "ocean coastline"
+    },
+    {
+      "id": "user1",
+      "description": "Portrait of a smiling person on a mountaintop.",
+      "imageUrl": "https://images.unsplash.com/photo-1520466809213-7b9a56adcd45?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw0fHxoYXBweSUyMHRyYXZlbGVyfGVufDB8fHx8MTc2MTE0NzUwMnww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "happy traveler"
+    },
+    {
+      "id": "user2",
+      "description": "Portrait of a smiling person in a city.",
+      "imageUrl": "https://images.unsplash.com/photo-1624486217002-846e654ac969?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw4fHxzbWlsaW5nJTIwcGVyc29ufGVufDB8fHx8MTc2MTE2NjY1Nnww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "smiling person"
+    },
+    {
+      "id": "user3",
+      "description": "Portrait of a smiling person in front of a landmark.",
+      "imageUrl": "https://images.unsplash.com/photo-1595847163451-2ebb6341639a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw0fHxwZXJzb24lMjBvdXRkb29yc3xlbnwwfHx8fDE3NjEyMDc0ODV8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "person outdoors"
+    }
+  ]
 }
