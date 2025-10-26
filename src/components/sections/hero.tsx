@@ -15,10 +15,10 @@ const Hero = () => {
               The #1 app for yacht crew and maritime professionals to track sea days, manage testimonials, and accelerate their journey to the next certificate.
             </p>
             <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:items-start lg:justify-start">
-              <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground">
+              <Button asChild size="lg">
                 <Link href="#cta">Download Now</Link>
               </Button>
-              <Button asChild variant="outline" size="lg" className="border-white text-white hover:bg-white/10">
+              <Button asChild variant="ghost" size="lg" className="text-white hover:bg-white/10 hover:text-white">
                 <Link href="#features">Learn More &rarr;</Link>
               </Button>
             </div>
