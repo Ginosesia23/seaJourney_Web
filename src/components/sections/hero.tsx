@@ -28,7 +28,7 @@ const Hero = () => {
             Welcome to SeaJourney, the AI-powered travel app that turns your dream vacation into a reality. Effortless planning, endless exploration.
           </p>
           <div className="mt-10 flex items-center justify-center gap-x-6">
-            <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground">
+            <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-primary-foreground">
               <Link href="#cta">Download Now</Link>
             </Button>
             <Button asChild variant="outline" size="lg" className="border-white text-white hover:bg-white/10">

@@ -3,22 +3,22 @@ import { Sparkles, MapPin, Compass, ShieldCheck } from 'lucide-react';
 
 const features = [
   {
-    icon: <Sparkles className="h-8 w-8 text-accent" />,
+    icon: <Sparkles className="h-8 w-8 text-primary" />,
     title: 'AI Itinerary Planner',
     description: 'Our intelligent AI crafts personalized travel plans based on your interests, duration, and destination.',
   },
   {
-    icon: <MapPin className="h-8 w-8 text-accent" />,
+    icon: <MapPin className="h-8 w-8 text-primary" />,
     title: 'Hidden Gem Finder',
     description: 'Discover local secrets and off-the-beaten-path locations that you won\'t find in typical guidebooks.',
   },
   {
-    icon: <Compass className="h-8 w-8 text-accent" />,
+    icon: <Compass className="h-8 w-8 text-primary" />,
     title: 'Offline Maps & Guides',
     description: 'Access your maps, itineraries, and travel guides even without an internet connection.',
   },
   {
-    icon: <ShieldCheck className="h-8 w-8 text-accent" />,
+    icon: <ShieldCheck className="h-8 w-8 text-primary" />,
     title: 'Travel Safety Tips',
     description: 'Stay informed with real-time safety alerts and localized travel advice for your destination.',
   },
@@ -26,7 +26,7 @@ const features = [
 
 const Features = () => {
   return (
-    <section id="features" className="py-16 sm:py-24">
+    <section id="features" className="py-16 sm:py-24 bg-primary/5">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
@@ -38,7 +38,7 @@ const Features = () => {
         </div>
         <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
           {features.map((feature) => (
-            <Card key={feature.title} className="transform transition-transform duration-300 hover:-translate-y-2 hover:shadow-xl">
+            <Card key={feature.title} className="transform transition-transform duration-300 hover:-translate-y-2 hover:shadow-xl bg-card border-border/50">
               <CardHeader>
                 <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
                   {feature.icon}

@@ -40,24 +40,24 @@ const GooglePlayIcon = () => (
 
 const CTA = () => {
   return (
-    <section id="cta" className="bg-primary text-primary-foreground">
+    <section id="cta" className="bg-background">
       <div className="container mx-auto px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="font-headline text-3xl font-bold tracking-tight sm:text-4xl">
+          <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
             Your Next Adventure Awaits
           </h2>
-          <p className="mt-4 text-lg leading-8 text-primary-foreground/80">
+          <p className="mt-4 text-lg leading-8 text-foreground/80">
             Download SeaJourney today and transform the way you explore the world.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link href="#" className="flex w-full sm:w-auto items-center justify-center rounded-lg bg-accent px-5 py-3 text-base font-medium text-accent-foreground shadow-md transition hover:bg-accent/90 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-primary">
+            <Link href="#" className="flex w-full sm:w-auto items-center justify-center rounded-lg bg-primary px-5 py-3 text-base font-medium text-primary-foreground shadow-md transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-primary">
               <AppStoreIcon />
               <div>
                 <p className="text-xs">Download on the</p>
                 <p className="text-xl font-semibold">App Store</p>
               </div>
             </Link>
-             <Link href="#" className="flex w-full sm:w-auto items-center justify-center rounded-lg bg-accent px-5 py-3 text-base font-medium text-accent-foreground shadow-md transition hover:bg-accent/90 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-primary">
+             <Link href="#" className="flex w-full sm:w-auto items-center justify-center rounded-lg bg-primary px-5 py-3 text-base font-medium text-primary-foreground shadow-md transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-primary">
               <GooglePlayIcon />
               <div>
                 <p className="text-xs">GET IT ON</p>
