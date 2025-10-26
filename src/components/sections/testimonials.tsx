@@ -42,7 +42,7 @@ const Testimonials = () => {
             return (
               <Card key={testimonial.name} className="flex flex-col justify-between shadow-lg transition-shadow duration-300 hover:shadow-xl bg-card text-card-foreground overflow-hidden">
                 <CardContent className="flex-grow p-6">
-                  <Quote className="h-8 w-8 text-primary/20" />
+                  <Quote className="h-8 w-8 text-primary" />
                   <blockquote className="mt-4 text-lg text-foreground/90">
                     "{testimonial.quote}"
                   </blockquote>
