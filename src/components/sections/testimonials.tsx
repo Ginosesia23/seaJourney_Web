@@ -42,12 +42,12 @@ const Testimonials = () => {
             return (
               <Card key={testimonial.name} className="flex flex-col justify-between shadow-lg transition-shadow duration-300 hover:shadow-xl">
                 <CardContent className="flex-grow p-6">
-                  <Quote className="h-8 w-8 text-primary/20" />
+                  <Quote className="h-8 w-8 text-accent/20" />
                   <blockquote className="mt-4 text-lg text-foreground/90">
                     "{testimonial.quote}"
                   </blockquote>
                 </CardContent>
-                <div className="mt-4 flex items-center gap-4 border-t bg-primary/5 p-6">
+                <div className="mt-4 flex items-center gap-4 border-t bg-secondary p-6">
                   {image && (
                     <Image
                       src={image.imageUrl}
