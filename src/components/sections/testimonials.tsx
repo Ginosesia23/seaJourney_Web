@@ -47,7 +47,7 @@ const Testimonials = () => {
                     "{testimonial.quote}"
                   </blockquote>
                 </CardContent>
-                <div className="flex items-center gap-4 bg-accent/90 text-accent-foreground p-6">
+                <div className="flex items-center gap-4 bg-primary/90 text-primary-foreground p-6">
                   {image && (
                     <Image
                       src={image.imageUrl}
@@ -60,7 +60,7 @@ const Testimonials = () => {
                   )}
                   <div>
                     <p className="font-bold text-white">{testimonial.name}</p>
-                    <p className="text-sm text-accent-foreground/70">{testimonial.title}</p>
+                    <p className="text-sm text-primary-foreground/70">{testimonial.title}</p>
                   </div>
                 </div>
               </Card>
