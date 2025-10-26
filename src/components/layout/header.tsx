@@ -17,16 +17,16 @@ const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur-sm">
+    <header className="sticky top-0 z-50 w-full border-b border-header bg-header text-header-foreground backdrop-blur-sm">
       <div className="container mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Logo />
+        <Logo className="text-header-foreground" />
 
         <nav className="hidden md:flex md:items-center md:gap-6">
           {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="font-medium text-foreground/80 transition-colors hover:text-primary"
+              className="font-medium text-header-foreground/80 transition-colors hover:text-header-foreground"
             >
               {link.label}
             </Link>
@@ -40,16 +40,16 @@ const Header = () => {
 
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden">
+              <Button variant="ghost" size="icon" className="md:hidden hover:bg-white/10">
                 <Menu className="h-6 w-6" />
                 <span className="sr-only">Open menu</span>
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-[300px] bg-background">
+            <SheetContent side="right" className="w-[300px] bg-header text-header-foreground">
               <div className="flex h-full flex-col">
                 <div className="mb-8 flex items-center justify-between">
-                  <Logo />
-                   <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)}>
+                  <Logo className="text-header-foreground" />
+                   <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="hover:bg-white/10">
                     <X className="h-6 w-6" />
                     <span className="sr-only">Close menu</span>
                   </Button>
@@ -59,7 +59,7 @@ const Header = () => {
                     <Link
                       key={link.href}
                       href={link.href}
-                      className="text-lg font-medium text-foreground/80 transition-colors hover:text-primary"
+                      className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground"
                       onClick={() => setIsOpen(false)}
                     >
                       {link.label}
