@@ -2,9 +2,27 @@
   "placeholderImages": [
     {
       "id": "hero-background",
-      "description": "A stunning tropical beach with turquoise water, white sand, and palm trees during a beautiful sunset.",
-      "imageUrl": "https://images.unsplash.com/photo-1507525428034-b723a996f329?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHx0cm9waWNhbCUyMGJlYWNofGVufDB8fHx8MTc2MjYxOTU1NHww&ixlib=rb-4.0.3&q=80&w=1080",
-      "imageHint": "tropical beach"
+      "description": "A beautiful yacht sailing on the open ocean under a clear blue sky.",
+      "imageUrl": "https://images.unsplash.com/photo-1593994793549-5d5ded963c63?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHx5YWNodCUyMHNhaWxpbmd8ZW58MHx8fHwxNzYyNjIzNzU4fDA&ixlib=rb-4.0.3&q=80&w=1080",
+      "imageHint": "yacht sailing"
+    },
+    {
+      "id": "user1",
+      "description": "Portrait of a smiling young man who could be a deckhand on a yacht.",
+      "imageUrl": "https://images.unsplash.com/photo-1599566150163-29194dcaad36?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHxtYWxlJTIwcG9ydHJhaXR8ZW58MHx8fHwxNzYyNjIzNzg4fDA&ixlib=rb-4.0.3&q=80&w=100",
+      "imageHint": "male portrait"
+    },
+    {
+      "id": "user2",
+      "description": "Portrait of a confident woman who could be a maritime engineer.",
+      "imageUrl": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHxmZW1hbGUlMjBwb3J0cmFpdHxlbnwwfHx8fDE3NjI2MjM4MTJ8MA&ixlib=rb-4.0.3&q=80&w=100",
+      "imageHint": "female portrait"
+    },
+    {
+      "id": "user3",
+      "description": "Portrait of an experienced, friendly-looking man who could be a ship captain.",
+      "imageUrl": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHxtaWRkbGUlMjBhZ2VkJTIwbWFsZSUyMHBvcnRyYWl0fGVufDB8fHx8MTc2MjYyMzgzNXww&ixlib=rb-4.0.3&q=80&w=100",
+      "imageHint": "older male portrait"
     }
   ]
 }

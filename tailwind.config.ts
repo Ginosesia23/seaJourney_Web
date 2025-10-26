@@ -18,8 +18,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        body: ['PT Sans', ...fontFamily.sans],
-        headline: ['Playfair Display', ...fontFamily.serif],
+        body: ['Roboto', ...fontFamily.sans],
+        headline: ['Lato', ...fontFamily.sans],
       },
       colors: {
         border: "hsl(var(--border))",

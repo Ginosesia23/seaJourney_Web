@@ -4,9 +4,9 @@ import './globals.css';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = {
-  title: 'SeaJourney - Your AI-Powered Travel Companion',
+  title: 'SeaJourney - Seatime Tracker for Maritime Professionals',
   description:
-    "Discover SeaJourney, the app that revolutionizes your travel planning with an AI-powered tour creator. Generate personalized itineraries, find hidden gems, and embark on unforgettable adventures.",
+    'The essential app for yacht crew and maritime professionals to track sea days, manage testimonials, and streamline certificate applications.',
 };
 
 export default function RootLayout({
@@ -20,7 +20,7 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=PT+Sans:wght@400;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Lato:wght@700&display=swap"
           rel="stylesheet"
         />
       </head>

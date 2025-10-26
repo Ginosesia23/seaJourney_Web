@@ -9,6 +9,7 @@ import Logo from '@/components/logo';
 
 const navLinks = [
   { href: '#features', label: 'Features' },
+  { href: '#testimonials', label: 'Testimonials' },
   { href: '#cta', label: 'Download' },
 ];
 

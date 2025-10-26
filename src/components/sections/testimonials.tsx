@@ -6,21 +6,21 @@ import { PlaceHolderImages } from '@/lib/placeholder-images';
 const testimonialsData = [
   {
     id: 'user1',
-    quote: "The AI tour generator is a game-changer! It planned my entire 2-week trip to Southeast Asia flawlessly. I discovered places I would have never found on my own.",
+    quote: "SeaJourney is a must-have for any deckhand. It made applying for my Yachtmaster a breeze. No more messy spreadsheets!",
     name: 'Alex Johnson',
-    location: 'San Francisco, CA',
+    title: 'First Mate',
   },
   {
     id: 'user2',
-    quote: "I used to spend weeks planning trips. With SeaJourney, I had a detailed, personalized itinerary in minutes. The AI understood my interests perfectly.",
+    quote: "Finally, a logbook that understands a seafarer's life. The testimonial export feature saved me hours of paperwork.",
     name: 'Samantha Lee',
-    location: 'London, UK',
+    title: 'Chief Engineer',
   },
   {
     id: 'user3',
-    quote: "As a solo traveler, the AI-generated tips and suggestions were invaluable. It felt like having a local guide in my pocket. Highly recommend!",
+    quote: "As a captain, I recommend this to all my crew. It simplifies my job of signing off testimonials and tracking their progress.",
     name: 'David Chen',
-    location: 'Sydney, AU',
+    title: 'Captain',
   },
 ];
 
@@ -30,10 +30,10 @@ const Testimonials = () => {
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
-            Loved by Travelers Worldwide
+            Trusted by Crew and Captains Alike
           </h2>
           <p className="mt-4 text-lg leading-8 text-foreground/80">
-            Don't just take our word for it. Here's what our users have to say about the AI-powered tour creator.
+            See why maritime professionals around the world trust SeaJourney to manage their careers.
           </p>
         </div>
         <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-3">
@@ -60,7 +60,7 @@ const Testimonials = () => {
                   )}
                   <div>
                     <p className="font-bold text-primary">{testimonial.name}</p>
-                    <p className="text-sm text-foreground/70">{testimonial.location}</p>
+                    <p className="text-sm text-foreground/70">{testimonial.title}</p>
                   </div>
                 </div>
               </Card>

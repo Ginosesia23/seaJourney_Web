@@ -1,26 +1,26 @@
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Sparkles, MapPin, Compass, ShieldCheck } from 'lucide-react';
+import { CalendarDays, FileSignature, Award, Ship } from 'lucide-react';
 
 const features = [
   {
-    icon: <Sparkles className="h-8 w-8 text-primary" />,
-    title: 'AI Itinerary Planner',
-    description: 'Our intelligent AI crafts personalized travel plans based on your interests, duration, and destination.',
+    icon: <CalendarDays className="h-8 w-8 text-primary" />,
+    title: 'Effortless Sea Time Logging',
+    description: 'Quickly log your days at sea, vessel details, and position. Our smart tracker makes it simple and accurate.',
   },
   {
-    icon: <MapPin className="h-8 w-8 text-primary" />,
-    title: 'Hidden Gem Finder',
-    description: 'Discover local secrets and off-the-beaten-path locations that you won\'t find in typical guidebooks.',
+    icon: <FileSignature className="h-8 w-8 text-primary" />,
+    title: 'Digital Testimonials',
+    description: 'Generate and export professional sea time testimonials. Get them digitally signed by captains and chief engineers.',
   },
   {
-    icon: <Compass className="h-8 w-8 text-primary" />,
-    title: 'Offline Maps & Guides',
-    description: 'Access your maps, itineraries, and travel guides even without an internet connection.',
+    icon: <Award className="h-8 w-8 text-primary" />,
+    title: 'Certification Ready',
+    description: 'Easily compile and export all necessary documentation for your ticket applications and certificate renewals.',
   },
   {
-    icon: <ShieldCheck className="h-8 w-8 text-primary" />,
-    title: 'Travel Safety Tips',
-    description: 'Stay informed with real-time safety alerts and localized travel advice for your destination.',
+    icon: <Ship className="h-8 w-8 text-primary" />,
+    title: 'Multi-Vessel Support',
+    description: 'Manage your sea time across multiple vessels, from superyachts to commercial ships, all in one place.',
   },
 ];
 
@@ -30,10 +30,10 @@ const Features = () => {
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
-            Everything You Need for a Perfect Journey
+            The Captain's Choice for Career Progression
           </h2>
           <p className="mt-4 text-lg leading-8 text-foreground/80">
-            SeaJourney is packed with powerful features to make your travel seamless and unforgettable.
+            SeaJourney provides all the tools you need to accurately log your experience and advance your maritime career.
           </p>
         </div>
         <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
