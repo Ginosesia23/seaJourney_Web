@@ -6,38 +6,6 @@ const AppStoreIcon = () => (
   </svg>
 );
 
-const GooglePlayIcon = () => (
-    <svg className="mr-3 h-8 w-8" viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M2.353 1.41L17.21 19.998 2.352 38.587A1.55 1.55 0 003.38 40h.314l29.953-15.65c1.89-1.07 1.89-3.63 0-4.7L3.692 0A1.55 1.55 0 002.352 1.41z" fill="#00A0F1"/>
-        <path d="M2.353 1.41L17.21 19.998 2.352 38.587A1.55 1.55 0 003.38 40h.314l29.953-15.65c1.89-1.07 1.89-3.63 0-4.7L3.692 0A1.55 1.55 0 002.352 1.41z" fill="url(#a)"/>
-        <path d="M33.647 24.348L19.29 15.65v17.39l12.5-7.217c1.89-1.071 1.89-3.413 1.857-4.483z" fill="#00D2FF"/>
-        <path d="M33.647 24.348L19.29 15.65v17.39l12.5-7.217c1.89-1.071 1.89-3.413 1.857-4.483z" fill="url(#b)"/>
-        <path d="M2.353 1.411l.01.005 14.847 18.58-14.847 18.582a1.55 1.55 0 001.028 1.412h.314l11.41-6.732-11.7-13.26z" fill="#FFE000"/>
-        <path d="M2.353 1.411l.01.005 14.847 18.58-14.847 18.582a1.55 1.55 0 001.028 1.412h.314l11.41-6.732-11.7-13.26z" fill="url(#c)"/>
-        <path d="M15.11 3.268l-3.321 3.772 11.7 13.26L33.647 15.65 15.11 3.268z" fill="#FF3A44"/>
-        <path d="M15.11 3.268l-3.321 3.772 11.7 13.26L33.647 15.65 15.11 3.268z" fill="url(#d)"/>
-        <defs>
-            <linearGradient id="a" x1="17.21" y1="19.998" x2="3.864" y2="1.411" gradientUnits="userSpaceOnUse">
-                <stop stopColor="#00A0F1"/>
-                <stop offset="1" stopColor="#00D2FF"/>
-            </linearGradient>
-            <linearGradient id="b" x1="19.29" y1="24.348" x2="33.647" y2="15.65" gradientUnits="userSpaceOnUse">
-                <stop stopColor="#00A0F1"/>
-                <stop offset="1" stopColor="#00D2FF"/>
-            </linearGradient>
-            <linearGradient id="c" x1="2.353" y1="19.998" x2="16.326" y2="33.26" gradientUnits="userSpaceOnUse">
-                <stop stopColor="#FFE000"/>
-                <stop offset="1" stopColor="#FFC107"/>
-            </linearGradient>
-            <linearGradient id="d" x1="11.789" y1="7.04" x2="33.647" y2="15.65" gradientUnits="userSpaceOnUse">
-                <stop stopColor="#FF3A44"/>
-                <stop offset="1" stopColor="#C31162"/>
-            </linearGradient>
-        </defs>
-    </svg>
-);
-
-
 const CTA = () => {
   return (
     <section id="cta" className="bg-background">
@@ -55,13 +23,6 @@ const CTA = () => {
               <div>
                 <p className="text-xs">Download on the</p>
                 <p className="text-xl font-semibold">App Store</p>
-              </div>
-            </Link>
-             <Link href="#" className="flex w-full sm:w-auto items-center justify-center rounded-lg bg-primary px-5 py-3 text-base font-medium text-primary-foreground shadow-md transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-primary">
-              <GooglePlayIcon />
-              <div>
-                <p className="text-xs">GET IT ON</p>
-                <p className="text-xl font-semibold">Google Play</p>
               </div>
             </Link>
           </div>
