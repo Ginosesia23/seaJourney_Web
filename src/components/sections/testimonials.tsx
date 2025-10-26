@@ -40,14 +40,14 @@ const Testimonials = () => {
           {testimonialsData.map((testimonial) => {
             const image = PlaceHolderImages.find(p => p.id === testimonial.id);
             return (
-              <Card key={testimonial.name} className="flex flex-col justify-between shadow-lg transition-shadow duration-300 hover:shadow-xl">
+              <Card key={testimonial.name} className="flex flex-col justify-between shadow-lg transition-shadow duration-300 hover:shadow-xl bg-header text-header-foreground border-primary/10">
                 <CardContent className="flex-grow p-6">
                   <Quote className="h-8 w-8 text-accent/20" />
-                  <blockquote className="mt-4 text-lg text-foreground/90">
+                  <blockquote className="mt-4 text-lg text-header-foreground/90">
                     "{testimonial.quote}"
                   </blockquote>
                 </CardContent>
-                <div className="mt-4 flex items-center gap-4 border-t bg-secondary p-6">
+                <div className="mt-4 flex items-center gap-4 border-t border-primary/20 bg-black/10 p-6">
                   {image && (
                     <Image
                       src={image.imageUrl}
@@ -59,8 +59,8 @@ const Testimonials = () => {
                     />
                   )}
                   <div>
-                    <p className="font-bold text-primary">{testimonial.name}</p>
-                    <p className="text-sm text-foreground/70">{testimonial.title}</p>
+                    <p className="font-bold text-accent">{testimonial.name}</p>
+                    <p className="text-sm text-header-foreground/70">{testimonial.title}</p>
                   </div>
                 </div>
               </Card>
