@@ -10,19 +10,8 @@ const Footer = () => {
           <div className="md:col-span-2">
             <Logo className="text-header-foreground" />
             <p className="mt-4 max-w-xs text-sm text-header-foreground/80">
-              Your AI-Powered Travel Companion.
+              The essential app for yacht crew and maritime professionals.
             </p>
-          </div>
-          <div>
-            <h3 className="font-headline text-lg font-bold text-accent">Explore</h3>
-            <ul className="mt-4 space-y-2 text-sm">
-              <li><Link href="#features" className="text-header-foreground/80 hover:text-accent transition-colors">Features</Link></li>
-              <li><Link href="#ai-tool" className="text-header-foreground/80 hover:text-accent transition-colors">AI Tool</Link></li>
-              <li><Link href="#testimonials" className="text-header-foreground/80 hover:text-accent transition-colors">Testimonials</Link></li>
-            </ul>
-          </div>
-          <div>
-            <h3 className="font-headline text-lg font-bold text-accent">Follow Us</h3>
             <div className="mt-4 flex space-x-4">
               <Link href="#" aria-label="Facebook">
                 <Facebook className="h-6 w-6 text-header-foreground/80 hover:text-accent transition-colors" />
@@ -34,6 +23,21 @@ const Footer = () => {
                 <Instagram className="h-6 w-6 text-header-foreground/80 hover:text-accent transition-colors" />
               </Link>
             </div>
+          </div>
+          <div>
+            <h3 className="font-headline text-lg font-bold text-accent">Explore</h3>
+            <ul className="mt-4 space-y-2 text-sm">
+              <li><Link href="/#features" className="text-header-foreground/80 hover:text-accent transition-colors">Features</Link></li>
+              <li><Link href="/#testimonials" className="text-header-foreground/80 hover:text-accent transition-colors">Testimonials</Link></li>
+              <li><Link href="/#cta" className="text-header-foreground/80 hover:text-accent transition-colors">Download</Link></li>
+            </ul>
+          </div>
+          <div>
+            <h3 className="font-headline text-lg font-bold text-accent">Legal</h3>
+            <ul className="mt-4 space-y-2 text-sm">
+              <li><Link href="/privacy-policy" className="text-header-foreground/80 hover:text-accent transition-colors">Privacy Policy</Link></li>
+              <li><Link href="/terms-of-service" className="text-header-foreground/80 hover:text-accent transition-colors">Terms of Service</Link></li>
+            </ul>
           </div>
         </div>
         <div className="mt-8 border-t border-primary/10 pt-8 text-center text-sm text-header-foreground/60">
