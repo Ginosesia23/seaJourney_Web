@@ -24,7 +24,7 @@ const Hero = () => {
         </div>
         <div className="mt-16 sm:mt-20">
             <Image
-              src="/app-screenshots.png"
+              src="/hero-1.png"
               alt="App screenshots showing the main dashboard and vessel state selection."
               width={1000}
               height={700}
