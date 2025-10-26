@@ -47,7 +47,7 @@ const Testimonials = () => {
                     "{testimonial.quote}"
                   </blockquote>
                 </CardContent>
-                <div className="flex items-center gap-4 bg-primary/90 text-primary-foreground p-6">
+                <div className="flex items-center gap-4 bg-[hsl(222.2,84%,10.5%)] text-primary-foreground p-6">
                   {image && (
                     <Image
                       src={image.imageUrl}
