@@ -1,6 +1,6 @@
-
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import Image from 'next/image';
 
 const Hero = () => {
   return (
@@ -21,6 +21,16 @@ const Hero = () => {
               <Link href="#features">Learn More &rarr;</Link>
             </Button>
           </div>
+        </div>
+        <div className="mt-16 sm:mt-20">
+            <Image
+              src="/app-screenshots.png"
+              alt="App screenshots showing the main dashboard and vessel state selection."
+              width={1000}
+              height={700}
+              className="mx-auto rounded-xl shadow-2xl"
+              data-ai-hint="app screenshot"
+            />
         </div>
       </div>
     </section>
