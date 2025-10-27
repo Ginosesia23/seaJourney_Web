@@ -3,7 +3,7 @@
 import { useFormState, useFormStatus } from 'react-dom';
 import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
@@ -28,7 +28,7 @@ function SubmitButton() {
     <Button 
       type="submit" 
       disabled={pending} 
-      className="w-full sm:w-auto bg-[#3DDC84] hover:bg-[#3DDC84]/90 text-black"
+      className="w-full bg-[#3DDC84] hover:bg-[#3DDC84]/90 text-black"
     >
       {pending ? 'Submitting...' : 'Become a Tester'}
     </Button>
@@ -71,28 +71,27 @@ export default function AndroidTesterSignup() {
           </p>
         </div>
         <div className="mt-12 mx-auto max-w-lg">
-          <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
-            <CardHeader>
-              <CardTitle>Join the Android Beta Program</CardTitle>
-              <CardDescription>Enter your email to get notified when the beta is ready.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form ref={formRef} action={formAction} className="flex flex-col sm:flex-row gap-4">
-                <div className="flex-grow space-y-2">
-                  <Label htmlFor="email" className="sr-only">Email</Label>
-                  <Input 
-                    id="email" 
-                    name="email" 
-                    type="email" 
-                    placeholder="you@email.com" 
-                    required 
-                    className="w-full"
-                  />
-                </div>
+           <form ref={formRef} action={formAction}>
+            <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
+              <CardHeader>
+                <CardTitle>Join the Android Beta Program</CardTitle>
+                <CardDescription>Enter your email to get notified when the beta is ready.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Label htmlFor="email" className="sr-only">Email</Label>
+                <Input 
+                  id="email" 
+                  name="email" 
+                  type="email" 
+                  placeholder="you@email.com" 
+                  required 
+                />
+              </CardContent>
+              <CardFooter>
                 <SubmitButton />
-              </form>
-            </CardContent>
-          </Card>
+              </CardFooter>
+            </Card>
+          </form>
         </div>
       </div>
     </section>
