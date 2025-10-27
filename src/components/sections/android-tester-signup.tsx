@@ -25,7 +25,11 @@ async function signUpAction(prevState: any, formData: FormData) {
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+    <Button 
+      type="submit" 
+      disabled={pending} 
+      className="w-full sm:w-auto bg-[#3DDC84] hover:bg-[#3DDC84]/90 text-black"
+    >
       {pending ? 'Submitting...' : 'Become a Tester'}
     </Button>
   );
@@ -58,7 +62,7 @@ export default function AndroidTesterSignup() {
     <section id="android-testers" className="py-16 sm:py-24 bg-secondary">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <Smartphone className="mx-auto h-12 w-12 text-primary" />
+          <Smartphone className="mx-auto h-12 w-12 text-[#3DDC84]" />
           <h2 className="mt-4 font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
             Be the First to Test on Android
           </h2>
