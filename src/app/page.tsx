@@ -5,7 +5,6 @@ import Features from '@/components/sections/features';
 import Testimonials from '@/components/sections/testimonials';
 import CTA from '@/components/sections/cta';
 import AndroidTesterSignup from '@/components/sections/android-tester-signup';
-import AITourGenerator from '@/components/sections/ai-tour-generator';
 
 export default function Home() {
   return (
@@ -14,7 +13,6 @@ export default function Home() {
       <main className="flex-1">
         <Hero />
         <Features />
-        <AITourGenerator />
         <Testimonials />
         <CTA />
         <AndroidTesterSignup />
