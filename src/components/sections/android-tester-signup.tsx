@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Pilcrow } from 'lucide-react';
+import { Smartphone } from 'lucide-react';
 
 // Placeholder for a server action
 async function signUpAction(prevState: any, formData: FormData) {
@@ -58,7 +58,8 @@ export default function AndroidTesterSignup() {
     <section id="android-testers" className="py-16 sm:py-24 bg-secondary">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
+          <Smartphone className="mx-auto h-12 w-12 text-primary" />
+          <h2 className="mt-4 font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
             Be the First to Test on Android
           </h2>
           <p className="mt-4 text-lg leading-8 text-foreground/80">
@@ -66,7 +67,7 @@ export default function AndroidTesterSignup() {
           </p>
         </div>
         <div className="mt-12 mx-auto max-w-lg">
-          <Card>
+          <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
             <CardHeader>
               <CardTitle>Join the Android Beta Program</CardTitle>
               <CardDescription>Enter your email to get notified when the beta is ready.</CardDescription>
