@@ -9,8 +9,9 @@ import Logo from '@/components/logo';
 
 const navLinks = [
   { href: '#features', label: 'Features' },
+  { href: '#ai-tool', label: 'AI Tool' },
   { href: '#testimonials', label: 'Testimonials' },
-  { href: '/coming-soon', label: 'Coming Soon' },
+  { href: '#android-testers', label: 'Android Testers' },
   { href: '#cta', label: 'Download' },
 ];
 

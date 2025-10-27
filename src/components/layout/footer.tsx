@@ -28,8 +28,10 @@ const Footer = () => {
             <h3 className="font-headline text-lg font-bold text-accent">Explore</h3>
             <ul className="mt-4 space-y-2 text-sm">
               <li><Link href="/#features" className="text-header-foreground/80 hover:text-accent transition-colors">Features</Link></li>
+              <li><Link href="/#ai-tool" className="text-header-foreground/80 hover:text-accent transition-colors">AI Tool</Link></li>
               <li><Link href="/#testimonials" className="text-header-foreground/80 hover:text-accent transition-colors">Testimonials</Link></li>
               <li><Link href="/#cta" className="text-header-foreground/80 hover:text-accent transition-colors">Download</Link></li>
+              <li><Link href="/#android-testers" className="text-header-foreground/80 hover:text-accent transition-colors">Android Testers</Link></li>
             </ul>
           </div>
           <div>
