@@ -18,7 +18,7 @@ const Hero = () => {
               <Button asChild size="lg" className="rounded-lg bg-accent hover:bg-accent/90 text-accent-foreground">
                 <Link href="#cta">Download Now</Link>
               </Button>
-              <Button asChild variant="outline" size="lg" className="rounded-lg border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">
+              <Button asChild variant="outline" size="lg" className="rounded-lg border-primary-foreground/20 text-primary-foreground bg-primary-foreground/10 hover:text-primary-foreground">
                 <Link href="#features">Learn More &rarr;</Link>
               </Button>
             </div>
