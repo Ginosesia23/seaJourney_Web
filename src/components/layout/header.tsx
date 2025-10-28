@@ -12,7 +12,6 @@ const navLinks = [
   { href: '#testimonials', label: 'Testimonials' },
   { href: '#android-testers', label: 'Android Testers' },
   { href: '/coming-soon', label: 'Coming Soon' },
-  { href: '#cta', label: 'Download' },
 ];
 
 const Header = () => {
@@ -36,7 +35,7 @@ const Header = () => {
         </nav>
 
         <div className="flex items-center gap-4">
-          <Button asChild className="hidden md:flex bg-primary hover:bg-primary/90 text-primary-foreground">
+          <Button asChild className="hidden md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
             <Link href="#cta">Download App</Link>
           </Button>
 
@@ -68,7 +67,7 @@ const Header = () => {
                     </Link>
                   ))}
                 </nav>
-                <Button asChild className="mt-8 bg-primary hover:bg-primary/90 text-primary-foreground">
+                <Button asChild className="mt-8 bg-accent hover:bg-accent/90 text-accent-foreground">
                   <Link href="#cta" onClick={() => setIsOpen(false)}>Download App</Link>
                 </Button>
               </div>
