@@ -35,7 +35,7 @@ const Header = () => {
         </nav>
 
         <div className="flex items-center gap-4">
-          <Button asChild className="hidden md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
+          <Button asChild className="hidden rounded-lg md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
             <Link href="#cta">Download App</Link>
           </Button>
 
@@ -67,7 +67,7 @@ const Header = () => {
                     </Link>
                   ))}
                 </nav>
-                <Button asChild className="mt-8 bg-accent hover:bg-accent/90 text-accent-foreground">
+                <Button asChild className="mt-8 rounded-lg bg-accent hover:bg-accent/90 text-accent-foreground">
                   <Link href="#cta" onClick={() => setIsOpen(false)}>Download App</Link>
                 </Button>
               </div>

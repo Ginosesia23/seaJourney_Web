@@ -14,11 +14,11 @@ const Hero = () => {
             <p className="mt-6 text-lg leading-8 text-header-foreground/80">
               The #1 app for yacht crew and maritime professionals to track sea days, manage testimonials, and accelerate their journey to the next certificate.
             </p>
-            <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:items-start lg:justify-start">
-              <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground">
+            <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center lg:justify-start">
+              <Button asChild size="lg" className="rounded-lg bg-accent hover:bg-accent/90 text-accent-foreground">
                 <Link href="#cta">Download Now</Link>
               </Button>
-              <Button asChild variant="outline" size="lg" className="border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">
+              <Button asChild variant="outline" size="lg" className="rounded-lg border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">
                 <Link href="#features">Learn More &rarr;</Link>
               </Button>
             </div>
