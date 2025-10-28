@@ -6,35 +6,35 @@ import { cn } from '@/lib/utils';
 
 const steps = [
   {
-    icon: <User className="h-8 w-8 text-primary" />,
+    icon: <User className="h-8 w-8 text-accent" />,
     title: '1. Set Up Your Profile',
     description: "Create your account and fill in your professional details to get started. This information will be used for your official documents.",
     image: 'https://picsum.photos/seed/how-to-1/800/600',
     imageHint: 'app profile setup'
   },
   {
-    icon: <Ship className="h-8 w-8 text-primary" />,
+    icon: <Ship className="h-8 w-8 text-accent" />,
     title: '2. Add Your Vessels',
     description: "Easily add the vessels you've worked on. Include details like the vessel name, type, and official number for accurate record-keeping.",
     image: 'https://picsum.photos/seed/how-to-2/800/600',
     imageHint: 'app vessel list'
   },
   {
-    icon: <ListChecks className="h-8 w-8 text-primary" />,
+    icon: <ListChecks className="h-8 w-8 text-accent" />,
     title: '3. Log Your Sea Time',
     description: "Log your sea days with our intuitive calendar. Just select the dates, and the app will calculate your time for you.",
     image: 'https://picsum.photos/seed/how-to-3/800/600',
     imageHint: 'app calendar logging'
   },
   {
-    icon: <FileSignature className="h-8 w-8 text-primary" />,
+    icon: <FileSignature className="h-8 w-8 text-accent" />,
     title: '4. Request Digital Testimonials',
     description: "Generate a sea time testimonial and send a secure link to your captain or superior to get it digitally signed.",
     image: 'https://picsum.photos/seed/how-to-4/800/600',
     imageHint: 'app digital signature'
   },
   {
-    icon: <FileText className="h-8 w-8 text-primary" />,
+    icon: <FileText className="h-8 w-8 text-accent" />,
     title: '5. Export Your Documents',
     description: "When you're ready to apply for a new certificate, export all your logged sea time and signed testimonials into a single, professional PDF.",
     image: 'https://picsum.photos/seed/how-to-5/800/600',
