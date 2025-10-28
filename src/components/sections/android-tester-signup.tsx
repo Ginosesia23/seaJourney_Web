@@ -1,6 +1,7 @@
 'use client';
 
-import { useFormState, useFormStatus } from 'react-dom';
+import { useActionState } from 'react';
+import { useFormStatus } from 'react-dom';
 import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,7 +37,7 @@ function SubmitButton() {
 }
 
 export default function AndroidTesterSignup() {
-  const [state, formAction] = useFormState(signUpAction, { success: false, message: '' });
+  const [state, formAction] = useActionState(signUpAction, { success: false, message: '' });
   const { toast } = useToast();
   const formRef = useRef<HTMLFormElement>(null);
 
