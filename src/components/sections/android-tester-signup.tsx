@@ -60,7 +60,7 @@ export default function AndroidTesterSignup() {
   }, [state, toast]);
 
   return (
-    <section id="android-testers" className="py-16 sm:py-24 bg-secondary">
+    <section id="android-testers" className="py-16 sm:py-24 bg-green-50">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <Smartphone className="mx-auto h-12 w-12 text-[#3DDC84]" />
