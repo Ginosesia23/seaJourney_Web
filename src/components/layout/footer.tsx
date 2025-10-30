@@ -30,7 +30,7 @@ const Footer = () => {
               <li><Link href="/#features" className="text-header-foreground/80 hover:text-accent transition-colors">Features</Link></li>
               <li><Link href="/how-to-use" className="text-header-foreground/80 hover:text-accent transition-colors">How to Use</Link></li>
               <li><Link href="/#testimonials" className="text-header-foreground/80 hover:text-accent transition-colors">Testimonials</Link></li>
-              <li><Link href="/#android-testers" className="text-header-foreground/80 hover:text-accent transition-colors">Android Testers</Link></li>
+              <li><Link href="/coming-soon" className="text-header-foreground/80 hover:text-accent transition-colors">Coming Soon</Link></li>
             </ul>
           </div>
           <div>

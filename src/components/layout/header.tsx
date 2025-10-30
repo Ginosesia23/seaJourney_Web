@@ -11,7 +11,6 @@ const navLinks = [
   { href: '#features', label: 'Features' },
   { href: '/how-to-use', label: 'How to Use' },
   { href: '#testimonials', label: 'Testimonials' },
-  { href: '#android-testers', label: 'Android Testers' },
   { href: '/coming-soon', label: 'Coming Soon' },
 ];
 
