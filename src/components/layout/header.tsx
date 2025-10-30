@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import Logo from '@/components/logo';
 import { AppStoreIcon } from '@/components/sections/cta';
 
@@ -50,6 +50,12 @@ const Header = () => {
               </Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-[300px] bg-header text-header-foreground">
+               <SheetHeader className="sr-only">
+                  <SheetTitle>Mobile Menu</SheetTitle>
+                  <SheetDescription>
+                    Navigation links for SeaJourney.
+                  </SheetDescription>
+                </SheetHeader>
               <div className="flex h-full flex-col">
                 <div className="mb-8 flex items-center justify-between">
                   <Logo className="text-header-foreground" />
