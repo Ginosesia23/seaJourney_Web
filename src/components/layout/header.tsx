@@ -9,7 +9,6 @@ import Logo from '@/components/logo';
 import { AppStoreIcon } from '@/components/sections/cta';
 
 const navLinks = [
-  { href: '#features', label: 'Features' },
   { href: '/how-to-use', label: 'How to Use' },
   { href: '#testimonials', label: 'Testimonials' },
   { href: '/coming-soon', label: 'Coming Soon' },
