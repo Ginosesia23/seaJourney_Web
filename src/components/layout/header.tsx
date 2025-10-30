@@ -6,6 +6,7 @@ import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import Logo from '@/components/logo';
+import { AppStoreIcon } from '@/components/sections/cta';
 
 const navLinks = [
   { href: '#features', label: 'Features' },
@@ -36,7 +37,10 @@ const Header = () => {
 
         <div className="flex items-center gap-4">
           <Button asChild className="hidden rounded-lg md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
-            <Link href="#cta">Download App</Link>
+            <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" target="_blank" rel="noopener noreferrer">
+                <AppStoreIcon className="mr-2 h-5 w-5" />
+                Download App
+            </Link>
           </Button>
 
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
@@ -68,7 +72,10 @@ const Header = () => {
                   ))}
                 </nav>
                 <Button asChild className="mt-8 rounded-lg bg-accent hover:bg-accent/90 text-accent-foreground">
-                  <Link href="#cta" onClick={() => setIsOpen(false)}>Download App</Link>
+                  <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" target="_blank" rel="noopener noreferrer" onClick={() => setIsOpen(false)}>
+                    <AppStoreIcon className="mr-2 h-5 w-5" />
+                    Download App
+                  </Link>
                 </Button>
               </div>
             </SheetContent>

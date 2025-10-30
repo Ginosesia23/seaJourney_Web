@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import Image from 'next/image';
+import { AppStoreIcon } from '@/components/sections/cta';
 
 const Hero = () => {
   return (
@@ -16,9 +17,12 @@ const Hero = () => {
             </p>
             <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center lg:justify-start">
               <Button asChild size="lg" className="rounded-lg bg-accent hover:bg-accent/90 text-accent-foreground">
-                <Link href="#cta">Download Now</Link>
+                <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" target="_blank" rel="noopener noreferrer">
+                  <AppStoreIcon className="mr-2 h-5 w-5" />
+                  Download Now
+                </Link>
               </Button>
-              <Button asChild variant="outline" size="lg" className="rounded-lg border-primary-foreground/20 text-primary-foreground bg-primary-foreground/10 hover:text-primary-foreground">
+              <Button asChild variant="outline" size="lg" className="rounded-lg border-primary-foreground/20 text-primary-foreground bg-primary-foreground/10 hover:bg-primary-foreground/20">
                 <Link href="#features">Learn More &rarr;</Link>
               </Button>
             </div>
