@@ -9,10 +9,10 @@ const HowToUse = () => {
         <div className="mx-auto max-w-2xl text-center">
           <BookOpenCheck className="mx-auto h-12 w-12 text-primary" />
           <h2 className="mt-4 font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
-            Master Your Maritime Career
+            Learn How to Use the App
           </h2>
           <p className="mt-4 text-lg leading-8 text-foreground/80">
-            Learn how to use SeaJourney to its full potential. Our step-by-step guide will walk you through everything from logging your first day to exporting professional documents.
+            Our step-by-step guide will walk you through everything from logging your first day to exporting professional documents.
           </p>
           <div className="mt-10">
             <Button asChild size="lg" className="rounded-lg">
