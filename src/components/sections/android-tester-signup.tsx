@@ -28,7 +28,7 @@ export default function AndroidTesterSignup() {
             The Android version of SeaJourney is coming soon. Sign up to become a beta tester and get early access.
           </p>
           <div className="mt-10">
-            <Button asChild size="lg" className="rounded-lg bg-black hover:bg-black/80 text-white">
+            <Button asChild size="lg" className="rounded-lg bg-orange-500 hover:bg-orange-600 text-white">
               <Link href="https://play.google.com/apps/internaltest/4701575652585709401" target="_blank" rel="noopener noreferrer">
                 <GooglePlayIcon className="mr-2 h-6 w-6" />
                 Download Beta App
