@@ -5,7 +5,7 @@ import { Smartphone } from 'lucide-react';
 import Link from 'next/link';
 
 const GooglePlayIcon = (props: React.SVGProps<SVGSVGElement>) => (
-    <svg viewBox="0 0 512 512" {...props}>
+    <svg viewBox="0 0 512 512" {...props} fill="currentColor">
       <path fill="#fdd835" d="M34.8 51.7C24.3 64 16.2 77.3 10.3 91.5L256 256l-211-121.8c-4-2.3-7.9-4.8-11.2-6.5z"/>
       <path fill="#fbc02d" d="M10.3 420.5c5.9 14.2 14 27.5 24.5 39.8 4.6 5.4 9.6 10.5 15.2 15.2L256 256l-245.7 164.5z"/>
       <path fill="#f57c00" d="m343.3 162.7-87.3 87.3 87.3 87.3c15.9-10 30-22.7 41.5-37.8l63.4-37.3-63.4-37.3c-11.5-15.1-25.6-27.8-41.5-37.8z"/>
@@ -28,7 +28,7 @@ export default function AndroidTesterSignup() {
             The Android version of SeaJourney is coming soon. Sign up to become a beta tester and get early access.
           </p>
           <div className="mt-10">
-            <Button asChild size="lg" className="rounded-lg bg-[#3DDC84] hover:bg-[#3DDC84]/90 text-black">
+            <Button asChild size="lg" className="rounded-lg bg-black hover:bg-black/80 text-white">
               <Link href="https://play.google.com/apps/internaltest/4701575652585709401" target="_blank" rel="noopener noreferrer">
                 <GooglePlayIcon className="mr-2 h-6 w-6" />
                 Download Beta App
