@@ -2,32 +2,12 @@ import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { Card, CardContent } from '@/components/ui/card';
 import Image from 'next/image';
-import { PlaceHolderImages } from '@/lib/placeholder-images';
+import { getProducts, ShopifyProduct } from '@/lib/shopify';
+import Link from 'next/link';
 
-const products = [
-  {
-    id: 'product-tshirt',
-    name: 'SeaJourney Tee',
-    price: '$25.00',
-  },
-  {
-    id: 'product-hat',
-    name: 'SeaJourney Cap',
-    price: '$20.00',
-  },
-  {
-    id: 'product-mug',
-    name: 'SeaJourney Mug',
-    price: '$15.00',
-  },
-  {
-    id: 'product-hoodie',
-    name: 'SeaJourney Hoodie',
-    price: '$45.00',
-  },
-];
+export default async function ShopPage() {
+  const products = await getProducts();
 
-export default function ShopPage() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <Header />
@@ -44,25 +24,28 @@ export default function ShopPage() {
             </div>
 
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
-              {products.map((product) => {
-                const image = PlaceHolderImages.find(p => p.id === product.id);
+              {products.map((product: ShopifyProduct) => {
+                const image = product.images.edges[0]?.node;
                 return (
-                  <Card key={product.name} className="overflow-hidden transition-shadow duration-300 hover:shadow-xl">
-                    {image && (
-                       <Image
-                        src={image.imageUrl}
-                        alt={product.name}
-                        width={600}
-                        height={400}
-                        className="h-48 w-full object-cover"
-                        data-ai-hint={image.imageHint}
-                      />
-                    )}
-                    <CardContent className="p-4">
-                      <h3 className="font-headline text-lg font-bold">{product.name}</h3>
-                      <p className="mt-2 text-base text-foreground/80">{product.price}</p>
-                    </CardContent>
-                  </Card>
+                  <Link href={`https://${process.env.SHOPIFY_STORE_DOMAIN}/products/${product.handle}`} target="_blank" rel="noopener noreferrer" key={product.id}>
+                    <Card className="overflow-hidden transition-shadow duration-300 hover:shadow-xl h-full">
+                      {image && (
+                         <Image
+                          src={image.url}
+                          alt={product.title}
+                          width={600}
+                          height={400}
+                          className="h-48 w-full object-cover"
+                        />
+                      )}
+                      <CardContent className="p-4">
+                        <h3 className="font-headline text-lg font-bold">{product.title}</h3>
+                        <p className="mt-2 text-base text-foreground/80">
+                          ${product.priceRange.minVariantPrice.amount}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </Link>
                 )
               })}
             </div>
