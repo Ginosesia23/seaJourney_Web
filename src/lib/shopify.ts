@@ -34,13 +34,14 @@ async function shopifyFetch(query: string, variables: Record<string, any> = {}) 
     });
 
     if (!response.ok) {
-      throw new Error(`Shopify API response was not ok: ${response.statusText}`);
+      console.error(`Shopify API response was not ok: ${response.statusText}`);
+      return null;
     }
 
     const jsonResponse = await response.json();
     if (jsonResponse.errors) {
       console.error('Shopify GraphQL errors:', jsonResponse.errors);
-      throw new Error('Failed to fetch from Shopify API');
+      return null;
     }
     
     return jsonResponse.data;
@@ -51,7 +52,7 @@ async function shopifyFetch(query: string, variables: Record<string, any> = {}) 
 }
 
 const getProductsQuery = `
-  query getProducts($first: Int) {
+  query getProducts($first: Int!) {
     products(first: $first) {
       edges {
         node {

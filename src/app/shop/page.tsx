@@ -23,32 +23,38 @@ export default async function ShopPage() {
               </p>
             </div>
 
-            <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
-              {products.map((product: ShopifyProduct) => {
-                const image = product.images.edges[0]?.node;
-                return (
-                  <Link href={`https://${process.env.SHOPIFY_STORE_DOMAIN}/products/${product.handle}`} target="_blank" rel="noopener noreferrer" key={product.id}>
-                    <Card className="overflow-hidden transition-shadow duration-300 hover:shadow-xl h-full">
-                      {image && (
-                         <Image
-                          src={image.url}
-                          alt={product.title}
-                          width={600}
-                          height={400}
-                          className="h-48 w-full object-cover"
-                        />
-                      )}
-                      <CardContent className="p-4">
-                        <h3 className="font-headline text-lg font-bold">{product.title}</h3>
-                        <p className="mt-2 text-base text-foreground/80">
-                          ${product.priceRange.minVariantPrice.amount}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </Link>
-                )
-              })}
-            </div>
+            {products && products.length > 0 ? (
+              <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
+                {products.map((product: ShopifyProduct) => {
+                  const image = product.images.edges[0]?.node;
+                  return (
+                    <Link href={`https://${process.env.SHOPIFY_STORE_DOMAIN}/products/${product.handle}`} target="_blank" rel="noopener noreferrer" key={product.id}>
+                      <Card className="overflow-hidden transition-shadow duration-300 hover:shadow-xl h-full">
+                        {image && (
+                           <Image
+                            src={image.url}
+                            alt={image.altText || product.title}
+                            width={600}
+                            height={400}
+                            className="h-48 w-full object-cover"
+                          />
+                        )}
+                        <CardContent className="p-4">
+                          <h3 className="font-headline text-lg font-bold">{product.title}</h3>
+                          <p className="mt-2 text-base text-foreground/80">
+                            ${product.priceRange.minVariantPrice.amount}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="mt-16 text-center">
+                <p>Could not load products. Please check the Shopify configuration.</p>
+              </div>
+            )}
           </div>
         </section>
       </main>
