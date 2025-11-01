@@ -28,7 +28,7 @@ const Footer = () => {
             <h3 className="font-headline text-lg font-bold text-accent">Explore</h3>
             <ul className="mt-4 space-y-2 text-sm">
               <li><Link href="/how-to-use" className="text-header-foreground/80 hover:text-accent transition-colors">How to Use</Link></li>
-              <li><Link href="/#testimonials" className="text-header-foreground/80 hover:text-accent transition-colors">Testimonials</Link></li>
+              <li><Link href="/shop" className="text-header-foreground/80 hover:text-accent transition-colors">Shop</Link></li>
               <li><Link href="/coming-soon" className="text-header-foreground/80 hover:text-accent transition-colors">Coming Soon</Link></li>
             </ul>
           </div>

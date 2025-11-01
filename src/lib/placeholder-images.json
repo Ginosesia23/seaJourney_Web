@@ -23,6 +23,30 @@
       "description": "Portrait of an experienced, friendly-looking man who could be a ship captain.",
       "imageUrl": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHxtaWRkbGUlMjBhZ2VkJTIwbWFsZSUyMHBvcnRyYWl0fGVufDB8fHx8MTc2MjYyMzgzNXww&ixlib=rb-4.0.3&q=80&w=100",
       "imageHint": "older male portrait"
+    },
+    {
+      "id": "product-tshirt",
+      "description": "A branded T-shirt for SeaJourney.",
+      "imageUrl": "https://images.unsplash.com/photo-1714070700737-24acfe6b957c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw0fHxicmFuZGVkJTIwdC1zaGlydHxlbnwwfHx8fDE3NjIwMDUyODZ8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "branded t-shirt"
+    },
+    {
+      "id": "product-hat",
+      "description": "A branded hat for SeaJourney.",
+      "imageUrl": "https://images.unsplash.com/photo-1719666993553-0085d8daecce?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw3fHxicmFuZGVkJTIwaGF0fGVufDB8fHx8MTc2MjAwNTI4Nnww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "branded hat"
+    },
+    {
+      "id": "product-mug",
+      "description": "A branded mug for SeaJourney.",
+      "imageUrl": "https://images.unsplash.com/photo-1578951484227-4ac9b9c09011?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw5fHxicmFuZGVkJTIwbXVnfGVufDB8fHx8MTc2MTk0ODM1MHww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "branded mug"
+    },
+    {
+      "id": "product-hoodie",
+      "description": "A branded hoodie for SeaJourney.",
+      "imageUrl": "https://images.unsplash.com/photo-1732475530190-a7eb9f95ee01?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw1fHxicmFuZGVkJTIwaG9vZGllfGVufDB8fHx8MTc2MjAwNTI4Nnww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "branded hoodie"
     }
   ]
 }
