@@ -251,7 +251,7 @@ const checkoutLineItemsAddMutation = `
 `;
 
 
-export async function getProducts(count = 20): Promise<ShopifyProduct[]> {
+export async function getProducts(count = 250): Promise<ShopifyProduct[]> {
   const data = await shopifyFetch(getProductsQuery, { first: count });
   return data?.products.edges.map((edge: { node: ShopifyProduct }) => edge.node) || [];
 }
