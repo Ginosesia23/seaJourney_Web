@@ -61,6 +61,23 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (existingCheckout && existingCheckout.id && !existingCheckout.completedAt) {
             setCheckoutId(existingCheckout.id);
             setCheckoutUrl(existingCheckout.webUrl);
+            
+            // Sync cart from Shopify
+            const newCart = existingCheckout.lineItems.edges.map(edge => {
+              const node = edge.node;
+              return {
+                  variantId: node.variant.id,
+                  quantity: node.quantity,
+                  title: node.title,
+                  price: node.variant.price.amount,
+                  currencyCode: node.variant.price.currencyCode,
+                  image: node.variant.image.url,
+                  variantTitle: node.variant.title,
+              };
+            });
+            setCart(newCart);
+            updateLocalStorage(newCart, existingCheckout.id);
+
           } else {
             // Checkout is completed or invalid, clear it
             localStorage.removeItem('checkoutId');
@@ -117,10 +134,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const addToCart = async (item: CartItem) => {
     const existingItem = cart.find(cartItem => cartItem.variantId === item.variantId);
     const newQuantity = (existingItem?.quantity || 0) + item.quantity;
+    
+    const currentLineItems = cart.map(i => ({ variantId: i.variantId, quantity: i.quantity }));
 
     // Prepare the line items for the Shopify API
     const lineItems = [
-        ...cart.filter(i => i.variantId !== item.variantId),
+        ...currentLineItems.filter(i => i.variantId !== item.variantId),
         { variantId: item.variantId, quantity: newQuantity }
     ];
 
@@ -166,8 +185,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
   const getCartTotal = () => {
+    if (cart.length === 0) return formatCurrency(0, 'GBP');
     const total = cart.reduce((total, item) => total + parseFloat(item.price) * item.quantity, 0);
-    const currencyCode = cart.length > 0 ? cart[0].currencyCode : 'GBP';
+    const currencyCode = cart[0].currencyCode;
     return formatCurrency(total, currencyCode);
   };
 
