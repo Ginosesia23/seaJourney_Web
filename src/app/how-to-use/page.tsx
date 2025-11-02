@@ -131,33 +131,47 @@ export default function HowToUsePage() {
           </div>
         </section>
 
-        <section key={platform} className="bg-header text-header-foreground animate-in fade-in duration-300">
-          {steps.map((step, index) => (
-            <div key={step.title} className="py-12">
-              <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
-                  <div className={cn("text-center lg:text-left", index % 2 === 1 && 'lg:order-2')}>
-                    <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-accent/10 mb-4">
-                      {step.icon}
+        <section key={platform} className="bg-header text-header-foreground overflow-hidden">
+          {steps.map((step, index) => {
+            // This logic determines the order of the columns.
+            // For iOS, even rows are text-image, odd are image-text.
+            // For Android, we flip it.
+            const isOdd = index % 2 === 1;
+            const isTextFirst = platform === 'ios' ? !isOdd : isOdd;
+
+            return (
+              <div key={step.title} className="py-12">
+                <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+                  <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
+                    <div className={cn(
+                      "text-center lg:text-left animate-in fade-in duration-500",
+                      isTextFirst ? 'lg:order-1 slide-in-from-left-24' : 'lg:order-2 slide-in-from-right-24'
+                    )}>
+                      <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-accent/10 mb-4">
+                        {step.icon}
+                      </div>
+                      <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">{step.title}</h2>
+                      <p className="mt-6 text-lg leading-8 text-header-foreground/80">{step.description}</p>
                     </div>
-                    <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">{step.title}</h2>
-                    <p className="mt-6 text-lg leading-8 text-header-foreground/80">{step.description}</p>
-                  </div>
-                  <div className={cn("flex justify-center", index % 2 === 1 && 'lg:order-1')}>
-                    <Image
-                      src={step.image}
-                      alt={step.title}
-                      width={800}
-                      height={600}
-                      className="rounded-xl shadow-2xl"
-                      data-ai-hint={step.imageHint}
-                      key={step.image} // Add key to force re-render on image change
-                    />
+                    <div className={cn(
+                      "flex justify-center animate-in fade-in duration-500",
+                      isTextFirst ? 'lg:order-2 slide-in-from-right-24' : 'lg:order-1 slide-in-from-left-24'
+                    )}>
+                      <Image
+                        src={step.image}
+                        alt={step.title}
+                        width={800}
+                        height={600}
+                        className="rounded-xl shadow-2xl"
+                        data-ai-hint={step.imageHint}
+                        key={step.image} 
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </section>
 
       </main>
