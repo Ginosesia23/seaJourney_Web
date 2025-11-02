@@ -105,7 +105,7 @@ function VariantSelector({
 
 
 export default function ProductPage({ params }: ProductPageParams) {
-  const handle = params.handle;
+  const { handle } = params;
   const [product, setProduct] = useState<ShopifyProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedVariant, setSelectedVariant] = useState<ShopifyProductVariant | null>(null);
@@ -226,7 +226,7 @@ export default function ProductPage({ params }: ProductPageParams) {
               </div>
 
               <div
-                className="prose prose-lg mt-8 text-foreground/80 max-w-none"
+                className="prose mt-8 text-foreground/80 max-w-none"
                 dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
               />
             </div>
