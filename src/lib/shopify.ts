@@ -1,3 +1,5 @@
+import { shopifyConfig } from './shopify-config';
+
 export interface ShopifyProduct {
   id: string;
   title: string;
@@ -20,14 +22,14 @@ export interface ShopifyProduct {
 }
 
 async function shopifyFetch(query: string, variables: Record<string, any> = {}) {
-  const endpoint = `https://${process.env.SHOPIFY_STORE_DOMAIN}/api/2024-04/graphql.json`;
+  const endpoint = `https://${shopifyConfig.storeDomain}/api/2024-04/graphql.json`;
 
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Shopify-Storefront-Access-Token': process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN!,
+        'X-Shopify-Storefront-Access-Token': shopifyConfig.storefrontAccessToken,
       },
       body: JSON.stringify({ query, variables }),
       cache: 'no-store'

@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import Image from 'next/image';
 import { getProducts, ShopifyProduct } from '@/lib/shopify';
 import Link from 'next/link';
+import { shopifyConfig } from '@/lib/shopify-config';
 
 export default async function ShopPage() {
   const products = await getProducts();
@@ -28,7 +29,7 @@ export default async function ShopPage() {
                 {products.map((product: ShopifyProduct) => {
                   const image = product.images.edges[0]?.node;
                   return (
-                    <Link href={`https://${process.env.SHOPIFY_STORE_DOMAIN}/products/${product.handle}`} target="_blank" rel="noopener noreferrer" key={product.id}>
+                    <Link href={`https://${shopifyConfig.storeDomain}/products/${product.handle}`} target="_blank" rel="noopener noreferrer" key={product.id}>
                       <Card className="overflow-hidden transition-shadow duration-300 hover:shadow-xl h-full">
                         {image && (
                            <Image
@@ -52,7 +53,7 @@ export default async function ShopPage() {
               </div>
             ) : (
               <div className="mt-16 text-center">
-                <p>Could not load products. Please check the Shopify configuration.</p>
+                <p>Could not load products. Please check the Shopify configuration in src/lib/shopify-config.ts.</p>
               </div>
             )}
           </div>
