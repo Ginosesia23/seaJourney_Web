@@ -15,6 +15,7 @@ import { useCart } from '@/context/cart-context';
 import Image from 'next/image';
 import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
+import { formatCurrency } from '@/lib/utils';
 
 export function Cart() {
   const { cart, removeFromCart, updateCartItemQuantity, getCartTotal, isCheckingOut, checkout } = useCart();
@@ -60,7 +61,7 @@ export function Cart() {
                           <h3>
                             {item.title}
                           </h3>
-                          <p className="ml-4">${(parseFloat(item.price) * item.quantity).toFixed(2)}</p>
+                          <p className="ml-4">{formatCurrency(parseFloat(item.price) * item.quantity, item.currencyCode)}</p>
                         </div>
                         <p className="mt-1 text-sm text-muted-foreground">{item.variantTitle}</p>
                       </div>
@@ -105,7 +106,7 @@ export function Cart() {
               <div className="w-full space-y-4">
                 <div className="flex justify-between text-base font-medium text-foreground">
                   <p>Subtotal</p>
-                  <p>${getCartTotal()}</p>
+                  <p>{getCartTotal()}</p>
                 </div>
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   Shipping and taxes calculated at checkout.

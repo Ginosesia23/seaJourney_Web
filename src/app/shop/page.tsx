@@ -10,10 +10,15 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
+import { cn, formatCurrency } from '@/lib/utils';
 
 function ProductCard({ product }: { product: ShopifyProduct }) {
   const image = product.images.edges[0]?.node;
+  const price = formatCurrency(
+    product.priceRange.minVariantPrice.amount,
+    product.priceRange.minVariantPrice.currencyCode
+  );
+
   return (
     <Card className="group flex flex-col overflow-hidden transition-shadow duration-300 hover:shadow-xl">
       <Link href={`/shop/${product.handle}`} className="flex flex-col h-full">
@@ -30,7 +35,7 @@ function ProductCard({ product }: { product: ShopifyProduct }) {
         <CardContent className="flex flex-col flex-grow p-4">
           <h3 className="font-headline text-lg font-bold flex-grow">{product.title}</h3>
           <p className="mt-2 text-base font-semibold text-primary">
-            ${product.priceRange.minVariantPrice.amount}
+            {price}
           </p>
         </CardContent>
         <CardFooter className="p-4 pt-0 mt-auto">
@@ -74,7 +79,7 @@ export default function ShopPage() {
   useEffect(() => {
     async function fetchProducts() {
       setLoading(true);
-      const fetchedProducts = await getProducts();
+      const fetchedProducts = await getProducts(250);
       setProducts(fetchedProducts || []);
       setLoading(false);
     }

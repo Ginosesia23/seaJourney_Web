@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { createCheckout, addLineItems, CartItem } from '@/lib/shopify';
 import { useToast } from '@/hooks/use-toast';
+import { formatCurrency } from '@/lib/utils';
 
 interface CartContextType {
   cart: CartItem[];
@@ -87,7 +88,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const getCartTotal = () => {
-    return cart.reduce((total, item) => total + parseFloat(item.price) * item.quantity, 0).toFixed(2);
+    const total = cart.reduce((total, item) => total + parseFloat(item.price) * item.quantity, 0);
+    const currencyCode = cart.length > 0 ? cart[0].currencyCode : 'USD';
+    return formatCurrency(total, currencyCode);
   };
 
   const checkout = useCallback(async () => {

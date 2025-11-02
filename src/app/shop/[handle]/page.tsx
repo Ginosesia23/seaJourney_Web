@@ -9,7 +9,7 @@ import { notFound } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ShoppingCart, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
+import { cn, formatCurrency } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCart } from '@/context/cart-context';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -254,6 +254,7 @@ export default function ProductPage({ params }: ProductPageParams) {
         quantity: 1,
         title: product!.title,
         price: selectedVariant.price.amount,
+        currencyCode: selectedVariant.price.currencyCode,
         image: mainImage?.url || '',
         variantTitle: selectedVariant.title
       });
@@ -273,6 +274,8 @@ export default function ProductPage({ params }: ProductPageParams) {
   }
   
   const price = selectedVariant?.price.amount || product.priceRange.minVariantPrice.amount;
+  const currencyCode = selectedVariant?.price.currencyCode || product.priceRange.minVariantPrice.currencyCode;
+  const formattedPrice = formatCurrency(price, currencyCode);
   const isSoldOut = selectedVariant ? !selectedVariant.availableForSale : product.variants.edges.every(e => !e.node.availableForSale);
 
   return (
@@ -331,7 +334,7 @@ export default function ProductPage({ params }: ProductPageParams) {
                 {product.title}
               </h1>
               <p className="mt-3 text-3xl font-bold text-foreground">
-                ${price}
+                {formattedPrice}
               </p>
               
               <div className="mt-6">

@@ -56,6 +56,7 @@ export type CartItem = {
   quantity: number;
   title: string;
   price: string;
+  currencyCode: string;
   image: string;
   variantTitle: string;
 }
