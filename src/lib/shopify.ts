@@ -1,3 +1,4 @@
+
 import { shopifyConfig } from './shopify-config';
 
 export interface ShopifyProductVariant {
@@ -64,6 +65,7 @@ export type CartItem = {
 export interface ShopifyCheckout {
   id: string;
   webUrl: string;
+  completedAt: string | null;
   lineItems: {
     edges: {
       node: {
@@ -75,6 +77,7 @@ export interface ShopifyCheckout {
           title: string;
           price: {
             amount: string;
+            currencyCode: string;
           };
           image: {
             url: string;
@@ -101,6 +104,8 @@ async function shopifyFetch(query: string, variables: Record<string, any> = {}) 
 
     if (!response.ok) {
       console.error(`Shopify API response was not ok: ${response.statusText}`);
+      const errorBody = await response.text();
+      console.error(`Error body: ${errorBody}`);
       return null;
     }
 
@@ -206,22 +211,7 @@ const createCheckoutMutation = `
       checkout {
         id
         webUrl
-      }
-      checkoutUserErrors {
-        code
-        field
-        message
-      }
-    }
-  }
-`;
-
-const checkoutLineItemsAddMutation = `
-  mutation checkoutLineItemsAdd($checkoutId: ID!, $lineItems: [CheckoutLineItemInput!]!) {
-    checkoutLineItemsAdd(checkoutId: $checkoutId, lineItems: $lineItems) {
-      checkout {
-        id
-        webUrl
+        completedAt
         lineItems(first: 250) {
           edges {
             node {
@@ -233,6 +223,7 @@ const checkoutLineItemsAddMutation = `
                 title
                 price {
                   amount
+                  currencyCode
                 }
                 image {
                   url
@@ -251,12 +242,71 @@ const checkoutLineItemsAddMutation = `
   }
 `;
 
+const checkoutLineItemsReplaceMutation = `
+  mutation checkoutLineItemsReplace($checkoutId: ID!, $lineItems: [CheckoutLineItemInput!]!) {
+    checkoutLineItemsReplace(checkoutId: $checkoutId, lineItems: $lineItems) {
+      checkout {
+         id
+        webUrl
+        completedAt
+        lineItems(first: 250) {
+          edges {
+            node {
+              id
+              title
+              quantity
+              variant {
+                id
+                title
+                price {
+                  amount
+                  currencyCode
+                }
+                image {
+                  url
+                }
+              }
+            }
+          }
+        }
+      }
+      checkoutUserErrors {
+        code
+        field
+        message
+      }
+    }
+  }
+`;
+
+
 const getCheckoutQuery = `
   query getCheckout($id: ID!) {
     node(id: $id) {
       ... on Checkout {
         id
         webUrl
+        completedAt
+        lineItems(first: 250) {
+          edges {
+            node {
+              id
+              title
+              quantity
+              variant {
+                id
+                title
+                price {
+                  amount
+                  currencyCode
+                }
+                image {
+                  url
+                }
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -278,12 +328,18 @@ export async function createCheckout(lineItems: { variantId: string; quantity: n
     lineItems,
   };
   const data = await shopifyFetch(createCheckoutMutation, { input });
+  if (data?.checkoutCreate?.checkoutUserErrors?.length > 0) {
+    console.error("Checkout Create Errors:", data.checkoutCreate.checkoutUserErrors);
+  }
   return data?.checkoutCreate?.checkout;
 }
 
-export async function addLineItems(checkoutId: string, lineItems: { variantId: string; quantity: number }[]): Promise<ShopifyCheckout | null> {
-  const data = await shopifyFetch(checkoutLineItemsAddMutation, { checkoutId, lineItems });
-  return data?.checkoutLineItemsAdd?.checkout;
+export async function updateLineItems(checkoutId: string, lineItems: { variantId: string; quantity: number }[]): Promise<ShopifyCheckout | null> {
+  const data = await shopifyFetch(checkoutLineItemsReplaceMutation, { checkoutId, lineItems });
+  if (data?.checkoutLineItemsReplace?.checkoutUserErrors?.length > 0) {
+    console.error("Checkout Update Errors:", data.checkoutLineItemsReplace.checkoutUserErrors);
+  }
+  return data?.checkoutLineItemsReplace?.checkout;
 }
 
 export async function getCheckout(id: string): Promise<ShopifyCheckout | null> {

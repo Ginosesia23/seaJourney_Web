@@ -1,7 +1,8 @@
+
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { createCheckout, addLineItems, CartItem, ShopifyCheckout, getCheckout } from '@/lib/shopify';
+import { createCheckout, updateLineItems, CartItem, ShopifyCheckout, getCheckout } from '@/lib/shopify';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/utils';
 
@@ -14,6 +15,7 @@ interface CartContextType {
   checkout: () => void;
   isCheckingOut: boolean;
   checkoutUrl: string | null;
+  isCartReady: boolean;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -31,27 +33,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [checkoutId, setCheckoutId] = useState<string | null>(null);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [isCartReady, setIsCartReady] = useState(false);
   const { toast } = useToast();
-
-  useEffect(() => {
-    const storedCart = localStorage.getItem('cart');
-    const storedCheckoutId = localStorage.getItem('checkoutId');
-    if (storedCart) {
-      setCart(JSON.parse(storedCart));
-    }
-    if (storedCheckoutId) {
-      const fetchCheckout = async () => {
-        const existingCheckout = await getCheckout(storedCheckoutId);
-        if (existingCheckout && existingCheckout.id) {
-          setCheckoutId(existingCheckout.id);
-          setCheckoutUrl(existingCheckout.webUrl);
-        } else {
-          localStorage.removeItem('checkoutId');
-        }
-      };
-      fetchCheckout();
-    }
-  }, []);
 
   const updateLocalStorage = (cart: CartItem[], checkoutId: string | null) => {
     localStorage.setItem('cart', JSON.stringify(cart));
@@ -59,75 +42,132 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem('checkoutId', checkoutId);
     } else {
       localStorage.removeItem('checkoutId');
+      localStorage.removeItem('cart');
     }
   };
+
+  useEffect(() => {
+    const initializeCheckout = async () => {
+      const storedCart = localStorage.getItem('cart');
+      const storedCheckoutId = localStorage.getItem('checkoutId');
+
+      if (storedCart) {
+        setCart(JSON.parse(storedCart));
+      }
+
+      if (storedCheckoutId) {
+        try {
+          const existingCheckout = await getCheckout(storedCheckoutId);
+          if (existingCheckout && existingCheckout.id && !existingCheckout.completedAt) {
+            setCheckoutId(existingCheckout.id);
+            setCheckoutUrl(existingCheckout.webUrl);
+          } else {
+            // Checkout is completed or invalid, clear it
+            localStorage.removeItem('checkoutId');
+            localStorage.removeItem('cart');
+            setCart([]);
+            setCheckoutId(null);
+            setCheckoutUrl(null);
+          }
+        } catch (error) {
+           console.error("Failed to fetch existing checkout:", error);
+           localStorage.removeItem('checkoutId');
+           localStorage.removeItem('cart');
+           setCart([]);
+        }
+      }
+      setIsCartReady(true);
+    };
+
+    initializeCheckout();
+  }, []);
   
-  const handleCheckoutUpdate = (checkout: ShopifyCheckout) => {
-    setCheckoutId(checkout.id);
-    setCheckoutUrl(checkout.webUrl);
-    updateLocalStorage(cart, checkout.id);
-  }
+  const handleCheckoutUpdate = useCallback((checkout: ShopifyCheckout | null) => {
+    if (checkout && checkout.id) {
+        setCheckoutId(checkout.id);
+        setCheckoutUrl(checkout.webUrl);
+        const newCart = checkout.lineItems.edges.map(edge => {
+            const node = edge.node;
+            return {
+                variantId: node.variant.id,
+                quantity: node.quantity,
+                title: node.title,
+                price: node.variant.price.amount,
+                currencyCode: node.variant.price.currencyCode,
+                image: node.variant.image.url,
+                variantTitle: node.variant.title,
+            };
+        });
+        setCart(newCart);
+        updateLocalStorage(newCart, checkout.id);
+
+        if (newCart.length === 0) {
+            setCheckoutId(null);
+            setCheckoutUrl(null);
+            updateLocalStorage([], null);
+        }
+    } else {
+        setCart([]);
+        setCheckoutId(null);
+        setCheckoutUrl(null);
+        updateLocalStorage([], null);
+    }
+  }, []);
 
   const addToCart = async (item: CartItem) => {
-    let newCart: CartItem[] = [];
-    const existingItemIndex = cart.findIndex((cartItem) => cartItem.variantId === item.variantId);
-    
-    if (existingItemIndex > -1) {
-      newCart = cart.map((cartItem, index) =>
-        index === existingItemIndex ? { ...cartItem, quantity: cartItem.quantity + item.quantity } : cartItem
-      );
-    } else {
-      newCart = [...cart, item];
-    }
-    
-    setCart(newCart);
-    updateLocalStorage(newCart, checkoutId);
+    const existingItem = cart.find(cartItem => cartItem.variantId === item.variantId);
+    const newQuantity = (existingItem?.quantity || 0) + item.quantity;
+    const lineItems = [
+        ...cart.filter(i => i.variantId !== item.variantId),
+        { ...item, quantity: newQuantity }
+    ].map(i => ({ variantId: i.variantId, quantity: i.quantity }));
 
-    const lineItems = newCart.map(item => ({ variantId: item.variantId, quantity: item.quantity }));
+    try {
+        let checkoutToUpdate = checkoutId;
+        if (!checkoutToUpdate) {
+            const newCheckout = await createCheckout([]);
+            if (newCheckout) {
+                checkoutToUpdate = newCheckout.id;
+                setCheckoutId(newCheckout.id);
+                setCheckoutUrl(newCheckout.webUrl);
+            }
+        }
+        
+        if (checkoutToUpdate) {
+            const updatedCheckout = await updateLineItems(checkoutToUpdate, lineItems);
+            handleCheckoutUpdate(updatedCheckout);
+        }
 
-    if (checkoutId) {
-        const updatedCheckout = await addLineItems(checkoutId, lineItems);
-        if(updatedCheckout) handleCheckoutUpdate(updatedCheckout)
-    } else {
-        const newCheckout = await createCheckout(lineItems);
-        if(newCheckout) handleCheckoutUpdate(newCheckout)
-    }
-    
-    toast({
-      title: 'Item added to cart',
-      description: `${item.title} has been added to your cart.`,
-    });
-  };
-
-  const removeFromCart = async (variantId: string) => {
-    const newCart = cart.filter((item) => item.variantId !== variantId);
-    setCart(newCart);
-    updateLocalStorage(newCart, checkoutId);
-    
-    if (checkoutId) {
-        const lineItems = newCart.map(item => ({ variantId: item.variantId, quantity: item.quantity }));
-        const updatedCheckout = await addLineItems(checkoutId, lineItems);
-        if(updatedCheckout) handleCheckoutUpdate(updatedCheckout)
+        toast({
+            title: 'Item added to cart',
+            description: `${item.title} has been added to your cart.`,
+        });
+    } catch(e) {
+        console.error('Failed to add to cart:', e);
+        toast({ title: 'Error', description: 'Could not add item to cart.', variant: 'destructive' });
     }
   };
 
   const updateCartItemQuantity = async (variantId: string, quantity: number) => {
-    if (quantity <= 0) {
-      removeFromCart(variantId);
-      return;
-    }
-    const newCart = cart.map((item) =>
-      item.variantId === variantId ? { ...item, quantity } : item
-    );
-    setCart(newCart);
-    updateLocalStorage(newCart, checkoutId);
-    
-    if (checkoutId) {
-        const lineItems = newCart.map(item => ({ variantId: item.variantId, quantity: item.quantity }));
-        const updatedCheckout = await addLineItems(checkoutId, lineItems);
-        if(updatedCheckout) handleCheckoutUpdate(updatedCheckout)
+    if (!checkoutId) return;
+
+    const lineItems = cart.map(item =>
+        item.variantId === variantId ? { variantId, quantity } : { variantId: item.variantId, quantity: item.quantity }
+    ).filter(item => item.quantity > 0);
+
+    try {
+        const updatedCheckout = await updateLineItems(checkoutId, lineItems);
+        handleCheckoutUpdate(updatedCheckout);
+    } catch (e) {
+        console.error('Failed to update quantity:', e);
+        toast({ title: 'Error', description: 'Could not update item quantity.', variant: 'destructive' });
     }
   };
+  
+  const removeFromCart = async (variantId: string) => {
+    updateCartItemQuantity(variantId, 0);
+  };
+
 
   const getCartTotal = () => {
     const total = cart.reduce((total, item) => total + parseFloat(item.price) * item.quantity, 0);
@@ -136,34 +176,29 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const checkout = async () => {
-    setIsCheckingOut(true);
     if (!checkoutUrl) {
         toast({
             title: "Checkout Error",
-            description: "Could not find a valid checkout URL. Please try adding an item to your cart again.",
+            description: "Could not find a valid checkout URL. Please try again.",
             variant: "destructive"
         });
-        setIsCheckingOut(false);
         return;
     }
 
     if (cart.length > 0) {
+      setIsCheckingOut(true);
       window.location.href = checkoutUrl;
     } else {
         toast({
             title: "Your cart is empty",
             description: "Add items to your cart before checking out.",
-            variant: "destructive"
         });
     }
-    
-    // The user is redirected, but we'll set this for robustness
-    setTimeout(() => setIsCheckingOut(false), 5000);
   };
 
   return (
     <CartContext.Provider
-      value={{ cart, addToCart, removeFromCart, updateCartItemQuantity, getCartTotal, checkout, isCheckingOut, checkoutUrl }}
+      value={{ cart, addToCart, removeFromCart, updateCartItemQuantity, getCartTotal, checkout, isCheckingOut, checkoutUrl, isCartReady }}
     >
       {children}
     </CartContext.Provider>

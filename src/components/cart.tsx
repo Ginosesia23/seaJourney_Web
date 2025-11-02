@@ -1,3 +1,4 @@
+
 'use client';
 
 import { ShoppingCart, X, Plus, Minus, Loader2 } from 'lucide-react';
@@ -16,9 +17,33 @@ import Image from 'next/image';
 import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
 import { formatCurrency } from '@/lib/utils';
+import { Skeleton } from './ui/skeleton';
+
+function CartSkeleton() {
+  return (
+    <div className="flex-1 overflow-y-auto px-6">
+      <ul className="divide-y divide-border">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <li key={i} className="flex py-6">
+            <Skeleton className="h-24 w-24 rounded-md" />
+            <div className="ml-4 flex flex-1 flex-col justify-between">
+              <div className='space-y-2'>
+                <Skeleton className="h-5 w-3/4" />
+                <Skeleton className="h-4 w-1/4" />
+              </div>
+              <div className="flex items-center">
+                <Skeleton className="h-6 w-16" />
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 export function Cart() {
-  const { cart, removeFromCart, updateCartItemQuantity, getCartTotal, isCheckingOut, checkout } = useCart();
+  const { cart, removeFromCart, updateCartItemQuantity, getCartTotal, isCheckingOut, checkout, isCartReady } = useCart();
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
@@ -26,7 +51,7 @@ export function Cart() {
       <SheetTrigger asChild>
         <Button variant="ghost" size="icon" className="relative hover:bg-white/10">
           <ShoppingCart className="h-6 w-6" />
-          {itemCount > 0 && (
+          {isCartReady && itemCount > 0 && (
             <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-foreground">
               {itemCount}
             </span>
@@ -39,7 +64,9 @@ export function Cart() {
           <SheetTitle>Shopping Cart</SheetTitle>
         </SheetHeader>
         <Separator />
-        {cart.length > 0 ? (
+        {!isCartReady ? (
+           <CartSkeleton />
+        ) : cart.length > 0 ? (
           <>
             <div className="flex-1 overflow-y-auto px-6">
               <ul className="divide-y divide-border">
@@ -72,6 +99,7 @@ export function Cart() {
                             size="icon"
                             className="h-6 w-6"
                             onClick={() => updateCartItemQuantity(item.variantId, item.quantity - 1)}
+                            disabled={isCheckingOut}
                           >
                             <Minus className="h-4 w-4" />
                           </Button>
@@ -81,6 +109,7 @@ export function Cart() {
                             size="icon"
                             className="h-6 w-6"
                             onClick={() => updateCartItemQuantity(item.variantId, item.quantity + 1)}
+                            disabled={isCheckingOut}
                           >
                             <Plus className="h-4 w-4" />
                           </Button>
@@ -92,6 +121,7 @@ export function Cart() {
                             type="button"
                             className="font-medium text-accent hover:text-accent/80"
                             onClick={() => removeFromCart(item.variantId)}
+                            disabled={isCheckingOut}
                           >
                             Remove
                           </Button>
@@ -115,7 +145,7 @@ export function Cart() {
                   className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" 
                   size="lg"
                   onClick={checkout}
-                  disabled={isCheckingOut}
+                  disabled={isCheckingOut || !isCartReady}
                 >
                   {isCheckingOut ? (
                     <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Processing...</>
