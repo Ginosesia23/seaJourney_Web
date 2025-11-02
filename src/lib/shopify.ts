@@ -251,6 +251,17 @@ const checkoutLineItemsAddMutation = `
   }
 `;
 
+const getCheckoutQuery = `
+  query getCheckout($id: ID!) {
+    node(id: $id) {
+      ... on Checkout {
+        id
+        webUrl
+      }
+    }
+  }
+`;
+
 
 export async function getProducts(count = 250): Promise<ShopifyProduct[]> {
   const data = await shopifyFetch(getProductsQuery, { first: count });
@@ -273,4 +284,9 @@ export async function createCheckout(lineItems: { variantId: string; quantity: n
 export async function addLineItems(checkoutId: string, lineItems: { variantId: string; quantity: number }[]): Promise<ShopifyCheckout | null> {
   const data = await shopifyFetch(checkoutLineItemsAddMutation, { checkoutId, lineItems });
   return data?.checkoutLineItemsAdd?.checkout;
+}
+
+export async function getCheckout(id: string): Promise<ShopifyCheckout | null> {
+  const data = await shopifyFetch(getCheckoutQuery, { id });
+  return data?.node;
 }
