@@ -44,11 +44,13 @@ const Header = () => {
         </nav>
 
         <div className="flex items-center gap-4">
-          <Button asChild className="hidden rounded-lg md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
-            <Link href="/shop">
-              Shop
-            </Link>
-          </Button>
+          {!isShopPage && (
+            <Button asChild className="hidden rounded-lg md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
+              <Link href="/shop">
+                Shop
+              </Link>
+            </Button>
+          )}
 
           {isShopPage && <Cart />}
 
