@@ -31,14 +31,14 @@ export default async function ShopPage() {
                 {products.map((product: ShopifyProduct) => {
                   const image = product.images.edges[0]?.node;
                   return (
-                    <Card key={product.id} className="flex flex-col overflow-hidden transition-shadow duration-300 hover:shadow-xl">
+                    <Card key={product.id} className="group flex flex-col overflow-hidden transition-shadow duration-300 hover:shadow-xl">
                       {image && (
-                         <div className="aspect-h-1 aspect-w-1 w-full overflow-hidden bg-gray-200">
+                         <div className="relative w-full aspect-square overflow-hidden bg-gray-200">
                            <Image
                             src={image.url}
                             alt={image.altText || product.title}
                             fill
-                            className="h-full w-full object-cover object-center group-hover:opacity-75"
+                            className="h-full w-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
                           />
                          </div>
                       )}
