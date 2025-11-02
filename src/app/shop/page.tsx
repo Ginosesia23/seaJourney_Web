@@ -4,7 +4,6 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import Image from 'next/image';
 import { getProducts, ShopifyProduct } from '@/lib/shopify';
 import Link from 'next/link';
-import { shopifyConfig } from '@/lib/shopify-config';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from 'lucide-react';
 
@@ -32,16 +31,16 @@ export default async function ShopPage() {
                   const image = product.images.edges[0]?.node;
                   return (
                     <Card key={product.id} className="group flex flex-col overflow-hidden transition-shadow duration-300 hover:shadow-xl">
-                      {image && (
-                         <div className="relative w-full aspect-square overflow-hidden bg-gray-200">
+                      <div className="relative w-full aspect-square overflow-hidden bg-gray-200">
+                        {image && (
                            <Image
                             src={image.url}
                             alt={image.altText || product.title}
                             fill
                             className="h-full w-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
                           />
-                         </div>
-                      )}
+                        )}
+                      </div>
                       <CardContent className="flex flex-col flex-grow p-4">
                         <h3 className="font-headline text-lg font-bold flex-grow">{product.title}</h3>
                         <p className="mt-2 text-base font-semibold text-primary">
@@ -50,7 +49,7 @@ export default async function ShopPage() {
                       </CardContent>
                       <CardFooter className="p-4 pt-0">
                          <Button asChild className="w-full bg-accent hover:bg-accent/90 text-accent-foreground rounded-lg">
-                           <Link href={`https://${shopifyConfig.storeDomain}/products/${product.handle}`} target="_blank" rel="noopener noreferrer">
+                           <Link href={`/shop/${product.handle}`}>
                               View Product
                               <ArrowRight className="ml-2 h-4 w-4" />
                            </Link>

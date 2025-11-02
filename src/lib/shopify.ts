@@ -82,7 +82,38 @@ const getProductsQuery = `
   }
 `;
 
+const getProductByHandleQuery = `
+  query getProductByHandle($handle: String!) {
+    productByHandle(handle: $handle) {
+      id
+      title
+      handle
+      description
+      priceRange {
+        minVariantPrice {
+          amount
+          currencyCode
+        }
+      }
+      images(first: 5) {
+        edges {
+          node {
+            url
+            altText
+          }
+        }
+      }
+    }
+  }
+`;
+
+
 export async function getProducts(count = 8): Promise<ShopifyProduct[]> {
   const data = await shopifyFetch(getProductsQuery, { first: count });
   return data?.products.edges.map((edge: { node: ShopifyProduct }) => edge.node) || [];
+}
+
+export async function getProductByHandle(handle: string): Promise<ShopifyProduct | null> {
+  const data = await shopifyFetch(getProductByHandleQuery, { handle });
+  return data?.productByHandle || null;
 }
