@@ -37,12 +37,15 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { toast } = useToast();
 
   const updateLocalStorage = (cart: CartItem[], checkoutId: string | null) => {
-    localStorage.setItem('cart', JSON.stringify(cart));
-    if (checkoutId) {
-      localStorage.setItem('checkoutId', checkoutId);
-    } else {
-      localStorage.removeItem('checkoutId');
-      localStorage.removeItem('cart');
+    try {
+      localStorage.setItem('cart', JSON.stringify(cart));
+      if (checkoutId) {
+        localStorage.setItem('checkoutId', checkoutId);
+      } else {
+        localStorage.removeItem('checkoutId');
+      }
+    } catch (e) {
+      console.error("Failed to update local storage", e);
     }
   };
 
@@ -52,7 +55,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const storedCheckoutId = localStorage.getItem('checkoutId');
 
       if (storedCart) {
-        setCart(JSON.parse(storedCart));
+        try {
+          setCart(JSON.parse(storedCart));
+        } catch(e) {
+            console.error("Failed to parse cart from local storage", e);
+            setCart([]);
+        }
       }
 
       if (storedCheckoutId) {
@@ -135,11 +143,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const existingItem = cart.find(cartItem => cartItem.variantId === item.variantId);
     const newQuantity = (existingItem?.quantity || 0) + item.quantity;
     
-    const currentLineItems = cart.map(i => ({ variantId: i.variantId, quantity: i.quantity }));
-
-    // Prepare the line items for the Shopify API
+    const otherItems = cart.filter(i => i.variantId !== item.variantId);
     const lineItems = [
-        ...currentLineItems.filter(i => i.variantId !== item.variantId),
+        ...otherItems.map(i => ({ variantId: i.variantId, quantity: i.quantity })),
         { variantId: item.variantId, quantity: newQuantity }
     ];
 
@@ -187,7 +193,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const getCartTotal = () => {
     if (cart.length === 0) return formatCurrency(0, 'GBP');
     const total = cart.reduce((total, item) => total + parseFloat(item.price) * item.quantity, 0);
-    const currencyCode = cart[0].currencyCode;
+    const currencyCode = cart[0]?.currencyCode || 'GBP';
     return formatCurrency(total, currencyCode);
   };
 
