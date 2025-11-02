@@ -131,7 +131,7 @@ export default function HowToUsePage() {
           </div>
         </section>
 
-        <section className="bg-header text-header-foreground">
+        <section key={platform} className="bg-header text-header-foreground animate-in fade-in slide-in-from-bottom-4 duration-500">
           {steps.map((step, index) => (
             <div key={step.title} className="py-12">
               <div className="container mx-auto px-4 sm:px-6 lg:px-8">
