@@ -86,6 +86,44 @@ const androidSteps = [
 
 type Platform = 'ios' | 'android';
 
+const StepSection = ({ step, index, platform }: { step: (typeof iosSteps)[0], index: number, platform: Platform }) => {
+  const isOdd = index % 2 === 1;
+  const isTextFirst = platform === 'ios' ? !isOdd : isOdd;
+  
+  return (
+    <div className="py-12">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
+          <div className={cn(
+            "text-center lg:text-left transition-transform duration-700 ease-in-out",
+            isTextFirst ? 'lg:order-1' : 'lg:order-2',
+          )}>
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-accent/10 mb-4">
+              {step.icon}
+            </div>
+            <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">{step.title}</h2>
+            <p className="mt-6 text-lg leading-8 text-header-foreground/80">{step.description}</p>
+          </div>
+          <div className={cn(
+            "flex justify-center transition-transform duration-700 ease-in-out",
+            isTextFirst ? 'lg:order-2' : 'lg:order-1',
+          )}>
+            <Image
+              src={step.image}
+              alt={step.title}
+              width={800}
+              height={600}
+              className="rounded-xl shadow-2xl"
+              data-ai-hint={step.imageHint}
+              key={step.image}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function HowToUsePage() {
   const [platform, setPlatform] = useState<Platform>('ios');
   const steps = platform === 'ios' ? iosSteps : androidSteps;
@@ -131,47 +169,17 @@ export default function HowToUsePage() {
           </div>
         </section>
 
-        <section key={platform} className="bg-header text-header-foreground overflow-hidden">
-          {steps.map((step, index) => {
-            // This logic determines the order of the columns.
-            // For iOS, even rows are text-image, odd are image-text.
-            // For Android, we flip it.
-            const isOdd = index % 2 === 1;
-            const isTextFirst = platform === 'ios' ? !isOdd : isOdd;
-
-            return (
-              <div key={step.title} className="py-12">
-                <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-                  <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
-                    <div className={cn(
-                      "text-center lg:text-left animate-in fade-in duration-700",
-                      isTextFirst ? 'lg:order-1 slide-in-from-left-16' : 'lg:order-2 slide-in-from-right-16'
-                    )}>
-                      <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-accent/10 mb-4">
-                        {step.icon}
-                      </div>
-                      <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">{step.title}</h2>
-                      <p className="mt-6 text-lg leading-8 text-header-foreground/80">{step.description}</p>
-                    </div>
-                    <div className={cn(
-                      "flex justify-center animate-in fade-in duration-700",
-                      isTextFirst ? 'lg:order-2 slide-in-from-right-16' : 'lg:order-1 slide-in-from-left-16'
-                    )}>
-                      <Image
-                        src={step.image}
-                        alt={step.title}
-                        width={800}
-                        height={600}
-                        className="rounded-xl shadow-2xl"
-                        data-ai-hint={step.imageHint}
-                        key={step.image} 
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
+        <section className="bg-header text-header-foreground overflow-hidden">
+          <div className={cn("transition-opacity duration-500", platform === 'ios' ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden')}>
+             {iosSteps.map((step, index) => (
+               <StepSection key={step.title} step={step} index={index} platform="ios" />
+             ))}
+          </div>
+           <div className={cn("transition-opacity duration-500", platform === 'android' ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden')}>
+             {androidSteps.map((step, index) => (
+                <StepSection key={step.title} step={step} index={index} platform="android" />
+             ))}
+           </div>
         </section>
 
       </main>
