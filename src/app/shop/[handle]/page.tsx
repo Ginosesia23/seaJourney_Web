@@ -105,7 +105,7 @@ function VariantSelector({
 
 
 export default function ProductPage({ params }: ProductPageParams) {
-  const { handle } = params;
+  const handle = params.handle;
   const [product, setProduct] = useState<ShopifyProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedVariant, setSelectedVariant] = useState<ShopifyProductVariant | null>(null);
