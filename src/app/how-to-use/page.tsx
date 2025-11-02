@@ -144,8 +144,8 @@ export default function HowToUsePage() {
                 <div className="container mx-auto px-4 sm:px-6 lg:px-8">
                   <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
                     <div className={cn(
-                      "text-center lg:text-left animate-in fade-in duration-500",
-                      isTextFirst ? 'lg:order-1 slide-in-from-left-24' : 'lg:order-2 slide-in-from-right-24'
+                      "text-center lg:text-left animate-in fade-in duration-700",
+                      isTextFirst ? 'lg:order-1 slide-in-from-left-16' : 'lg:order-2 slide-in-from-right-16'
                     )}>
                       <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-accent/10 mb-4">
                         {step.icon}
@@ -154,8 +154,8 @@ export default function HowToUsePage() {
                       <p className="mt-6 text-lg leading-8 text-header-foreground/80">{step.description}</p>
                     </div>
                     <div className={cn(
-                      "flex justify-center animate-in fade-in duration-500",
-                      isTextFirst ? 'lg:order-2 slide-in-from-right-24' : 'lg:order-1 slide-in-from-left-24'
+                      "flex justify-center animate-in fade-in duration-700",
+                      isTextFirst ? 'lg:order-2 slide-in-from-right-16' : 'lg:order-1 slide-in-from-left-16'
                     )}>
                       <Image
                         src={step.image}
