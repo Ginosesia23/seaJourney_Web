@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCart } from '@/context/cart-context';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 type ProductPageParams = {
   params: {
@@ -109,6 +110,94 @@ function VariantSelector({
   );
 }
 
+const ProductDetailsAccordion = ({ description }: { description: string }) => {
+  const details = useMemo(() => {
+    if (!description) return {};
+
+    const detailsMap: Record<string, string> = {};
+    const regex = /(?<key>[A-Z][a-z\s]+):(?<value>.*?)(?=(?:[A-Z][a-z\s]+:)|$)/g;
+    
+    // Custom logic to handle the description string
+    const parts = description.split(/(?=[A-Z][a-zA-Z\s]+:)/).filter(p => p.trim());
+
+    parts.forEach(part => {
+      const [key, ...valueParts] = part.split(':');
+      if (key && valueParts.length > 0) {
+        detailsMap[key.trim()] = valueParts.join(':').trim();
+      }
+    });
+
+    return {
+      details: {
+        "Item Number": detailsMap["Item Number"],
+        "Gender": detailsMap["Gender"],
+        "Model": detailsMap["Model"],
+        "Print Size": detailsMap["Print Size"],
+      },
+      fabric: {
+        "Fabric": detailsMap["Fabric"],
+        "Fabric Weight": detailsMap["Fabric Weight"],
+        "Fabric Thickness": detailsMap["Fabric Thickness"],
+        "Fabric Strench": detailsMap["Fabric Strench"], // Typo from source
+        "Care Instructions": detailsMap["Care Instructions"],
+      },
+      features: {
+        "Features": detailsMap["Features"],
+      },
+      notes: {
+        "Notes": detailsMap["Notes"]
+      }
+    };
+  }, [description]);
+  
+  if (Object.keys(details).length === 0) {
+    return <div
+      className="prose prose-sm mt-8 max-w-none text-foreground/80"
+      dangerouslySetInnerHTML={{ __html: description }}
+    />;
+  }
+
+  return (
+    <Accordion type="single" collapsible className="w-full mt-8" defaultValue="item-0">
+        {details.details && (
+             <AccordionItem value="item-0">
+                <AccordionTrigger className="font-bold">Details</AccordionTrigger>
+                <AccordionContent>
+                    <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/80">
+                        {Object.entries(details.details).map(([key, value]) => value && <li key={key}><strong>{key}:</strong> {value}</li>)}
+                    </ul>
+                </AccordionContent>
+            </AccordionItem>
+        )}
+        {details.fabric && (
+             <AccordionItem value="item-1">
+                <AccordionTrigger className="font-bold">Fabric & Care</AccordionTrigger>
+                <AccordionContent>
+                    <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/80">
+                         {Object.entries(details.fabric).map(([key, value]) => value && <li key={key}><strong>{key}:</strong> {value}</li>)}
+                    </ul>
+                </AccordionContent>
+            </AccordionItem>
+        )}
+        {details.features && (
+             <AccordionItem value="item-2">
+                <AccordionTrigger className="font-bold">Features</AccordionTrigger>
+                <AccordionContent>
+                    <p className="text-sm text-foreground/80">{details.features.Features}</p>
+                </AccordionContent>
+            </AccordionItem>
+        )}
+         {details.notes && (
+             <AccordionItem value="item-3">
+                <AccordionTrigger className="font-bold">Notes</AccordionTrigger>
+                <AccordionContent>
+                    <p className="text-sm text-foreground/80">{details.notes.Notes}</p>
+                </AccordionContent>
+            </AccordionItem>
+        )}
+    </Accordion>
+  )
+}
 
 export default function ProductPage({ params }: ProductPageParams) {
   const { handle } = params;
@@ -269,10 +358,7 @@ export default function ProductPage({ params }: ProductPageParams) {
                 </Button>
               </div>
 
-              <div
-                className="prose prose-sm mt-8 max-w-none text-foreground/80"
-                dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
-              />
+             <ProductDetailsAccordion description={product.descriptionHtml.replace(/<[^>]*>/g, '') || product.description} />
             </div>
           </div>
         </div>
@@ -325,3 +411,5 @@ function ProductPageSkeleton() {
     </div>
   );
 }
+
+    
