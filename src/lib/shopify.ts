@@ -1,4 +1,5 @@
 
+
 import { shopifyConfig } from './shopify-config';
 
 export interface ShopifyProductVariant {
@@ -138,11 +139,37 @@ const getProductsQuery = `
               currencyCode
             }
           }
-          images(first: 1) {
+          images(first: 5) {
             edges {
               node {
                 url
                 altText
+              }
+            }
+          }
+          options(first: 10) {
+            id
+            name
+            values
+          }
+          variants(first: 250) {
+            edges {
+              node {
+                id
+                title
+                availableForSale
+                price {
+                  amount
+                  currencyCode
+                }
+                image {
+                  url
+                  altText
+                }
+                selectedOptions {
+                  name
+                  value
+                }
               }
             }
           }
@@ -329,7 +356,13 @@ export async function createCheckout(lineItems: { variantId: string; quantity: n
   };
   const data = await shopifyFetch(createCheckoutMutation, { input });
   if (data?.checkoutCreate?.checkoutUserErrors?.length > 0) {
-    console.error("Checkout Create Errors:", data.checkoutCreate.checkoutUserErrors);
+    const errors = data.checkoutCreate.checkoutUserErrors;
+    // Don't log error if it's just that the cart is empty.
+    if (errors.length === 1 && errors[0].code === 'LINE_ITEMS_EMPTY') {
+        // This is expected if cart is empty, do nothing.
+    } else {
+        console.error("Checkout Create Errors:", errors);
+    }
   }
   return data?.checkoutCreate?.checkout;
 }

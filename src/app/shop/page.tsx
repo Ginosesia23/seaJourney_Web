@@ -1,28 +1,63 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
-import { Card, CardContent, CardFooter } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import Image from 'next/image';
-import { getProducts, ShopifyProduct } from '@/lib/shopify';
+import { getProducts, ShopifyProduct, ShopifyProductVariant } from '@/lib/shopify';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, Loader2 } from 'lucide-react';
+import { ArrowRight, Loader2, ShoppingCart } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn, formatCurrency } from '@/lib/utils';
+import { useCart } from '@/context/cart-context';
+import { VariantSelector } from '@/components/shop/variant-selector';
 
 function ProductCard({ product }: { product: ShopifyProduct }) {
-  const image = product.images.edges[0]?.node;
-  const price = formatCurrency(
-    product.priceRange.minVariantPrice.amount,
-    product.priceRange.minVariantPrice.currencyCode
-  );
+  const { addToCart } = useCart();
+  const [selectedVariant, setSelectedVariant] = useState<ShopifyProductVariant | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
 
+  useEffect(() => {
+    // Set a default variant on mount
+    if (product.variants.edges.length > 0) {
+      const firstAvailable = product.variants.edges.map(e=>e.node).find(v => v.availableForSale);
+      setSelectedVariant(firstAvailable || product.variants.edges[0].node);
+    }
+  }, [product]);
+
+  const handleVariantChange = useCallback((variant: ShopifyProductVariant | null) => {
+    setSelectedVariant(variant);
+  }, []);
+
+  const handleAddToCart = () => {
+    if (selectedVariant) {
+      setIsAdding(true);
+      addToCart({
+        variantId: selectedVariant.id,
+        quantity: 1,
+        title: product.title,
+        price: selectedVariant.price.amount,
+        currencyCode: selectedVariant.price.currencyCode,
+        image: selectedVariant.image?.url || product.images.edges[0]?.node.url || '',
+        variantTitle: selectedVariant.title
+      });
+      setTimeout(() => setIsAdding(false), 1000); 
+    }
+  };
+
+  const image = selectedVariant?.image || product.images.edges[0]?.node;
+  const price = selectedVariant?.price 
+    ? formatCurrency(selectedVariant.price.amount, selectedVariant.price.currencyCode)
+    : formatCurrency(product.priceRange.minVariantPrice.amount, product.priceRange.minVariantPrice.currencyCode);
+  const isSoldOut = selectedVariant ? !selectedVariant.availableForSale : product.variants.edges.every(e => !e.node.availableForSale);
+  const variants = useMemo(() => product?.variants.edges.map(edge => edge.node) || [], [product]);
+  
   return (
     <Card className="group flex flex-col overflow-hidden transition-shadow duration-300 hover:shadow-xl">
-      <Link href={`/shop/${product.handle}`} className="flex flex-col h-full">
-        <div className="relative w-full aspect-square overflow-hidden bg-gray-200">
+      <div className="relative w-full aspect-square overflow-hidden bg-gray-200">
+        <Link href={`/shop/${product.handle}`}>
           {image && (
             <Image
               src={image.url}
@@ -31,39 +66,62 @@ function ProductCard({ product }: { product: ShopifyProduct }) {
               className="h-full w-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
             />
           )}
-        </div>
-        <CardContent className="flex flex-col flex-grow p-4">
-          <h3 className="font-headline text-lg font-bold flex-grow">{product.title}</h3>
-          <p className="mt-2 text-base font-semibold text-primary">
+        </Link>
+      </div>
+      <CardContent className="flex flex-col flex-grow p-4 space-y-4">
+        <Link href={`/shop/${product.handle}`}>
+            <h3 className="font-headline text-lg font-bold flex-grow-0">{product.title}</h3>
+        </Link>
+        <p className="text-base font-semibold text-primary">
             {price}
-          </p>
-        </CardContent>
-        <CardFooter className="p-4 pt-0 mt-auto">
-          <Button asChild className="w-full bg-accent hover:bg-accent/90 text-accent-foreground rounded-lg">
-            <div>
-              View Product
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </div>
-          </Button>
-        </CardFooter>
-      </Link>
+        </p>
+
+        <div className="flex-grow">
+            <VariantSelector 
+              options={product.options}
+              variants={variants}
+              onVariantChange={handleVariantChange}
+              product={product}
+              buttonSize='sm'
+            />
+        </div>
+
+        <Button 
+          className="w-full bg-accent hover:bg-accent/90 text-accent-foreground rounded-lg mt-auto"
+          disabled={isSoldOut || isAdding}
+          onClick={handleAddToCart}
+        >
+            {isAdding ? (
+                <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Adding...</>
+            ) : isSoldOut ? (
+                'Sold Out'
+            ) : (
+                <><ShoppingCart className="mr-2 h-4 w-4" /> Add to Cart</>
+            )}
+        </Button>
+      </CardContent>
     </Card>
   );
 }
 
 function ProductGridSkeleton() {
     return (
-        <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
+        <div className="mx-auto mt-16 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => (
                 <Card key={i}>
                     <Skeleton className="w-full aspect-square" />
-                    <CardContent className="p-4">
-                        <Skeleton className="h-6 w-3/4 mb-2" />
+                    <CardContent className="p-4 space-y-4">
+                        <Skeleton className="h-6 w-3/4" />
                         <Skeleton className="h-5 w-1/4" />
-                    </CardContent>
-                    <CardFooter className="p-4 pt-0">
+                         <div className="space-y-2">
+                           <Skeleton className="h-4 w-12" />
+                           <div className="flex gap-2">
+                               <Skeleton className="h-8 w-12 rounded-full" />
+                               <Skeleton className="h-8 w-12 rounded-full" />
+                           </div>
+                        </div>
                         <Skeleton className="h-10 w-full" />
-                    </CardFooter>
+                    </CardContent>
                 </Card>
             ))}
         </div>
@@ -133,7 +191,7 @@ export default function ShopPage() {
             {loading ? (
                 <ProductGridSkeleton />
             ) : products && products.length > 0 ? (
-              <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
+              <div className="mx-auto mt-16 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-3 xl:grid-cols-4">
                 {filteredProducts.map((product: ShopifyProduct) => (
                     <ProductCard key={product.id} product={product} />
                 ))}

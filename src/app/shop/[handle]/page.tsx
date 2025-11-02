@@ -13,102 +13,13 @@ import { cn, formatCurrency } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCart } from '@/context/cart-context';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { VariantSelector } from '@/components/shop/variant-selector';
 
 type ProductPageParams = {
   params: {
     handle: string;
   };
 };
-
-function VariantSelector({ 
-  options, 
-  variants, 
-  onVariantChange,
-  product
-}: { 
-  options: ShopifyProduct['options'], 
-  variants: ShopifyProductVariant[],
-  onVariantChange: (variant: ShopifyProductVariant | null) => void,
-  product: ShopifyProduct
-}) {
-  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    const initialSelection: Record<string, string> = {};
-    if (options && options.length > 0) {
-      options.forEach(option => {
-        if (option.values.length > 0) {
-          initialSelection[option.name] = option.values[0];
-        }
-      });
-    }
-    setSelectedOptions(initialSelection);
-  }, [options]);
-  
-  const findVariant = useCallback(() => {
-    if (!product || !product.variants) return null;
-    const variantsNodes = product.variants.edges.map(e => e.node);
-
-    if (Object.keys(selectedOptions).length === 0) {
-      return variantsNodes.find(variant => variant.availableForSale) || variantsNodes[0] || null;
-    }
-    return variantsNodes.find(variant => 
-      variant.selectedOptions.every(
-        option => selectedOptions[option.name] === option.value
-      )
-    ) || null;
-  }, [selectedOptions, product]);
-
-  useEffect(() => {
-    const variant = findVariant();
-    onVariantChange(variant);
-  }, [selectedOptions, findVariant, onVariantChange]);
-
-
-  const handleOptionClick = (optionName: string, value: string) => {
-    setSelectedOptions(prev => ({ ...prev, [optionName]: value }));
-  };
-  
-  if (!options || options.length === 0) {
-    const firstAvailableVariant = variants.find(v => v.availableForSale);
-    if(firstAvailableVariant) {
-      onVariantChange(firstAvailableVariant);
-    } else if (variants.length > 0) {
-      onVariantChange(variants[0]);
-    }
-    return null;
-  };
-
-  return (
-    <div className="space-y-6">
-      {options.map((option) => (
-        <div key={option.id}>
-          <h3 className="text-sm font-medium text-foreground">{option.name}</h3>
-          <div className="flex flex-wrap gap-2 mt-2">
-            {option.values.map((value) => {
-              const isSelected = selectedOptions[option.name] === value;
-              
-              return (
-                <Button
-                  key={value}
-                  variant={isSelected ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => handleOptionClick(option.name, value)}
-                  className={cn(
-                    "rounded-full",
-                    isSelected && "ring-2 ring-primary ring-offset-2",
-                  )}
-                >
-                  {value}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 const ProductDetailsAccordion = ({ description }: { description: string }) => {
   const details = useMemo(() => {
@@ -200,7 +111,8 @@ const ProductDetailsAccordion = ({ description }: { description: string }) => {
 }
 
 export default function ProductPage({ params }: ProductPageParams) {
-  const { handle } = params;
+  const resolvedParams = use(Promise.resolve(params));
+  const { handle } = resolvedParams;
   const [product, setProduct] = useState<ShopifyProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedVariant, setSelectedVariant] = useState<ShopifyProductVariant | null>(null);
@@ -414,5 +326,3 @@ function ProductPageSkeleton() {
     </div>
   );
 }
-
-    
