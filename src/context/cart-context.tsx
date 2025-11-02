@@ -117,26 +117,22 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const addToCart = async (item: CartItem) => {
     const existingItem = cart.find(cartItem => cartItem.variantId === item.variantId);
     const newQuantity = (existingItem?.quantity || 0) + item.quantity;
+
+    // Prepare the line items for the Shopify API
     const lineItems = [
         ...cart.filter(i => i.variantId !== item.variantId),
-        { ...item, quantity: newQuantity }
-    ].map(i => ({ variantId: i.variantId, quantity: i.quantity }));
+        { variantId: item.variantId, quantity: newQuantity }
+    ];
 
     try {
-        let checkoutToUpdate = checkoutId;
-        if (!checkoutToUpdate) {
-            const newCheckout = await createCheckout([]);
-            if (newCheckout) {
-                checkoutToUpdate = newCheckout.id;
-                setCheckoutId(newCheckout.id);
-                setCheckoutUrl(newCheckout.webUrl);
-            }
+        let updatedCheckout: ShopifyCheckout | null = null;
+        if (checkoutId) {
+            updatedCheckout = await updateLineItems(checkoutId, lineItems);
+        } else {
+            updatedCheckout = await createCheckout(lineItems);
         }
         
-        if (checkoutToUpdate) {
-            const updatedCheckout = await updateLineItems(checkoutToUpdate, lineItems);
-            handleCheckoutUpdate(updatedCheckout);
-        }
+        handleCheckoutUpdate(updatedCheckout);
 
         toast({
             title: 'Item added to cart',
