@@ -1,10 +1,12 @@
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import Image from 'next/image';
 import { getProducts, ShopifyProduct } from '@/lib/shopify';
 import Link from 'next/link';
 import { shopifyConfig } from '@/lib/shopify-config';
+import { Button } from '@/components/ui/button';
+import { ArrowRight } from 'lucide-react';
 
 export default async function ShopPage() {
   const products = await getProducts();
@@ -29,25 +31,32 @@ export default async function ShopPage() {
                 {products.map((product: ShopifyProduct) => {
                   const image = product.images.edges[0]?.node;
                   return (
-                    <Link href={`https://${shopifyConfig.storeDomain}/products/${product.handle}`} target="_blank" rel="noopener noreferrer" key={product.id}>
-                      <Card className="overflow-hidden transition-shadow duration-300 hover:shadow-xl h-full">
-                        {image && (
+                    <Card key={product.id} className="flex flex-col overflow-hidden transition-shadow duration-300 hover:shadow-xl">
+                      {image && (
+                         <div className="aspect-h-1 aspect-w-1 w-full overflow-hidden bg-gray-200">
                            <Image
                             src={image.url}
                             alt={image.altText || product.title}
-                            width={600}
-                            height={400}
-                            className="h-48 w-full object-cover"
+                            fill
+                            className="h-full w-full object-cover object-center group-hover:opacity-75"
                           />
-                        )}
-                        <CardContent className="p-4">
-                          <h3 className="font-headline text-lg font-bold">{product.title}</h3>
-                          <p className="mt-2 text-base text-foreground/80">
-                            ${product.priceRange.minVariantPrice.amount}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </Link>
+                         </div>
+                      )}
+                      <CardContent className="flex flex-col flex-grow p-4">
+                        <h3 className="font-headline text-lg font-bold flex-grow">{product.title}</h3>
+                        <p className="mt-2 text-base font-semibold text-primary">
+                          ${product.priceRange.minVariantPrice.amount}
+                        </p>
+                      </CardContent>
+                      <CardFooter className="p-4 pt-0">
+                         <Button asChild className="w-full bg-accent hover:bg-accent/90 text-accent-foreground rounded-lg">
+                           <Link href={`https://${shopifyConfig.storeDomain}/products/${product.handle}`} target="_blank" rel="noopener noreferrer">
+                              View Product
+                              <ArrowRight className="ml-2 h-4 w-4" />
+                           </Link>
+                         </Button>
+                      </CardFooter>
+                    </Card>
                   )
                 })}
               </div>
