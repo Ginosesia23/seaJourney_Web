@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { Menu, X, Download } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { Menu, X, Download, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import Logo from '@/components/logo';
@@ -16,6 +17,8 @@ const navLinks = [
 
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const pathname = usePathname();
+  const isShopPage = pathname.startsWith('/shop');
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-header bg-header text-header-foreground backdrop-blur-sm">
@@ -27,8 +30,6 @@ const Header = () => {
             <Link
               key={link.href}
               href={link.href}
-              target={link.isExternal ? '_blank' : undefined}
-              rel={link.isExternal ? 'noopener noreferrer' : undefined}
               className="font-medium text-header-foreground/80 transition-colors hover:text-header-foreground"
             >
               {link.label}
@@ -44,7 +45,7 @@ const Header = () => {
             </Link>
           </Button>
 
-          <Cart />
+          {isShopPage && <Cart />}
 
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetTrigger asChild>
@@ -73,8 +74,6 @@ const Header = () => {
                     <Link
                       key={link.href}
                       href={link.href}
-                      target={link.isExternal ? '_blank' : undefined}
-                      rel={link.isExternal ? 'noopener noreferrer' : undefined}
                       className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground"
                       onClick={() => setIsOpen(false)}
                     >
