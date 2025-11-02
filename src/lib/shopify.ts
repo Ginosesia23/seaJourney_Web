@@ -8,6 +8,10 @@ export interface ShopifyProductVariant {
     amount: string;
     currencyCode: string;
   };
+  image: {
+    url: string;
+    altText: string | null;
+  };
   selectedOptions: {
     name: string;
     value: string;
@@ -44,6 +48,39 @@ export interface ShopifyProduct {
     name: string;
     values: string[];
   }[];
+}
+
+export type CartItem = {
+  variantId: string;
+  quantity: number;
+  title: string;
+  price: string;
+  image: string;
+  variantTitle: string;
+}
+
+export interface ShopifyCheckout {
+  id: string;
+  webUrl: string;
+  lineItems: {
+    edges: {
+      node: {
+        id: string;
+        quantity: number;
+        title: string;
+        variant: {
+          id: string;
+          title: string;
+          price: {
+            amount: string;
+          };
+          image: {
+            url: string;
+          }
+        }
+      }
+    }[]
+  }
 }
 
 async function shopifyFetch(query: string, variables: Record<string, any> = {}) {
@@ -144,12 +181,67 @@ const getProductByHandleQuery = `
               amount
               currencyCode
             }
+            image {
+              url
+              altText
+            }
             selectedOptions {
               name
               value
             }
           }
         }
+      }
+    }
+  }
+`;
+
+const createCheckoutMutation = `
+  mutation checkoutCreate($input: CheckoutCreateInput!) {
+    checkoutCreate(input: $input) {
+      checkout {
+        id
+        webUrl
+      }
+      checkoutUserErrors {
+        code
+        field
+        message
+      }
+    }
+  }
+`;
+
+const checkoutLineItemsAddMutation = `
+  mutation checkoutLineItemsAdd($checkoutId: ID!, $lineItems: [CheckoutLineItemInput!]!) {
+    checkoutLineItemsAdd(checkoutId: $checkoutId, lineItems: $lineItems) {
+      checkout {
+        id
+        webUrl
+        lineItems(first: 250) {
+          edges {
+            node {
+              id
+              title
+              quantity
+              variant {
+                id
+                title
+                price {
+                  amount
+                }
+                image {
+                  url
+                }
+              }
+            }
+          }
+        }
+      }
+      checkoutUserErrors {
+        code
+        field
+        message
       }
     }
   }
@@ -164,4 +256,17 @@ export async function getProducts(count = 8): Promise<ShopifyProduct[]> {
 export async function getProductByHandle(handle: string): Promise<ShopifyProduct | null> {
   const data = await shopifyFetch(getProductByHandleQuery, { handle });
   return data?.productByHandle || null;
+}
+
+export async function createCheckout(lineItems: { variantId: string; quantity: number }[]): Promise<ShopifyCheckout | null> {
+  const input = {
+    lineItems,
+  };
+  const data = await shopifyFetch(createCheckoutMutation, { input });
+  return data?.checkoutCreate?.checkout;
+}
+
+export async function addLineItems(checkoutId: string, lineItems: { variantId: string; quantity: number }[]): Promise<ShopifyCheckout | null> {
+  const data = await shopifyFetch(checkoutLineItemsAddMutation, { checkoutId, lineItems });
+  return data?.checkoutLineItemsAdd?.checkout;
 }

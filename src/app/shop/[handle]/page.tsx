@@ -1,16 +1,17 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { getProductByHandle, ShopifyProduct, ShopifyProductVariant } from '@/lib/shopify';
 import Image from 'next/image';
 import { notFound } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ShoppingCart } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useCart } from '@/context/cart-context';
 
 type ProductPageParams = {
   params: {
@@ -21,16 +22,17 @@ type ProductPageParams = {
 function VariantSelector({ 
   options, 
   variants, 
-  onVariantChange 
+  onVariantChange,
+  product
 }: { 
   options: ShopifyProduct['options'], 
   variants: ShopifyProductVariant[],
-  onVariantChange: (variant: ShopifyProductVariant | null) => void
+  onVariantChange: (variant: ShopifyProductVariant | null) => void,
+  product: ShopifyProduct
 }) {
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    // Pre-select the first available option for each category
     const initialSelection: Record<string, string> = {};
     if (options && options.length > 0) {
       options.forEach(option => {
@@ -42,20 +44,24 @@ function VariantSelector({
     setSelectedOptions(initialSelection);
   }, [options]);
   
+  const findVariant = useCallback(() => {
+    if (!product || !product.variants) return null;
+    const variantsNodes = product.variants.edges.map(e => e.node);
+
+    if (Object.keys(selectedOptions).length === 0) {
+      return variantsNodes.find(variant => variant.availableForSale) || variantsNodes[0] || null;
+    }
+    return variantsNodes.find(variant => 
+      variant.selectedOptions.every(
+        option => selectedOptions[option.name] === option.value
+      )
+    ) || null;
+  }, [selectedOptions, product]);
+
   useEffect(() => {
-    const findVariant = () => {
-      if (Object.keys(selectedOptions).length === 0) {
-        // If no options are selected yet, try to find the first available variant.
-        return variants.find(variant => variant.availableForSale) || variants[0] || null;
-      }
-      return variants.find(variant => 
-        variant.selectedOptions.every(
-          option => selectedOptions[option.name] === option.value
-        )
-      ) || null;
-    };
-    onVariantChange(findVariant());
-  }, [selectedOptions, variants, onVariantChange]);
+    const variant = findVariant();
+    onVariantChange(variant);
+  }, [selectedOptions, findVariant, onVariantChange]);
 
 
   const handleOptionClick = (optionName: string, value: string) => {
@@ -110,6 +116,8 @@ export default function ProductPage({ params }: ProductPageParams) {
   const [loading, setLoading] = useState(true);
   const [selectedVariant, setSelectedVariant] = useState<ShopifyProductVariant | null>(null);
   const [mainImage, setMainImage] = useState<{url: string, altText: string | null} | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const { addToCart } = useCart();
   
   useEffect(() => {
     const fetchProduct = async () => {
@@ -122,19 +130,48 @@ export default function ProductPage({ params }: ProductPageParams) {
       if (fetchedProduct.images.edges[0]) {
         setMainImage(fetchedProduct.images.edges[0].node);
       }
-      // Set initial variant
+      
       const firstAvailableVariant = fetchedProduct.variants.edges.map(e => e.node).find(v => v.availableForSale);
       if (firstAvailableVariant) {
         setSelectedVariant(firstAvailableVariant);
+        if (firstAvailableVariant.image) {
+          setMainImage(firstAvailableVariant.image);
+        }
       } else if (fetchedProduct.variants.edges.length > 0) {
-        setSelectedVariant(fetchedProduct.variants.edges[0].node);
+        const firstVariant = fetchedProduct.variants.edges[0].node;
+        setSelectedVariant(firstVariant);
+         if (firstVariant.image) {
+          setMainImage(firstVariant.image);
+        }
       }
 
       setLoading(false);
     };
     fetchProduct();
   }, [handle]);
+  
+  const handleVariantChange = useCallback((variant: ShopifyProductVariant | null) => {
+    setSelectedVariant(variant);
+    if (variant?.image) {
+      setMainImage(variant.image);
+    }
+  }, []);
 
+  const handleAddToCart = () => {
+    if (selectedVariant) {
+      setIsAdding(true);
+      addToCart({
+        variantId: selectedVariant.id,
+        quantity: 1,
+        title: product!.title,
+        price: selectedVariant.price.amount,
+        image: mainImage?.url || '',
+        variantTitle: selectedVariant.title
+      });
+      setTimeout(() => setIsAdding(false), 1000); 
+    }
+  };
+  
   const images = useMemo(() => product?.images.edges.map(edge => edge.node) || [], [product]);
   const variants = useMemo(() => product?.variants.edges.map(edge => edge.node) || [], [product]);
 
@@ -143,7 +180,7 @@ export default function ProductPage({ params }: ProductPageParams) {
   }
 
   if (!product) {
-    return null; // notFound() is called in useEffect
+    return null; 
   }
   
   const price = selectedVariant?.price.amount || product.priceRange.minVariantPrice.amount;
@@ -163,7 +200,6 @@ export default function ProductPage({ params }: ProductPageParams) {
             </Button>
           </div>
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-16">
-            {/* Image Gallery */}
             <div className="space-y-4">
               <div className="aspect-square w-full overflow-hidden rounded-xl border">
                  {mainImage ? (
@@ -201,7 +237,6 @@ export default function ProductPage({ params }: ProductPageParams) {
               </div>
             </div>
 
-            {/* Product Info */}
             <div className="flex flex-col">
               <h1 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
                 {product.title}
@@ -211,22 +246,31 @@ export default function ProductPage({ params }: ProductPageParams) {
               </p>
               
               <div className="mt-6">
-                <VariantSelector options={product.options} variants={variants} onVariantChange={setSelectedVariant} />
+                <VariantSelector 
+                  options={product.options} 
+                  variants={variants} 
+                  onVariantChange={handleVariantChange}
+                  product={product}
+                />
               </div>
               
               <div className="mt-10">
                 <Button 
                   size="lg" 
                   className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground"
-                  disabled={isSoldOut}
+                  disabled={isSoldOut || isAdding}
+                  onClick={handleAddToCart}
                 >
-                  <ShoppingCart className="mr-2 h-5 w-5" />
-                  {isSoldOut ? 'Sold Out' : 'Add to Cart'}
+                  {isAdding ? (
+                     <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Adding...</>
+                  ) : (
+                     <><ShoppingCart className="mr-2 h-5 w-5" /> {isSoldOut ? 'Sold Out' : 'Add to Cart'}</>
+                  )}
                 </Button>
               </div>
 
               <div
-                className="prose mt-8 text-foreground/80 max-w-none"
+                className="prose prose-sm mt-8 max-w-none text-foreground/80"
                 dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
               />
             </div>

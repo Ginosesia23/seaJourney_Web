@@ -2,16 +2,16 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { Menu, X, ShoppingCart } from 'lucide-react';
+import { Menu, X, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import Logo from '@/components/logo';
-import { AppStoreIcon } from '@/components/sections/cta';
+import { Cart } from '@/components/cart';
 
 const navLinks = [
   { href: '/how-to-use', label: 'How to Use' },
   { href: '/coming-soon', label: 'Coming Soon' },
-  { href: 'https://apps.apple.com/gb/app/seajourney/id6751553072', label: 'Download App', isExternal: true },
+  { href: '/shop', label: 'Shop'},
 ];
 
 const Header = () => {
@@ -38,11 +38,13 @@ const Header = () => {
 
         <div className="flex items-center gap-4">
           <Button asChild className="hidden rounded-lg md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
-            <Link href="/shop">
-                <ShoppingCart className="mr-2 h-5 w-5" />
-                Shop
+             <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" target="_blank" rel="noopener noreferrer">
+                <Download className="mr-2 h-5 w-5" />
+                Download App
             </Link>
           </Button>
+
+          <Cart />
 
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetTrigger asChild>
@@ -80,10 +82,10 @@ const Header = () => {
                     </Link>
                   ))}
                 </nav>
-                <Button asChild className="mt-8 rounded-lg bg-accent hover:bg-accent/90 text-accent-foreground">
-                   <Link href="/shop" onClick={() => setIsOpen(false)}>
-                    <ShoppingCart className="mr-2 h-5 w-5" />
-                    Shop
+                 <Button asChild className="mt-8 rounded-lg bg-accent hover:bg-accent/90 text-accent-foreground">
+                   <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" onClick={() => setIsOpen(false)} target="_blank" rel="noopener noreferrer">
+                    <Download className="mr-2 h-5 w-5" />
+                    Download App
                   </Link>
                 </Button>
               </div>
