@@ -1,9 +1,24 @@
 import { shopifyConfig } from './shopify-config';
 
+export interface ShopifyProductVariant {
+  id: string;
+  title: string;
+  availableForSale: boolean;
+  price: {
+    amount: string;
+    currencyCode: string;
+  };
+  selectedOptions: {
+    name: string;
+    value: string;
+  }[];
+}
+
 export interface ShopifyProduct {
   id: string;
   title: string;
   handle: string;
+  descriptionHtml: string;
   description: string;
   priceRange: {
     minVariantPrice: {
@@ -19,6 +34,16 @@ export interface ShopifyProduct {
       };
     }[];
   };
+  variants: {
+    edges: {
+      node: ShopifyProductVariant;
+    }[];
+  };
+  options: {
+    id: string;
+    name: string;
+    values: string[];
+  }[];
 }
 
 async function shopifyFetch(query: string, variables: Record<string, any> = {}) {
@@ -89,6 +114,7 @@ const getProductByHandleQuery = `
       title
       handle
       description
+      descriptionHtml
       priceRange {
         minVariantPrice {
           amount
@@ -100,6 +126,28 @@ const getProductByHandleQuery = `
           node {
             url
             altText
+          }
+        }
+      }
+      options(first: 10) {
+        id
+        name
+        values
+      }
+      variants(first: 250) {
+        edges {
+          node {
+            id
+            title
+            availableForSale
+            price {
+              amount
+              currencyCode
+            }
+            selectedOptions {
+              name
+              value
+            }
           }
         }
       }
