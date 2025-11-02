@@ -142,18 +142,19 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const addToCart = async (item: CartItem) => {
     const existingItem = cart.find(cartItem => cartItem.variantId === item.variantId);
     const newQuantity = (existingItem?.quantity || 0) + item.quantity;
-    
-    const otherItems = cart.filter(i => i.variantId !== item.variantId);
-    const lineItems = [
-        ...otherItems.map(i => ({ variantId: i.variantId, quantity: i.quantity })),
-        { variantId: item.variantId, quantity: newQuantity }
-    ];
 
     try {
         let updatedCheckout: ShopifyCheckout | null = null;
+        
         if (checkoutId) {
+            const otherItems = cart.filter(i => i.variantId !== item.variantId);
+            const lineItems = [
+                ...otherItems.map(i => ({ variantId: i.variantId, quantity: i.quantity })),
+                { variantId: item.variantId, quantity: newQuantity }
+            ];
             updatedCheckout = await updateLineItems(checkoutId, lineItems);
         } else {
+            const lineItems = [{ variantId: item.variantId, quantity: newQuantity }];
             updatedCheckout = await createCheckout(lineItems);
         }
         
@@ -168,6 +169,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         toast({ title: 'Error', description: 'Could not add item to cart.', variant: 'destructive' });
     }
   };
+
 
   const updateCartItemQuantity = async (variantId: string, quantity: number) => {
     if (!checkoutId) return;
