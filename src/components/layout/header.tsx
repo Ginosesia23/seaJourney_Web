@@ -3,16 +3,22 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Download, ShoppingBag } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import Logo from '@/components/logo';
 import { Cart } from '@/components/cart';
 
 const navLinks = [
   { href: '/how-to-use', label: 'How to Use' },
   { href: '/coming-soon', label: 'Coming Soon' },
-  { href: '/shop', label: 'Shop'},
 ];
 
 const Header = () => {
@@ -39,9 +45,8 @@ const Header = () => {
 
         <div className="flex items-center gap-4">
           <Button asChild className="hidden rounded-lg md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
-             <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" target="_blank" rel="noopener noreferrer">
-                <Download className="mr-2 h-5 w-5" />
-                Download App
+            <Link href="/shop">
+              Shop
             </Link>
           </Button>
 
@@ -49,22 +54,34 @@ const Header = () => {
 
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden hover:bg-white/10">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden hover:bg-white/10"
+              >
                 <Menu className="h-6 w-6" />
                 <span className="sr-only">Open menu</span>
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-[300px] bg-header text-header-foreground">
-               <SheetHeader className="sr-only">
-                  <SheetTitle>Mobile Menu</SheetTitle>
-                  <SheetDescription>
-                    Navigation links for SeaJourney.
-                  </SheetDescription>
-                </SheetHeader>
+            <SheetContent
+              side="right"
+              className="w-[300px] bg-header text-header-foreground"
+            >
+              <SheetHeader className="sr-only">
+                <SheetTitle>Mobile Menu</SheetTitle>
+                <SheetDescription>
+                  Navigation links for SeaJourney.
+                </SheetDescription>
+              </SheetHeader>
               <div className="flex h-full flex-col">
                 <div className="mb-8 flex items-center justify-between">
                   <Logo className="text-header-foreground" />
-                   <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="hover:bg-white/10">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsOpen(false)}
+                    className="hover:bg-white/10"
+                  >
                     <X className="h-6 w-6" />
                     <span className="sr-only">Close menu</span>
                   </Button>
@@ -80,13 +97,14 @@ const Header = () => {
                       {link.label}
                     </Link>
                   ))}
+                   <Link
+                      href="/shop"
+                      className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      Shop
+                    </Link>
                 </nav>
-                 <Button asChild className="mt-8 rounded-lg bg-accent hover:bg-accent/90 text-accent-foreground">
-                   <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" onClick={() => setIsOpen(false)} target="_blank" rel="noopener noreferrer">
-                    <Download className="mr-2 h-5 w-5" />
-                    Download App
-                  </Link>
-                </Button>
               </div>
             </SheetContent>
           </Sheet>
