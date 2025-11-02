@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, use } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { getProductByHandle, ShopifyProduct, ShopifyProductVariant } from '@/lib/shopify';
