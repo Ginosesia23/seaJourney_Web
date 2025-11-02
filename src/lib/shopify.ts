@@ -24,6 +24,7 @@ export interface ShopifyProduct {
   handle: string;
   descriptionHtml: string;
   description: string;
+  tags: string[];
   priceRange: {
     minVariantPrice: {
       amount: string;
@@ -124,6 +125,7 @@ const getProductsQuery = `
           title
           handle
           description
+          tags
           priceRange {
             minVariantPrice {
               amount
@@ -152,6 +154,7 @@ const getProductByHandleQuery = `
       handle
       description
       descriptionHtml
+      tags
       priceRange {
         minVariantPrice {
           amount
@@ -248,7 +251,7 @@ const checkoutLineItemsAddMutation = `
 `;
 
 
-export async function getProducts(count = 8): Promise<ShopifyProduct[]> {
+export async function getProducts(count = 20): Promise<ShopifyProduct[]> {
   const data = await shopifyFetch(getProductsQuery, { first: count });
   return data?.products.edges.map((edge: { node: ShopifyProduct }) => edge.node) || [];
 }
