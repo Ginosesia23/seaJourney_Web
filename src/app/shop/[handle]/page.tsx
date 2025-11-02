@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback, use } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { getProductByHandle, ShopifyProduct, ShopifyProductVariant } from '@/lib/shopify';
@@ -111,8 +111,7 @@ const ProductDetailsAccordion = ({ description }: { description: string }) => {
 }
 
 export default function ProductPage({ params }: ProductPageParams) {
-  const resolvedParams = use(Promise.resolve(params));
-  const { handle } = resolvedParams;
+  const { handle } = params;
   const [product, setProduct] = useState<ShopifyProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedVariant, setSelectedVariant] = useState<ShopifyProductVariant | null>(null);
