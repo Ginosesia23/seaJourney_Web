@@ -32,14 +32,22 @@ function VariantSelector({
   useEffect(() => {
     // Pre-select the first available option for each category
     const initialSelection: Record<string, string> = {};
-    options.forEach(option => {
-      initialSelection[option.name] = option.values[0];
-    });
+    if (options && options.length > 0) {
+      options.forEach(option => {
+        if (option.values.length > 0) {
+          initialSelection[option.name] = option.values[0];
+        }
+      });
+    }
     setSelectedOptions(initialSelection);
   }, [options]);
-
+  
   useEffect(() => {
     const findVariant = () => {
+      if (Object.keys(selectedOptions).length === 0) {
+        // If no options are selected yet, try to find the first available variant.
+        return variants.find(variant => variant.availableForSale) || variants[0] || null;
+      }
       return variants.find(variant => 
         variant.selectedOptions.every(
           option => selectedOptions[option.name] === option.value
@@ -49,22 +57,20 @@ function VariantSelector({
     onVariantChange(findVariant());
   }, [selectedOptions, variants, onVariantChange]);
 
+
   const handleOptionClick = (optionName: string, value: string) => {
     setSelectedOptions(prev => ({ ...prev, [optionName]: value }));
   };
-
-  const isOptionAvailable = (optionName: string, value: string) => {
-    // Check if any variant is available with the current selection plus this new option
-    const prospectiveOptions = { ...selectedOptions, [optionName]: value };
-    return variants.some(variant => 
-      variant.availableForSale &&
-      variant.selectedOptions.every(
-        opt => prospectiveOptions[opt.name] === opt.value
-      )
-    );
-  };
   
-  if (!options || options.length === 0) return null;
+  if (!options || options.length === 0) {
+    const firstAvailableVariant = variants.find(v => v.availableForSale);
+    if(firstAvailableVariant) {
+      onVariantChange(firstAvailableVariant);
+    } else if (variants.length > 0) {
+      onVariantChange(variants[0]);
+    }
+    return null;
+  };
 
   return (
     <div className="space-y-6">
@@ -74,19 +80,16 @@ function VariantSelector({
           <div className="flex flex-wrap gap-2 mt-2">
             {option.values.map((value) => {
               const isSelected = selectedOptions[option.name] === value;
-              const isAvailable = isOptionAvailable(option.name, value);
-
+              
               return (
                 <Button
                   key={value}
                   variant={isSelected ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => handleOptionClick(option.name, value)}
-                  disabled={!isAvailable}
                   className={cn(
                     "rounded-full",
                     isSelected && "ring-2 ring-primary ring-offset-2",
-                    !isAvailable && "text-muted-foreground line-through"
                   )}
                 >
                   {value}
@@ -102,6 +105,7 @@ function VariantSelector({
 
 
 export default function ProductPage({ params }: ProductPageParams) {
+  const { handle } = params;
   const [product, setProduct] = useState<ShopifyProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedVariant, setSelectedVariant] = useState<ShopifyProductVariant | null>(null);
@@ -110,7 +114,7 @@ export default function ProductPage({ params }: ProductPageParams) {
   useEffect(() => {
     const fetchProduct = async () => {
       setLoading(true);
-      const fetchedProduct = await getProductByHandle(params.handle);
+      const fetchedProduct = await getProductByHandle(handle);
       if (!fetchedProduct) {
         notFound();
       }
@@ -118,10 +122,18 @@ export default function ProductPage({ params }: ProductPageParams) {
       if (fetchedProduct.images.edges[0]) {
         setMainImage(fetchedProduct.images.edges[0].node);
       }
+      // Set initial variant
+      const firstAvailableVariant = fetchedProduct.variants.edges.map(e => e.node).find(v => v.availableForSale);
+      if (firstAvailableVariant) {
+        setSelectedVariant(firstAvailableVariant);
+      } else if (fetchedProduct.variants.edges.length > 0) {
+        setSelectedVariant(fetchedProduct.variants.edges[0].node);
+      }
+
       setLoading(false);
     };
     fetchProduct();
-  }, [params.handle]);
+  }, [handle]);
 
   const images = useMemo(() => product?.images.edges.map(edge => edge.node) || [], [product]);
   const variants = useMemo(() => product?.variants.edges.map(edge => edge.node) || [], [product]);
@@ -135,6 +147,7 @@ export default function ProductPage({ params }: ProductPageParams) {
   }
   
   const price = selectedVariant?.price.amount || product.priceRange.minVariantPrice.amount;
+  const isSoldOut = selectedVariant ? !selectedVariant.availableForSale : product.variants.edges.every(e => !e.node.availableForSale);
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -205,10 +218,10 @@ export default function ProductPage({ params }: ProductPageParams) {
                 <Button 
                   size="lg" 
                   className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground"
-                  disabled={!selectedVariant?.availableForSale}
+                  disabled={isSoldOut}
                 >
                   <ShoppingCart className="mr-2 h-5 w-5" />
-                  {selectedVariant?.availableForSale ? 'Add to Cart' : 'Sold Out'}
+                  {isSoldOut ? 'Sold Out' : 'Add to Cart'}
                 </Button>
               </div>
 
