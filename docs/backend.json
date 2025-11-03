@@ -1,0 +1,138 @@
+{
+  "entities": {
+    "UserProfile": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "UserProfile",
+      "type": "object",
+      "description": "Represents a user profile on the SeaJourney Landing website.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the UserProfile entity."
+        },
+        "email": {
+          "type": "string",
+          "description": "User's email address.",
+          "format": "email"
+        },
+        "username": {
+          "type": "string",
+          "description": "User's username."
+        },
+        "firstName": {
+          "type": "string",
+          "description": "User's first name."
+        },
+        "lastName": {
+          "type": "string",
+          "description": "User's last name."
+        },
+        "profilePicture": {
+          "type": "string",
+          "description": "URL of the user's profile picture.",
+          "format": "uri"
+        },
+        "bio": {
+          "type": "string",
+          "description": "A short biography or description of the user."
+        },
+        "registrationDate": {
+          "type": "string",
+          "description": "Date and time when the user registered.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "username",
+        "firstName",
+        "lastName",
+        "registrationDate"
+      ]
+    },
+    "Testimonial": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Testimonial",
+      "type": "object",
+      "description": "Represents a user testimonial about the AI tour creator feature.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Testimonial entity."
+        },
+        "userProfileId": {
+          "type": "string",
+          "description": "Reference to UserProfile. (Relationship: UserProfile 1:N Testimonial)"
+        },
+        "content": {
+          "type": "string",
+          "description": "The text content of the testimonial."
+        },
+        "rating": {
+          "type": "number",
+          "description": "The rating given in the testimonial (e.g., 1-5 stars)."
+        },
+        "dateCreated": {
+          "type": "string",
+          "description": "Date and time when the testimonial was created.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userProfileId",
+        "content",
+        "rating",
+        "dateCreated"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}/profile",
+        "definition": {
+          "entityName": "UserProfile",
+          "schema": {
+            "$ref": "#/backend/entities/UserProfile"
+          },
+          "description": "Stores user profile information. Path-based ownership ensures only the user can access their profile.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/profile/testimonials/{testimonialId}",
+        "definition": {
+          "entityName": "Testimonial",
+          "schema": {
+            "$ref": "#/backend/entities/Testimonial"
+          },
+          "description": "Stores testimonials associated with a user profile. Path-based ownership enforces that a testimonial is owned by the user.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            },
+            {
+              "name": "testimonialId",
+              "description": "The unique identifier of the testimonial."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "This Firestore data structure is designed to support the SeaJourney Landing website's user profiles and testimonials. The primary focus is on enabling secure and scalable data access while adhering to Authorization Independence and simplifying security rules. User profiles are stored under `/users/{userId}/profile` following the Path-Based ownership access modeling strategy. Testimonials are stored as subcollections of user profiles under `/users/{userId}/profile/testimonials/{testimonialId}`. By nesting the testimonials as a subcollection under each user profile, we establish clear ownership and enhance data organization.\n\nAuthorization Independence is achieved without denormalization in the case of user profiles as the path `/users/{userId}/profile` inherently enforces that only the user with id `userId` can read/write to this path, thus eliminating the need to read the data to authorize access. For testimonials, ownership is implied by the parent user profile. In this design, listing testimonials will be restricted to the user's own profile or testimonials can be queried across all users if this is required.\n\nQAPs (Rules are not Filters): The design supports secure `list` operations. Because testimonials are nested under user profiles and access to a profile is inherently restricted to the profile's user, reading all testimonials using the collection group query can be secured. It is recommended not to combine different security requirements into the same collection."
+  }
+}

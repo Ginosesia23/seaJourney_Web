@@ -1,0 +1,73 @@
+/**
+ * @fileoverview Firestore Security Rules for SeaJourney Landing Website.
+ *
+ * Core Philosophy:
+ * This ruleset enforces a strict user-ownership model for user profiles and their associated testimonials. Only the authenticated user can create, read, update, or delete their own profile data and testimonials.
+ *
+ * Data Structure:
+ * - User profiles are stored under `/users/{userId}/profile`.
+ * - Testimonials are stored as subcollections under user profiles at `/users/{userId}/profile/testimonials/{testimonialId}`.
+ *
+ * Key Security Decisions:
+ * - User listing is implicitly disallowed as there is no top-level collection of users.
+ * - Read-only collections are not applicable in this data model.
+ * - All write operations are strictly controlled by user ownership, enforced by matching the authenticated user's UID against the document path.
+ *
+ * Denormalization for Authorization:
+ * - User profiles and testimonials are secured by their path, which includes the userId. This avoids the need for extra `get()` calls to verify ownership.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * @description Enforces user-ownership for user profiles. Only the authenticated user can access their own profile.
+     * @path /users/{userId}/profile
+     * @allow (create) User with UID 'user123' creates their profile document at /users/user123/profile.
+     * @allow (get, update, delete) User with UID 'user123' reads, updates, or deletes their profile document at /users/user123/profile.
+     * @deny (create, get, update, delete) User with UID 'user456' attempts to access profile document at /users/user123/profile.
+     * @principle Enforces document ownership for all operations.
+     */
+    match /users/{userId}/profile {
+      function isOwner(userId) {
+        return request.auth.uid == userId;
+      }
+
+      function isExistingOwner(userId) {
+        return request.auth.uid == userId && resource != null;
+      }
+
+      allow get: if isOwner(userId);
+      allow list: if false; // Listing profiles is not permitted
+
+      allow create: if isOwner(userId);
+      allow update: if isExistingOwner(userId);
+      allow delete: if isExistingOwner(userId);
+    }
+
+    /**
+     * @description Enforces user-ownership for testimonials. Only the authenticated user can access testimonials associated with their profile.
+     * @path /users/{userId}/profile/testimonials/{testimonialId}
+     * @allow (create) User with UID 'user123' creates a testimonial document under their profile at /users/user123/profile/testimonials/test456.
+     * @allow (get, update, delete) User with UID 'user123' reads, updates, or deletes their testimonial document at /users/user123/profile/testimonials/test456.
+     * @deny (create, get, update, delete) User with UID 'user456' attempts to access testimonial document at /users/user123/profile/testimonials/test456.
+     * @principle Enforces document ownership for all operations on testimonials.
+     */
+    match /users/{userId}/profile/testimonials/{testimonialId} {
+      function isOwner(userId) {
+        return request.auth.uid == userId;
+      }
+
+      function isExistingOwner(userId) {
+        return request.auth.uid == userId && resource != null;
+      }
+
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId);
+      allow update: if isExistingOwner(userId);
+      allow delete: if isExistingOwner(userId);
+    }
+  }
+}
