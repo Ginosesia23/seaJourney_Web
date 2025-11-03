@@ -78,12 +78,12 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-header px-4 text-header-foreground">
       <div className="w-full max-w-md">
         <div className="mb-8 flex justify-center">
             <Logo />
         </div>
-        <Card className="w-full">
+        <Card className="w-full bg-card text-card-foreground">
           <CardHeader className="text-center">
             <CardTitle className="font-headline text-2xl">Create an Account</CardTitle>
             <CardDescription>Join SeaJourney and start tracking your sea time.</CardDescription>
@@ -138,7 +138,7 @@ export default function SignupPage() {
             </Form>
             <p className="mt-6 text-center text-sm text-muted-foreground">
               Already have an account?{' '}
-              <Link href="/login" className="font-medium text-primary hover:underline">
+              <Link href="/login" className="font-medium text-accent hover:underline">
                 Sign in
               </Link>
             </p>
