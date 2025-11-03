@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, LayoutDashboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/sheet';
 import Logo from '@/components/logo';
 import { Cart } from '@/components/cart';
+import { useUser } from '@/firebase';
 
 const navLinks = [
   { href: '/how-to-use', label: 'How to Use' },
@@ -25,6 +26,7 @@ const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
   const isShopPage = pathname.startsWith('/shop');
+  const { user, isUserLoading } = useUser();
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-header bg-header text-header-foreground backdrop-blur-sm">
@@ -43,7 +45,7 @@ const Header = () => {
           ))}
         </nav>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           {!isShopPage && (
             <Button asChild className="hidden rounded-lg md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
               <Link href="/shop">
@@ -53,6 +55,24 @@ const Header = () => {
           )}
 
           {isShopPage && <Cart />}
+          
+          <div className="hidden md:flex items-center gap-2">
+            {!isUserLoading && (
+              user ? (
+                <Button asChild variant="ghost" className="hover:bg-white/10">
+                  <Link href="/dashboard">
+                    <LayoutDashboard className="mr-2 h-5 w-5" />
+                    Dashboard
+                  </Link>
+                </Button>
+              ) : (
+                <Button asChild variant="ghost" className="hover:bg-white/10">
+                  <Link href="/login">Sign In</Link>
+                </Button>
+              )
+            )}
+          </div>
+
 
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetTrigger asChild>
@@ -88,7 +108,7 @@ const Header = () => {
                     <span className="sr-only">Close menu</span>
                   </Button>
                 </div>
-                <nav className="flex flex-col gap-6">
+                <nav className="flex flex-1 flex-col gap-6">
                   {navLinks.map((link) => (
                     <Link
                       key={link.href}
@@ -107,6 +127,21 @@ const Header = () => {
                       Shop
                     </Link>
                 </nav>
+
+                <div className="border-t border-primary/10 pt-6">
+                   {!isUserLoading && (
+                      user ? (
+                        <Link href="/dashboard" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
+                          Dashboard
+                        </Link>
+                      ) : (
+                        <Link href="/login" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
+                          Sign In
+                        </Link>
+                      )
+                    )}
+                </div>
+
               </div>
             </SheetContent>
           </Sheet>

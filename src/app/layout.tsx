@@ -3,6 +3,7 @@ import { Toaster } from '@/components/ui/toaster';
 import './globals.css';
 import { cn } from '@/lib/utils';
 import { CartProvider } from '@/context/cart-context';
+import { FirebaseClientProvider } from '@/firebase';
 
 export const metadata: Metadata = {
   title: 'SeaJourney - Seatime Tracker for Maritime Professionals',
@@ -26,9 +27,11 @@ export default function RootLayout({
         />
       </head>
       <body className={cn('font-body antialiased')}>
-        <CartProvider>
-          {children}
-        </CartProvider>
+        <FirebaseClientProvider>
+          <CartProvider>
+            {children}
+          </CartProvider>
+        </FirebaseClientProvider>
         <Toaster />
       </body>
     </html>

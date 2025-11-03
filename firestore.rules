@@ -21,28 +21,28 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Enforces user-ownership for user profiles. Only the authenticated user can access their own profile.
-     * @path /users/{userId}/profile
-     * @allow (create) User with UID 'user123' creates their profile document at /users/user123/profile.
-     * @allow (get, update, delete) User with UID 'user123' reads, updates, or deletes their profile document at /users/user123/profile.
+     * @description Enforces user-ownership for user profiles. A user profile is stored as a single document in a subcollection of the user's collection. The user profile is a single document with the same ID as the user's UID.
+     * @path /users/{userId}/profile/{userId}
+     * @allow (create) User with UID 'user123' creates their profile document at /users/user123/profile/user123.
+     * @allow (get, update, delete) User with UID 'user123' reads, updates, or deletes their profile document at /users/user123/profile/user123.
      * @deny (create, get, update, delete) User with UID 'user456' attempts to access profile document at /users/user123/profile.
      * @principle Enforces document ownership for all operations.
      */
-    match /users/{userId}/profile {
+    match /users/{userId}/profile/{profileId} {
       function isOwner(userId) {
         return request.auth.uid == userId;
       }
+      
+      // The user can only read, update or delete their own profile.
+      // The profileId must be the same as the userId.
+      allow get, update, delete: if isOwner(userId) && userId == profileId;
 
-      function isExistingOwner(userId) {
-        return request.auth.uid == userId && resource != null;
-      }
-
-      allow get: if isOwner(userId);
-      allow list: if false; // Listing profiles is not permitted
-
-      allow create: if isOwner(userId);
-      allow update: if isExistingOwner(userId);
-      allow delete: if isExistingOwner(userId);
+      // The user can only create their own profile.
+      // The profileId must be the same as the userId.
+      allow create: if isOwner(userId) && userId == profileId;
+      
+      // Disallow listing of profiles
+      allow list: if false;
     }
 
     /**
