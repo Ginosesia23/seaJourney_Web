@@ -79,11 +79,11 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-screen flex-col bg-header text-header-foreground">
       <Header />
       <main className="flex-1 py-12 sm:py-16">
         <div className="container mx-auto flex max-w-md flex-col items-center justify-center px-4">
-          <Card className="w-full">
+          <Card className="w-full bg-background text-foreground">
             <CardHeader className="text-center">
               <CardTitle className="font-headline text-2xl">Welcome Back</CardTitle>
               <CardDescription>Sign in to access your dashboard.</CardDescription>
