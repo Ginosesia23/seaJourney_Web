@@ -78,7 +78,7 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+    <div className="dark flex min-h-screen flex-col items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
         <Card className="w-full border-none bg-card text-card-foreground shadow-2xl">
           <CardHeader className="text-center">
@@ -130,7 +130,7 @@ export default function SignupPage() {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full" disabled={isLoading} variant="secondary">
+                <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Sign Up
                 </Button>
