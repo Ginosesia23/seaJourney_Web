@@ -83,7 +83,7 @@ export default function SignupPage() {
         <div className="mb-8 flex justify-center">
             <Logo />
         </div>
-        <Card className="w-full bg-card/95 text-card-foreground">
+        <Card className="w-full bg-primary-foreground/10 text-card-foreground">
           <CardHeader className="text-center">
             <CardTitle className="font-headline text-2xl">Create an Account</CardTitle>
             <CardDescription>Join SeaJourney and start tracking your sea time.</CardDescription>
