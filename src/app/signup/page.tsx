@@ -78,13 +78,13 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-header px-4 text-header-foreground">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
-        <div className="mb-8 flex justify-center">
-            <Logo />
-        </div>
-        <Card className="w-full bg-primary-foreground/10 text-card-foreground border-none">
+        <Card className="w-full border-none bg-card text-card-foreground shadow-2xl">
           <CardHeader className="text-center">
+            <div className="mb-4 flex justify-center">
+              <Logo />
+            </div>
             <CardTitle className="font-headline text-2xl">Create an Account</CardTitle>
             <CardDescription>Join SeaJourney and start tracking your sea time.</CardDescription>
           </CardHeader>
@@ -130,7 +130,7 @@ export default function SignupPage() {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button type="submit" className="w-full" disabled={isLoading} variant="secondary">
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Sign Up
                 </Button>
@@ -138,7 +138,7 @@ export default function SignupPage() {
             </Form>
             <p className="mt-6 text-center text-sm text-muted-foreground">
               Already have an account?{' '}
-              <Link href="/login" className="font-medium text-accent hover:underline">
+              <Link href="/login" className="font-medium text-primary hover:underline">
                 Sign in
               </Link>
             </p>
