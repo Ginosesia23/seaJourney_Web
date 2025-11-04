@@ -17,7 +17,9 @@ const chartData = [
     { name: 'Apr', value: 60 }, { name: 'May', value: 50 }, { name: 'Jun', value: 80 },
   ];
 
-const StatCard = ({ title, value, change, changeType, data }: { title: string, value: string, change: string, changeType: 'up' | 'down', data: any[] }) => (
+const StatCard = ({ title, value, change, changeType, data }: { title?: string, value: string, change: string, changeType: 'up' | 'down', data: any[] }) => {
+    const uniqueId = title ? title.replace(/\s/g, '') : Math.random().toString(36).substring(7);
+    return (
     <Card className="rounded-xl bg-card shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
@@ -34,7 +36,7 @@ const StatCard = ({ title, value, change, changeType, data }: { title: string, v
             <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={data} margin={{ top: 5, right: 0, left: 0, bottom: 5 }}>
                     <defs>
-                        <linearGradient id={`color${title.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
+                        <linearGradient id={`color${uniqueId}`} x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.4}/>
                             <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
                         </linearGradient>
@@ -45,14 +47,15 @@ const StatCard = ({ title, value, change, changeType, data }: { title: string, v
                       stroke="hsl(var(--primary))" 
                       strokeWidth={2}
                       fillOpacity={1} 
-                      fill={`url(#color${title.replace(/\s/g, '')})`} 
+                      fill={`url(#color${uniqueId})`} 
                     />
                 </AreaChart>
             </ResponsiveContainer>
         </div>
       </CardContent>
     </Card>
-);
+    )
+};
 
 const stats = [
   { name: 'Total Sea Days', value: '1,284', change: '12.5%', changeType: 'up', data: [ { value: 10 }, { value: 15 }, { value: 12 }, { value: 20 }, { value: 18 }, { value: 25 } ] },
@@ -101,7 +104,7 @@ export default function DashboardPage() {
         {/* Stats Grid */}
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {stats.map((stat) => (
-                <StatCard key={stat.name} {...stat} />
+                <StatCard key={stat.name} title={stat.name} {...stat} />
             ))}
         </div>
         
