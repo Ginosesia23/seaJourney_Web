@@ -84,7 +84,7 @@ export default function DashboardPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background/80 px-4 backdrop-blur-sm md:px-6">
+      <header className="sticky top-0 z-10 flex h-16 items-center gap-4 bg-card px-4 md:px-6">
         <SidebarTrigger className="md:hidden" />
         <div className="flex-1">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
