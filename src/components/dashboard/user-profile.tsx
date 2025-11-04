@@ -24,7 +24,7 @@ type ProfileFormValues = z.infer<typeof profileSchema>;
 
 function ProfileSkeleton() {
     return (
-        <Card>
+        <Card className="rounded-xl bg-card shadow-lg">
             <CardHeader>
                 <Skeleton className="h-7 w-48" />
                 <Skeleton className="h-4 w-64 mt-1" />
@@ -100,9 +100,9 @@ export function UserProfileCard() {
   }
 
   return (
-    <Card>
+    <Card className="rounded-xl bg-card shadow-lg">
       <CardHeader>
-        <CardTitle>User Profile</CardTitle>
+        <CardTitle className="font-headline">User Profile</CardTitle>
         <CardDescription>Update your personal information.</CardDescription>
       </CardHeader>
       <CardContent>
@@ -147,7 +147,7 @@ export function UserProfileCard() {
                 </FormItem>
               )}
             />
-            <Button type="submit" disabled={isSaving}>
+            <Button type="submit" disabled={isSaving} variant="default">
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save Changes
             </Button>
