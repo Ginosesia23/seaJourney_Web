@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { Avatar, AvatarFallback } from '../ui/avatar';
+import { cn } from '@/lib/utils';
 
 const mainNav = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -51,10 +52,10 @@ export function DashboardSidebar() {
   };
 
   return (
-    <Sidebar variant="sidebar" collapsible="icon" className="bg-header text-header-foreground">
-      <SidebarHeader className="border-b border-primary/20">
-        <Logo className="hidden group-data-[collapsible=icon]:hidden" />
-        <SidebarTrigger className="hidden text-header-foreground md:flex" />
+    <Sidebar variant="sidebar" collapsible="icon" className="bg-card text-card-foreground shadow-md">
+      <SidebarHeader className="border-b">
+        <Logo className="hidden text-foreground group-data-[collapsible=icon]:hidden" />
+        <SidebarTrigger className="hidden text-foreground md:flex" />
       </SidebarHeader>
 
       <SidebarContent>
@@ -67,7 +68,10 @@ export function DashboardSidebar() {
                   tooltip={item.label}
                   aria-disabled={item.disabled}
                   disabled={item.disabled}
-                  className="text-header-foreground/80 hover:bg-primary/20 hover:text-header-foreground data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
+                  className={cn(
+                    "text-foreground/80 hover:bg-muted hover:text-foreground",
+                    "data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
+                  )}
                 >
                   <item.icon />
                   <span>{item.label}</span>
@@ -78,7 +82,7 @@ export function DashboardSidebar() {
         </SidebarMenu>
         
         <SidebarGroup className="mt-auto">
-            <SidebarGroupLabel className="text-header-foreground/60">Account</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-muted-foreground">Account</SidebarGroupLabel>
              <SidebarMenu>
                 {accountNav.map((item) => (
                     <SidebarMenuItem key={item.href}>
@@ -88,7 +92,10 @@ export function DashboardSidebar() {
                         tooltip={item.label}
                         aria-disabled={item.disabled}
                         disabled={item.disabled}
-                        className="text-header-foreground/80 hover:bg-primary/20 hover:text-header-foreground data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
+                        className={cn(
+                            "text-foreground/80 hover:bg-muted hover:text-foreground",
+                            "data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
+                        )}
                         >
                         <item.icon />
                         <span>{item.label}</span>
@@ -101,7 +108,7 @@ export function DashboardSidebar() {
 
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-primary/20">
+      <SidebarFooter className="border-t">
         <div className="flex items-center gap-3 p-2">
             <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-primary/80 text-primary-foreground">

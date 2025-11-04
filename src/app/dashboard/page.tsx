@@ -4,12 +4,13 @@ import { useUser, useAuth } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 import { UserProfileCard } from '@/components/dashboard/user-profile';
-import { Award, CalendarDays, LifeBuoy, LogOut, Ship, ArrowUp, ArrowDown } from 'lucide-react';
+import { Award, CalendarDays, LifeBuoy, LogOut, Ship, ArrowUp, ArrowDown, Search } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
 import MainChart from '@/components/dashboard/main-chart';
+import { Input } from '@/components/ui/input';
 
 
 const chartData = [
@@ -84,12 +85,17 @@ export default function DashboardPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-10 flex h-16 items-center gap-4 bg-card px-4 md:px-6">
+      <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
         <SidebarTrigger className="md:hidden" />
         <div className="flex-1">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Dashboard
-          </h1>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search..."
+              className="w-full rounded-lg bg-muted pl-8 md:w-[200px] lg:w-[320px]"
+            />
+          </div>
         </div>
         <Button onClick={handleSignOut} variant="outline" className="bg-card border-border hover:bg-muted">
           <LogOut className="mr-2 h-4 w-4" />
