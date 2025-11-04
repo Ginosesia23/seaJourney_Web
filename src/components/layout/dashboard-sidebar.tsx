@@ -61,7 +61,7 @@ export function DashboardSidebar() {
         <SidebarMenu>
           {mainNav.map((item) => (
             <SidebarMenuItem key={item.href}>
-              <Link href={item.href} passHref asChild>
+              <Link href={item.href}>
                 <SidebarMenuButton
                   isActive={pathname === item.href}
                   tooltip={item.label}
@@ -82,7 +82,7 @@ export function DashboardSidebar() {
              <SidebarMenu>
                 {accountNav.map((item) => (
                     <SidebarMenuItem key={item.href}>
-                    <Link href={item.href} passHref asChild>
+                    <Link href={item.href}>
                         <SidebarMenuButton
                         isActive={pathname === item.href}
                         tooltip={item.label}
