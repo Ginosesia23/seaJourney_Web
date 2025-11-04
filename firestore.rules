@@ -29,20 +29,11 @@ service cloud.firestore {
      * @principle Enforces document ownership for all operations.
      */
     match /users/{userId}/profile/{profileId} {
-      function isOwner(userId) {
+      function isOwner() {
         return request.auth.uid == userId;
       }
-      
-      // The user can only read, update or delete their own profile.
-      // The profileId must be the same as the userId.
-      allow get, update, delete: if isOwner(userId) && userId == profileId;
 
-      // The user can only create their own profile.
-      // The profileId must be the same as the userId.
-      allow create: if isOwner(userId) && userId == profileId;
-      
-      // Disallow listing of profiles
-      allow list: if false;
+      allow read, write: if isOwner() && userId == profileId;
     }
 
     /**
