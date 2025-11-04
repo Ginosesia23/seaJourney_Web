@@ -23,7 +23,7 @@ export default function DashboardLayout({
 
   if (isUserLoading) {
     return (
-      <div className="dark flex h-screen w-full items-center justify-center bg-background">
+      <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
       </div>
     );
@@ -35,9 +35,9 @@ export default function DashboardLayout({
 
   return (
     <SidebarProvider>
-      <div className="dark bg-background text-foreground flex min-h-screen">
+      <div className="bg-background text-foreground flex min-h-screen">
         <DashboardSidebar />
-        <main className="flex-1">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8">
           {children}
         </main>
       </div>

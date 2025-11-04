@@ -51,10 +51,10 @@ export function DashboardSidebar() {
   };
 
   return (
-    <Sidebar variant="sidebar" collapsible="icon">
-      <SidebarHeader>
+    <Sidebar variant="sidebar" collapsible="icon" className="bg-header text-header-foreground">
+      <SidebarHeader className="border-b border-primary/20">
         <Logo className="hidden group-data-[collapsible=icon]:hidden" />
-        <SidebarTrigger className="hidden md:flex" />
+        <SidebarTrigger className="hidden text-header-foreground md:flex" />
       </SidebarHeader>
 
       <SidebarContent>
@@ -67,6 +67,7 @@ export function DashboardSidebar() {
                   tooltip={item.label}
                   aria-disabled={item.disabled}
                   disabled={item.disabled}
+                  className="text-header-foreground/80 hover:bg-primary/20 hover:text-header-foreground data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
                 >
                   <item.icon />
                   <span>{item.label}</span>
@@ -77,7 +78,7 @@ export function DashboardSidebar() {
         </SidebarMenu>
         
         <SidebarGroup className="mt-auto">
-            <SidebarGroupLabel>Account</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-header-foreground/60">Account</SidebarGroupLabel>
              <SidebarMenu>
                 {accountNav.map((item) => (
                     <SidebarMenuItem key={item.href}>
@@ -87,6 +88,7 @@ export function DashboardSidebar() {
                         tooltip={item.label}
                         aria-disabled={item.disabled}
                         disabled={item.disabled}
+                        className="text-header-foreground/80 hover:bg-primary/20 hover:text-header-foreground data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
                         >
                         <item.icon />
                         <span>{item.label}</span>
@@ -99,10 +101,10 @@ export function DashboardSidebar() {
 
       </SidebarContent>
 
-      <SidebarFooter>
+      <SidebarFooter className="border-t border-primary/20">
         <div className="flex items-center gap-3 p-2">
             <Avatar className="h-8 w-8">
-                <AvatarFallback>
+                <AvatarFallback className="bg-primary/80 text-primary-foreground">
                     {user?.displayName ? getInitials(user.displayName) : user?.email?.[0].toUpperCase()}
                 </AvatarFallback>
             </Avatar>
