@@ -7,6 +7,7 @@ import { UserProfileCard } from '@/components/dashboard/user-profile';
 import { Award, CalendarDays, LifeBuoy, LogOut, Ship } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { SidebarTrigger } from '@/components/ui/sidebar';
 
 const stats = [
   { name: 'Total Sea Days', value: '1,284', icon: CalendarDays },
@@ -34,22 +35,25 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="dark flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-screen flex-col">
+      <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background/80 px-4 backdrop-blur-sm md:px-6">
+        <SidebarTrigger className="md:hidden" />
+        <div className="flex-1">
+          <h1 className="font-headline text-xl font-bold tracking-tight text-primary sm:text-2xl">
+            Dashboard
+          </h1>
+        </div>
+        <Button onClick={handleSignOut} variant="outline" className="bg-card border-border hover:bg-muted">
+          <LogOut className="mr-2 h-4 w-4" />
+          Sign Out
+        </Button>
+      </header>
       <main className="flex-1 p-4 sm:p-6 lg:p-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="mb-8 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-             <div>
-                <h1 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
-                Dashboard
-                </h1>
-                <p className="mt-2 text-lg text-muted-foreground">
+        <div className="mx-auto w-full max-w-7xl">
+          <div className="mb-8">
+              <p className="text-lg text-muted-foreground">
                 Welcome back, {user?.displayName || user?.email || 'User'}!
-                </p>
-             </div>
-             <Button onClick={handleSignOut} variant="outline" className="bg-card border-border hover:bg-muted">
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
-            </Button>
+              </p>
           </div>
 
           {/* Stats Grid */}
