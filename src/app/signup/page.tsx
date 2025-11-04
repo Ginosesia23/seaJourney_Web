@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/firebase';
+import { useAuth, errorEmitter, FirestorePermissionError } from '@/firebase';
 import { createUserWithEmailAndPassword, updateProfile, AuthError } from 'firebase/auth';
 import { Loader2 } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
@@ -50,14 +50,25 @@ export default function SignupPage() {
 
       // Create user profile in Firestore
       const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
-      await setDoc(userProfileRef, {
+      const profileData = {
         id: user.uid,
         email: user.email,
         username: data.username,
         firstName: '',
         lastName: '',
         registrationDate: new Date().toISOString(),
-      });
+      };
+      
+      setDoc(userProfileRef, profileData)
+        .catch(async (serverError) => {
+          const permissionError = new FirestorePermissionError({
+            path: userProfileRef.path,
+            operation: 'create',
+            requestResourceData: profileData
+          });
+          errorEmitter.emit('permission-error', permissionError);
+        });
+
 
       router.push('/dashboard');
     } catch (error) {
@@ -130,7 +141,7 @@ export default function SignupPage() {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full" disabled={isLoading} variant="default">
+                <Button type="submit" className="w-full" disabled={isLoading} variant="primary">
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Sign Up
                 </Button>

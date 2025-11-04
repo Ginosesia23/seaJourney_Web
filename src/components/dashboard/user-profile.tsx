@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
+import { useUser, useFirestore, useDoc, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -74,22 +74,25 @@ export function UserProfileCard() {
   const onSubmit = async (data: ProfileFormValues) => {
     if (!userProfileRef) return;
     setIsSaving(true);
-    try {
-      await setDoc(userProfileRef, data, { merge: true });
-      toast({
-        title: 'Profile Updated',
-        description: 'Your profile has been saved successfully.',
+    
+    setDoc(userProfileRef, data, { merge: true })
+      .then(() => {
+        toast({
+          title: 'Profile Updated',
+          description: 'Your profile has been saved successfully.',
+        });
+      })
+      .catch((error) => {
+        const permissionError = new FirestorePermissionError({
+          path: userProfileRef.path,
+          operation: 'update',
+          requestResourceData: data,
+        });
+        errorEmitter.emit('permission-error', permissionError);
+      })
+      .finally(() => {
+        setIsSaving(false);
       });
-    } catch (error) {
-      console.error('Failed to update profile:', error);
-      toast({
-        title: 'Error',
-        description: 'Could not save your profile. Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   if (isLoading) {
