@@ -4,71 +4,45 @@ import { useUser, useAuth } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 import { UserProfileCard } from '@/components/dashboard/user-profile';
-import { Award, CalendarDays, LifeBuoy, LogOut, Ship, ArrowUp, ArrowDown, Search } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { SidebarTrigger } from '@/components/ui/sidebar';
-import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
-import MainChart from '@/components/dashboard/main-chart';
+import { LogOut, Search, Ship, LifeBuoy, ArrowUp, ArrowDown, BarChart2 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import MainChart from '@/components/dashboard/main-chart';
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts';
 
-
-const chartData = [
-    { name: 'Jan', value: 20 }, { name: 'Feb', value: 40 }, { name: 'Mar', value: 30 },
-    { name: 'Apr', value: 60 }, { name: 'May', value: 50 }, { name: 'Jun', value: 80 },
-  ];
-
-const StatCard = ({ title, value, change, changeType, data }: { title?: string, value: string, change: string, changeType: 'up' | 'down', data: any[] }) => {
-    const uniqueId = title ? title.replace(/\s/g, '') : Math.random().toString(36).substring(7);
-    return (
-    <Card className="rounded-xl bg-card shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-baseline gap-2">
-          <div className="text-3xl font-bold text-foreground">{value}</div>
-          <div className={`flex items-center text-sm font-semibold ${changeType === 'up' ? 'text-green-500' : 'text-red-500'}`}>
-            {changeType === 'up' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
-            {change}
-          </div>
-        </div>
-        <div className="h-16 w-full -ml-4 mt-2">
-            <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data} margin={{ top: 5, right: 0, left: 0, bottom: 5 }}>
-                    <defs>
-                        <linearGradient id={`color${uniqueId}`} x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.4}/>
-                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
-                        </linearGradient>
-                    </defs>
-                    <Area 
-                      type="monotone" 
-                      dataKey="value" 
-                      stroke="hsl(var(--primary))" 
-                      strokeWidth={2}
-                      fillOpacity={1} 
-                      fill={`url(#color${uniqueId})`} 
-                    />
-                </AreaChart>
-            </ResponsiveContainer>
-        </div>
-      </CardContent>
-    </Card>
-    )
+const totalLikesData = {
+  total: '1,284',
+  trend: [
+    { x: 1, y: 400 }, { x: 2, y: 300 }, { x: 3, y: 500 }, { x: 4, y: 450 }, { x: 5, y: 600 }, { x: 6, y: 550 },
+    { x: 7, y: 700 }, { x: 8, y: 650 }, { x: 9, y: 800 }, { x: 10, y: 750 }, { x: 11, y: 900 }, { x: 12, y: 850 },
+  ],
+  breakdown: [
+    { name: 'Deck', value: 60, color: 'hsl(var(--primary))' },
+    { name: 'Engine', value: 30, color: 'hsl(var(--accent))' },
+    { name: 'Interior', value: 10, color: 'hsl(var(--muted-foreground))' },
+  ],
 };
 
-const stats = [
-  { name: 'Total Sea Days', value: '1,284', change: '12.5%', changeType: 'up', data: [ { value: 10 }, { value: 15 }, { value: 12 }, { value: 20 }, { value: 18 }, { value: 25 } ] },
-  { name: 'Vessels Served On', value: '12', change: '2.1%', changeType: 'up', data: [ { value: 5 }, { value: 4 }, { value: 6 }, { value: 7 }, { value: 5 }, { value: 8 } ]},
-  { name: 'Certificates Held', value: '8', change: '0%', changeType: 'up', data: [ { value: 8 }, { value: 8 }, { value: 8 }, { value: 8 }, { value: 8 }, { value: 8 } ]},
-  { name: 'Testimonials Rec.', value: '23', change: '5.2%', changeType: 'down', data: [ { value: 30 }, { value: 28 }, { value: 29 }, { value: 26 }, { value: 27 }, { value: 23 } ]},
-];
+const testimonialData = {
+    total: 23,
+    breakdown: [
+        { name: 'Positive', value: 80, color: 'hsl(var(--primary))'},
+        { name: 'Neutral', value: 15, color: 'hsl(var(--accent))' },
+        { name: 'Negative', value: 5, color: 'hsl(var(--muted-foreground))'},
+    ]
+}
 
 const recentActivity = [
     { vessel: 'M/Y "Odyssey"', days: 14, date: '2024-06-15' },
     { vessel: 'S/Y "Wanderer"', days: 32, date: '2024-05-02' },
     { vessel: 'M/Y "Eclipse"', days: 7, date: '2024-03-20' },
+    { vessel: 'M/Y "Stardust"', days: 90, date: '2024-02-10' },
+    { vessel: 'S/Y "Zephyr"', days: 21, date: '2023-11-28' },
 ]
 
 export default function DashboardPage() {
@@ -85,84 +59,142 @@ export default function DashboardPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
-        <SidebarTrigger className="md:hidden" />
-        <div className="flex-1">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search..."
-              className="w-full rounded-lg bg-muted pl-8 md:w-[200px] lg:w-[320px]"
-            />
-          </div>
-        </div>
-        <Button onClick={handleSignOut} variant="outline" className="bg-card border-border hover:bg-muted">
-          <LogOut className="mr-2 h-4 w-4" />
-          Sign Out
-        </Button>
-      </header>
-      <main className="flex-1 space-y-8 p-4 pt-6 sm:p-6 lg:p-8">
-        <p className="text-lg text-muted-foreground">
-            Welcome back, {user?.displayName || user?.email || 'User'}!
-        </p>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {stats.map((stat) => (
-                <StatCard key={stat.name} title={stat.name} {...stat} />
-            ))}
-        </div>
-        
-        {/* Main content grid */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-            {/* Left Column */}
-            <div className="space-y-8 lg:col-span-2">
-                <MainChart />
-
-                <Card className="rounded-xl bg-card shadow-sm">
-                <CardHeader>
-                    <CardTitle>Recent Activity</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <ul className="divide-y divide-border">
-                    {recentActivity.map(activity => (
-                        <li key={activity.vessel} className="flex items-center justify-between py-3">
-                            <div>
-                                <p className="font-semibold text-foreground">{activity.vessel}</p>
-                                <p className="text-sm text-muted-foreground">Logged on {activity.date}</p>
-                            </div>
-                            <p className="font-mono text-lg font-medium text-primary">{activity.days} days</p>
-                        </li>
-                    ))}
-                    </ul>
-                </CardContent>
-                </Card>
+      <header className="sticky top-0 z-10 flex h-16 items-center gap-4 bg-transparent px-4 md:px-0">
+        <h1 className="text-3xl font-bold text-foreground">Analytics</h1>
+        <div className="ml-auto flex items-center gap-4">
+            <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                type="search"
+                placeholder="Search..."
+                className="w-full rounded-lg bg-card pl-8 md:w-[200px] lg:w-[320px]"
+                />
             </div>
-            
-            {/* Right Column */}
-            <div className="space-y-8">
-                <UserProfileCard />
-                <Card className="rounded-xl bg-card shadow-sm">
+            <Button onClick={handleSignOut} className="bg-foreground text-background hover:bg-foreground/90">
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign Out
+            </Button>
+        </div>
+      </header>
+      <main className="flex-1 space-y-8 pt-6">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+          {/* First Column */}
+          <div className="lg:col-span-2 space-y-8">
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+               <Card className="rounded-2xl shadow-sm bg-gradient-to-br from-pink-500 to-orange-400 text-white">
                     <CardHeader>
-                        <CardTitle>Next Certificate Progress</CardTitle>
+                        <CardTitle className="flex justify-between items-center text-white/90">
+                            <span>Total Sea Days</span>
+                            <Ship />
+                        </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="space-y-4">
-                            <div>
-                                <div className="flex justify-between mb-1">
-                                    <span className="text-base font-medium text-foreground">OOW (Yachts &lt; 3000gt)</span>
-                                    <span className="text-sm font-medium text-foreground">75%</span>
+                        <p className="text-5xl font-bold">{totalLikesData.total}</p>
+                        <div className="mt-6 flex justify-between text-sm">
+                            {totalLikesData.breakdown.map(item => (
+                                <div key={item.name}>
+                                    <p className="text-white/80">{item.name}</p>
+                                    <p className="font-bold">{item.value}%</p>
                                 </div>
-                                <Progress value={75} className="h-3 [&>div]:bg-primary" />
-                            </div>
-                            <p className="text-sm text-muted-foreground">You need 90 more sea days to be eligible for your OOW 3000gt oral exam.</p>
+                            ))}
                         </div>
                     </CardContent>
                 </Card>
-            </div>
-        </div>
 
+                <Card className="rounded-2xl shadow-sm">
+                    <CardHeader>
+                        <CardTitle className="flex justify-between items-center text-card-foreground/80">
+                            <span>Testimonials</span>
+                            <LifeBuoy />
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex items-center justify-between">
+                       <div className="text-5xl font-bold">{testimonialData.total}</div>
+                       <div className="w-32 h-32">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie 
+                                    data={testimonialData.breakdown} 
+                                    cx="50%" 
+                                    cy="50%" 
+                                    innerRadius={35} 
+                                    outerRadius={50} 
+                                    dataKey="value"
+                                    stroke="none"
+                                >
+                                    {testimonialData.breakdown.map((entry) => (
+                                        <Cell key={entry.name} fill={entry.color} />
+                                    ))}
+                                </Pie>
+                            </PieChart>
+                        </ResponsiveContainer>
+                       </div>
+                    </CardContent>
+                </Card>
+            </div>
+            <Card className="rounded-2xl shadow-sm">
+              <CardHeader>
+                  <CardTitle>Recent Activity</CardTitle>
+                  <CardDescription>Your most recently logged sea time.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                  <ul className="divide-y divide-border">
+                  {recentActivity.map(activity => (
+                      <li key={activity.vessel} className="flex items-center justify-between py-3">
+                          <div>
+                              <p className="font-semibold text-foreground">{activity.vessel}</p>
+                              <p className="text-sm text-muted-foreground">Logged on {activity.date}</p>
+                          </div>
+                          <p className="font-mono text-lg font-medium text-primary">{activity.days} days</p>
+                      </li>
+                  ))}
+                  </ul>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Second Column */}
+          <div className="space-y-8">
+             <Card className="rounded-2xl shadow-sm">
+                <CardHeader>
+                    <CardTitle className="flex justify-between items-center">
+                        <span>Vessel Stats</span>
+                        <BarChart2 />
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <MainChart />
+                     <div className="mt-6 space-y-4">
+                        <div className="flex justify-between items-center">
+                            <div>
+                                <p className="font-semibold">M/Y "Odyssey"</p>
+                                <p className="text-sm text-muted-foreground">Busiest Vessel</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="font-bold">452 days</p>
+                                <div className="flex items-center justify-end text-sm font-semibold text-green-500">
+                                    <ArrowUp className="h-4 w-4" /> 15%
+                                </div>
+                            </div>
+                        </div>
+                         <div className="flex justify-between items-center">
+                            <div>
+                                <p className="font-semibold">S/Y "Wanderer"</p>
+                                <p className="text-sm text-muted-foreground">Longest Trip</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="font-bold">90 days</p>
+                                <div className="flex items-center justify-end text-sm font-semibold text-red-500">
+                                    <ArrowDown className="h-4 w-4" /> 2%
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </CardContent>
+             </Card>
+             <UserProfileCard />
+          </div>
+        </div>
       </main>
     </div>
   );

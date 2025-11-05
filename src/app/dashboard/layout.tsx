@@ -6,6 +6,7 @@ import { useUser } from '@/firebase';
 import { Loader2 } from 'lucide-react';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { DashboardSidebar } from '@/components/layout/dashboard-sidebar';
+import { cn } from '@/lib/utils';
 
 export default function DashboardLayout({
   children,
@@ -34,13 +35,15 @@ export default function DashboardLayout({
   }
 
   return (
-    <SidebarProvider>
-      <div className="bg-background text-foreground flex min-h-screen">
-        <DashboardSidebar />
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">
-          {children}
-        </main>
-      </div>
-    </SidebarProvider>
+    <div className={cn("theme-analytics")}>
+      <SidebarProvider>
+        <div className="bg-background text-foreground flex min-h-screen">
+          <DashboardSidebar />
+          <main className="flex-1 p-4 sm:p-6 lg:p-8">
+            {children}
+          </main>
+        </div>
+      </SidebarProvider>
+    </div>
   );
 }

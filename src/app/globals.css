@@ -52,6 +52,33 @@
     --ring: 205 90% 55%;
     --radius: 0.8rem;
   }
+
+  .theme-analytics {
+    --background: 220 10% 95%;
+    --foreground: 220 15% 10%;
+
+    --card: 210 40% 100%;
+    --card-foreground: 220 15% 10%;
+    
+    --sidebar: 220 15% 10%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-accent: 220 10% 95%;
+    --sidebar-accent-foreground: 220 15% 10%;
+    --sidebar-border: 220 15% 20%;
+    --sidebar-ring: 205 90% 55%;
+
+    --muted: 220 10% 90%;
+    --muted-foreground: 220 10% 40%;
+    
+    --primary: 205 80% 50%;
+    --primary-foreground: 210 40% 98%;
+
+    --accent: 340 90% 60%;
+    --accent-foreground: 210 40% 98%;
+
+    --border: 220 10% 85%;
+    --input: 220 10% 88%;
+  }
 }
 
 @layer base {

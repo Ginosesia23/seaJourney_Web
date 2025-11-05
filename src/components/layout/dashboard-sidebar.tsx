@@ -12,7 +12,6 @@ import {
   SidebarTrigger,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupLabel,
 } from '@/components/ui/sidebar';
 import Logo from '@/components/logo';
 import {
@@ -22,7 +21,6 @@ import {
   Award,
   User,
   Settings,
-  GitBranch,
 } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { Avatar, AvatarFallback } from '../ui/avatar';
@@ -52,10 +50,10 @@ export function DashboardSidebar() {
   };
 
   return (
-    <Sidebar variant="sidebar" collapsible="icon" className="bg-card text-card-foreground shadow-md">
-      <SidebarHeader className="border-b">
-        <Logo className="hidden text-foreground group-data-[collapsible=icon]:hidden" />
-        <SidebarTrigger className="hidden text-foreground md:flex" />
+    <Sidebar variant="sidebar" collapsible="icon" className="bg-sidebar text-sidebar-foreground shadow-md">
+      <SidebarHeader className="border-b border-sidebar-border">
+        <Logo className="hidden text-sidebar-foreground group-data-[collapsible=icon]:hidden" />
+        <SidebarTrigger className="hidden text-sidebar-foreground/80 md:flex" />
       </SidebarHeader>
 
       <SidebarContent>
@@ -69,8 +67,8 @@ export function DashboardSidebar() {
                   aria-disabled={item.disabled}
                   disabled={item.disabled}
                   className={cn(
-                    "text-foreground/80 hover:bg-muted hover:text-foreground",
-                    "data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
+                    "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground"
                   )}
                 >
                   <item.icon />
@@ -82,33 +80,31 @@ export function DashboardSidebar() {
         </SidebarMenu>
         
         <SidebarGroup className="mt-auto">
-            <SidebarGroupLabel className="text-muted-foreground">Account</SidebarGroupLabel>
              <SidebarMenu>
                 {accountNav.map((item) => (
                     <SidebarMenuItem key={item.href}>
-                    <Link href={item.href}>
-                        <SidebarMenuButton
-                        isActive={pathname === item.href}
-                        tooltip={item.label}
-                        aria-disabled={item.disabled}
-                        disabled={item.disabled}
-                        className={cn(
-                            "text-foreground/80 hover:bg-muted hover:text-foreground",
-                            "data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
-                        )}
-                        >
-                        <item.icon />
-                        <span>{item.label}</span>
-                        </SidebarMenuButton>
-                    </Link>
+                      <Link href={item.href}>
+                          <SidebarMenuButton
+                            isActive={pathname === item.href}
+                            tooltip={item.label}
+                            aria-disabled={item.disabled}
+                            disabled={item.disabled}
+                            className={cn(
+                                "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                                "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground"
+                            )}
+                          >
+                          <item.icon />
+                          <span>{item.label}</span>
+                          </SidebarMenuButton>
+                      </Link>
                     </SidebarMenuItem>
                 ))}
              </SidebarMenu>
         </SidebarGroup>
-
       </SidebarContent>
 
-      <SidebarFooter className="border-t">
+      <SidebarFooter className="border-t border-sidebar-border">
         <div className="flex items-center gap-3 p-2">
             <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-primary/80 text-primary-foreground">
@@ -117,7 +113,7 @@ export function DashboardSidebar() {
             </Avatar>
             <div className="flex flex-col overflow-hidden whitespace-nowrap transition-opacity duration-200 group-data-[collapsible=icon]:opacity-0">
                 <span className="text-sm font-medium truncate">{user?.displayName || 'User'}</span>
-                <span className="text-xs text-muted-foreground truncate">{user?.email}</span>
+                <span className="text-xs text-sidebar-foreground/70 truncate">{user?.email}</span>
             </div>
         </div>
       </SidebarFooter>
