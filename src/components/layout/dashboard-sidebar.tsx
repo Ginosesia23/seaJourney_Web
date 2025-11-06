@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Home, Ship, LifeBuoy, Award } from 'lucide-react';
+import { Home, Ship, LifeBuoy, Award, Globe } from 'lucide-react';
 import Logo from '@/components/logo';
 
 const navItems = [
   { href: '/dashboard', label: 'Home', icon: Home },
+  { href: '/dashboard/world-map', label: 'World Map', icon: Globe, disabled: true },
   { href: '/dashboard/sea-time', label: 'Sea Time Log', icon: Ship, disabled: true },
   { href: '/dashboard/testimonials', label: 'Testimonials', icon: LifeBuoy, disabled: true },
   { href: '/dashboard/certificates', label: 'Certificates', icon: Award, disabled: true },
@@ -17,7 +18,7 @@ export default function DashboardSidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden lg:block border-r bg-card">
+    <aside className="hidden border-r bg-card lg:block">
       <div className="flex h-full max-h-screen flex-col gap-2">
         <div className="flex h-16 items-center border-b px-6 lg:hidden">
           <Logo />
