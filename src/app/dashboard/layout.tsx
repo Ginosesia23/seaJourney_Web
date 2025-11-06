@@ -35,7 +35,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="theme-dashboard grid min-h-screen w-full lg:grid-cols-[280px_1fr]">
+    <div className="theme-dashboard grid min-h-screen w-full lg:grid-cols-[240px_1fr]">
       <DashboardSidebar />
       <div className="flex flex-col">
         <DashboardHeader />

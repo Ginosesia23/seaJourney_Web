@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Home, Ship, LifeBuoy, Award } from 'lucide-react';
-import Logo from '../logo';
 
 const navItems = [
   { href: '/dashboard', label: 'Home', icon: Home },
@@ -17,12 +16,9 @@ export default function DashboardSidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden border-r bg-card md:block">
+    <aside className="hidden lg:block border-r bg-card">
       <div className="flex h-full max-h-screen flex-col gap-2">
-        <div className="flex h-16 items-center border-b px-6">
-           <Logo className="text-foreground" />
-        </div>
-        <div className="flex-1 overflow-y-auto py-2">
+        <div className="flex-1 overflow-y-auto pt-8">
           <nav className="grid items-start px-4 text-sm font-medium">
             {navItems.map((item) => (
               <Link
