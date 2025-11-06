@@ -4,9 +4,8 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/firebase';
 import { Loader2 } from 'lucide-react';
-import { SidebarProvider } from '@/components/ui/sidebar';
-import { DashboardSidebar } from '@/components/layout/dashboard-sidebar';
 import { cn } from '@/lib/utils';
+import DashboardHeader from '@/components/layout/dashboard-header';
 
 export default function DashboardLayout({
   children,
@@ -35,15 +34,11 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className={cn("theme-analytics")}>
-      <SidebarProvider>
-        <div className="bg-background text-foreground flex min-h-screen">
-          <DashboardSidebar />
-          <main className="flex-1 p-4 sm:p-6 lg:p-8">
-            {children}
-          </main>
-        </div>
-      </SidebarProvider>
+    <div className={cn("theme-dashboard", "flex min-h-screen w-full flex-col bg-background")}>
+      <DashboardHeader />
+      <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+        {children}
+      </main>
     </div>
   );
 }
