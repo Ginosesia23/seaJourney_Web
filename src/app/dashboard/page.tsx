@@ -81,7 +81,7 @@ export default function DashboardPage() {
           {/* First Column */}
           <div className="lg:col-span-2 space-y-8">
             <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-               <Card className="rounded-2xl shadow-sm bg-gradient-to-br from-pink-500 to-orange-400 text-white">
+               <Card className="rounded-2xl shadow-sm bg-gradient-to-br from-blue-500 to-cyan-400 text-white">
                     <CardHeader>
                         <CardTitle className="flex justify-between items-center text-white/90">
                             <span>Total Sea Days</span>
