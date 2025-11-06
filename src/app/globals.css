@@ -54,7 +54,7 @@
   }
 
   .theme-dashboard {
-    --background: 220 20% 96%;
+    --background: 0 0% 100%;
     --foreground: 224 71% 4%;
     --card: 210 40% 100%;
     --card-foreground: 224 71% 4%;

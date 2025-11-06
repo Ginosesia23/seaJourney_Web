@@ -43,11 +43,10 @@ const recentActivity = [
 
 export default function DashboardPage() {
   return (
-    <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-      {/* First Column */}
-      <div className="lg:col-span-2 space-y-8">
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-            <Card className="rounded-2xl shadow-sm bg-gradient-to-br from-blue-500 to-cyan-400 text-white">
+    <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-8 md:col-span-2">
+        <div className="grid gap-8 sm:grid-cols-2">
+           <Card className="rounded-2xl shadow-sm bg-gradient-to-br from-blue-500 to-cyan-400 text-white">
                 <CardHeader>
                     <CardTitle className="flex justify-between items-center text-white/90">
                         <span>Total Sea Days</span>
@@ -56,14 +55,6 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                     <p className="text-5xl font-bold">{totalLikesData.total}</p>
-                    <div className="mt-6 flex justify-between text-sm">
-                        {totalLikesData.breakdown.map(item => (
-                            <div key={item.name}>
-                                <p className="text-white/80">{item.name}</p>
-                                <p className="font-bold">{item.value}%</p>
-                            </div>
-                        ))}
-                    </div>
                 </CardContent>
             </Card>
 
@@ -98,66 +89,19 @@ export default function DashboardPage() {
                 </CardContent>
             </Card>
         </div>
+        
         <Card className="rounded-2xl shadow-sm">
           <CardHeader>
-              <CardTitle>Recent Activity</CardTitle>
-              <CardContent className="pt-4">
-                  <ul className="divide-y divide-border">
-                  {recentActivity.map(activity => (
-                      <li key={activity.vessel} className="flex items-center justify-between py-3">
-                          <div>
-                              <p className="font-semibold text-foreground">{activity.vessel}</p>
-                              <p className="text-sm text-muted-foreground">Logged on {activity.date}</p>
-                          </div>
-                          <p className="font-mono text-lg font-medium text-primary">{activity.days} days</p>
-                      </li>
-                  ))}
-                  </ul>
-              </CardContent>
+              <CardTitle>Vessel Stats</CardTitle>
           </CardHeader>
+          <CardContent>
+              <MainChart />
+          </CardContent>
         </Card>
       </div>
 
-      {/* Second Column */}
       <div className="space-y-8">
-            <Card className="rounded-2xl shadow-sm">
-            <CardHeader>
-                <CardTitle className="flex justify-between items-center">
-                    <span>Vessel Stats</span>
-                    <BarChart2 />
-                </CardTitle>
-            </CardHeader>
-            <CardContent>
-                <MainChart />
-                    <div className="mt-6 space-y-4">
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <p className="font-semibold">M/Y "Odyssey"</p>
-                            <p className="text-sm text-muted-foreground">Busiest Vessel</p>
-                        </div>
-                        <div className="text-right">
-                            <p className="font-bold">452 days</p>
-                            <div className="flex items-center justify-end text-sm font-semibold text-green-500">
-                                <ArrowUp className="h-4 w-4" /> 15%
-                            </div>
-                        </div>
-                    </div>
-                        <div className="flex justify-between items-center">
-                        <div>
-                            <p className="font-semibold">S/Y "Wanderer"</p>
-                            <p className="text-sm text-muted-foreground">Longest Trip</p>
-                        </div>
-                        <div className="text-right">
-                            <p className="font-bold">90 days</p>
-                            <div className="flex items-center justify-end text-sm font-semibold text-red-500">
-                                <ArrowDown className="h-4 w-4" /> 2%
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </CardContent>
-            </Card>
-            <UserProfileCard />
+        <UserProfileCard />
       </div>
     </div>
   );
