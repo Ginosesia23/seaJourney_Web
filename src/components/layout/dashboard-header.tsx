@@ -10,10 +10,6 @@ import {
   LogOut,
   Sparkles,
   Menu,
-  Home,
-  Ship,
-  LifeBuoy,
-  Award,
 } from 'lucide-react';
 import { useAuth, useUser } from '@/firebase';
 import { Avatar, AvatarFallback } from '../ui/avatar';
@@ -25,7 +21,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { cn } from '@/lib/utils';
 import { Input } from '../ui/input';
 import { Sheet, SheetContent, SheetTrigger } from '../ui/sheet';
 import DashboardSidebar from './dashboard-sidebar';
@@ -87,7 +82,7 @@ export default function DashboardHeader() {
             <Settings className="h-5 w-5" />
             <span className="sr-only">Settings</span>
         </Button>
-        <Button size="sm" className="bg-accent hover:bg-accent/90 text-accent-foreground hidden sm:flex">
+        <Button size="sm" variant="default" className="hidden sm:flex">
             <Sparkles className="mr-2 h-4 w-4" />
             Upgrade
         </Button>
