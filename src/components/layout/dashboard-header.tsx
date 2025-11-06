@@ -13,6 +13,7 @@ import {
   Search,
   LogOut,
   Sparkles,
+  Menu,
 } from 'lucide-react';
 import { useAuth, useUser } from '@/firebase';
 import { Avatar, AvatarFallback } from '../ui/avatar';
@@ -26,12 +27,14 @@ import {
 } from '../ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { Input } from '../ui/input';
+import { Sheet, SheetContent, SheetTrigger } from '../ui/sheet';
+
 
 const navItems = [
-  { href: '/dashboard', label: 'Home' },
-  { href: '/dashboard/sea-time', label: 'Sea Time Log', disabled: true },
-  { href: '/dashboard/testimonials', label: 'Testimonials', disabled: true },
-  { href: '/dashboard/certificates', label: 'Certificates', disabled: true },
+  { href: '/dashboard', label: 'Home', icon: LayoutDashboard },
+  { href: '/dashboard/sea-time', label: 'Sea Time Log', icon: Ship, disabled: true },
+  { href: '/dashboard/testimonials', label: 'Testimonials', icon: LifeBuoy, disabled: true },
+  { href: '/dashboard/certificates', label: 'Certificates', icon: Award, disabled: true },
 ];
 
 export default function DashboardHeader() {
@@ -56,35 +59,52 @@ export default function DashboardHeader() {
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-header px-4 text-header-foreground sm:px-6">
-      <Logo className="text-header-foreground" />
-      <nav className="hidden flex-col gap-6 text-lg font-medium md:flex md:flex-row md:items-center md:gap-5 md:text-sm lg:gap-6">
-        {navItems.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={cn(
-              'transition-colors hover:text-header-foreground',
-              pathname === item.href
-                ? 'text-header-foreground font-semibold'
-                : 'text-header-foreground/70',
-              item.disabled && 'cursor-not-allowed opacity-50'
-            )}
-            aria-disabled={item.disabled}
-            onClick={(e) => item.disabled && e.preventDefault()}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </nav>
+        <Sheet>
+            <SheetTrigger asChild>
+                <Button variant="outline" size="icon" className="shrink-0 md:hidden">
+                    <Menu className="h-5 w-5" />
+                    <span className="sr-only">Toggle navigation menu</span>
+                </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="flex flex-col">
+                <nav className="grid gap-2 text-lg font-medium">
+                    <Link href="/" className="flex items-center gap-2 text-lg font-semibold mb-4">
+                        <Logo className="text-foreground" />
+                    </Link>
+                     {navItems.map((item) => (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={cn(
+                          'mx-[-0.65rem] flex items-center gap-4 rounded-xl px-3 py-2 text-muted-foreground hover:text-foreground',
+                          pathname === item.href && 'bg-muted text-foreground',
+                          item.disabled && 'cursor-not-allowed opacity-50'
+                        )}
+                        aria-disabled={item.disabled}
+                        onClick={(e) => item.disabled && e.preventDefault()}
+                      >
+                        <item.icon className="h-5 w-5" />
+                        {item.label}
+                      </Link>
+                    ))}
+                </nav>
+            </SheetContent>
+        </Sheet>
+
+      <div className="w-full flex-1">
+        <form>
+            <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                    type="search"
+                    placeholder="Keyword search..."
+                    className="w-full rounded-lg bg-background/10 pl-8 text-header-foreground placeholder:text-header-foreground/60 md:w-1/3 h-9 border-0 focus-visible:ring-primary"
+                />
+            </div>
+        </form>
+      </div>
+
       <div className="ml-auto flex items-center gap-4">
-        <div className="relative hidden md:block">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-                type="search"
-                placeholder="Keyword search..."
-                className="w-full rounded-lg bg-background/10 pl-8 text-header-foreground placeholder:text-header-foreground/60 md:w-[200px] lg:w-[300px] h-9 border-0 focus-visible:ring-primary"
-            />
-        </div>
         <Button variant="ghost" size="icon" className="text-header-foreground hover:bg-white/10 hover:text-header-foreground">
             <Settings className="h-5 w-5" />
             <span className="sr-only">Settings</span>

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { Ship } from 'lucide-react';
 
 const LogoIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
@@ -30,8 +31,8 @@ const Logo = ({ className }: { className?: string }) => {
         className
       )}
     >
-      <LogoIcon className="h-7 w-7" />
-      <span className="font-headline text-2xl font-bold">SeaJourney</span>
+      <Ship className="h-6 w-6" />
+      <span className="font-headline text-xl font-bold">SeaJourney</span>
     </Link>
   );
 };
