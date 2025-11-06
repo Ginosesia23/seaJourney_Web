@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useUser } from '@/firebase';
 import { Loader2 } from 'lucide-react';
 import DashboardHeader from '@/components/layout/dashboard-header';
 import DashboardSidebar from '@/components/layout/dashboard-sidebar';
+import { cn } from '@/lib/utils';
 
 export default function DashboardLayout({
   children,
@@ -14,12 +15,15 @@ export default function DashboardLayout({
 }) {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (!isUserLoading && !user) {
       router.push('/login');
     }
   }, [user, isUserLoading, router]);
+
+  const isCollapsed = pathname === '/dashboard/world-map';
 
   if (isUserLoading) {
     return (
@@ -36,8 +40,13 @@ export default function DashboardLayout({
   return (
     <div className="theme-dashboard flex min-h-screen w-full flex-col">
       <DashboardHeader />
-      <div className="grid min-h-[calc(100vh-4rem)] flex-1 lg:grid-cols-[240px_1fr]">
-        <DashboardSidebar />
+      <div
+        className={cn(
+          "grid min-h-[calc(100vh-4rem)] flex-1 transition-[grid-template-columns] duration-300 ease-in-out",
+          isCollapsed ? "lg:grid-cols-[80px_1fr]" : "lg:grid-cols-[240px_1fr]"
+        )}
+      >
+        <DashboardSidebar isCollapsed={isCollapsed} />
         <main className="flex flex-1 flex-col gap-4 bg-background p-4 md:gap-8 md:p-8">
           {children}
         </main>
