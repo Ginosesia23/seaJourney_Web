@@ -68,7 +68,7 @@ const navGroups = [
     }
 ];
 
-export default function DashboardSidebar({ isCollapsed }: { isCollapsed: boolean }) {
+export default function DashboardSidebar({ isCollapsed }: { isCollapsed?: boolean }) {
   const pathname = usePathname();
 
   return (
@@ -82,13 +82,15 @@ export default function DashboardSidebar({ isCollapsed }: { isCollapsed: boolean
             <nav className={cn("grid items-start font-medium", isCollapsed ? "px-2" : "px-4")}>
               {navGroups.map((group) => (
                   <div key={group.title} className="mb-4">
-                      <h3 className={cn(
-                          "py-2 text-xs font-semibold uppercase text-muted-foreground/70 tracking-wider",
-                          isCollapsed ? "text-center" : "px-3",
-                          isCollapsed && group.title.length > 3 ? "text-[10px]" : "text-xs"
-                      )}>
-                        {isCollapsed ? group.title.substring(0,4) : group.title}
-                      </h3>
+                      {!isCollapsed && (
+                        <h3 className={cn(
+                            "py-2 text-xs font-semibold uppercase text-muted-foreground/70 tracking-wider",
+                            isCollapsed ? "text-center" : "px-3",
+                            isCollapsed && group.title.length > 3 ? "text-[10px]" : "text-xs"
+                        )}>
+                          {group.title}
+                        </h3>
+                      )}
                       {group.items.map((item) => (
                         isCollapsed ? (
                           <Tooltip key={item.href}>
