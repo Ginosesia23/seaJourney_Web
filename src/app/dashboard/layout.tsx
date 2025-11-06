@@ -4,7 +4,6 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/firebase';
 import { Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import DashboardHeader from '@/components/layout/dashboard-header';
 import DashboardSidebar from '@/components/layout/dashboard-sidebar';
 
@@ -35,10 +34,10 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="theme-dashboard grid min-h-screen w-full lg:grid-cols-[240px_1fr]">
-      <DashboardSidebar />
-      <div className="flex flex-col">
-        <DashboardHeader />
+    <div className="theme-dashboard flex min-h-screen w-full flex-col">
+      <DashboardHeader />
+      <div className="grid min-h-[calc(100vh-4rem)] flex-1 lg:grid-cols-[240px_1fr]">
+        <DashboardSidebar />
         <main className="flex flex-1 flex-col gap-4 bg-background p-4 md:gap-8 md:p-8">
           {children}
         </main>

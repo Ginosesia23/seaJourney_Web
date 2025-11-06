@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Logo from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,17 +28,10 @@ import {
 import { cn } from '@/lib/utils';
 import { Input } from '../ui/input';
 import { Sheet, SheetContent, SheetTrigger } from '../ui/sheet';
+import DashboardSidebar from './dashboard-sidebar';
 
-
-const navItems = [
-  { href: '/dashboard', label: 'Home', icon: Home },
-  { href: '/dashboard/sea-time', label: 'Sea Time Log', icon: Ship, disabled: true },
-  { href: '/dashboard/testimonials', label: 'Testimonials', icon: LifeBuoy, disabled: true },
-  { href: '/dashboard/certificates', label: 'Certificates', icon: Award, disabled: true },
-];
 
 export default function DashboardHeader() {
-  const pathname = usePathname();
   const auth = useAuth();
   const { user } = useUser();
   const router = useRouter();
@@ -67,28 +60,8 @@ export default function DashboardHeader() {
                         <span className="sr-only">Toggle navigation menu</span>
                     </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="flex flex-col bg-card">
-                    <nav className="grid gap-2 text-lg font-medium">
-                        <Link href="/" className="flex items-center gap-2 text-lg font-semibold mb-4">
-                            <Logo className="text-foreground" />
-                        </Link>
-                         {navItems.map((item) => (
-                          <Link
-                            key={item.href}
-                            href={item.href}
-                            className={cn(
-                              'mx-[-0.65rem] flex items-center gap-4 rounded-xl px-3 py-2 text-muted-foreground hover:text-foreground',
-                              pathname === item.href && 'bg-muted text-foreground',
-                              item.disabled && 'cursor-not-allowed opacity-50'
-                            )}
-                            aria-disabled={item.disabled}
-                            onClick={(e) => item.disabled && e.preventDefault()}
-                          >
-                            <item.icon className="h-5 w-5" />
-                            {item.label}
-                          </Link>
-                        ))}
-                    </nav>
+                <SheetContent side="left" className="flex flex-col bg-card p-0">
+                   <DashboardSidebar />
                 </SheetContent>
             </Sheet>
             <div className="hidden lg:block">
