@@ -12,7 +12,6 @@ import {
   Sphere,
   ZoomableGroup,
 } from 'react-simple-maps';
-import { geoOrthographic, geoMercator } from 'd3-geo';
 import { CardDescription, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -49,6 +48,55 @@ const regions = {
 
 type RegionKey = keyof typeof regions;
 
+const MapContent = ({ zoom = 1 }: { zoom?: number }) => (
+  <>
+    <Geographies geography={geoUrl}>
+      {({ geographies }) =>
+        geographies.map((geo) => (
+          <Geography
+            key={geo.rsmKey}
+            geography={geo}
+            fill="hsl(var(--muted))"
+            stroke="hsl(var(--background))"
+            style={{
+              default: { outline: 'none' },
+              hover: { fill: 'hsl(var(--primary) / 0.5)', outline: 'none' },
+              pressed: { fill: 'hsl(var(--primary))', outline: 'none' },
+            }}
+          />
+        ))
+      }
+    </Geographies>
+    {passages.map((line, i) => (
+      <Line
+        key={`line-${i}`}
+        from={line.from}
+        to={line.to}
+        stroke="hsl(var(--primary))"
+        strokeWidth={2 / zoom}
+        strokeLinecap="round"
+      />
+    ))}
+    {markers.map(({ name, coordinates }) => (
+      <Marker key={name} coordinates={coordinates}>
+        <circle r={4 / zoom} fill="hsl(var(--accent))" stroke="#FFF" strokeWidth={1 / zoom} />
+        <text
+          textAnchor="middle"
+          y={-8 / zoom}
+          style={{ 
+            fontFamily: 'system-ui', 
+            fill: 'hsl(var(--foreground))', 
+            fontSize: `${10 / zoom}px`, 
+            fontWeight: 'bold' 
+          }}
+        >
+          {name}
+        </text>
+      </Marker>
+    ))}
+  </>
+);
+
 export default function WorldMapPage() {
   const [mapView, setMapView] = useState<MapView>('globe');
   const [viewport, setViewport] = useState<Viewport>(regions.World);
@@ -80,55 +128,6 @@ export default function WorldMapPage() {
   const handleMouseUp = () => {
     setIsDragging(false);
   };
-
-  const MapContent = ({ zoom = 1 }: { zoom?: number }) => (
-    <>
-      <Geographies geography={geoUrl}>
-        {({ geographies }) =>
-          geographies.map((geo) => (
-            <Geography
-              key={geo.rsmKey}
-              geography={geo}
-              fill="hsl(var(--muted))"
-              stroke="hsl(var(--background))"
-              style={{
-                default: { outline: 'none' },
-                hover: { fill: 'hsl(var(--primary) / 0.5)', outline: 'none' },
-                pressed: { fill: 'hsl(var(--primary))', outline: 'none' },
-              }}
-            />
-          ))
-        }
-      </Geographies>
-      {passages.map((line, i) => (
-        <Line
-          key={`line-${i}`}
-          from={line.from}
-          to={line.to}
-          stroke="hsl(var(--primary))"
-          strokeWidth={2 / zoom}
-          strokeLinecap="round"
-        />
-      ))}
-      {markers.map(({ name, coordinates }) => (
-        <Marker key={name} coordinates={coordinates}>
-          <circle r={4 / zoom} fill="hsl(var(--accent))" stroke="#FFF" strokeWidth={1 / zoom} />
-          <text
-            textAnchor="middle"
-            y={-8 / zoom}
-            style={{ 
-              fontFamily: 'system-ui', 
-              fill: 'hsl(var(--foreground))', 
-              fontSize: `${10 / zoom}px`, 
-              fontWeight: 'bold' 
-            }}
-          >
-            {name}
-          </text>
-        </Marker>
-      ))}
-    </>
-  );
 
   return (
     <div className="flex h-full flex-col">
