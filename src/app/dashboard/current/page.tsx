@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, differenceInDays } from 'date-fns';
-import { CalendarIcon, MapPin, Ship, Briefcase, Workflow } from 'lucide-react';
+import { format, differenceInDays, startOfMonth, eachDayOfInterval } from 'date-fns';
+import { CalendarIcon, MapPin, Ship, Briefcase, Workflow, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -14,7 +14,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 const currentStatusSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
@@ -25,20 +32,28 @@ const currentStatusSchema = z.object({
 
 type CurrentStatusFormValues = z.infer<typeof currentStatusSchema>;
 
+type DailyStatus = 'at-sea' | 'standby' | 'in-port';
+interface CurrentStatus extends CurrentStatusFormValues {
+    dailyStates: Record<string, DailyStatus>;
+}
+
+
 const sampleVessels = [
   { id: 'vessel-1', name: 'M/Y "Odyssey"' },
   { id: 'vessel-2', name: 'S/Y "Wanderer"' },
   { id: 'vessel-3', name: 'M/Y "Eclipse"' },
 ];
 
-const vesselStates = [
-    { value: 'at-sea', label: 'At Sea' },
-    { value: 'standby', label: 'On Standby' },
-    { value: 'in-port', label: 'In Port' },
+const vesselStates: { value: DailyStatus; label: string, color: string }[] = [
+    { value: 'at-sea', label: 'At Sea', color: 'bg-primary' },
+    { value: 'standby', label: 'On Standby', color: 'bg-yellow-500' },
+    { value: 'in-port', label: 'In Port', color: 'bg-accent' },
 ]
 
 export default function CurrentPage() {
-  const [currentStatus, setCurrentStatus] = useState<CurrentStatusFormValues | null>(null);
+  const [currentStatus, setCurrentStatus] = useState<CurrentStatus | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const form = useForm<CurrentStatusFormValues>({
     resolver: zodResolver(currentStatusSchema),
@@ -48,56 +63,193 @@ export default function CurrentPage() {
   });
 
   function onSubmit(data: CurrentStatusFormValues) {
-    setCurrentStatus(data);
+    const today = new Date();
+    const interval = eachDayOfInterval({ start: data.startDate, end: today });
+    const dailyStates: Record<string, DailyStatus> = {};
+    interval.forEach(day => {
+        dailyStates[format(day, 'yyyy-MM-dd')] = data.vesselState;
+    });
+
+    setCurrentStatus({
+        ...data,
+        dailyStates
+    });
     form.reset();
+  }
+
+  const handleDayStateChange = (day: Date, state: DailyStatus) => {
+    if (!currentStatus) return;
+
+    const dateKey = format(day, 'yyyy-MM-dd');
+    setCurrentStatus(prev => ({
+        ...prev!,
+        dailyStates: {
+            ...prev!.dailyStates,
+            [dateKey]: state
+        }
+    }));
+    setIsDialogOpen(false);
   }
   
   const selectedVessel = currentStatus ? sampleVessels.find(v => v.id === currentStatus.vesselId) : null;
-  const daysOnboard = currentStatus ? differenceInDays(new Date(), currentStatus.startDate) : 0;
-
+  const daysOnboard = currentStatus ? differenceInDays(new Date(), currentStatus.startDate) + 1 : 0;
+  
+  const totalDaysByState = useMemo(() => {
+    if (!currentStatus) return { 'at-sea': 0, standby: 0, 'in-port': 0 };
+    return Object.values(currentStatus.dailyStates).reduce((acc, state) => {
+        acc[state] = (acc[state] || 0) + 1;
+        return acc;
+    }, {} as Record<DailyStatus, number>);
+  }, [currentStatus]);
 
   return (
-    <div className="w-full max-w-4xl mx-auto">
+    <div className="w-full max-w-7xl mx-auto">
        <div className="flex items-center gap-3 mb-8">
           <MapPin className="h-6 w-6" />
           <CardTitle>Current Status</CardTitle>
         </div>
       {currentStatus && selectedVessel ? (
-        <Card className="rounded-xl shadow-sm">
-          <CardHeader>
-            <CardTitle>You are currently on {selectedVessel.name}</CardTitle>
-            <CardDescription>
-              Logged since {format(currentStatus.startDate, 'PPP')}.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="flex items-center gap-3 p-4 rounded-lg bg-muted">
-                    <Briefcase className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                        <p className="text-sm text-muted-foreground">Position</p>
-                        <p className="font-semibold">{currentStatus.position}</p>
-                    </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+            <div className="lg:col-span-2">
+                <Card className="rounded-xl shadow-sm">
+                    <CardHeader>
+                        <div className="flex justify-between items-center">
+                            <div>
+                                <CardTitle>Monthly Log</CardTitle>
+                                <CardDescription>Click a day to update its status.</CardDescription>
+                            </div>
+                             <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Info className="h-4 w-4 text-muted-foreground" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p>The calendar shows your status per day. <br/>Future dates are disabled.</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                             </TooltipProvider>
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                             <Calendar
+                                mode="single"
+                                selected={selectedDate}
+                                onSelect={setSelectedDate}
+                                onDayClick={(day, modifiers) => {
+                                    if(modifiers.disabled) return;
+                                    setSelectedDate(day);
+                                    setIsDialogOpen(true);
+                                }}
+                                month={selectedDate}
+                                onMonthChange={setSelectedDate}
+                                className="p-0"
+                                classNames={{
+                                    day: 'h-12 w-12 rounded-lg relative',
+                                    day_selected: 'bg-background text-foreground border border-primary',
+                                }}
+                                disabled={{ after: new Date() }}
+                                components={{
+                                DayContent: ({ date, ...props }) => {
+                                    const dateKey = format(date, 'yyyy-MM-dd');
+                                    const state = currentStatus.dailyStates[dateKey];
+                                    const stateInfo = vesselStates.find(s => s.value === state);
+                                    const isDateInRange = date >= currentStatus.startDate && date <= new Date();
+
+                                    return (
+                                    <div className="relative h-full w-full flex items-center justify-center">
+                                        <span>{format(date, 'd')}</span>
+                                        {isDateInRange && stateInfo && (
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <span className={cn('absolute bottom-1 h-2 w-2 rounded-full', stateInfo.color)} />
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                    <p>{stateInfo.label}</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                        )}
+                                    </div>
+                                    );
+                                },
+                                }}
+                            />
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Update status for {selectedDate ? format(selectedDate, 'PPP') : ''}</DialogTitle>
+                                </DialogHeader>
+                                <div className="flex flex-col gap-4 py-4">
+                                {vesselStates.map((state) => (
+                                    <Button
+                                    key={state.value}
+                                    variant="outline"
+                                    className="justify-start gap-3"
+                                    onClick={() => handleDayStateChange(selectedDate!, state.value)}
+                                    >
+                                    <span className={cn('h-3 w-3 rounded-full', state.color)}></span>
+                                    {state.label}
+                                    </Button>
+                                ))}
+                                </div>
+                            </DialogContent>
+                        </Dialog>
+                    </CardContent>
+                </Card>
+            </div>
+            <div className="space-y-8">
+                <Card className="rounded-xl shadow-sm">
+                    <CardHeader>
+                        <CardTitle>Trip Summary</CardTitle>
+                        <CardDescription>
+                        You are currently on {selectedVessel.name}
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
+                            <Briefcase className="h-5 w-5 text-muted-foreground" />
+                            <div>
+                                <p className="text-sm text-muted-foreground">Position</p>
+                                <p className="font-semibold">{currentStatus.position}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
+                            <CalendarIcon className="h-5 w-5 text-muted-foreground" />
+                            <div>
+                                <p className="text-sm text-muted-foreground">Start Date</p>
+                                <p className="font-semibold">{format(currentStatus.startDate, 'PPP')}</p>
+                            </div>
+                        </div>
+                         <div className="text-center pt-2">
+                            <p className="text-sm text-muted-foreground">Total time onboard</p>
+                            <p className="text-4xl font-bold text-primary">{daysOnboard} days</p>
+                        </div>
+                    </CardContent>
+                </Card>
+                 <Card className="rounded-xl shadow-sm">
+                    <CardHeader>
+                        <CardTitle>Day Breakdown</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        {vesselStates.map(state => (
+                             <div key={state.value} className="flex justify-between items-center text-sm">
+                                <div className="flex items-center gap-2">
+                                    <span className={cn('h-2.5 w-2.5 rounded-full', state.color)}></span>
+                                    <span className="text-muted-foreground">{state.label}</span>
+                                </div>
+                                <span className="font-semibold">{totalDaysByState[state.value] || 0} days</span>
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
+                <div className="pt-2 flex justify-center">
+                    <Button onClick={() => setCurrentStatus(null)}>End Current Trip</Button>
                 </div>
-                 <div className="flex items-center gap-3 p-4 rounded-lg bg-muted">
-                    <Workflow className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                        <p className="text-sm text-muted-foreground">Vessel State</p>
-                        <p className="font-semibold capitalize">{currentStatus.vesselState.replace('-', ' ')}</p>
-                    </div>
-                </div>
             </div>
-            <div className="text-center pt-4">
-                <p className="text-sm text-muted-foreground">Total time onboard</p>
-                <p className="text-4xl font-bold text-primary">{daysOnboard} days</p>
-            </div>
-            <div className="pt-6 flex justify-center">
-                <Button onClick={() => setCurrentStatus(null)}>End Current Trip</Button>
-            </div>
-          </CardContent>
-        </Card>
+        </div>
       ) : (
-        <Card className="rounded-xl shadow-sm">
+        <Card className="rounded-xl shadow-sm max-w-lg mx-auto">
           <CardHeader>
             <CardTitle>Set Your Current Vessel</CardTitle>
             <CardDescription>Log the vessel you are currently working on to start tracking your sea time.</CardDescription>
@@ -189,7 +341,7 @@ export default function CurrentPage() {
                   name="vesselState"
                   render={({ field }) => (
                     <FormItem className="space-y-3">
-                      <FormLabel>Vessel State</FormLabel>
+                      <FormLabel>Initial Vessel State</FormLabel>
                       <FormControl>
                         <RadioGroup
                           onValueChange={field.onChange}
