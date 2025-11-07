@@ -92,6 +92,55 @@ export default function WorldMapPage() {
     
   const currentProjection = mapView === 'globe' ? globeProjection : flatProjection;
 
+  const MapContent = () => (
+    <>
+      <Geographies geography={geoUrl}>
+        {({ geographies }) =>
+          geographies.map((geo) => (
+            <Geography
+              key={geo.rsmKey}
+              geography={geo}
+              fill="hsl(var(--muted))"
+              stroke="hsl(var(--background))"
+              style={{
+                default: { outline: 'none' },
+                hover: { fill: 'hsl(var(--primary) / 0.5)', outline: 'none' },
+                pressed: { fill: 'hsl(var(--primary))', outline: 'none' },
+              }}
+            />
+          ))
+        }
+      </Geographies>
+      {passages.map((line, i) => (
+        <Line
+          key={`line-${i}`}
+          from={line.from}
+          to={line.to}
+          stroke="hsl(var(--primary))"
+          strokeWidth={mapView === 'globe' ? 2 : (2 / viewport.zoom)}
+          strokeLinecap="round"
+        />
+      ))}
+      {markers.map(({ name, coordinates }) => (
+        <Marker key={name} coordinates={coordinates}>
+          <circle r={mapView === 'globe' ? 4 : (4 / viewport.zoom)} fill="hsl(var(--accent))" stroke="#FFF" strokeWidth={mapView === 'globe' ? 1 : (1 / viewport.zoom)} />
+          <text
+            textAnchor="middle"
+            y={mapView === 'globe' ? -10 : (-8 / viewport.zoom)}
+            style={{ 
+              fontFamily: 'system-ui', 
+              fill: 'hsl(var(--foreground))', 
+              fontSize: `${mapView === 'globe' ? 10 : (10 / viewport.zoom)}px`, 
+              fontWeight: 'bold' 
+            }}
+          >
+            {name}
+          </text>
+        </Marker>
+      ))}
+    </>
+  );
+
   return (
     <div className="flex h-full flex-col">
       <div className="mb-4">
@@ -161,96 +210,14 @@ export default function WorldMapPage() {
                 fill="hsl(var(--background))"
               />
               <Graticule stroke="hsl(var(--border))" strokeWidth={0.25} />
+              <MapContent />
             </>
           ) : (
             <ZoomableGroup center={viewport.center} zoom={viewport.zoom}>
                 <Graticule stroke="hsl(var(--border))" strokeWidth={0.25} />
-                <Geographies geography={geoUrl}>
-                  {({ geographies }) =>
-                    geographies.map((geo) => (
-                      <Geography
-                        key={geo.rsmKey}
-                        geography={geo}
-                        fill="hsl(var(--muted))"
-                        stroke="hsl(var(--background))"
-                        style={{
-                          default: { outline: 'none' },
-                          hover: { fill: 'hsl(var(--primary) / 0.5)', outline: 'none' },
-                          pressed: { fill: 'hsl(var(--primary))', outline: 'none' },
-                        }}
-                      />
-                    ))
-                  }
-                </Geographies>
-                 {passages.map((line, i) => (
-                  <Line
-                    key={`line-${i}`}
-                    from={line.from}
-                    to={line.to}
-                    stroke="hsl(var(--primary))"
-                    strokeWidth={2 / viewport.zoom}
-                    strokeLinecap="round"
-                  />
-                ))}
-                {markers.map(({ name, coordinates }) => (
-                  <Marker key={name} coordinates={coordinates}>
-                    <circle r={4 / viewport.zoom} fill="hsl(var(--accent))" stroke="#FFF" strokeWidth={1 / viewport.zoom} />
-                    <text
-                      textAnchor="middle"
-                      y={-8 / viewport.zoom}
-                      style={{ fontFamily: 'system-ui', fill: 'hsl(var(--foreground))', fontSize: `${10 / viewport.zoom}px`, fontWeight: 'bold' }}
-                    >
-                      {name}
-                    </text>
-                  </Marker>
-                ))}
+                <MapContent />
             </ZoomableGroup>
           )}
-          
-          {mapView === 'globe' && (
-            <>
-              <Geographies geography={geoUrl}>
-                {({ geographies }) =>
-                  geographies.map((geo) => (
-                    <Geography
-                      key={geo.rsmKey}
-                      geography={geo}
-                      fill="hsl(var(--muted))"
-                      stroke="hsl(var(--background))"
-                      style={{
-                        default: { outline: 'none' },
-                        hover: { fill: 'hsl(var(--primary) / 0.5)', outline: 'none' },
-                        pressed: { fill: 'hsl(var(--primary))', outline: 'none' },
-                      }}
-                    />
-                  ))
-                }
-              </Geographies>
-              {passages.map((line, i) => (
-                <Line
-                  key={`line-${i}`}
-                  from={line.from}
-                  to={line.to}
-                  stroke="hsl(var(--primary))"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                />
-              ))}
-              {markers.map(({ name, coordinates }) => (
-                <Marker key={name} coordinates={coordinates}>
-                  <circle r={4} fill="hsl(var(--accent))" stroke="#FFF" strokeWidth={1} />
-                  <text
-                    textAnchor="middle"
-                    y={-10}
-                    style={{ fontFamily: 'system-ui', fill: 'hsl(var(--foreground))', fontSize: '10px', fontWeight: 'bold' }}
-                  >
-                    {name}
-                  </text>
-                </Marker>
-              ))}
-            </>
-          )}
-
         </ComposableMap>
       </div>
     </div>
