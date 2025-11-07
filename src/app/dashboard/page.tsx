@@ -1,7 +1,8 @@
+
 'use client';
 
-import { Ship, LifeBuoy } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Ship, LifeBuoy, Route, Anchor } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import MainChart from '@/components/dashboard/main-chart';
 import {
   ResponsiveContainer,
@@ -9,18 +10,12 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { format } from 'date-fns';
 
-const totalLikesData = {
+const totalSeaDaysData = {
   total: '1,284',
-  trend: [
-    { x: 1, y: 400 }, { x: 2, y: 300 }, { x: 3, y: 500 }, { x: 4, y: 450 }, { x: 5, y: 600 }, { x: 6, y: 550 },
-    { x: 7, y: 700 }, { x: 8, y: 650 }, { x: 9, y: 800 }, { x: 10, y: 750 }, { x: 11, y: 900 }, { x: 12, y: 850 },
-  ],
-  breakdown: [
-    { name: 'Deck', value: 60, color: 'hsl(var(--primary))' },
-    { name: 'Engine', value: 30, color: 'hsl(var(--accent))' },
-    { name: 'Interior', value: 10, color: 'hsl(var(--muted-foreground))' },
-  ],
 };
 
 const testimonialData = {
@@ -32,70 +27,109 @@ const testimonialData = {
     ]
 }
 
+const passagesData = {
+    total: 48,
+};
+
+const vesselsData = {
+    total: 7,
+}
+
 const recentActivity = [
-    { vessel: 'M/Y "Odyssey"', days: 14, date: '2024-06-15' },
-    { vessel: 'S/Y "Wanderer"', days: 32, date: '2024-05-02' },
-    { vessel: 'M/Y "Eclipse"', days: 7, date: '2024-03-20' },
-    { vessel: 'M/Y "Stardust"', days: 90, date: '2024-02-10' },
-    { vessel: 'S/Y "Zephyr"', days: 21, date: '2023-11-28' },
+    { vessel: 'M/Y "Odyssey"', days: 14, date: '2024-06-15', type: 'Motor Yacht' },
+    { vessel: 'S/Y "Wanderer"', days: 32, date: '2024-05-02', type: 'Sailing Yacht' },
+    { vessel: 'M/Y "Eclipse"', days: 7, date: '2024-03-20', type: 'Motor Yacht' },
+    { vessel: 'M/Y "Stardust"', days: 90, date: '2024-02-10', type: 'Motor Yacht' },
+    { vessel: 'S/Y "Zephyr"', days: 21, date: '2023-11-28', type: 'Sailing Yacht' },
 ]
 
 export default function DashboardPage() {
   return (
-    <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-      <div className="grid gap-8 sm:grid-cols-2">
-         <Card className="rounded-2xl shadow-sm bg-gradient-to-br from-blue-500 to-cyan-400 text-white">
-              <CardHeader>
-                  <CardTitle className="flex justify-between items-center text-white/90">
-                      <span>Total Sea Days</span>
-                      <Ship />
-                  </CardTitle>
+    <div className="flex flex-col gap-8">
+      <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
+         <Card className="rounded-xl shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Sea Days</CardTitle>
+                  <Ship className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                  <p className="text-5xl font-bold">{totalLikesData.total}</p>
+                  <div className="text-2xl font-bold">{totalSeaDaysData.total}</div>
+                  <p className="text-xs text-muted-foreground">+5.2% from last month</p>
               </CardContent>
           </Card>
 
-          <Card className="rounded-2xl shadow-sm">
-              <CardHeader>
-                  <CardTitle className="flex justify-between items-center text-card-foreground/80">
-                      <span>Testimonials</span>
-                      <LifeBuoy />
-                  </CardTitle>
+          <Card className="rounded-xl shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Testimonials</CardTitle>
+                  <LifeBuoy className="h-4 w-4 text-muted-foreground"/>
               </CardHeader>
-              <CardContent className="flex items-center justify-between">
-                  <div className="text-5xl font-bold">{testimonialData.total}</div>
-                  <div className="w-32 h-32">
-                  <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                          <Pie 
-                              data={testimonialData.breakdown} 
-                              cx="50%" 
-                              cy="50%" 
-                              innerRadius={35} 
-                              outerRadius={50} 
-                              dataKey="value"
-                              stroke="none"
-                          >
-                              {testimonialData.breakdown.map((entry) => (
-                                  <Cell key={entry.name} fill={entry.color} />
-                              ))}
-                          </Pie>
-                      </PieChart>
-                  </ResponsiveContainer>
-                  </div>
+              <CardContent>
+                  <div className="text-2xl font-bold">{testimonialData.total}</div>
+                  <p className="text-xs text-muted-foreground">3 new positive reviews</p>
+              </CardContent>
+          </Card>
+          
+          <Card className="rounded-xl shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Passages Logged</CardTitle>
+                  <Route className="h-4 w-4 text-muted-foreground"/>
+              </CardHeader>
+              <CardContent>
+                  <div className="text-2xl font-bold">{passagesData.total}</div>
+                  <p className="text-xs text-muted-foreground">+2 since last week</p>
+              </CardContent>
+          </Card>
+
+          <Card className="rounded-xl shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Vessels Logged</CardTitle>
+                  <Anchor className="h-4 w-4 text-muted-foreground"/>
+              </CardHeader>
+              <CardContent>
+                  <div className="text-2xl font-bold">{vesselsData.total}</div>
+                  <p className="text-xs text-muted-foreground">1 new vessel added</p>
               </CardContent>
           </Card>
       </div>
       
-      <Card className="rounded-2xl shadow-sm">
-        <CardHeader>
-            <CardTitle>Vessel Stats</CardTitle>
-        </CardHeader>
-        <CardContent>
-            <MainChart />
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        <Card className="rounded-xl shadow-sm lg:col-span-2">
+            <CardHeader>
+                <CardTitle>Sea Day Analytics</CardTitle>
+                <CardDescription>Your sea days logged over the past year.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <MainChart />
+            </CardContent>
+        </Card>
+        <Card className="rounded-xl shadow-sm">
+            <CardHeader>
+                <CardTitle>Recent Activity</CardTitle>
+                <CardDescription>Your most recently logged sea time.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Vessel</TableHead>
+                            <TableHead className="text-right">Date</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {recentActivity.map((activity, index) => (
+                        <TableRow key={index}>
+                            <TableCell>
+                                <div className="font-medium">{activity.vessel}</div>
+                                <div className="text-sm text-muted-foreground">{activity.days} days</div>
+                            </TableCell>
+                            <TableCell className="text-right">{format(new Date(activity.date), 'dd MMM, yyyy')}</TableCell>
+                        </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
