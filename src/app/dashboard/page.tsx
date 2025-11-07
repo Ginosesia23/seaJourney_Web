@@ -1,7 +1,6 @@
 'use client';
 
-import { UserProfileCard } from '@/components/dashboard/user-profile';
-import { Ship, LifeBuoy, ArrowUp, ArrowDown, BarChart2 } from 'lucide-react';
+import { Ship, LifeBuoy } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import MainChart from '@/components/dashboard/main-chart';
 import {
@@ -43,66 +42,60 @@ const recentActivity = [
 
 export default function DashboardPage() {
   return (
-    <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-      <div className="grid gap-8 md:col-span-2">
-        <div className="grid gap-8 sm:grid-cols-2">
-           <Card className="rounded-2xl shadow-sm bg-gradient-to-br from-blue-500 to-cyan-400 text-white">
-                <CardHeader>
-                    <CardTitle className="flex justify-between items-center text-white/90">
-                        <span>Total Sea Days</span>
-                        <Ship />
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-5xl font-bold">{totalLikesData.total}</p>
-                </CardContent>
-            </Card>
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+      <div className="grid gap-8 sm:grid-cols-2">
+         <Card className="rounded-2xl shadow-sm bg-gradient-to-br from-blue-500 to-cyan-400 text-white">
+              <CardHeader>
+                  <CardTitle className="flex justify-between items-center text-white/90">
+                      <span>Total Sea Days</span>
+                      <Ship />
+                  </CardTitle>
+              </CardHeader>
+              <CardContent>
+                  <p className="text-5xl font-bold">{totalLikesData.total}</p>
+              </CardContent>
+          </Card>
 
-            <Card className="rounded-2xl shadow-sm">
-                <CardHeader>
-                    <CardTitle className="flex justify-between items-center text-card-foreground/80">
-                        <span>Testimonials</span>
-                        <LifeBuoy />
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="flex items-center justify-between">
-                    <div className="text-5xl font-bold">{testimonialData.total}</div>
-                    <div className="w-32 h-32">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                            <Pie 
-                                data={testimonialData.breakdown} 
-                                cx="50%" 
-                                cy="50%" 
-                                innerRadius={35} 
-                                outerRadius={50} 
-                                dataKey="value"
-                                stroke="none"
-                            >
-                                {testimonialData.breakdown.map((entry) => (
-                                    <Cell key={entry.name} fill={entry.color} />
-                                ))}
-                            </Pie>
-                        </PieChart>
-                    </ResponsiveContainer>
-                    </div>
-                </CardContent>
-            </Card>
-        </div>
-        
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader>
-              <CardTitle>Vessel Stats</CardTitle>
-          </CardHeader>
-          <CardContent>
-              <MainChart />
-          </CardContent>
-        </Card>
+          <Card className="rounded-2xl shadow-sm">
+              <CardHeader>
+                  <CardTitle className="flex justify-between items-center text-card-foreground/80">
+                      <span>Testimonials</span>
+                      <LifeBuoy />
+                  </CardTitle>
+              </CardHeader>
+              <CardContent className="flex items-center justify-between">
+                  <div className="text-5xl font-bold">{testimonialData.total}</div>
+                  <div className="w-32 h-32">
+                  <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                          <Pie 
+                              data={testimonialData.breakdown} 
+                              cx="50%" 
+                              cy="50%" 
+                              innerRadius={35} 
+                              outerRadius={50} 
+                              dataKey="value"
+                              stroke="none"
+                          >
+                              {testimonialData.breakdown.map((entry) => (
+                                  <Cell key={entry.name} fill={entry.color} />
+                              ))}
+                          </Pie>
+                      </PieChart>
+                  </ResponsiveContainer>
+                  </div>
+              </CardContent>
+          </Card>
       </div>
-
-      <div className="space-y-8">
-        <UserProfileCard />
-      </div>
+      
+      <Card className="rounded-2xl shadow-sm">
+        <CardHeader>
+            <CardTitle>Vessel Stats</CardTitle>
+        </CardHeader>
+        <CardContent>
+            <MainChart />
+        </CardContent>
+      </Card>
     </div>
   );
 }
