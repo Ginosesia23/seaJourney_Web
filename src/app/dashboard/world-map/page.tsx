@@ -1,6 +1,5 @@
 'use client';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Globe } from 'lucide-react';
 import React, { useState, MouseEvent } from 'react';
 import {
@@ -13,6 +12,7 @@ import {
   Sphere,
 } from 'react-simple-maps';
 import { geoOrthographic } from 'd3-geo';
+import { CardDescription, CardTitle } from '@/components/ui/card';
 
 const geoUrl = 'https://raw.githubusercontent.com/deldersveld/topojson/master/world-countries.json';
 
@@ -55,25 +55,24 @@ export default function WorldMapPage() {
   };
   
   const projection = geoOrthographic()
-    .scale(250)
+    .scale(300) // Increased scale for a larger globe
     .translate([400, 300])
     .rotate(rotation);
 
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-3">
-          <Globe className="h-6 w-6" />
-          <CardTitle>Interactive World Map</CardTitle>
+    <div className="flex h-full flex-col">
+        <div className="mb-4">
+            <div className="flex items-center gap-3">
+            <Globe className="h-6 w-6" />
+            <CardTitle>Interactive World Map</CardTitle>
+            </div>
+            <CardDescription className="mt-2">
+            Visualize your passages, visited countries, and ports. Click and drag the globe to rotate.
+            </CardDescription>
         </div>
-        <CardDescription>
-          Visualize your passages, visited countries, and ports. Click and drag the globe to rotate.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
         <div 
-          className="relative aspect-video w-full overflow-hidden rounded-lg border"
+          className="relative flex-1 w-full overflow-hidden rounded-lg border"
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
@@ -82,9 +81,12 @@ export default function WorldMapPage() {
         >
           <ComposableMap
             projection={projection}
-            style={{ width: '100%', height: 'auto' }}
+            style={{ width: '100%', height: '100%' }}
             width={800}
             height={600}
+            projectionConfig={{
+              scale: 250
+            }}
           >
             <Sphere
                 id="rsm-sphere"
@@ -137,7 +139,6 @@ export default function WorldMapPage() {
 
           </ComposableMap>
         </div>
-      </CardContent>
-    </Card>
+    </div>
   );
 }
