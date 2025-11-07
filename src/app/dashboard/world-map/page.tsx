@@ -81,18 +81,7 @@ export default function WorldMapPage() {
     setIsDragging(false);
   };
 
-  const globeProjection = geoOrthographic()
-    .scale(300)
-    .translate([400, 300])
-    .rotate(viewport.rotation);
-    
-  const flatProjection = geoMercator()
-    .scale(120)
-    .translate([400, 350]);
-    
-  const currentProjection = mapView === 'globe' ? globeProjection : flatProjection;
-
-  const MapContent = () => (
+  const MapContent = ({ zoom = 1 }: { zoom?: number }) => (
     <>
       <Geographies geography={geoUrl}>
         {({ geographies }) =>
@@ -117,20 +106,20 @@ export default function WorldMapPage() {
           from={line.from}
           to={line.to}
           stroke="hsl(var(--primary))"
-          strokeWidth={mapView === 'globe' ? 2 : (2 / viewport.zoom)}
+          strokeWidth={2 / zoom}
           strokeLinecap="round"
         />
       ))}
       {markers.map(({ name, coordinates }) => (
         <Marker key={name} coordinates={coordinates}>
-          <circle r={mapView === 'globe' ? 4 : (4 / viewport.zoom)} fill="hsl(var(--accent))" stroke="#FFF" strokeWidth={mapView === 'globe' ? 1 : (1 / viewport.zoom)} />
+          <circle r={4 / zoom} fill="hsl(var(--accent))" stroke="#FFF" strokeWidth={1 / zoom} />
           <text
             textAnchor="middle"
-            y={mapView === 'globe' ? -10 : (-8 / viewport.zoom)}
+            y={-8 / zoom}
             style={{ 
               fontFamily: 'system-ui', 
               fill: 'hsl(var(--foreground))', 
-              fontSize: `${mapView === 'globe' ? 10 : (10 / viewport.zoom)}px`, 
+              fontSize: `${10 / zoom}px`, 
               fontWeight: 'bold' 
             }}
           >
@@ -195,30 +184,39 @@ export default function WorldMapPage() {
         onMouseLeave={handleMouseUp}
         style={{ cursor: mapView === 'globe' && isDragging ? 'grabbing' : mapView === 'globe' ? 'grab' : 'default' }}
       >
-        <ComposableMap
-          projection={currentProjection}
-          style={{ width: '100%', height: '100%' }}
-          width={800}
-          height={600}
-        >
-          {mapView === 'globe' ? (
-            <>
-              <Sphere
+        {mapView === 'globe' ? (
+          <ComposableMap
+            projection="geoOrthographic"
+            projectionConfig={{
+                rotate: viewport.rotation,
+                scale: 300
+            }}
+            style={{ width: '100%', height: '100%' }}
+            width={800}
+            height={600}
+          >
+            <Sphere
                 id="rsm-sphere"
                 stroke="hsl(var(--border))"
                 strokeWidth={0.5}
                 fill="hsl(var(--background))"
-              />
-              <Graticule stroke="hsl(var(--border))" strokeWidth={0.25} />
-              <MapContent />
-            </>
-          ) : (
+            />
+            <Graticule stroke="hsl(var(--border))" strokeWidth={0.25} />
+            <MapContent />
+          </ComposableMap>
+        ) : (
+          <ComposableMap
+            projection="geoMercator"
+            style={{ width: '100%', height: '100%' }}
+            width={800}
+            height={600}
+          >
             <ZoomableGroup center={viewport.center} zoom={viewport.zoom}>
-                <Graticule stroke="hsl(var(--border))" strokeWidth={0.25} />
-                <MapContent />
+                <Graticule stroke="hsl(var(--border))" strokeWidth={0.5} />
+                <MapContent zoom={viewport.zoom} />
             </ZoomableGroup>
-          )}
-        </ComposableMap>
+          </ComposableMap>
+        )}
       </div>
     </div>
   );
