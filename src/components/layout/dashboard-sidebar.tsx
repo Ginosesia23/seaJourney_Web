@@ -53,7 +53,7 @@ const navGroups = [
   {
     title: 'Management',
     items: [
-        { href: '/dashboard/profile', label: 'Profile', icon: User, disabled: true },
+        { href: '/dashboard/profile', label: 'Profile', icon: User, disabled: false },
         { href: '/dashboard/testimonials', label: 'Testimonials', icon: LifeBuoy, disabled: true },
         { href: '/dashboard/certificates', label: 'Certificates', icon: Award, disabled: true },
         { href: '/dashboard/export', label: 'Export', icon: Download, disabled: true },
