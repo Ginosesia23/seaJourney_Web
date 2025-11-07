@@ -56,7 +56,7 @@ const MapContent = ({ zoom = 1 }: { zoom?: number }) => (
           <Geography
             key={geo.rsmKey}
             geography={geo}
-            fill="hsl(var(--muted))"
+            fill="hsl(var(--card))"
             stroke="hsl(var(--background))"
             style={{
               default: { outline: 'none' },
@@ -176,7 +176,7 @@ export default function WorldMapPage() {
         </div>
       </div>
       <div
-        className="relative flex-1 w-full overflow-hidden rounded-lg border"
+        className="relative flex-1 w-full overflow-hidden rounded-lg border bg-background"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
