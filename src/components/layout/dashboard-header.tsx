@@ -87,14 +87,6 @@ export default function DashboardHeader() {
       </div>
 
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" className="text-header-foreground hover:bg-white/10 hover:text-header-foreground hidden sm:flex">
-            <Settings className="h-5 w-5" />
-            <span className="sr-only">Settings</span>
-        </Button>
-        <Button size="sm" variant="default" className="hidden sm:flex">
-            <Sparkles className="mr-2 h-4 w-4" />
-            Upgrade
-        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="rounded-full hover:bg-white/10">
@@ -111,8 +103,18 @@ export default function DashboardHeader() {
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>My Account</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Profile</DropdownMenuItem>
-            <DropdownMenuItem>Settings</DropdownMenuItem>
+             <DropdownMenuItem onClick={() => router.push('/dashboard/profile')}>
+                <User className="mr-2 h-4 w-4" />
+                Profile
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+                <Sparkles className="mr-2 h-4 w-4" />
+                Subscription
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+                <Settings className="mr-2 h-4 w-4" />
+                Settings
+            </DropdownMenuItem>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
