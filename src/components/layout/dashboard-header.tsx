@@ -13,8 +13,9 @@ import {
   Moon,
   Sun,
   Laptop,
+  User,
 } from 'lucide-react';
-import { useAuth, useUser } from '@/firebase';
+import { useAuth, useUser as useFirebaseUser } from '@/firebase';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import {
   DropdownMenu,
@@ -36,7 +37,7 @@ import { useTheme } from 'next-themes';
 
 export default function DashboardHeader() {
   const auth = useAuth();
-  const { user } = useUser();
+  const { user } = useFirebaseUser();
   const router = useRouter();
   const { setTheme } = useTheme();
 
