@@ -44,7 +44,7 @@ const tiers = [
     priceSuffix: '/ month',
     description: 'For career-focused seafarers needing detailed analytics.',
     features: [
-      'All Premium features',
+      'All Standard features',
       'Advanced career analytics',
       'Certification progress tracking',
       'Cloud data backup',
@@ -53,12 +53,12 @@ const tiers = [
     type: 'crew',
   },
   {
-    name: 'Professional',
+    name: 'Premium+',
     price: '$49.99',
     priceSuffix: '/ month',
     description: 'For captains and managers overseeing multiple crew members.',
     features: [
-      'All Premium+ features',
+      'All Premium features',
       'Crew management tools',
       'Fleet-wide reporting',
       'Priority support',
