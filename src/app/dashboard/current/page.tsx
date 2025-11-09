@@ -298,6 +298,55 @@ export default function CurrentPage() {
         </div>
       {isDisplayingStatus ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+            <div className="space-y-8">
+                <Card className="rounded-xl shadow-sm">
+                    <CardHeader>
+                        <CardTitle>Trip Summary</CardTitle>
+                        <CardDescription>
+                        You are currently on {selectedVessel.name}
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
+                            <Briefcase className="h-5 w-5 text-muted-foreground" />
+                            <div>
+                                <p className="text-sm text-muted-foreground">Position</p>
+                                <p className="font-semibold">{currentStatus.position}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
+                            <CalendarIcon className="h-5 w-5 text-muted-foreground" />
+                            <div>
+                                <p className="text-sm text-muted-foreground">Start Date</p>
+                                <p className="font-semibold">{format(startDate, 'PPP')}</p>
+                            </div>
+                        </div>
+                         <div className="text-center pt-2">
+                            <p className="text-sm text-muted-foreground">Total time onboard</p>
+                            <p className="text-4xl font-bold text-primary">{daysOnboard} days</p>
+                        </div>
+                    </CardContent>
+                </Card>
+                 <Card className="rounded-xl shadow-sm">
+                    <CardHeader>
+                        <CardTitle>Day Breakdown</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        {vesselStates.map(state => (
+                             <div key={state.value} className="flex justify-between items-center text-sm">
+                                <div className="flex items-center gap-2">
+                                    <span className={cn('h-2.5 w-2.5 rounded-full', state.color)}></span>
+                                    <span className="text-muted-foreground">{state.label}</span>
+                                </div>
+                                <span className="font-semibold">{totalDaysByState[state.value] || 0} days</span>
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
+                <div className="pt-2 flex justify-center">
+                    <Button onClick={handleEndTrip}>End Current Trip</Button>
+                </div>
+            </div>
             <div className="lg:col-span-2">
                 <Card className="rounded-xl shadow-sm">
                     <CardHeader>
@@ -358,7 +407,7 @@ export default function CurrentPage() {
                                         <Tooltip>
                                           <TooltipTrigger asChild>
                                             <div className="relative h-full w-full flex items-center justify-center">
-                                              <div className={cn('absolute inset-0 mx-[-1px] my-[3px]', stateInfo.color, rangeClass)}></div>
+                                              <div className={cn('absolute inset-y-1 inset-x-[-1px]', stateInfo.color, rangeClass)}></div>
                                               <span className="relative z-10 font-medium text-white mix-blend-difference">{format(date, 'd')}</span>
                                             </div>
                                           </TooltipTrigger>
@@ -392,55 +441,6 @@ export default function CurrentPage() {
                         </Dialog>
                     </CardContent>
                 </Card>
-            </div>
-            <div className="space-y-8">
-                <Card className="rounded-xl shadow-sm">
-                    <CardHeader>
-                        <CardTitle>Trip Summary</CardTitle>
-                        <CardDescription>
-                        You are currently on {selectedVessel.name}
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
-                            <Briefcase className="h-5 w-5 text-muted-foreground" />
-                            <div>
-                                <p className="text-sm text-muted-foreground">Position</p>
-                                <p className="font-semibold">{currentStatus.position}</p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
-                            <CalendarIcon className="h-5 w-5 text-muted-foreground" />
-                            <div>
-                                <p className="text-sm text-muted-foreground">Start Date</p>
-                                <p className="font-semibold">{format(startDate, 'PPP')}</p>
-                            </div>
-                        </div>
-                         <div className="text-center pt-2">
-                            <p className="text-sm text-muted-foreground">Total time onboard</p>
-                            <p className="text-4xl font-bold text-primary">{daysOnboard} days</p>
-                        </div>
-                    </CardContent>
-                </Card>
-                 <Card className="rounded-xl shadow-sm">
-                    <CardHeader>
-                        <CardTitle>Day Breakdown</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        {vesselStates.map(state => (
-                             <div key={state.value} className="flex justify-between items-center text-sm">
-                                <div className="flex items-center gap-2">
-                                    <span className={cn('h-2.5 w-2.5 rounded-full', state.color)}></span>
-                                    <span className="text-muted-foreground">{state.label}</span>
-                                </div>
-                                <span className="font-semibold">{totalDaysByState[state.value] || 0} days</span>
-                            </div>
-                        ))}
-                    </CardContent>
-                </Card>
-                <div className="pt-2 flex justify-center">
-                    <Button onClick={handleEndTrip}>End Current Trip</Button>
-                </div>
             </div>
         </div>
       ) : (
@@ -630,5 +630,7 @@ export default function CurrentPage() {
   );
 }
 
+
+    
 
     
