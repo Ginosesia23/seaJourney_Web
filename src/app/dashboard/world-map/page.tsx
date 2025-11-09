@@ -201,7 +201,7 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
                         key={index}
                         d={path}
                         stroke={passageColors[index % passageColors.length]}
-                        strokeWidth="2"
+                        strokeWidth="1"
                         fill="none"
                       />
                   ))}
@@ -235,17 +235,6 @@ export default function WorldMapPage() {
         [-70.0, 26.0],   // Bahamas
         [-80.1, 25.7],   // Miami
     ];
-    
-    // Sample passage from Iceland to Sydney
-    const passage2: Passage = [
-        [-18.1, 64.9],   // Iceland
-        [-8.2, 53.0],    // Off Ireland
-        [18.4, -34.6],   // Cape of Good Hope, South Africa
-        [80.0, -10.0],   // Indian Ocean
-        [115.0, -32.0],  // Near Perth
-        [151.2, -33.8],  // Sydney
-    ];
 
-
-    return <HexWorldMap baseHexRadius={4} passageData={[passage1, passage2]} />;
+    return <HexWorldMap baseHexRadius={4} passageData={[passage1]} />;
 }
