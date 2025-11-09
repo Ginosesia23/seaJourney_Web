@@ -7,8 +7,9 @@ import * as topojson from 'topojson-client';
 import world from 'world-atlas/countries-110m.json';
 import { geoMercator } from 'd3-geo';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Plus, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 
 function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: number; scaleFactor?: number }) {
   const [geoData, setGeoData] = useState<any>(null);
@@ -132,25 +133,37 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: n
       )}
       <div className={cn("h-full w-full transition-opacity duration-500", isLoading ? "opacity-0" : "opacity-100")}>
         <TransformWrapper minScale={0.5} maxScale={10} initialScale={1.8} centerOnInit>
-          <TransformComponent wrapperClass="!w-full !h-full" contentClass="!w-full !h-full">
-            <svg
-              viewBox={`0 0 ${width} ${height}`}
-              preserveAspectRatio="none"
-              style={{width:'100%', height:'100%', display:'block', background: 'hsl(var(--muted)/0.2)'}}
-            >
-              {validHexes.map(([x, y], i) => (
-                <polygon
-                  key={i}
-                  points={hexPoints(x, y, adjustedHexRadius)}
-                  fill="hsl(var(--background))"
-                  stroke={selectedHex === i ? 'hsl(var(--primary))' : 'hsl(var(--border))'}
-                  strokeWidth={0.4}
-                  onClick={() => handleHexClick(i)}
-                  className="cursor-pointer transition-all duration-150 hover:fill-primary/20"
-                />
-              ))}
-            </svg>
-          </TransformComponent>
+           {({ zoomIn, zoomOut }) => (
+            <>
+              <TransformComponent wrapperClass="!w-full !h-full" contentClass="!w-full !h-full">
+                <svg
+                  viewBox={`0 0 ${width} ${height}`}
+                  preserveAspectRatio="none"
+                  style={{width:'100%', height:'100%', display:'block', background: 'hsl(var(--muted)/0.2)'}}
+                >
+                  {validHexes.map(([x, y], i) => (
+                    <polygon
+                      key={i}
+                      points={hexPoints(x, y, adjustedHexRadius)}
+                      fill="hsl(var(--background))"
+                      stroke={selectedHex === i ? 'hsl(var(--primary))' : 'hsl(var(--border))'}
+                      strokeWidth={0.4}
+                      onClick={() => handleHexClick(i)}
+                      className="cursor-pointer transition-all duration-150 hover:fill-primary/20"
+                    />
+                  ))}
+                </svg>
+              </TransformComponent>
+              <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+                <Button onClick={() => zoomIn()} size="icon" variant="outline" className="rounded-full shadow-lg">
+                  <Plus />
+                </Button>
+                <Button onClick={() => zoomOut()} size="icon" variant="outline" className="rounded-full shadow-lg">
+                  <Minus />
+                </Button>
+              </div>
+            </>
+          )}
         </TransformWrapper>
       </div>
     </div>
