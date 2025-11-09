@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import Image from 'next/image';
+import { Ship } from 'lucide-react';
 
 const Logo = ({ className }: { className?: string }) => {
   return (
@@ -11,13 +11,8 @@ const Logo = ({ className }: { className?: string }) => {
         className
       )}
     >
-      <Image 
-        src="/seajourney-logo.svg" 
-        alt="SeaJourney Logo" 
-        width={140} 
-        height={32}
-        className="h-8 w-auto"
-      />
+      <Ship className="h-8 w-8" />
+      <span className="font-headline text-xl font-bold">SeaJourney</span>
     </Link>
   );
 };
