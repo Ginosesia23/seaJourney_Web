@@ -11,7 +11,9 @@ import { Loader2, Plus, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
-function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: number; scaleFactor?: number }) {
+type Passage = [number, number][]; // Array of [lon, lat] coordinates
+
+function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { baseHexRadius?: number; scaleFactor?: number; passageData?: Passage }) {
   const [geoData, setGeoData] = useState<any>(null);
   const [validHexes, setValidHexes] = useState<[number, number][]>([]);
   const [selectedHex, setSelectedHex] = useState<number | null>(null);
@@ -19,6 +21,7 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: n
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [path, setPath] = useState<string | null>(null);
 
   useEffect(() => {
     const resizeObserver = new ResizeObserver(entries => {
@@ -49,13 +52,13 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: n
     }
   }, []);
 
-  // Generate hexes efficiently with memoization
+  // Generate hexes and path efficiently with memoization
   useEffect(() => {
     if (!geoData || dimensions.width === 0 || dimensions.height === 0) return;
     
     setIsLoading(true);
 
-    const generateHexes = () => {
+    const generateMap = () => {
         const { width, height } = dimensions;
         
         const projection = geoMercator().fitExtent(
@@ -94,14 +97,22 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: n
           }
         }
         setValidHexes(hexes);
+
+        // Generate passage path
+        if (passageData) {
+            const lineGenerator = d3.line().context(null);
+            const projectedPoints = passageData.map(d => projection(d) as [number, number]);
+            const svgPath = lineGenerator(projectedPoints);
+            setPath(svgPath);
+        }
+
         setIsLoading(false);
     }
     
-    // Using timeout to allow the container to render and have dimensions
-    const timer = setTimeout(generateHexes, 100);
+    const timer = setTimeout(generateMap, 100);
     return () => clearTimeout(timer);
 
-  }, [geoData, dimensions, baseHexRadius, scaleFactor]);
+  }, [geoData, dimensions, baseHexRadius, scaleFactor, passageData]);
 
 
   const handleHexClick = (index: number) => {
@@ -145,13 +156,23 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: n
                     <polygon
                       key={i}
                       points={hexPoints(x, y, adjustedHexRadius)}
-                      fill="hsl(var(--background))"
-                      stroke={selectedHex === i ? 'hsl(var(--primary))' : 'hsl(var(--border))'}
+                      fill={selectedHex === i ? 'hsl(var(--primary))' : 'hsl(var(--background))'}
+                      stroke="hsl(var(--border))"
                       strokeWidth={0.4}
                       onClick={() => handleHexClick(i)}
                       className="cursor-pointer transition-all duration-150 hover:fill-primary/20"
                     />
                   ))}
+                  {path && (
+                      <path
+                        d={path}
+                        stroke="hsl(var(--accent))"
+                        strokeWidth="2"
+                        fill="none"
+                        strokeDasharray="4 4"
+                        className="animate-pulse"
+                      />
+                  )}
                 </svg>
               </TransformComponent>
               <div className="absolute bottom-4 right-4 flex flex-col gap-2">
@@ -171,5 +192,17 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: n
 }
 
 export default function WorldMapPage() {
-    return <HexWorldMap baseHexRadius={4}/>;
+    // Sample passage from Italy to Miami
+    const passage: Passage = [
+        [12.8, 42.8],    // Italy
+        [5.3, 43.3],     // Marseille
+        [-5.3, 36.1],    // Strait of Gibraltar
+        [-15.0, 32.6],   // Madeira
+        [-25.0, 28.0],   // Mid-Atlantic
+        [-50.0, 25.0],   // Approaching Caribbean
+        [-70.0, 26.0],   // Bahamas
+        [-80.1, 25.7],   // Miami
+    ];
+
+    return <HexWorldMap baseHexRadius={4} passageData={passage} />;
 }
