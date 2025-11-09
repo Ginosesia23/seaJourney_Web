@@ -1,8 +1,13 @@
+
+'use client';
+
+import { useState } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Check } from 'lucide-react';
+import { Check, Ship, User } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const tiers = [
   {
@@ -16,6 +21,7 @@ const tiers = [
       'Community support',
     ],
     cta: 'Get Started',
+    type: 'crew',
   },
   {
     name: 'Premium',
@@ -30,6 +36,7 @@ const tiers = [
     ],
     cta: 'Coming Soon',
     highlighted: true,
+    type: 'crew',
   },
   {
     name: 'Premium+',
@@ -43,6 +50,7 @@ const tiers = [
       'Cloud data backup',
     ],
     cta: 'Coming Soon',
+    type: 'crew',
   },
   {
     name: 'Professional',
@@ -56,11 +64,44 @@ const tiers = [
       'Priority support',
     ],
     cta: 'Coming Soon',
+    type: 'crew',
+  },
+  {
+    name: 'Vessel Basic',
+    price: '$29.99',
+    priceSuffix: '/ month',
+    description: 'Essential tracking for a single vessel and its crew.',
+    features: [
+      'Track up to 5 crew members',
+      'Centralized sea time log',
+      'Basic reporting',
+      'Email support',
+    ],
+    cta: 'Coming Soon',
+    type: 'vessel',
+  },
+  {
+    name: 'Vessel Pro',
+    price: '$79.99',
+    priceSuffix: '/ month',
+    description: 'Comprehensive management for a professional yacht.',
+    features: [
+      'Track up to 20 crew members',
+      'Automated documentation',
+      'Advanced compliance reporting',
+      'Priority support',
+    ],
+    cta: 'Coming Soon',
+    highlighted: true,
+    type: 'vessel',
   },
 ];
 
 
 export default function ComingSoonPage() {
+  const [planType, setPlanType] = useState('crew');
+  const filteredTiers = tiers.filter(tier => tier.type === planType);
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <Header />
@@ -75,9 +116,34 @@ export default function ComingSoonPage() {
                 We're launching new plans soon. Find the perfect fit for your maritime career and get ready to set sail.
               </p>
             </div>
+            
+            <div className="mt-10 flex justify-center gap-2 rounded-lg bg-muted p-1.5 max-w-sm mx-auto">
+                <Button
+                  onClick={() => setPlanType('crew')}
+                  variant={planType === 'crew' ? 'default' : 'ghost'}
+                  className={cn(
+                    "w-full rounded-md", 
+                    planType === 'crew' && 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  )}
+                >
+                  <User className="mr-2 h-5 w-5" />
+                  Crew Plans
+                </Button>
+                <Button
+                  onClick={() => setPlanType('vessel')}
+                  variant={planType === 'vessel' ? 'default' : 'ghost'}
+                  className={cn(
+                    "w-full rounded-md", 
+                    planType === 'vessel' && 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  )}
+                >
+                  <Ship className="mr-2 h-5 w-5" />
+                  Vessel Plans
+                </Button>
+              </div>
 
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
-              {tiers.map((tier) => (
+              {filteredTiers.map((tier) => (
                 <Card key={tier.name} className={`flex flex-col ${tier.highlighted ? 'border-primary ring-2 ring-primary' : ''}`}>
                   <CardHeader className="flex-grow">
                     <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
