@@ -150,14 +150,14 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
                 <svg
                   viewBox={`0 0 ${width} ${height}`}
                   preserveAspectRatio="none"
-                  style={{width:'100%', height:'100%', display:'block', background: 'hsl(var(--card))'}}
+                  style={{width:'100%', height:'100%', display:'block', background: 'hsl(var(--map-ocean))'}}
                 >
                   {validHexes.map(([x, y], i) => (
                     <polygon
                       key={i}
                       points={hexPoints(x, y, adjustedHexRadius)}
-                      fill={selectedHex === i ? 'hsl(var(--primary))' : 'hsl(var(--muted))'}
-                      stroke="hsl(var(--border) / 0.5)"
+                      fill={selectedHex === i ? 'hsl(var(--primary))' : 'hsl(var(--map-land))'}
+                      stroke="hsl(var(--map-land-stroke))"
                       strokeWidth={0.4}
                       onClick={() => handleHexClick(i)}
                       className="cursor-pointer transition-all duration-150 hover:fill-primary/20"

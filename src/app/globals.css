@@ -89,6 +89,11 @@
     --ring: 205 79% 51%;
     --header: 0 0% 100%;
     --header-foreground: 224 71% 4%;
+
+    /* Map colors */
+    --map-ocean: 210 30% 95%;
+    --map-land: 0 0% 100%;
+    --map-land-stroke: 0 0% 100%;
   }
 
   .dark .theme-dashboard {
@@ -109,8 +114,13 @@
     --border: 217.2 32.6% 25%;
     --input: 217.2 32.6% 25%;
     --ring: 205 90% 55%;
-    --header: 211 100% 5%;
+    --header: 220 15% 15%;
     --header-foreground: 210 40% 98%;
+
+    /* Map colors */
+    --map-ocean: 220 15% 15%;
+    --map-land: 217.2 32.6% 17.5%;
+    --map-land-stroke: 217.2 32.6% 25%;
   }
 }
 
