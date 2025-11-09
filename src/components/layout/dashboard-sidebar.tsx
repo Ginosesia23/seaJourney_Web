@@ -36,7 +36,7 @@ const navGroups = [
     title: 'Logbook',
     items: [
       { href: '/dashboard/current', label: 'Current', icon: MapPin, disabled: false },
-      { href: '/dashboard/history', label: 'History', icon: History, disabled: true },
+      { href: '/dashboard/history', label: 'History', icon: History, disabled: false },
       { href: '/dashboard/passages', label: 'Passages', icon: Map, disabled: true },
       { href: '/dashboard/vessels', label: 'Vessels', icon: Ship, disabled: false },
     ]
