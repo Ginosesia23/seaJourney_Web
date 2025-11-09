@@ -49,7 +49,7 @@ export function Cart() {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative hover:bg-white/10">
+        <Button variant="ghost" size="icon" className="relative hover:bg-white/10 rounded-full">
           <ShoppingCart className="h-6 w-6" />
           {isCartReady && itemCount > 0 && (
             <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-foreground">
@@ -97,7 +97,7 @@ export function Cart() {
                           <Button
                             variant="outline"
                             size="icon"
-                            className="h-6 w-6"
+                            className="h-6 w-6 rounded-full"
                             onClick={() => updateCartItemQuantity(item.variantId, item.quantity - 1)}
                             disabled={isCheckingOut}
                           >
@@ -107,7 +107,7 @@ export function Cart() {
                           <Button
                             variant="outline"
                             size="icon"
-                            className="h-6 w-6"
+                            className="h-6 w-6 rounded-full"
                             onClick={() => updateCartItemQuantity(item.variantId, item.quantity + 1)}
                             disabled={isCheckingOut}
                           >
@@ -119,7 +119,7 @@ export function Cart() {
                           <Button
                             variant="ghost"
                             type="button"
-                            className="font-medium text-accent hover:text-accent/80"
+                            className="font-medium text-accent hover:text-accent/80 rounded-lg"
                             onClick={() => removeFromCart(item.variantId)}
                             disabled={isCheckingOut}
                           >
@@ -142,7 +142,7 @@ export function Cart() {
                   Shipping and taxes calculated at checkout.
                 </p>
                 <Button 
-                  className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" 
+                  className="w-full bg-accent hover:bg-accent/90 text-accent-foreground rounded-lg" 
                   size="lg"
                   onClick={checkout}
                   disabled={isCheckingOut || !isCartReady}
@@ -169,7 +169,7 @@ export function Cart() {
             <ShoppingCart className="h-16 w-16 text-muted-foreground" />
             <p className="text-lg text-muted-foreground">Your cart is empty</p>
             <SheetClose asChild>
-              <Button asChild>
+              <Button asChild className="rounded-lg">
                 <Link href="/shop">Start Shopping</Link>
               </Button>
             </SheetClose>

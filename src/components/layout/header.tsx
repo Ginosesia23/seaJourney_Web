@@ -59,14 +59,14 @@ const Header = () => {
           <div className="hidden md:flex items-center gap-2">
             {!isUserLoading && (
               user ? (
-                <Button asChild variant="ghost" className="hover:bg-white/10">
+                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-lg">
                   <Link href="/dashboard">
                     <LayoutDashboard className="mr-2 h-5 w-5" />
                     Dashboard
                   </Link>
                 </Button>
               ) : (
-                <Button asChild variant="ghost" className="hover:bg-white/10">
+                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-lg">
                   <Link href="/login">Sign In</Link>
                 </Button>
               )
@@ -79,7 +79,7 @@ const Header = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                className="md:hidden hover:bg-white/10"
+                className="md:hidden hover:bg-white/10 rounded-full"
               >
                 <Menu className="h-6 w-6" />
                 <span className="sr-only">Open menu</span>
@@ -102,7 +102,7 @@ const Header = () => {
                     variant="ghost"
                     size="icon"
                     onClick={() => setIsOpen(false)}
-                    className="hover:bg-white/10"
+                    className="hover:bg-white/10 rounded-full"
                   >
                     <X className="h-6 w-6" />
                     <span className="sr-only">Close menu</span>

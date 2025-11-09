@@ -99,7 +99,7 @@ export default function ComingSoonPage() {
                   </CardContent>
                   <CardFooter>
                     <Button 
-                      className="w-full"
+                      className="w-full rounded-lg"
                       variant={tier.highlighted ? 'default' : 'outline'}
                       disabled
                     >

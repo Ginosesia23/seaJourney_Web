@@ -117,7 +117,7 @@ export default function LoginPage() {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full" disabled={isLoading} variant="default">
+                <Button type="submit" className="w-full rounded-lg" disabled={isLoading} variant="default">
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Sign In
                 </Button>
@@ -133,7 +133,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <Button variant="outline" className="w-full" onClick={handleAnonymousLogin} disabled={isAnonymousLoading}>
+            <Button variant="outline" className="w-full rounded-lg" onClick={handleAnonymousLogin} disabled={isAnonymousLoading}>
               {isAnonymousLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Sign In Anonymously
             </Button>

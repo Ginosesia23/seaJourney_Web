@@ -60,7 +60,7 @@ export default function DashboardHeader() {
         <div className="flex items-center gap-4">
             <Sheet>
                 <SheetTrigger asChild>
-                    <Button variant="outline" size="icon" className="shrink-0 lg:hidden text-foreground">
+                    <Button variant="outline" size="icon" className="shrink-0 lg:hidden text-foreground rounded-full">
                         <Menu className="h-5 w-5" />
                         <span className="sr-only">Toggle navigation menu</span>
                     </Button>

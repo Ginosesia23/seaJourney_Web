@@ -195,7 +195,7 @@ export default function ProductPage({ params }: ProductPageParams) {
       <main className="flex-1 py-12 sm:py-16">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-8">
-            <Button asChild variant="outline" size="sm" className="text-sm">
+            <Button asChild variant="outline" size="sm" className="text-sm rounded-lg">
               <Link href="/shop">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back to Shop
@@ -260,7 +260,7 @@ export default function ProductPage({ params }: ProductPageParams) {
               <div className="mt-10">
                 <Button 
                   size="lg" 
-                  className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground"
+                  className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground rounded-lg"
                   disabled={isSoldOut || isAdding}
                   onClick={handleAddToCart}
                 >

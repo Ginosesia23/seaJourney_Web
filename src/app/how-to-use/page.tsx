@@ -146,7 +146,7 @@ export default function HowToUsePage() {
                   onClick={() => setPlatform('ios')}
                   variant={platform === 'ios' ? 'secondary' : 'ghost'}
                   className={cn(
-                    "w-full text-white hover:bg-white/20 hover:text-white", 
+                    "w-full text-white hover:bg-white/20 hover:text-white rounded-md", 
                     platform === 'ios' && 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
                   )}
                 >
@@ -157,7 +157,7 @@ export default function HowToUsePage() {
                   onClick={() => setPlatform('android')}
                   variant={platform === 'android' ? 'secondary' : 'ghost'}
                   className={cn(
-                    "w-full text-white hover:bg-white/20 hover:text-white", 
+                    "w-full text-white hover:bg-white/20 hover:text-white rounded-md", 
                     platform === 'android' && 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
                   )}
                 >

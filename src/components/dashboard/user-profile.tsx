@@ -207,7 +207,7 @@ export function UserProfileCard() {
               )}
             />
             
-            <Button type="submit" disabled={isSaving} variant="default">
+            <Button type="submit" disabled={isSaving} variant="default" className="rounded-lg">
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save Changes
             </Button>

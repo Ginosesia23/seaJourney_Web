@@ -167,7 +167,7 @@ export default function VesselsPage() {
                 </div>
                 <Dialog open={isFormOpen} onOpenChange={handleOpenChange}>
                     <DialogTrigger asChild>
-                        <Button>
+                        <Button className="rounded-lg">
                             <PlusCircle className="mr-2 h-4 w-4" />
                             Add Vessel
                         </Button>
@@ -215,7 +215,7 @@ export default function VesselsPage() {
                                     <DialogClose asChild>
                                         <Button type="button" variant="ghost">Cancel</Button>
                                     </DialogClose>
-                                    <Button type="submit" disabled={isSaving}>
+                                    <Button type="submit" disabled={isSaving} className="rounded-lg">
                                         {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                         {editingVessel ? 'Save Changes' : 'Save Vessel'}
                                     </Button>
@@ -278,7 +278,7 @@ export default function VesselsPage() {
                                     <TableCell>
                                         <DropdownMenu>
                                             <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" className="h-8 w-8 p-0">
+                                                <Button variant="ghost" className="h-8 w-8 p-0 rounded-full">
                                                     <span className="sr-only">Open menu</span>
                                                     <MoreHorizontal className="h-4 w-4" />
                                                 </Button>

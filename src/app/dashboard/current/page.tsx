@@ -464,7 +464,7 @@ export default function CurrentPage() {
                                     <Button
                                     key={state.value}
                                     variant="outline"
-                                    className="justify-start gap-3"
+                                    className="justify-start gap-3 rounded-lg"
                                     onClick={() => handleDayStateChange(selectedDate!, state.value)}
                                     >
                                     <span className={cn('h-3 w-3 rounded-full', state.color)}></span>
@@ -508,7 +508,7 @@ export default function CurrentPage() {
                            />
                         </CardContent>
                         <CardFooter>
-                            <Button onClick={handleSaveNotes} disabled={isSavingNotes}>
+                            <Button onClick={handleSaveNotes} disabled={isSavingNotes} className="rounded-lg">
                                 {isSavingNotes && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 Save Notes
                             </Button>
@@ -547,7 +547,7 @@ export default function CurrentPage() {
                         </Select>
                         <Dialog open={isAddVesselDialogOpen} onOpenChange={setIsAddVesselDialogOpen}>
                             <DialogTrigger asChild>
-                                <Button variant="outline" size="icon" className="shrink-0">
+                                <Button variant="outline" size="icon" className="shrink-0 rounded-full">
                                     <PlusCircle className="h-4 w-4" />
                                 </Button>
                             </DialogTrigger>
@@ -594,7 +594,7 @@ export default function CurrentPage() {
                                             <DialogClose asChild>
                                                 <Button type="button" variant="ghost">Cancel</Button>
                                             </DialogClose>
-                                            <Button type="submit" disabled={isSavingVessel}>
+                                            <Button type="submit" disabled={isSavingVessel} className="rounded-lg">
                                                 {isSavingVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                                 Save Vessel
                                             </Button>
@@ -635,7 +635,7 @@ export default function CurrentPage() {
                               <Button
                                 variant={"outline"}
                                 className={cn(
-                                  "w-full pl-3 text-left font-normal",
+                                  "w-full pl-3 text-left font-normal rounded-lg",
                                   !field.value && "text-muted-foreground"
                                 )}
                               >
@@ -694,7 +694,7 @@ export default function CurrentPage() {
                   )}
                 />
 
-                <Button type="submit">Start Tracking</Button>
+                <Button type="submit" className="rounded-lg">Start Tracking</Button>
               </form>
             </Form>
           </CardContent>
