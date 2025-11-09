@@ -1,11 +1,12 @@
+
 'use client';
 
 import { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, differenceInDays, startOfMonth, eachDayOfInterval } from 'date-fns';
-import { CalendarIcon, MapPin, Ship, Briefcase, Workflow, Info } from 'lucide-react';
+import { format, differenceInDays, eachDayOfInterval } from 'date-fns';
+import { CalendarIcon, MapPin, Ship, Briefcase, Info, PlusCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -14,14 +15,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
+import { collection, addDoc, doc } from 'firebase/firestore';
 
 const currentStatusSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
@@ -37,12 +35,20 @@ interface CurrentStatus extends CurrentStatusFormValues {
     dailyStates: Record<string, DailyStatus>;
 }
 
+const addVesselSchema = z.object({
+  name: z.string().min(2, 'Vessel name is required.'),
+  type: z.string().min(2, 'Vessel type is required.'),
+  officialNumber: z.string().optional(),
+});
+type AddVesselFormValues = z.infer<typeof addVesselSchema>;
 
-const sampleVessels = [
-  { id: 'vessel-1', name: 'M/Y "Odyssey"' },
-  { id: 'vessel-2', name: 'S/Y "Wanderer"' },
-  { id: 'vessel-3', name: 'M/Y "Eclipse"' },
-];
+type Vessel = {
+  id: string;
+  name: string;
+  type: string;
+  officialNumber?: string;
+  ownerId: string;
+};
 
 const vesselStates: { value: DailyStatus; label: string, color: string }[] = [
     { value: 'at-sea', label: 'At Sea', color: 'bg-primary' },
@@ -53,16 +59,32 @@ const vesselStates: { value: DailyStatus; label: string, color: string }[] = [
 export default function CurrentPage() {
   const [currentStatus, setCurrentStatus] = useState<CurrentStatus | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
+  const [isAddVesselDialogOpen, setIsAddVesselDialogOpen] = useState(false);
+  const [isSavingVessel, setIsSavingVessel] = useState(false);
 
-  const form = useForm<CurrentStatusFormValues>({
+  const { user } = useUser();
+  const firestore = useFirestore();
+
+  const vesselsCollectionRef = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    return collection(firestore, 'users', user.uid, 'vessels');
+  }, [firestore, user?.uid]);
+
+  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
+
+  const statusForm = useForm<CurrentStatusFormValues>({
     resolver: zodResolver(currentStatusSchema),
     defaultValues: {
       vesselState: 'at-sea',
     },
   });
 
-  function onSubmit(data: CurrentStatusFormValues) {
+  const addVesselForm = useForm<AddVesselFormValues>({
+    resolver: zodResolver(addVesselSchema),
+  });
+
+  function onStatusSubmit(data: CurrentStatusFormValues) {
     const today = new Date();
     const interval = eachDayOfInterval({ start: data.startDate, end: today });
     const dailyStates: Record<string, DailyStatus> = {};
@@ -74,7 +96,29 @@ export default function CurrentPage() {
         ...data,
         dailyStates
     });
-    form.reset();
+    statusForm.reset();
+  }
+
+  async function onAddVesselSubmit(data: AddVesselFormValues) {
+    if (!vesselsCollectionRef || !user?.uid) return;
+    setIsSavingVessel(true);
+
+    const newVessel = { ...data, ownerId: user.uid };
+    addDoc(vesselsCollectionRef, newVessel)
+        .then(() => {
+            addVesselForm.reset();
+            setIsAddVesselDialogOpen(false);
+        })
+        .catch((serverError) => {
+          const permissionError = new FirestorePermissionError({
+            path: vesselsCollectionRef.path,
+            operation: 'create',
+            requestResourceData: newVessel,
+          });
+          errorEmitter.emit('permission-error', permissionError);
+        }).finally(() => {
+            setIsSavingVessel(false);
+        });
   }
 
   const handleDayStateChange = (day: Date, state: DailyStatus) => {
@@ -88,10 +132,10 @@ export default function CurrentPage() {
             [dateKey]: state
         }
     }));
-    setIsDialogOpen(false);
+    setIsStatusDialogOpen(false);
   }
   
-  const selectedVessel = currentStatus ? sampleVessels.find(v => v.id === currentStatus.vesselId) : null;
+  const selectedVessel = currentStatus ? vessels?.find(v => v.id === currentStatus.vesselId) : null;
   const daysOnboard = currentStatus ? differenceInDays(new Date(), currentStatus.startDate) + 1 : 0;
   
   const totalDaysByState = useMemo(() => {
@@ -131,7 +175,7 @@ export default function CurrentPage() {
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                        <Dialog open={isStatusDialogOpen} onOpenChange={setIsStatusDialogOpen}>
                              <Calendar
                                 mode="single"
                                 selected={selectedDate}
@@ -139,7 +183,7 @@ export default function CurrentPage() {
                                 onDayClick={(day, modifiers) => {
                                     if(modifiers.disabled) return;
                                     setSelectedDate(day);
-                                    setIsDialogOpen(true);
+                                    setIsStatusDialogOpen(true);
                                 }}
                                 month={selectedDate}
                                 onMonthChange={setSelectedDate}
@@ -255,33 +299,93 @@ export default function CurrentPage() {
             <CardDescription>Log the vessel you are currently working on to start tracking your sea time.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <Form {...statusForm}>
+              <form onSubmit={statusForm.handleSubmit(onStatusSubmit)} className="space-y-6">
                 <FormField
-                  control={form.control}
+                  control={statusForm.control}
                   name="vesselId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Vessel</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select the vessel you're on" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {sampleVessels.map(vessel => (
-                            <SelectItem key={vessel.id} value={vessel.id}>{vessel.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="flex gap-2">
+                        <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoadingVessels}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder={isLoadingVessels ? "Loading vessels..." : "Select the vessel you're on"} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {vessels?.map(vessel => (
+                              <SelectItem key={vessel.id} value={vessel.id}>{vessel.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Dialog open={isAddVesselDialogOpen} onOpenChange={setIsAddVesselDialogOpen}>
+                            <DialogTrigger asChild>
+                                <Button variant="outline" size="icon" className="shrink-0">
+                                    <PlusCircle className="h-4 w-4" />
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Add a New Vessel</DialogTitle>
+                                </DialogHeader>
+                                <Form {...addVesselForm}>
+                                    <form onSubmit={addVesselForm.handleSubmit(onAddVesselSubmit)} className="space-y-4 py-4">
+                                        <FormField
+                                            control={addVesselForm.control}
+                                            name="name"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Vessel Name</FormLabel>
+                                                    <FormControl><Input placeholder="e.g., M/Y Odyssey" {...field} /></FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={addVesselForm.control}
+                                            name="type"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Vessel Type</FormLabel>
+                                                    <FormControl><Input placeholder="e.g., Motor Yacht" {...field} /></FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={addVesselForm.control}
+                                            name="officialNumber"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Official Number (Optional)</FormLabel>
+                                                    <FormControl><Input placeholder="e.g., IMO 1234567" {...field} /></FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <DialogFooter className="pt-4">
+                                            <DialogClose asChild>
+                                                <Button type="button" variant="ghost">Cancel</Button>
+                                            </DialogClose>
+                                            <Button type="submit" disabled={isSavingVessel}>
+                                                {isSavingVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                                Save Vessel
+                                            </Button>
+                                        </DialogFooter>
+                                    </form>
+                                </Form>
+                            </DialogContent>
+                        </Dialog>
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
 
                 <FormField
-                  control={form.control}
+                  control={statusForm.control}
                   name="position"
                   render={({ field }) => (
                     <FormItem>
@@ -295,7 +399,7 @@ export default function CurrentPage() {
                 />
                 
                 <FormField
-                  control={form.control}
+                  control={statusForm.control}
                   name="startDate"
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
@@ -337,7 +441,7 @@ export default function CurrentPage() {
                 />
 
                 <FormField
-                  control={form.control}
+                  control={statusForm.control}
                   name="vesselState"
                   render={({ field }) => (
                     <FormItem className="space-y-3">
@@ -374,3 +478,5 @@ export default function CurrentPage() {
     </div>
   );
 }
+
+    

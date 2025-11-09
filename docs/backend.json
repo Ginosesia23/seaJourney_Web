@@ -1,3 +1,4 @@
+
 {
   "entities": {
     "UserProfile": {
@@ -84,6 +85,40 @@
         "rating",
         "dateCreated"
       ]
+    },
+    "Vessel": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Vessel",
+      "type": "object",
+      "description": "Represents a vessel that a user has worked on.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Vessel entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the vessel."
+        },
+        "type": {
+          "type": "string",
+          "description": "The type of vessel (e.g., Motor Yacht, Sailing Yacht)."
+        },
+        "officialNumber": {
+          "type": "string",
+          "description": "The official registration number of the vessel."
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "The UID of the user who owns this vessel entry."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type",
+        "ownerId"
+      ]
     }
   },
   "auth": {
@@ -111,6 +146,26 @@
         }
       },
       {
+        "path": "/users/{userId}/vessels/{vesselId}",
+        "definition": {
+          "entityName": "Vessel",
+          "schema": {
+            "$ref": "#/backend/entities/Vessel"
+          },
+          "description": "Stores vessels associated with a user. Path-based ownership enforces that a vessel is owned by the user.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            },
+            {
+              "name": "vesselId",
+              "description": "The unique identifier of the vessel."
+            }
+          ]
+        }
+      },
+      {
         "path": "/users/{userId}/profile/testimonials/{testimonialId}",
         "definition": {
           "entityName": "Testimonial",
@@ -131,6 +186,8 @@
         }
       }
     ],
-    "reasoning": "This Firestore data structure is designed to support the SeaJourney Landing website's user profiles and testimonials. The primary focus is on enabling secure and scalable data access while adhering to Authorization Independence and simplifying security rules. User profiles are stored under `/users/{userId}/profile/{userId}` following the Path-Based ownership access modeling strategy, where the profile document ID is the same as the user ID. This ensures a user can only access their own profile document. Testimonials are stored as subcollections of user profiles under `/users/{userId}/profile/testimonials/{testimonialId}`. By nesting the testimonials as a subcollection under each user profile, we establish clear ownership and enhance data organization.\n\nAuthorization Independence is achieved without denormalization as the path inherently enforces ownership, thus eliminating the need to read the data to authorize access. For testimonials, ownership is implied by the parent user profile. In this design, listing testimonials will be restricted to the user's own profile or testimonials can be queried across all users if this is required.\n\nQAPs (Rules are not Filters): The design supports secure `list` operations. Because testimonials are nested under user profiles and access to a profile is inherently restricted to the profile's user, reading all testimonials using the collection group query can be secured. It is recommended not to combine different security requirements into the same collection."
+    "reasoning": "This Firestore data structure is designed to support the SeaJourney Landing website's user profiles and testimonials. The primary focus is on enabling secure and scalable data access while adhering to Authorization Independence and simplifying security rules. User profiles are stored under `/users/{userId}/profile/{userId}` following the Path-Based ownership access modeling strategy, where the profile document ID is the same as the user ID. This ensures a user can only access their own profile document. Testimonials are stored as subcollections of user profiles under `/users/{userId}/profile/testimonials/{testimonialId}`. By nesting the testimonials as a subcollection under each user profile, we establish clear ownership and enhance data organization. Vessels are stored in a top-level collection for each user `/users/{userId}/vessels/{vesselId}` which also enforces user ownership via the path.\n\nAuthorization Independence is achieved without denormalization as the path inherently enforces ownership, thus eliminating the need to read the data to authorize access. For testimonials, ownership is implied by the parent user profile. In this design, listing testimonials will be restricted to the user's own profile or testimonials can be queried across all users if this is required.\n\nQAPs (Rules are not Filters): The design supports secure `list` operations. Because testimonials are nested under user profiles and access to a profile is inherently restricted to the profile's user, reading all testimonials using the collection group query can be secured. It is recommended not to combine different security requirements into the same collection."
   }
 }
+
+    

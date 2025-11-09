@@ -1,11 +1,13 @@
+
 /**
  * @fileoverview Firestore Security Rules for SeaJourney Landing Website.
  *
  * Core Philosophy:
- * This ruleset enforces a strict user-ownership model for user profiles and their associated testimonials. Only the authenticated user can create, read, update, or delete their own profile data and testimonials.
+ * This ruleset enforces a strict user-ownership model for user profiles, vessels, and their associated testimonials. Only the authenticated user can create, read, update, or delete their own data.
  *
  * Data Structure:
  * - User profiles are stored under `/users/{userId}/profile`.
+ * - Vessels are stored under `/users/{userId}/vessels`.
  * - Testimonials are stored as subcollections under user profiles at `/users/{userId}/profile/testimonials/{testimonialId}`.
  *
  * Key Security Decisions:
@@ -14,26 +16,41 @@
  * - All write operations are strictly controlled by user ownership, enforced by matching the authenticated user's UID against the document path.
  *
  * Denormalization for Authorization:
- * - User profiles and testimonials are secured by their path, which includes the userId. This avoids the need for extra `get()` calls to verify ownership.
+ * - All user-owned data is secured by its path, which includes the userId. This avoids the need for extra `get()` calls to verify ownership.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
+     * @description Enforces user-ownership for all operations. A user can only access documents within their own `/users/{userId}` path.
+     */
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    /**
      * @description Enforces user-ownership for user profiles. A user profile is stored as a single document in a subcollection of the user's collection. The user profile is a single document with the same ID as the user's UID.
-     * @path /users/{userId}/profile/{userId}
+     * @path /users/{userId}/profile/{profileId}
      * @allow (create) User with UID 'user123' creates their profile document at /users/user123/profile/user123.
      * @allow (get, update, delete) User with UID 'user123' reads, updates, or deletes their profile document at /users/user123/profile/user123.
      * @deny (create, get, update, delete) User with UID 'user456' attempts to access profile document at /users/user123/profile.
      * @principle Enforces document ownership for all operations.
      */
     match /users/{userId}/profile/{profileId} {
-      function isOwner() {
-        return request.auth.uid == userId;
-      }
+      allow read, write: if isOwner(userId) && userId == profileId;
+    }
 
-      allow read, write: if isOwner() && userId == profileId;
+    /**
+     * @description Enforces user-ownership for vessels. Only the authenticated user can access vessels associated with their profile.
+     * @path /users/{userId}/vessels/{vesselId}
+     * @allow (create, list, get) User with UID 'user123' creates or reads vessels under /users/user123/vessels.
+     * @deny (create, list, get) User with UID 'user456' attempts to access vessels at /users/user123/vessels.
+     * @principle Enforces collection ownership for read and create, and document ownership for write operations.
+     */
+    match /users/{userId}/vessels/{vesselId} {
+        allow read, create: if isOwner(userId);
+        allow update, delete: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
     }
 
     /**
@@ -45,20 +62,9 @@ service cloud.firestore {
      * @principle Enforces document ownership for all operations on testimonials.
      */
     match /users/{userId}/profile/testimonials/{testimonialId} {
-      function isOwner(userId) {
-        return request.auth.uid == userId;
-      }
-
-      function isExistingOwner(userId) {
-        return request.auth.uid == userId && resource != null;
-      }
-
-      allow get: if isOwner(userId);
-      allow list: if isOwner(userId);
-
-      allow create: if isOwner(userId);
-      allow update: if isExistingOwner(userId);
-      allow delete: if isExistingOwner(userId);
+      allow read, write: if isOwner(userId);
     }
   }
 }
+
+    
