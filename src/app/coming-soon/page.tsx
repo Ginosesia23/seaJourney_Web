@@ -32,7 +32,8 @@ const tiers = [
       'Unlimited sea time logging',
       'Digital testimonials',
       'Multi-vessel support',
-      'Export documentation',
+      '4GB online storage',
+      '10 document export limit'
     ],
     cta: 'Coming Soon',
     highlighted: true,
@@ -47,7 +48,8 @@ const tiers = [
       'All Standard features',
       'Advanced career analytics',
       'Certification progress tracking',
-      'Cloud data backup',
+      '6GB online storage',
+      '20 document export limit'
     ],
     cta: 'Coming Soon',
     type: 'crew',
@@ -61,7 +63,8 @@ const tiers = [
       'All Premium features',
       'Crew management tools',
       'Fleet-wide reporting',
-      'Priority support',
+      'Unlimited online storage',
+      'Unlimited document exports'
     ],
     cta: 'Coming Soon',
     type: 'crew',
@@ -213,3 +216,4 @@ export default function ComingSoonPage() {
     </div>
   );
 }
+
