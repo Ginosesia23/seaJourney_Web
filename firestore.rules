@@ -38,7 +38,10 @@ service cloud.firestore {
      * @principle Enforces document ownership for all operations.
      */
     match /users/{userId}/profile/{profileId} {
-      allow read, write: if isOwner(userId) && userId == profileId;
+      allow read: if isOwner(userId) && userId == profileId;
+      allow create: if isOwner(userId) && userId == profileId && request.resource.data.role == 'crew';
+      allow update: if isOwner(userId) && userId == profileId && request.resource.data.role in ['crew', 'vessel', 'admin'];
+      allow delete: if isOwner(userId) && userId == profileId;
     }
 
     /**

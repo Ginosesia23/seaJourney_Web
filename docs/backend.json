@@ -41,13 +41,19 @@
           "type": "string",
           "description": "Date and time when the user registered.",
           "format": "date-time"
+        },
+        "role": {
+          "type": "string",
+          "description": "The user's role, determining their permissions.",
+          "enum": ["crew", "vessel", "admin"]
         }
       },
       "required": [
         "id",
         "email",
         "username",
-        "registrationDate"
+        "registrationDate",
+        "role"
       ]
     },
     "Testimonial": {

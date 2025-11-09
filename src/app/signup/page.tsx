@@ -57,6 +57,7 @@ export default function SignupPage() {
         firstName: '',
         lastName: '',
         registrationDate: new Date().toISOString(),
+        role: 'crew', // Assign default role
       };
       
       setDoc(userProfileRef, profileData)
