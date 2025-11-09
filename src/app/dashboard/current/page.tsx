@@ -383,20 +383,20 @@ export default function CurrentPage() {
                                     onMonthChange={setSelectedDate}
                                     className="p-0"
                                     classNames={{
-                                        day: 'h-10 w-10 text-sm rounded-full relative',
-                                        day_selected: 'bg-transparent text-foreground border-2 border-primary',
-                                        day_today: 'text-primary font-bold',
-                                        day_disabled: 'opacity-50'
+                                        day_selected: 'bg-transparent text-foreground ring-2 ring-primary rounded-full',
+                                        day_today: 'text-primary font-bold rounded-full',
+                                        day_disabled: 'text-muted-foreground opacity-50',
+                                        day_outside: 'text-muted-foreground opacity-50',
+                                        cell: "w-10 h-10 text-sm p-0 relative [&:has([aria-selected])]:bg-transparent first:[&:has([aria-selected])]:rounded-l-full last:[&:has([aria-selected])]:rounded-r-full focus-within:relative focus-within:z-20",
+                                        day: "h-10 w-10 p-0 font-normal rounded-full",
                                     }}
                                     disabled={[{ before: startOfDay(startDate) }, { after: endOfDay(new Date()) }]}
                                     components={{
-                                    DayContent: ({ date, activeModifiers }) => {
+                                    DayContent: ({ date }) => {
                                         const dateKey = format(date, 'yyyy-MM-dd');
                                         const state = currentStatus.dailyStates[dateKey];
                                         const stateInfo = vesselStates.find(s => s.value === state);
                                         const isDateInRange = startDate && date >= startOfDay(startDate) && date <= endOfDay(new Date());
-                                        
-                                        const isSelected = activeModifiers.selected;
 
                                         if (!isDateInRange || !stateInfo) {
                                             return <div className="relative h-full w-full flex items-center justify-center">{format(date, 'd')}</div>;
@@ -409,8 +409,8 @@ export default function CurrentPage() {
                                             <Tooltip>
                                             <TooltipTrigger asChild>
                                                 <div className="relative h-full w-full flex items-center justify-center">
-                                                    <div className={cn('absolute inset-y-2 inset-x-0', stateInfo.color, rangeClass, isSelected && 'ring-2 ring-primary-foreground ring-offset-2 ring-offset-primary')}></div>
-                                                    <span className="relative z-10 font-medium text-white" style={{textShadow: '0 1px 2px rgba(0,0,0,0.5)'}}>{format(date, 'd')}</span>
+                                                    <div className={cn('absolute inset-y-2 inset-x-0', stateInfo.color, rangeClass)}></div>
+                                                    <span className={cn("relative z-10 font-medium", state ? 'text-white' : 'text-foreground')} style={{textShadow: state ? '0 1px 2px rgba(0,0,0,0.5)' : 'none'}}>{format(date, 'd')}</span>
                                                 </div>
                                             </TooltipTrigger>
                                             <TooltipContent>
@@ -653,6 +653,8 @@ export default function CurrentPage() {
     </div>
   );
 }
+
+    
 
     
 
