@@ -32,8 +32,8 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 222.2 84% 4.9%;
 
-    --header: 211 100% 5%;
-    --header-foreground: 210 40% 98%;
+    --header: 0 0% 100%;
+    --header-foreground: 224 71% 4%;
   }
  
   .dark {

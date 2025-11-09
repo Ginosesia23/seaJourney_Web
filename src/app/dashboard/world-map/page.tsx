@@ -7,9 +7,17 @@ import * as topojson from 'topojson-client';
 import world from 'world-atlas/countries-110m.json';
 import { geoMercator } from 'd3-geo';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
-import { Loader2, Plus, Minus } from 'lucide-react';
+import { Loader2, Plus, Minus, Filter } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { hexbin as d3Hexbin } from 'd3-hexbin';
 
 type Passage = [number, number][]; // Array of [lon, lat] coordinates
@@ -146,6 +154,27 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
           <span className="ml-2">Preparing map...</span>
         </div>
       )}
+      <div className={cn("absolute top-4 left-4 z-10 flex gap-2")}>
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="rounded-full shadow-lg">
+                    <Filter className="mr-2 h-4 w-4" />
+                    Filters
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+                <DropdownMenuLabel>Filter by Vessel</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuCheckboxItem checked>M/Y Odyssey</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem>S/Y Wanderer</DropdownMenuCheckboxItem>
+                <DropdownMenuLabel>Filter by Year</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuCheckboxItem>2024</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked>2023</DropdownMenuCheckboxItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+
+      </div>
       <div className={cn("h-full w-full transition-opacity duration-500", isLoading ? "opacity-0" : "opacity-100")}>
         <TransformWrapper minScale={0.5} maxScale={10} initialScale={1.8} centerOnInit>
            {({ zoomIn, zoomOut }) => (
@@ -174,8 +203,6 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
                         stroke={passageColors[index % passageColors.length]}
                         strokeWidth="2"
                         fill="none"
-                        className="animate-passage"
-                        style={{ animationDelay: `${index * 1}s` }}
                       />
                   ))}
                 </svg>
