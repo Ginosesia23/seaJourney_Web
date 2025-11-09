@@ -58,6 +58,8 @@ export default function SignupPage() {
         lastName: '',
         registrationDate: new Date().toISOString(),
         role: 'crew', // Assign default role
+        subscriptionTier: 'free',
+        subscriptionStatus: 'active',
       };
       
       setDoc(userProfileRef, profileData)
@@ -71,7 +73,7 @@ export default function SignupPage() {
         });
 
 
-      router.push('/dashboard');
+      router.push('/coming-soon');
     } catch (error) {
       const authError = error as AuthError;
       console.error('Signup failed:', authError);

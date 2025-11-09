@@ -46,6 +46,16 @@
           "type": "string",
           "description": "The user's role, determining their permissions.",
           "enum": ["crew", "vessel", "admin"]
+        },
+        "subscriptionTier": {
+          "type": "string",
+          "description": "The user's subscription tier.",
+          "enum": ["free", "premium", "premium-plus", "professional"]
+        },
+        "subscriptionStatus": {
+            "type": "string",
+            "description": "The status of the user's subscription.",
+            "enum": ["active", "inactive", "past-due"]
         }
       },
       "required": [
@@ -53,7 +63,9 @@
         "email",
         "username",
         "registrationDate",
-        "role"
+        "role",
+        "subscriptionTier",
+        "subscriptionStatus"
       ]
     },
     "Testimonial": {
