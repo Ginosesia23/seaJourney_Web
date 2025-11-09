@@ -150,7 +150,7 @@ export default function ComingSoonPage() {
                   onClick={() => setPlanType('crew')}
                   variant={planType === 'crew' ? 'default' : 'ghost'}
                   className={cn(
-                    "w-full rounded-md", 
+                    "w-full rounded-lg", 
                     planType === 'crew' && 'bg-primary text-primary-foreground hover:bg-primary/90'
                   )}
                 >
@@ -161,7 +161,7 @@ export default function ComingSoonPage() {
                   onClick={() => setPlanType('vessel')}
                   variant={planType === 'vessel' ? 'default' : 'ghost'}
                   className={cn(
-                    "w-full rounded-md", 
+                    "w-full rounded-lg", 
                     planType === 'vessel' && 'bg-primary text-primary-foreground hover:bg-primary/90'
                   )}
                 >
