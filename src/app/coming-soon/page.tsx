@@ -88,7 +88,7 @@ const tiers = [
   },
   {
     name: 'Vessel Pro',
-    price: '$79.99',
+    price: '$599.99',
     priceSuffix: '/ month',
     description: 'Comprehensive management for a professional yacht.',
     features: [
@@ -103,7 +103,7 @@ const tiers = [
   },
   {
     name: 'Vessel Fleet',
-    price: '$149.99',
+    price: '$1199.99',
     priceSuffix: '/ month',
     description: 'Ideal for managing multiple vessels and larger crews.',
     features: [
