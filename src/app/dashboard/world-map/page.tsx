@@ -1,151 +1,152 @@
 
 'use client';
 
-import { Globe, Map } from 'lucide-react';
-import React, { useState } from 'react';
-import {
-  ComposableMap,
-  Geographies,
-  Geography,
-  Graticule,
-  Line,
-  Marker,
-  ZoomableGroup,
-} from 'react-simple-maps';
-import { CardDescription, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import * as d3 from 'd3';
+import * as topojson from 'topojson-client';
+import world from 'world-atlas/countries-110m.json';
+import { geoMercator } from 'd3-geo';
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
+import { Loader2 } from 'lucide-react';
 
-const geoUrl = 'https://raw.githubusercontent.com/deldersveld/topojson/master/world-countries.json';
+function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: number; scaleFactor?: number }) {
+  const [geoData, setGeoData] = useState<any>(null);
+  const [validHexes, setValidHexes] = useState<[number, number][]>([]);
+  const [selectedHex, setSelectedHex] = useState<number | null>(null);
+  const lastClickRef = useRef(0);
+  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const containerRef = useRef<HTMLDivElement>(null);
 
-const markers = [
-  { name: 'Fort Lauderdale', coordinates: [-80.1373, 26.1224] as [number, number] },
-  { name: 'Monaco', coordinates: [7.4246, 43.7384] as [number, number] },
-  { name: 'Palma de Mallorca', coordinates: [2.6502, 39.5696] as [number, number] },
-  { name: 'Antigua', coordinates: [-61.7964, 17.0608] as [number, number] },
-];
+  useEffect(() => {
+    if (containerRef.current) {
+        setDimensions({
+            width: containerRef.current.offsetWidth,
+            height: containerRef.current.offsetHeight,
+        });
+    }
+    const handleResize = () => {
+        if(containerRef.current) {
+            setDimensions({
+                width: containerRef.current.offsetWidth,
+                height: containerRef.current.offsetHeight,
+            })
+        }
+    }
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-const passages = [
-  { from: [-80.1373, 26.1224], to: [-61.7964, 17.0608] },
-  { from: [-61.7964, 17.0608], to: [2.6502, 39.5696] },
-  { from: [2.6502, 39.5696], to: [7.4246, 43.7384] },
-];
+  // Load world data once
+  useEffect(() => {
+    try {
+      const countries = topojson.feature(world, world.objects.countries as any);
+      setGeoData(countries);
+    } catch (err) {
+      console.error('Failed to convert topojson to geojson', err);
+    }
+  }, []);
 
-type Viewport = {
-  center: [number, number];
-  zoom: number;
-}
+  // Generate hexes efficiently with memoization
+  const hexGrid = useMemo(() => {
+    if (!geoData || dimensions.width === 0 || dimensions.height === 0) return [];
 
-const regions = {
-  World: { center: [0, 20] as [number, number], zoom: 1 },
-  "The Med": { center: [10, 40] as [number, number], zoom: 4 },
-  "North America": { center: [-100, 40] as [number, number], zoom: 2 },
-  Caribbean: { center: [-75, 15] as [number, number], zoom: 4 },
-  "South Pacific": { center: [-150, -20] as [number, number], zoom: 2 },
-};
+    const { width, height } = dimensions;
+    
+    // Use fitExtent to automatically scale and center the projection
+    const projection = geoMercator().fitExtent(
+      [
+        [0, 0],
+        [width, height]
+      ],
+      geoData
+    );
 
-type RegionKey = keyof typeof regions;
+    const adjustedHexRadius = Math.max(1, baseHexRadius * scaleFactor);
+    const xStep = adjustedHexRadius * 1.5;
+    const yStep = Math.sqrt(3) * adjustedHexRadius;
 
-const MapContent = ({ zoom = 1 }: { zoom?: number }) => (
-  <>
-    <Geographies geography={geoUrl}>
-      {({ geographies }) =>
-        geographies.map((geo) => (
-          <Geography
-            key={geo.rsmKey}
-            geography={geo}
-            fill="hsl(var(--card))"
-            stroke="hsl(var(--background))"
-            style={{
-              default: { outline: 'none' },
-              hover: { fill: 'hsl(var(--primary) / 0.5)', outline: 'none' },
-              pressed: { fill: 'hsl(var(--primary))', outline: 'none' },
-            }}
-          />
-        ))
+    const hexes: [number, number][] = [];
+    const features = geoData.features;
+
+    for (let y = 0; y < height; y += yStep) {
+      const row = Math.round(y / yStep);
+      for (let x = 0; x < width; x += xStep) {
+        const xOff = row % 2 ? x + xStep / 2 : x;
+        const inverted = projection.invert([xOff, y]);
+        if (!inverted) continue;
+
+        const [lon, lat] = inverted;
+        if (lon === undefined || lat === undefined) continue;
+
+        const isOnLand = features.some((f: any) => {
+          if (!f.bbox) f.bbox = d3.geoBounds(f);
+          const [[minLon, minLat], [maxLon, maxLat]] = f.bbox;
+          if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) return false;
+          return d3.geoContains(f, [lon, lat]);
+        });
+
+        if (isOnLand) hexes.push([xOff, y]);
       }
-    </Geographies>
-    {passages.map((line, i) => (
-      <Line
-        key={`line-${i}`}
-        from={line.from}
-        to={line.to}
-        stroke="hsl(var(--primary))"
-        strokeWidth={2 / zoom}
-        strokeLinecap="round"
-      />
-    ))}
-    {markers.map(({ name, coordinates }) => (
-      <Marker key={name} coordinates={coordinates}>
-        <circle r={4 / zoom} fill="hsl(var(--accent))" stroke="#FFF" strokeWidth={1 / zoom} />
-        <text
-          textAnchor="middle"
-          y={-8 / zoom}
-          style={{ 
-            fontFamily: 'system-ui', 
-            fill: 'hsl(var(--foreground))', 
-            fontSize: `${10 / zoom}px`, 
-            fontWeight: 'bold' 
-          }}
-        >
-          {name}
-        </text>
-      </Marker>
-    ))}
-  </>
-);
+    }
+    return hexes;
+  }, [geoData, dimensions, baseHexRadius, scaleFactor]);
 
-export default function WorldMapPage() {
-  const [viewport, setViewport] = useState<Viewport>(regions.World);
-  const [activeRegion, setActiveRegion] = useState<RegionKey>('World');
+  useEffect(() => {
+    if (hexGrid.length) setValidHexes(hexGrid);
+  }, [hexGrid]);
 
-  const handleRegionChange = (regionKey: RegionKey) => {
-    setViewport(regions[regionKey]);
-    setActiveRegion(regionKey);
+  const handleHexClick = (index: number) => {
+    const now = Date.now();
+    if (now - lastClickRef.current < 150) return;
+    lastClickRef.current = now;
+    setSelectedHex(index);
   };
 
+  const hexPoints = (cx: number, cy: number, r: number) => {
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 180) * (60 * i - 30);
+      pts.push(`${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`);
+    }
+    return pts.join(' ');
+  };
+  
+  const { width, height } = dimensions;
+
+  if (!geoData) return <div className="flex h-full w-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /> <span className="ml-2">Loading map data...</span></div>;
+  if (!validHexes.length) return <div className="flex h-full w-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /> <span className="ml-2">Preparing map...</span></div>;
+
+  const adjustedHexRadius = Math.max(1, baseHexRadius * scaleFactor * 0.95);
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <Map className="h-6 w-6" />
-              <CardTitle>Interactive World Map</CardTitle>
-            </div>
-            <CardDescription className="mt-2">
-              Visualize your passages, visited countries, and ports.
-            </CardDescription>
-          </div>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-            {(Object.keys(regions) as RegionKey[]).map(key => (
-                <Button 
-                    key={key}
-                    variant={activeRegion === key ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => handleRegionChange(key)}
-                    className="rounded-full"
-                >
-                    {key}
-                </Button>
-            ))}
-        </div>
-      </div>
-      <div
-        className="relative flex-1 w-full overflow-hidden rounded-lg border bg-background"
-      >
-          <ComposableMap
-            projection="geoMercator"
-            style={{ width: '100%', height: '100%' }}
-            width={800}
-            height={600}
-          >
-            <ZoomableGroup center={viewport.center} zoom={viewport.zoom}>
-                <Graticule stroke="hsl(var(--border))" strokeWidth={0.5} />
-                <MapContent zoom={viewport.zoom} />
-            </ZoomableGroup>
-          </ComposableMap>
+    <div ref={containerRef} style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', background:'hsl(var(--background))'}}>
+      <div style={{width:'100%', height:'100%', borderRadius: 'var(--radius)', overflow:'hidden', border: '1px solid hsl(var(--border))', boxShadow:'0 6px 20px rgba(0,0,0,0.05)'}}>
+        <TransformWrapper minScale={0.5} maxScale={10} initialScale={1.8} centerOnInit>
+          <TransformComponent>
+            <svg
+              viewBox={`0 0 ${width} ${height}`}
+              preserveAspectRatio="none"
+              style={{width:'100%', height:'100%', display:'block', background: 'hsl(var(--muted)/0.2)'}}
+            >
+              {validHexes.map(([x, y], i) => (
+                <polygon
+                  key={i}
+                  points={hexPoints(x, y, adjustedHexRadius)}
+                  fill="hsl(var(--background))"
+                  stroke={selectedHex === i ? 'hsl(var(--primary))' : 'hsl(var(--border))'}
+                  strokeWidth={0.4}
+                  onClick={() => handleHexClick(i)}
+                  className="cursor-pointer transition-all duration-150 hover:fill-primary/20"
+                />
+              ))}
+            </svg>
+          </TransformComponent>
+        </TransformWrapper>
       </div>
     </div>
   );
+}
+
+export default function WorldMapPage() {
+    return <HexWorldMap baseHexRadius={4}/>;
 }
