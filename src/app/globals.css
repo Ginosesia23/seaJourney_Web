@@ -93,7 +93,7 @@
     /* Map colors */
     --map-ocean: 210 30% 95%;
     --map-land: 0 0% 100%;
-    --map-land-stroke: 0 0% 100%;
+    --map-land-stroke: 210 30% 95%;
   }
 
   .dark .theme-dashboard {
