@@ -174,8 +174,6 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
                         stroke={passageColors[index % passageColors.length]}
                         strokeWidth="2"
                         fill="none"
-                        strokeDasharray="4 4"
-                        className="animate-pulse"
                       />
                   ))}
                 </svg>
