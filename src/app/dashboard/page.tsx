@@ -13,6 +13,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const totalSeaDaysData = {
   total: '1,284',
@@ -43,9 +44,58 @@ const recentActivity = [
     { vessel: 'S/Y "Zephyr"', days: 21, date: '2023-11-28', type: 'Sailing Yacht' },
 ]
 
+const sampleYears = ['All Years', '2024', '2023', '2022'];
+const sampleVessels = [
+    { id: 'all', name: 'All Vessels' },
+    { id: 'vessel-1', name: 'M/Y "Odyssey"' },
+    { id: 'vessel-2', name: 'S/Y "Wanderer"' },
+    { id: 'vessel-3', name: 'M/Y "Eclipse"' },
+    { id: 'vessel-4', name: 'M/Y "Stardust"' },
+    { id: 'vessel-5', name: 'S/Y "Zephyr"' },
+];
+const sampleVesselTypes = ['All Types', 'Motor Yacht', 'Sailing Yacht', 'Commercial'];
+
 export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+            <CardTitle className="text-2xl">Dashboard</CardTitle>
+            <CardDescription>Your career at a glance.</CardDescription>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+            <Select defaultValue={sampleYears[0]}>
+                <SelectTrigger className="w-full sm:w-[150px]">
+                    <SelectValue placeholder="Filter by year..." />
+                </SelectTrigger>
+                <SelectContent>
+                    {sampleYears.map(year => (
+                        <SelectItem key={year} value={year}>{year}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select defaultValue={sampleVessels[0].id}>
+                <SelectTrigger className="w-full sm:w-[180px]">
+                    <SelectValue placeholder="Filter by vessel..." />
+                </SelectTrigger>
+                <SelectContent>
+                    {sampleVessels.map(vessel => (
+                        <SelectItem key={vessel.id} value={vessel.id}>{vessel.name}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select defaultValue={sampleVesselTypes[0]}>
+                <SelectTrigger className="w-full sm:w-[150px]">
+                    <SelectValue placeholder="Filter by type..." />
+                </SelectTrigger>
+                <SelectContent>
+                    {sampleVesselTypes.map(type => (
+                        <SelectItem key={type} value={type}>{type}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+      </div>
       <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
          <Card className="rounded-xl shadow-sm">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
