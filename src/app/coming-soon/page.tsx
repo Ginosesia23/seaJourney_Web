@@ -95,6 +95,34 @@ const tiers = [
     highlighted: true,
     type: 'vessel',
   },
+  {
+    name: 'Vessel Fleet',
+    price: '$149.99',
+    priceSuffix: '/ month',
+    description: 'Ideal for managing multiple vessels and larger crews.',
+    features: [
+      'Track up to 50 crew members',
+      'All Vessel Pro features',
+      'Fleet-wide analytics',
+      'API access for integrations',
+    ],
+    cta: 'Coming Soon',
+    type: 'vessel',
+  },
+  {
+    name: 'Vessel Enterprise',
+    price: '$299.99',
+    priceSuffix: '/ month',
+    description: 'Scalable solution for large fleets and management companies.',
+    features: [
+      'Track unlimited crew members',
+      'All Vessel Fleet features',
+      'Dedicated account manager',
+      'Custom onboarding & support',
+    ],
+    cta: 'Coming Soon',
+    type: 'vessel',
+  },
 ];
 
 
