@@ -364,21 +364,23 @@ export default function CurrentPage() {
                                     onMonthChange={setSelectedDate}
                                     className="p-0"
                                     classNames={{
-                                        day: 'h-10 w-10 text-sm rounded-full',
-                                        day_selected: 'bg-background text-foreground border-2 border-primary',
+                                        day: 'h-10 w-10 text-sm rounded-full relative',
+                                        day_selected: 'bg-transparent text-foreground border-2 border-primary',
                                         day_today: 'text-primary font-bold',
                                         day_disabled: 'opacity-50'
                                     }}
                                     disabled={[{ before: startOfDay(startDate) }, { after: endOfDay(new Date()) }]}
                                     components={{
-                                    DayContent: ({ date }) => {
+                                    DayContent: ({ date, activeModifiers }) => {
                                         const dateKey = format(date, 'yyyy-MM-dd');
                                         const state = currentStatus.dailyStates[dateKey];
                                         const stateInfo = vesselStates.find(s => s.value === state);
                                         const isDateInRange = startDate && date >= startDate && date <= new Date();
+                                        
+                                        const isSelected = activeModifiers.selected;
 
                                         if (!isDateInRange || !stateInfo) {
-                                        return <div className="relative h-full w-full flex items-center justify-center">{format(date, 'd')}</div>;
+                                            return <div className="relative h-full w-full flex items-center justify-center">{format(date, 'd')}</div>;
                                         }
                                         
                                         const rangeClass = getRangeClass(date);
@@ -388,8 +390,8 @@ export default function CurrentPage() {
                                             <Tooltip>
                                             <TooltipTrigger asChild>
                                                 <div className="relative h-full w-full flex items-center justify-center">
-                                                <div className={cn('absolute inset-y-1 inset-x-[-1px]', stateInfo.color, rangeClass)}></div>
-                                                <span className="relative z-10 font-medium text-white mix-blend-difference">{format(date, 'd')}</span>
+                                                    <div className={cn('absolute inset-y-2 inset-x-0', stateInfo.color, rangeClass, isSelected && 'ring-2 ring-primary-foreground ring-offset-2 ring-offset-primary')}></div>
+                                                    <span className="relative z-10 font-medium text-white/90" style={{textShadow: '0 1px 2px rgba(0,0,0,0.4)'}}>{format(date, 'd')}</span>
                                                 </div>
                                             </TooltipTrigger>
                                             <TooltipContent>
@@ -637,3 +639,4 @@ export default function CurrentPage() {
     
 
     
+
