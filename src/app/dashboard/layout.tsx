@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react';
 import DashboardHeader from '@/components/layout/dashboard-header';
 import DashboardSidebar from '@/components/layout/dashboard-sidebar';
 import { cn } from '@/lib/utils';
+import { useTheme } from 'next-themes';
 
 export default function DashboardLayout({
   children,
@@ -16,6 +17,7 @@ export default function DashboardLayout({
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const pathname = usePathname();
+  const { theme } = useTheme();
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -38,7 +40,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="theme-dashboard flex min-h-screen w-full flex-col">
+    <div className={cn("theme-dashboard", theme === "dark" ? "dark" : "")}>
       <DashboardHeader />
       <div
         className={cn(

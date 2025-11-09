@@ -70,11 +70,11 @@
   }
 
   .theme-dashboard {
-    --background: 0 0% 100%;
+    --background: 240 5.9% 90%;
     --foreground: 224 71% 4%;
-    --card: 210 40% 100%;
+    --card: 0 0% 100%;
     --card-foreground: 224 71% 4%;
-    --popover: 210 40% 100%;
+    --popover: 0 0% 100%;
     --popover-foreground: 224 71% 4%;
     --primary: 205 90% 45%;
     --primary-foreground: 210 40% 98%;
@@ -87,8 +87,8 @@
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 205 79% 51%;
-    --header: 211 100% 5%;
-    --header-foreground: 210 40% 98%;
+    --header: 0 0% 100%;
+    --header-foreground: 224 71% 4%;
   }
 
   .dark .theme-dashboard {

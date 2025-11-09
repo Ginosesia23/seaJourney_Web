@@ -39,7 +39,7 @@ export default function DashboardHeader() {
   const auth = useAuth();
   const { user } = useFirebaseUser();
   const router = useRouter();
-  const { setTheme } = useTheme();
+  const { setTheme, theme } = useTheme();
 
   const handleSignOut = () => {
     if (auth) {
@@ -60,7 +60,7 @@ export default function DashboardHeader() {
         <div className="flex items-center gap-4">
             <Sheet>
                 <SheetTrigger asChild>
-                    <Button variant="outline" size="icon" className="shrink-0 lg:hidden text-foreground rounded-full">
+                    <Button variant="outline" size="icon" className="shrink-0 lg:hidden rounded-full">
                         <Menu className="h-5 w-5" />
                         <span className="sr-only">Toggle navigation menu</span>
                     </Button>
@@ -81,7 +81,7 @@ export default function DashboardHeader() {
                 <Input
                     type="search"
                     placeholder="Keyword search..."
-                    className="w-full rounded-lg bg-background/10 pl-8 text-header-foreground placeholder:text-header-foreground/60 md:w-full h-9 border-0 focus-visible:ring-primary"
+                    className="w-full rounded-lg bg-background/10 pl-8 text-header-foreground placeholder:text-muted-foreground md:w-full h-9 border-input focus-visible:ring-primary"
                 />
             </div>
         </form>
@@ -90,7 +90,7 @@ export default function DashboardHeader() {
       <div className="flex items-center gap-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full hover:bg-white/10">
+            <Button variant="ghost" size="icon" className="rounded-full">
               <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-primary/80 text-primary-foreground">
                   {user?.displayName
