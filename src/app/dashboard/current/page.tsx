@@ -264,21 +264,25 @@ export default function CurrentPage() {
     const dateKey = format(day, 'yyyy-MM-dd');
     const state = currentStatus.dailyStates[dateKey];
     if (!state) return '';
-
-    const prevDayKey = format(new Date(day.getTime() - 86400000), 'yyyy-MM-dd');
-    const nextDayKey = format(new Date(day.getTime() + 86400000), 'yyyy-MM-dd');
+  
+    const prevDay = new Date(day.getTime() - 86400000);
+    const nextDay = new Date(day.getTime() + 86400000);
+    
+    const prevDayKey = format(prevDay, 'yyyy-MM-dd');
+    const nextDayKey = format(nextDay, 'yyyy-MM-dd');
     
     const prevState = currentStatus.dailyStates[prevDayKey];
     const nextState = currentStatus.dailyStates[nextDayKey];
-
-    const isStart = prevState !== state || isSameDay(day, startDate);
-    const isEnd = nextState !== state || isSameDay(day, endOfDay(new Date()));
-
-    if (isStart && isEnd) return 'rounded-full';
-    if (isStart) return 'rounded-l-full';
-    if (isEnd) return 'rounded-r-full';
+  
+    const isStartOfRange = prevState !== state || isSameDay(day, startDate);
+    const isEndOfRange = nextState !== state || isSameDay(day, endOfDay(new Date()));
+  
+    if (isStartOfRange && isEndOfRange) return 'rounded-full';
+    if (isStartOfRange) return 'rounded-l-full';
+    if (isEndOfRange) return 'rounded-r-full';
     return 'rounded-none';
   };
+  
 
   if (isLoadingStatus || isLoadingVessels) {
     return (
@@ -634,9 +638,3 @@ export default function CurrentPage() {
     </div>
   );
 }
-
-
-    
-
-    
-
