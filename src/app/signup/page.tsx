@@ -16,7 +16,7 @@ import { createUserWithEmailAndPassword, updateProfile, AuthError } from 'fireba
 import { Loader2 } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
-import Logo from '@/components/logo';
+import LogoOnboarding from '@/components/logo-onboarding';
 
 const signupSchema = z.object({
   username: z.string().min(3, { message: 'Username must be at least 3 characters long.' }),
@@ -94,7 +94,7 @@ export default function SignupPage() {
         <Card className="w-full border-none bg-card text-card-foreground shadow-2xl rounded-xl">
           <CardHeader className="text-center">
             <div className="mb-4 flex justify-center">
-              <Logo />
+              <LogoOnboarding />
             </div>
             <CardTitle className="font-headline text-2xl">Create an Account</CardTitle>
             <CardDescription>Join SeaJourney and start tracking your sea time.</CardDescription>

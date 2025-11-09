@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/firebase';
 import { signInWithEmailAndPassword, signInAnonymously, AuthError } from 'firebase/auth';
 import { Loader2 } from 'lucide-react';
-import Logo from '@/components/logo';
+import LogoOnboarding from '@/components/logo-onboarding';
 
 const loginSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address.' }),
@@ -83,7 +83,7 @@ export default function LoginPage() {
         <Card className="w-full border-none bg-card text-card-foreground shadow-2xl rounded-xl">
           <CardHeader className="text-center">
              <div className="mb-4 flex justify-center">
-              <Logo />
+              <LogoOnboarding />
             </div>
             <CardTitle className="font-headline text-2xl">Welcome Back</CardTitle>
             <CardDescription>Sign in to access your dashboard.</CardDescription>
