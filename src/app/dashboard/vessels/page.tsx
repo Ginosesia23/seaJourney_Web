@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { MoreHorizontal, PlusCircle, Loader2, Ship } from 'lucide-react';
+import { format } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -18,6 +19,7 @@ import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, Fi
 import { collection, addDoc, doc, setDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 
 const vesselSchema = z.object({
@@ -43,6 +45,12 @@ interface CurrentStatus {
     startDate: Timestamp;
     dailyStates: Record<string, DailyStatus>;
 }
+
+const vesselStates: { value: DailyStatus; label: string, color: string }[] = [
+    { value: 'at-sea', label: 'At Sea', color: 'bg-primary' },
+    { value: 'standby', label: 'On Standby', color: 'bg-yellow-500' },
+    { value: 'in-port', label: 'In Port', color: 'bg-accent' },
+]
 
 export default function VesselsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -222,48 +230,69 @@ export default function VesselsPage() {
                         <TableHead>Vessel Name</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Official Number</TableHead>
+                        <TableHead>Status</TableHead>
                         <TableHead className="w-[50px]"></TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {isLoading ? (
                             <TableRow>
-                                <TableCell colSpan={4} className="h-24 text-center">
+                                <TableCell colSpan={5} className="h-24 text-center">
                                     <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                                 </TableCell>
                             </TableRow>
                         ) : vessels && vessels.length > 0 ? (
-                        vessels.map((vessel) => (
-                            <TableRow key={vessel.id}>
-                                <TableCell className="font-medium">
-                                    <div className="flex items-center gap-2">
-                                        <span>{vessel.name}</span>
-                                        {currentStatus && currentStatus.vesselId === vessel.id && (
-                                            <Badge variant="secondary">Current</Badge>
+                        vessels.map((vessel) => {
+                            const isCurrent = currentStatus && currentStatus.vesselId === vessel.id;
+                            let currentDayStatusLabel = 'N/A';
+                            if (isCurrent) {
+                                const todayKey = format(new Date(), 'yyyy-MM-dd');
+                                const statusValue = currentStatus.dailyStates[todayKey];
+                                const stateInfo = vesselStates.find(s => s.value === statusValue);
+                                if (stateInfo) {
+                                    currentDayStatusLabel = stateInfo.label;
+                                }
+                            }
+
+                            return (
+                                <TableRow key={vessel.id}>
+                                    <TableCell className="font-medium">
+                                        <div className="flex items-center gap-2">
+                                            <span>{vessel.name}</span>
+                                            {isCurrent && (
+                                                <Badge variant="secondary">Current</Badge>
+                                            )}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>{vessel.type}</TableCell>
+                                    <TableCell>{vessel.officialNumber || 'N/A'}</TableCell>
+                                    <TableCell>
+                                        {isCurrent ? (
+                                            <Badge variant="outline">{currentDayStatusLabel}</Badge>
+                                        ) : (
+                                            <span className="text-muted-foreground">N/A</span>
                                         )}
-                                    </div>
-                                </TableCell>
-                                <TableCell>{vessel.type}</TableCell>
-                                <TableCell>{vessel.officialNumber || 'N/A'}</TableCell>
-                                <TableCell>
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button variant="ghost" className="h-8 w-8 p-0">
-                                                <span className="sr-only">Open menu</span>
-                                                <MoreHorizontal className="h-4 w-4" />
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => handleEdit(vessel)}>Edit</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => handleDelete(vessel.id)} className="text-destructive">Delete</DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                </TableCell>
-                            </TableRow>
-                        ))
+                                    </TableCell>
+                                    <TableCell>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="ghost" className="h-8 w-8 p-0">
+                                                    <span className="sr-only">Open menu</span>
+                                                    <MoreHorizontal className="h-4 w-4" />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                                <DropdownMenuItem onClick={() => handleEdit(vessel)}>Edit</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => handleDelete(vessel.id)} className="text-destructive">Delete</DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </TableCell>
+                                </TableRow>
+                            )
+                        })
                         ) : (
                         <TableRow>
-                            <TableCell colSpan={4} className="h-24 text-center">
+                            <TableCell colSpan={5} className="h-24 text-center">
                             No vessels found.
                             </TableCell>
                         </TableRow>
