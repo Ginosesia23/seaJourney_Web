@@ -10,6 +10,7 @@ import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { Loader2, Plus, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { hexbin as d3Hexbin } from 'd3-hexbin';
 
 type Passage = [number, number][]; // Array of [lon, lat] coordinates
 
@@ -70,33 +71,32 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
         );
 
         const adjustedHexRadius = Math.max(1, baseHexRadius * scaleFactor);
-        const xStep = adjustedHexRadius * 1.5;
-        const yStep = Math.sqrt(3) * adjustedHexRadius;
+        
+        const hexbin = d3Hexbin()
+            .radius(adjustedHexRadius)
+            .extent([[0, 0], [width, height]]);
 
-        const hexes: [number, number][] = [];
-        const features = geoData.features;
-
-        for (let y = 0; y < height; y += yStep) {
-          const row = Math.round(y / yStep);
-          for (let x = 0; x < width; x += xStep) {
-            const xOff = row % 2 ? x + xStep / 2 : x;
-            const inverted = projection.invert([xOff, y]);
-            if (!inverted) continue;
-
-            const [lon, lat] = inverted;
-            if (lon === undefined || lat === undefined) continue;
-
-            const isOnLand = features.some((f: any) => {
-              if (!f.bbox) f.bbox = d3.geoBounds(f);
-              const [[minLon, minLat], [maxLon, maxLat]] = f.bbox;
-              if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) return false;
-              return d3.geoContains(f, [lon, lat]);
-            });
-
-            if (isOnLand) hexes.push([xOff, y]);
-          }
+        const points: [number, number][] = [];
+        for (let i = 0; i < geoData.features.length; i++) {
+            const feature = geoData.features[i];
+            const coordinates = d3.geoCentroid(feature);
+            if (d3.geoContains(feature, coordinates)) {
+                // Add more points for larger polygons to get better coverage
+                 const step = 0.5;
+                 const bounds = d3.geoBounds(feature);
+                 for (let lon = bounds[0][0]; lon < bounds[1][0]; lon += step) {
+                     for (let lat = bounds[0][1]; lat < bounds[1][1]; lat += step) {
+                         if (d3.geoContains(feature, [lon, lat])) {
+                             const p = projection([lon, lat]);
+                             if (p) points.push(p);
+                         }
+                     }
+                 }
+            }
         }
-        setValidHexes(hexes);
+        
+        const hexes = hexbin(points);
+        setValidHexes(hexes.map(h => [h.x, h.y]));
 
         // Generate passage path
         if (passageData) {
@@ -150,14 +150,14 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
                 <svg
                   viewBox={`0 0 ${width} ${height}`}
                   preserveAspectRatio="none"
-                  style={{width:'100%', height:'100%', display:'block', background: 'hsl(var(--muted)/0.2)'}}
+                  style={{width:'100%', height:'100%', display:'block', background: 'hsl(var(--card))'}}
                 >
                   {validHexes.map(([x, y], i) => (
                     <polygon
                       key={i}
                       points={hexPoints(x, y, adjustedHexRadius)}
-                      fill={selectedHex === i ? 'hsl(var(--primary))' : 'hsl(var(--background))'}
-                      stroke="hsl(var(--border))"
+                      fill={selectedHex === i ? 'hsl(var(--primary))' : 'hsl(var(--muted))'}
+                      stroke="hsl(var(--border) / 0.5)"
                       strokeWidth={0.4}
                       onClick={() => handleHexClick(i)}
                       className="cursor-pointer transition-all duration-150 hover:fill-primary/20"
