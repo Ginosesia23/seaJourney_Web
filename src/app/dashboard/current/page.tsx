@@ -103,6 +103,24 @@ export default function CurrentPage() {
     },
   });
 
+  useEffect(() => {
+    if (currentStatus) {
+      statusForm.reset({
+        vesselId: currentStatus.vesselId,
+        position: currentStatus.position,
+        startDate: fromUnixTime(currentStatus.startDate.seconds),
+        vesselState: 'at-sea', // This can be a default or fetched
+      });
+    } else {
+        statusForm.reset({
+            vesselId: '',
+            position: '',
+            startDate: undefined,
+            vesselState: 'at-sea',
+        })
+    }
+  }, [currentStatus, statusForm]);
+
   async function onStatusSubmit(data: CurrentStatusFormValues) {
     if (!currentStatusCollectionRef) return;
     const today = new Date();
@@ -113,13 +131,13 @@ export default function CurrentPage() {
     });
 
     const newStatus = {
-      ...data,
+      vesselId: data.vesselId,
+      position: data.position,
       startDate: Timestamp.fromDate(data.startDate),
       dailyStates,
     }
     
     addDoc(currentStatusCollectionRef, newStatus)
-      .then(() => statusForm.reset())
       .catch((serverError) => {
         const permissionError = new FirestorePermissionError({
           path: currentStatusCollectionRef.path,
@@ -157,7 +175,6 @@ export default function CurrentPage() {
 
     const dateKey = format(day, 'yyyy-MM-dd');
     const updatedStatus = {
-        ...currentStatus,
         dailyStates: {
             ...currentStatus.dailyStates,
             [dateKey]: state
@@ -202,7 +219,7 @@ export default function CurrentPage() {
     }, {} as Record<DailyStatus, number>);
   }, [currentStatus]);
 
-  if (isLoadingStatus) {
+  if (isLoadingStatus || (currentStatus && isLoadingVessels)) {
     return (
         <div className="flex items-center justify-center h-full">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -246,6 +263,7 @@ export default function CurrentPage() {
                                 onSelect={setSelectedDate}
                                 onDayClick={(day, modifiers) => {
                                     if(modifiers.disabled) return;
+                                    if(startDate && day < startDate) return;
                                     setSelectedDate(day);
                                     setIsStatusDialogOpen(true);
                                 }}
@@ -256,13 +274,13 @@ export default function CurrentPage() {
                                     day: 'h-12 w-12 rounded-lg relative',
                                     day_selected: 'bg-background text-foreground border border-primary',
                                 }}
-                                disabled={{ after: new Date() }}
+                                disabled={[{ before: startDate }, { after: new Date() }]}
                                 components={{
-                                DayContent: ({ date, ...props }) => {
+                                DayContent: ({ date }) => {
                                     const dateKey = format(date, 'yyyy-MM-dd');
                                     const state = currentStatus.dailyStates[dateKey];
                                     const stateInfo = vesselStates.find(s => s.value === state);
-                                    const isDateInRange = date >= startDate && date <= new Date();
+                                    const isDateInRange = startDate && date >= startDate && date <= new Date();
 
                                     return (
                                     <div className="relative h-full w-full flex items-center justify-center">
@@ -372,7 +390,7 @@ export default function CurrentPage() {
                     <FormItem>
                       <FormLabel>Vessel</FormLabel>
                       <div className="flex gap-2">
-                        <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoadingVessels}>
+                        <Select onValueChange={field.onChange} value={field.value} disabled={isLoadingVessels}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder={isLoadingVessels ? "Loading vessels..." : "Select the vessel you're on"} />
@@ -542,3 +560,5 @@ export default function CurrentPage() {
     </div>
   );
 }
+
+    
