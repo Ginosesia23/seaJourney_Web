@@ -2,12 +2,16 @@
 
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { useUser } from '@/firebase';
+import { useUser, useFirestore, useDoc, useMemoFirebase, doc } from '@/firebase';
 import { Loader2 } from 'lucide-react';
 import DashboardHeader from '@/components/layout/dashboard-header';
 import DashboardSidebar from '@/components/layout/dashboard-sidebar';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
+
+interface UserProfile {
+  subscriptionTier: 'free' | 'premium' | 'premium-plus' | 'professional';
+}
 
 export default function DashboardLayout({
   children,
@@ -18,16 +22,35 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { theme } = useTheme();
+  const firestore = useFirestore();
+
+  const userProfileRef = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    return doc(firestore, 'users', user.uid, 'profile', user.uid);
+  }, [firestore, user?.uid]);
+
+  const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>(userProfileRef);
 
   useEffect(() => {
-    if (!isUserLoading && !user) {
+    if (isUserLoading || isProfileLoading) return;
+
+    if (!user) {
       router.push('/login');
+      return;
     }
-  }, [user, isUserLoading, router]);
+
+    // Redirect to plan selection if the user is on the free tier
+    if (userProfile && userProfile.subscriptionTier === 'free') {
+        router.push('/coming-soon');
+        return;
+    }
+
+  }, [user, isUserLoading, userProfile, isProfileLoading, router]);
 
   const isMapPage = pathname === '/dashboard/world-map';
+  const isLoading = isUserLoading || isProfileLoading;
 
-  if (isUserLoading) {
+  if (isLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -35,7 +58,8 @@ export default function DashboardLayout({
     );
   }
 
-  if (!user) {
+  // If there's no user, or if the user is on the free tier, don't render the dashboard
+  if (!user || userProfile?.subscriptionTier === 'free') {
     return null;
   }
 
