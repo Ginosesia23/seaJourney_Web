@@ -120,7 +120,7 @@
     /* Map colors */
     --map-ocean: 211 100% 5%;
     --map-land: 217.2 32.6% 17.5%;
-    --map-land-stroke: 220 15% 15%;
+    --map-land-stroke: 211 100% 5%;
   }
 }
 
