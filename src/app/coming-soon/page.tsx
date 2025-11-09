@@ -12,8 +12,8 @@ import { cn } from '@/lib/utils';
 const tiers = [
   {
     name: 'By Invitation',
-    price: '$0',
-    priceSuffix: '/ month',
+    price: '',
+    priceSuffix: '',
     description: 'For crew members invited by a vessel with an active subscription.',
     features: [
       'Sea time logging via vessel',
@@ -24,7 +24,7 @@ const tiers = [
     type: 'crew',
   },
   {
-    name: 'Premium',
+    name: 'Standard',
     price: '$9.99',
     priceSuffix: '/ month',
     description: 'For dedicated professionals who need advanced tracking.',
@@ -39,7 +39,7 @@ const tiers = [
     type: 'crew',
   },
   {
-    name: 'Premium+',
+    name: 'Premium',
     price: '$19.99',
     priceSuffix: '/ month',
     description: 'For career-focused seafarers needing detailed analytics.',
