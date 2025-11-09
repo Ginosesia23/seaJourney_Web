@@ -14,7 +14,7 @@ import { hexbin as d3Hexbin } from 'd3-hexbin';
 
 type Passage = [number, number][]; // Array of [lon, lat] coordinates
 
-function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { baseHexRadius?: number; scaleFactor?: number; passageData?: Passage }) {
+function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { baseHexRadius?: number; scaleFactor?: number; passageData?: Passage[] }) {
   const [geoData, setGeoData] = useState<any>(null);
   const [validHexes, setValidHexes] = useState<[number, number][]>([]);
   const [selectedHex, setSelectedHex] = useState<number | null>(null);
@@ -22,7 +22,7 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [path, setPath] = useState<string | null>(null);
+  const [paths, setPaths] = useState<(string | null)[]>([]);
 
   useEffect(() => {
     const resizeObserver = new ResizeObserver(entries => {
@@ -101,9 +101,11 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
         // Generate passage path
         if (passageData) {
             const lineGenerator = d3.line().context(null);
-            const projectedPoints = passageData.map(d => projection(d) as [number, number]);
-            const svgPath = lineGenerator(projectedPoints);
-            setPath(svgPath);
+            const svgPaths = passageData.map(passage => {
+              const projectedPoints = passage.map(d => projection(d) as [number, number]);
+              return lineGenerator(projectedPoints);
+            });
+            setPaths(svgPaths);
         }
 
         setIsLoading(false);
@@ -134,6 +136,8 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
   const { width, height } = dimensions;
   const adjustedHexRadius = Math.max(1, baseHexRadius * scaleFactor * 0.95);
 
+  const passageColors = ["hsl(var(--accent))", "hsl(var(--primary))"];
+
   return (
     <div ref={containerRef} className="h-full w-full relative">
        {isLoading && (
@@ -163,16 +167,17 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
                       className="cursor-pointer transition-all duration-150 hover:fill-primary/20"
                     />
                   ))}
-                  {path && (
+                  {paths.map((path, index) => path && (
                       <path
+                        key={index}
                         d={path}
-                        stroke="hsl(var(--accent))"
+                        stroke={passageColors[index % passageColors.length]}
                         strokeWidth="2"
                         fill="none"
                         strokeDasharray="4 4"
                         className="animate-pulse"
                       />
-                  )}
+                  ))}
                 </svg>
               </TransformComponent>
               <div className="absolute bottom-4 right-4 flex flex-col gap-2">
@@ -193,7 +198,7 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1, passageData }: { base
 
 export default function WorldMapPage() {
     // Sample passage from Italy to Miami
-    const passage: Passage = [
+    const passage1: Passage = [
         [12.8, 42.8],    // Italy
         [5.3, 43.3],     // Marseille
         [-5.3, 36.1],    // Strait of Gibraltar
@@ -203,6 +208,17 @@ export default function WorldMapPage() {
         [-70.0, 26.0],   // Bahamas
         [-80.1, 25.7],   // Miami
     ];
+    
+    // Sample passage from Iceland to Sydney
+    const passage2: Passage = [
+        [-18.1, 64.9],   // Iceland
+        [-8.2, 53.0],    // Off Ireland
+        [18.4, -34.6],   // Cape of Good Hope, South Africa
+        [80.0, -10.0],   // Indian Ocean
+        [115.0, -32.0],  // Near Perth
+        [151.2, -33.8],  // Sydney
+    ];
 
-    return <HexWorldMap baseHexRadius={4} passageData={passage} />;
+
+    return <HexWorldMap baseHexRadius={4} passageData={[passage1, passage2]} />;
 }
