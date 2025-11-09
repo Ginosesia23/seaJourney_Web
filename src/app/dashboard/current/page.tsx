@@ -327,9 +327,14 @@ export default function CurrentPage() {
 
   return (
     <div className="w-full max-w-7xl mx-auto">
-       <div className="flex items-center gap-3 mb-8">
-          <MapPin className="h-6 w-6" />
-          <CardTitle>Current Status</CardTitle>
+       <div className="flex items-center justify-between gap-3 mb-8">
+          <div className="flex items-center gap-3">
+            <MapPin className="h-6 w-6" />
+            <CardTitle>Current Status</CardTitle>
+          </div>
+          {isDisplayingStatus && (
+            <Button onClick={handleEndTrip} variant="destructive" className="rounded-full">End Current Trip</Button>
+          )}
         </div>
       {isDisplayingStatus ? (
         <div className="space-y-8">
@@ -509,10 +514,6 @@ export default function CurrentPage() {
                             </Button>
                         </CardFooter>
                     </Card>
-
-                    <div className="pt-2 flex justify-center">
-                        <Button onClick={handleEndTrip}>End Current Trip</Button>
-                    </div>
                 </div>
             </div>
         </div>
