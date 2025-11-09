@@ -142,6 +142,10 @@
         "dailyStates": {
           "type": "object",
           "description": "A map of dates to vessel states (e.g., 'at-sea', 'in-port')."
+        },
+        "notes": {
+          "type": "string",
+          "description": "User-added notes for the current trip."
         }
       },
       "required": [
