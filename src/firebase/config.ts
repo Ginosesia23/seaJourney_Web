@@ -1,8 +1,9 @@
 export const firebaseConfig = {
-  "projectId": "studio-5088907108-439c0",
-  "appId": "1:452958380575:web:a262fcd05bc3ada537eb2a",
-  "apiKey": "AIzaSyAF_CzV0bqUef2Wnwv_axtE1WBKfC6mbkk",
-  "authDomain": "studio-5088907108-439c0.firebaseapp.com",
-  "measurementId": "",
-  "messagingSenderId": "452958380575"
+  "projectId": "seajourney-b9cbc",
+  "appId": "1:396973682729:web:35520108ad1bf4479b182b",
+  "apiKey": "AIzaSyDEjR6lVwE1jP1o_s-mK8r9Z8j_F0v_YwE",
+  "authDomain": "seajourney-b9cbc.firebaseapp.com",
+  "measurementId": "G-L5G8H2V6T5",
+  "storageBucket": "seajourney-b9cbc.appspot.com",
+  "messagingSenderId": "396973682729"
 };
