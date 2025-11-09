@@ -31,7 +31,8 @@ const tiers = [
     features: [
       'Unlimited sea time logging',
       'Digital testimonials',
-      'Multi-vessel support',
+      'Up to 2 vessels',
+      'Single date state tracking',
       '4GB online storage',
       '10 document export limit'
     ],
@@ -46,6 +47,8 @@ const tiers = [
     description: 'For career-focused seafarers needing detailed analytics.',
     features: [
       'All Standard features',
+      'Unlimited vessels',
+      'Multi-date state tracking',
       'Advanced career analytics',
       'Certification progress tracking',
       '6GB online storage',
