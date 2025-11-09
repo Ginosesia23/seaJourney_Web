@@ -82,6 +82,11 @@ export default function CurrentPage() {
 
   const addVesselForm = useForm<AddVesselFormValues>({
     resolver: zodResolver(addVesselSchema),
+    defaultValues: {
+      name: '',
+      type: '',
+      officialNumber: '',
+    },
   });
 
   function onStatusSubmit(data: CurrentStatusFormValues) {
@@ -478,5 +483,3 @@ export default function CurrentPage() {
     </div>
   );
 }
-
-    
