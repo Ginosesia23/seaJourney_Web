@@ -346,8 +346,8 @@ export default function CurrentPage() {
                 </Card>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-                <div className="lg:col-span-2">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                <div>
                     <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <div className="flex justify-between items-center">
@@ -653,6 +653,8 @@ export default function CurrentPage() {
     </div>
   );
 }
+
+    
 
     
 
