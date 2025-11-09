@@ -37,7 +37,7 @@ type Vessel = {
   ownerId: string;
 };
 
-type DailyStatus = 'at-sea' | 'standby' | 'in-port';
+type DailyStatus = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';
 interface CurrentStatus {
     id: string;
     vesselId: string;
@@ -47,10 +47,12 @@ interface CurrentStatus {
 }
 
 const vesselStates: { value: DailyStatus; label: string, color: string }[] = [
-    { value: 'at-sea', label: 'At Sea', color: 'bg-primary' },
-    { value: 'standby', label: 'On Standby', color: 'bg-yellow-500' },
-    { value: 'in-port', label: 'In Port', color: 'bg-accent' },
-]
+    { value: 'underway', label: 'Underway', color: 'bg-blue-500' },
+    { value: 'at-anchor', label: 'At Anchor', color: 'bg-orange-500' },
+    { value: 'in-port', label: 'In Port', color: 'bg-green-500' },
+    { value: 'on-leave', label: 'On Leave', color: 'bg-gray-500' },
+    { value: 'in-yard', label: 'In Yard / Maintenance', color: 'bg-red-500' },
+];
 
 export default function VesselsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -304,3 +306,5 @@ export default function VesselsPage() {
     </div>
   );
 }
+
+    

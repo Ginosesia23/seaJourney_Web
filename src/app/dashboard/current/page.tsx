@@ -25,12 +25,12 @@ const currentStatusSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
   position: z.string().min(2, 'Position is required.'),
   startDate: z.date({ required_error: 'A start date is required.' }),
-  vesselState: z.enum(['at-sea', 'standby', 'in-port']),
+  vesselState: z.enum(['underway', 'at-anchor', 'in-port', 'on-leave', 'in-yard']),
 });
 
 type CurrentStatusFormValues = z.infer<typeof currentStatusSchema>;
 
-type DailyStatus = 'at-sea' | 'standby' | 'in-port';
+type DailyStatus = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';
 interface CurrentStatus {
     id: string;
     vesselId: string;
@@ -55,10 +55,12 @@ type Vessel = {
 };
 
 const vesselStates: { value: DailyStatus; label: string, color: string }[] = [
-    { value: 'at-sea', label: 'At Sea', color: 'bg-primary' },
-    { value: 'standby', label: 'On Standby', color: 'bg-yellow-500' },
-    { value: 'in-port', label: 'In Port', color: 'bg-accent' },
-]
+    { value: 'underway', label: 'Underway', color: 'bg-blue-500' },
+    { value: 'at-anchor', label: 'At Anchor', color: 'bg-orange-500' },
+    { value: 'in-port', label: 'In Port', color: 'bg-green-500' },
+    { value: 'on-leave', label: 'On Leave', color: 'bg-gray-500' },
+    { value: 'in-yard', label: 'In Yard / Maintenance', color: 'bg-red-500' },
+];
 
 export default function CurrentPage() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
@@ -91,7 +93,7 @@ export default function CurrentPage() {
       vesselId: '',
       position: '',
       startDate: undefined,
-      vesselState: 'at-sea',
+      vesselState: 'underway',
     },
   });
 
@@ -110,14 +112,14 @@ export default function CurrentPage() {
         vesselId: currentStatus.vesselId,
         position: currentStatus.position,
         startDate: fromUnixTime(currentStatus.startDate.seconds),
-        vesselState: 'at-sea',
+        vesselState: 'underway',
       });
     } else {
         statusForm.reset({
             vesselId: '',
             position: '',
             startDate: undefined,
-            vesselState: 'at-sea',
+            vesselState: 'underway',
         })
     }
   }, [currentStatus]);
@@ -251,7 +253,7 @@ export default function CurrentPage() {
   const daysOnboard = startDate ? differenceInDays(new Date(), startDate) + 1 : 0;
   
   const totalDaysByState = useMemo(() => {
-    if (!currentStatus) return { 'at-sea': 0, standby: 0, 'in-port': 0 };
+    if (!currentStatus) return { 'underway': 0, 'at-anchor': 0, 'in-port': 0, 'on-leave': 0, 'in-yard': 0 };
     return Object.values(currentStatus.dailyStates).reduce((acc, state) => {
         acc[state] = (acc[state] || 0) + 1;
         return acc;
@@ -395,7 +397,7 @@ export default function CurrentPage() {
                                             <TooltipTrigger asChild>
                                                 <div className="relative h-full w-full flex items-center justify-center">
                                                     <div className={cn('absolute inset-y-2 inset-x-0', stateInfo.color, rangeClass, isSelected && 'ring-2 ring-primary-foreground ring-offset-2 ring-offset-primary')}></div>
-                                                    <span className="relative z-10 font-medium text-white/90" style={{textShadow: '0 1px 2px rgba(0,0,0,0.4)'}}>{format(date, 'd')}</span>
+                                                    <span className="relative z-10 font-medium text-white" style={{textShadow: '0 1px 2px rgba(0,0,0,0.5)'}}>{format(date, 'd')}</span>
                                                 </div>
                                             </TooltipTrigger>
                                             <TooltipContent>
@@ -638,3 +640,5 @@ export default function CurrentPage() {
     </div>
   );
 }
+
+    
