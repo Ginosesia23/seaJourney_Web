@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, differenceInDays, eachDayOfInterval, fromUnixTime } from 'date-fns';
+import { format, differenceInDays, eachDayOfInterval, fromUnixTime, isSameDay, isBefore, isAfter, startOfDay, endOfDay } from 'date-fns';
 import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -258,6 +258,28 @@ export default function CurrentPage() {
     }, {} as Record<DailyStatus, number>);
   }, [currentStatus]);
 
+  const getRangeClass = (day: Date): string => {
+    if (!currentStatus || !startDate) return '';
+    
+    const dateKey = format(day, 'yyyy-MM-dd');
+    const state = currentStatus.dailyStates[dateKey];
+    if (!state) return '';
+
+    const prevDayKey = format(new Date(day.getTime() - 86400000), 'yyyy-MM-dd');
+    const nextDayKey = format(new Date(day.getTime() + 86400000), 'yyyy-MM-dd');
+    
+    const prevState = currentStatus.dailyStates[prevDayKey];
+    const nextState = currentStatus.dailyStates[nextDayKey];
+
+    const isStart = prevState !== state || isSameDay(day, startDate);
+    const isEnd = nextState !== state || isSameDay(day, endOfDay(new Date()));
+
+    if (isStart && isEnd) return 'rounded-full';
+    if (isStart) return 'rounded-l-full';
+    if (isEnd) return 'rounded-r-full';
+    return 'rounded-none';
+  };
+
   if (isLoadingStatus || isLoadingVessels) {
     return (
         <div className="flex items-center justify-center h-full">
@@ -312,35 +334,41 @@ export default function CurrentPage() {
                                 onMonthChange={setSelectedDate}
                                 className="p-0"
                                 classNames={{
-                                    day: 'h-12 w-12 rounded-lg relative',
-                                    day_selected: 'bg-background text-foreground border border-primary',
+                                    day: 'h-10 w-10 text-sm rounded-full',
+                                    day_selected: 'bg-background text-foreground border-2 border-primary',
+                                    day_today: 'text-primary font-bold',
+                                    day_disabled: 'opacity-50'
                                 }}
-                                disabled={[{ before: startDate }, { after: new Date() }]}
+                                disabled={[{ before: startOfDay(startDate) }, { after: endOfDay(new Date()) }]}
                                 components={{
-                                DayContent: ({ date }) => {
+                                  DayContent: ({ date }) => {
                                     const dateKey = format(date, 'yyyy-MM-dd');
                                     const state = currentStatus.dailyStates[dateKey];
                                     const stateInfo = vesselStates.find(s => s.value === state);
                                     const isDateInRange = startDate && date >= startDate && date <= new Date();
 
+                                    if (!isDateInRange || !stateInfo) {
+                                      return <div className="relative h-full w-full flex items-center justify-center">{format(date, 'd')}</div>;
+                                    }
+                                    
+                                    const rangeClass = getRangeClass(date);
+                                    
                                     return (
-                                    <div className="relative h-full w-full flex items-center justify-center">
-                                        <span>{format(date, 'd')}</span>
-                                        {isDateInRange && stateInfo && (
-                                        <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <span className={cn('absolute bottom-1 h-2 w-2 rounded-full', stateInfo.color)} />
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p>{stateInfo.label}</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
-                                        )}
-                                    </div>
+                                      <TooltipProvider>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <div className="relative h-full w-full flex items-center justify-center">
+                                              <div className={cn('absolute inset-0 mx-[-1px] my-[3px]', stateInfo.color, rangeClass)}></div>
+                                              <span className="relative z-10 font-medium text-white mix-blend-difference">{format(date, 'd')}</span>
+                                            </div>
+                                          </TooltipTrigger>
+                                          <TooltipContent>
+                                            <p>{stateInfo.label}</p>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
                                     );
-                                },
+                                  },
                                 }}
                             />
                             <DialogContent>
@@ -601,3 +629,6 @@ export default function CurrentPage() {
     </div>
   );
 }
+
+
+    
