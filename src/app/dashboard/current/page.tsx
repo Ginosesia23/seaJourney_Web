@@ -76,6 +76,9 @@ export default function CurrentPage() {
   const statusForm = useForm<CurrentStatusFormValues>({
     resolver: zodResolver(currentStatusSchema),
     defaultValues: {
+      vesselId: '',
+      position: '',
+      startDate: undefined,
       vesselState: 'at-sea',
     },
   });
@@ -483,5 +486,3 @@ export default function CurrentPage() {
     </div>
   );
 }
-
-    
