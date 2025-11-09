@@ -18,7 +18,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError, WithId } from '@/firebase';
+import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
 import { collection, addDoc, doc, setDoc, Timestamp, deleteDoc } from 'firebase/firestore';
 
 const currentStatusSchema = z.object({
@@ -32,6 +32,7 @@ type CurrentStatusFormValues = z.infer<typeof currentStatusSchema>;
 
 type DailyStatus = 'at-sea' | 'standby' | 'in-port';
 interface CurrentStatus {
+    id: string;
     vesselId: string;
     position: string;
     startDate: Timestamp;
@@ -123,6 +124,13 @@ export default function CurrentPage() {
 
   async function onStatusSubmit(data: CurrentStatusFormValues) {
     if (!currentStatusCollectionRef) return;
+
+    // A user should only have one active trip, so delete any existing ones.
+    if(currentStatus) {
+       const docRef = doc(currentStatusCollectionRef, currentStatus.id);
+       deleteDoc(docRef);
+    }
+    
     const today = new Date();
     const interval = eachDayOfInterval({ start: data.startDate, end: today });
     const dailyStates: Record<string, DailyStatus> = {};
@@ -135,7 +143,7 @@ export default function CurrentPage() {
       position: data.position,
       startDate: Timestamp.fromDate(data.startDate),
       dailyStates,
-    }
+    };
     
     addDoc(currentStatusCollectionRef, newStatus)
       .catch((serverError) => {
@@ -219,13 +227,15 @@ export default function CurrentPage() {
     }, {} as Record<DailyStatus, number>);
   }, [currentStatus]);
 
-  if (isLoadingStatus || (currentStatus && isLoadingVessels)) {
+  if (isLoadingStatus || (!currentStatus && isLoadingVessels)) {
     return (
         <div className="flex items-center justify-center h-full">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
         </div>
     )
   }
+  
+  const isDisplayingStatus = currentStatus && selectedVessel && startDate;
 
   return (
     <div className="w-full max-w-7xl mx-auto">
@@ -233,7 +243,7 @@ export default function CurrentPage() {
           <MapPin className="h-6 w-6" />
           <CardTitle>Current Status</CardTitle>
         </div>
-      {currentStatus && selectedVessel && startDate ? (
+      {isDisplayingStatus ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             <div className="lg:col-span-2">
                 <Card className="rounded-xl shadow-sm">
@@ -560,5 +570,3 @@ export default function CurrentPage() {
     </div>
   );
 }
-
-    
