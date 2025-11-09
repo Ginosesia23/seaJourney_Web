@@ -132,3 +132,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  @keyframes dash {
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  .animate-passage {
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 1000;
+    animation: dash 5s linear forwards;
+  }
+}
