@@ -110,7 +110,7 @@ export default function CurrentPage() {
         vesselId: currentStatus.vesselId,
         position: currentStatus.position,
         startDate: fromUnixTime(currentStatus.startDate.seconds),
-        vesselState: 'at-sea', // This can be a default or fetched
+        vesselState: 'at-sea', // Default for the form, not reflecting saved state
       });
     } else {
         statusForm.reset({
@@ -123,15 +123,22 @@ export default function CurrentPage() {
   }, [currentStatus, statusForm]);
 
   async function onStatusSubmit(data: CurrentStatusFormValues) {
-    if (!currentStatusCollectionRef) return;
-
-    // A user should only have one active trip, so delete any existing ones.
-    if(currentStatus) {
-       const docRef = doc(currentStatusCollectionRef, currentStatus.id);
-       deleteDoc(docRef);
-    }
+    if (!currentStatusCollectionRef || !user) return;
     
     const today = new Date();
+    // Prevent starting a trip in the future, although the calendar should prevent this.
+    if(data.startDate > today) {
+        console.error("Start date cannot be in the future.");
+        return;
+    }
+
+    // Ensure there's only one active trip. This is belt-and-suspenders.
+    if (currentStatusData && currentStatusData.length > 0) {
+        for (const status of currentStatusData) {
+            await deleteDoc(doc(currentStatusCollectionRef, status.id));
+        }
+    }
+    
     const interval = eachDayOfInterval({ start: data.startDate, end: today });
     const dailyStates: Record<string, DailyStatus> = {};
     interval.forEach(day => {
@@ -227,7 +234,7 @@ export default function CurrentPage() {
     }, {} as Record<DailyStatus, number>);
   }, [currentStatus]);
 
-  if (isLoadingStatus || (!currentStatus && isLoadingVessels)) {
+  if (isLoadingStatus || isLoadingVessels) {
     return (
         <div className="flex items-center justify-center h-full">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -570,3 +577,5 @@ export default function CurrentPage() {
     </div>
   );
 }
+
+    
