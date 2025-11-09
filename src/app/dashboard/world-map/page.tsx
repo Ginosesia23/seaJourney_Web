@@ -8,32 +8,34 @@ import world from 'world-atlas/countries-110m.json';
 import { geoMercator } from 'd3-geo';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: number; scaleFactor?: number }) {
   const [geoData, setGeoData] = useState<any>(null);
   const [validHexes, setValidHexes] = useState<[number, number][]>([]);
   const [selectedHex, setSelectedHex] = useState<number | null>(null);
   const lastClickRef = useRef(0);
-  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    const resizeObserver = new ResizeObserver(entries => {
+      if (entries[0]) {
+        const { width, height } = entries[0].contentRect;
+        setDimensions({ width, height });
+      }
+    });
+
     if (containerRef.current) {
-        setDimensions({
-            width: containerRef.current.offsetWidth,
-            height: containerRef.current.offsetHeight,
-        });
+      resizeObserver.observe(containerRef.current);
     }
-    const handleResize = () => {
-        if(containerRef.current) {
-            setDimensions({
-                width: containerRef.current.offsetWidth,
-                height: containerRef.current.offsetHeight,
-            })
-        }
-    }
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+
+    return () => {
+      if (containerRef.current) {
+        resizeObserver.unobserve(containerRef.current);
+      }
+    };
   }, []);
 
   // Load world data once
@@ -47,53 +49,59 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: n
   }, []);
 
   // Generate hexes efficiently with memoization
-  const hexGrid = useMemo(() => {
-    if (!geoData || dimensions.width === 0 || dimensions.height === 0) return [];
-
-    const { width, height } = dimensions;
+  useEffect(() => {
+    if (!geoData || dimensions.width === 0 || dimensions.height === 0) return;
     
-    // Use fitExtent to automatically scale and center the projection
-    const projection = geoMercator().fitExtent(
-      [
-        [0, 0],
-        [width, height]
-      ],
-      geoData
-    );
+    setIsLoading(true);
 
-    const adjustedHexRadius = Math.max(1, baseHexRadius * scaleFactor);
-    const xStep = adjustedHexRadius * 1.5;
-    const yStep = Math.sqrt(3) * adjustedHexRadius;
+    const generateHexes = () => {
+        const { width, height } = dimensions;
+        
+        const projection = geoMercator().fitExtent(
+          [
+            [0, 0],
+            [width, height]
+          ],
+          geoData
+        );
 
-    const hexes: [number, number][] = [];
-    const features = geoData.features;
+        const adjustedHexRadius = Math.max(1, baseHexRadius * scaleFactor);
+        const xStep = adjustedHexRadius * 1.5;
+        const yStep = Math.sqrt(3) * adjustedHexRadius;
 
-    for (let y = 0; y < height; y += yStep) {
-      const row = Math.round(y / yStep);
-      for (let x = 0; x < width; x += xStep) {
-        const xOff = row % 2 ? x + xStep / 2 : x;
-        const inverted = projection.invert([xOff, y]);
-        if (!inverted) continue;
+        const hexes: [number, number][] = [];
+        const features = geoData.features;
 
-        const [lon, lat] = inverted;
-        if (lon === undefined || lat === undefined) continue;
+        for (let y = 0; y < height; y += yStep) {
+          const row = Math.round(y / yStep);
+          for (let x = 0; x < width; x += xStep) {
+            const xOff = row % 2 ? x + xStep / 2 : x;
+            const inverted = projection.invert([xOff, y]);
+            if (!inverted) continue;
 
-        const isOnLand = features.some((f: any) => {
-          if (!f.bbox) f.bbox = d3.geoBounds(f);
-          const [[minLon, minLat], [maxLon, maxLat]] = f.bbox;
-          if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) return false;
-          return d3.geoContains(f, [lon, lat]);
-        });
+            const [lon, lat] = inverted;
+            if (lon === undefined || lat === undefined) continue;
 
-        if (isOnLand) hexes.push([xOff, y]);
-      }
+            const isOnLand = features.some((f: any) => {
+              if (!f.bbox) f.bbox = d3.geoBounds(f);
+              const [[minLon, minLat], [maxLon, maxLat]] = f.bbox;
+              if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) return false;
+              return d3.geoContains(f, [lon, lat]);
+            });
+
+            if (isOnLand) hexes.push([xOff, y]);
+          }
+        }
+        setValidHexes(hexes);
+        setIsLoading(false);
     }
-    return hexes;
+    
+    // Using timeout to allow the container to render and have dimensions
+    const timer = setTimeout(generateHexes, 100);
+    return () => clearTimeout(timer);
+
   }, [geoData, dimensions, baseHexRadius, scaleFactor]);
 
-  useEffect(() => {
-    if (hexGrid.length) setValidHexes(hexGrid);
-  }, [hexGrid]);
 
   const handleHexClick = (index: number) => {
     const now = Date.now();
@@ -112,17 +120,19 @@ function HexWorldMap({ baseHexRadius = 2, scaleFactor = 1 }: { baseHexRadius?: n
   };
   
   const { width, height } = dimensions;
-
-  if (!geoData) return <div className="flex h-full w-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /> <span className="ml-2">Loading map data...</span></div>;
-  if (!validHexes.length) return <div className="flex h-full w-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /> <span className="ml-2">Preparing map...</span></div>;
-
   const adjustedHexRadius = Math.max(1, baseHexRadius * scaleFactor * 0.95);
 
   return (
-    <div ref={containerRef} style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', background:'hsl(var(--background))'}}>
-      <div style={{width:'100%', height:'100%', borderRadius: 'var(--radius)', overflow:'hidden', border: '1px solid hsl(var(--border))', boxShadow:'0 6px 20px rgba(0,0,0,0.05)'}}>
+    <div ref={containerRef} className="h-full w-full relative">
+       {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-10">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <span className="ml-2">Preparing map...</span>
+        </div>
+      )}
+      <div className={cn("h-full w-full transition-opacity duration-500", isLoading ? "opacity-0" : "opacity-100")}>
         <TransformWrapper minScale={0.5} maxScale={10} initialScale={1.8} centerOnInit>
-          <TransformComponent>
+          <TransformComponent wrapperClass="!w-full !h-full" contentClass="!w-full !h-full">
             <svg
               viewBox={`0 0 ${width} ${height}`}
               preserveAspectRatio="none"

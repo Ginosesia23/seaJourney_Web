@@ -23,7 +23,7 @@ export default function DashboardLayout({
     }
   }, [user, isUserLoading, router]);
 
-  const isCollapsed = pathname === '/dashboard/world-map';
+  const isMapPage = pathname === '/dashboard/world-map';
 
   if (isUserLoading) {
     return (
@@ -43,11 +43,14 @@ export default function DashboardLayout({
       <div
         className={cn(
           "grid min-h-[calc(100vh-4rem)] flex-1 transition-[grid-template-columns] duration-300 ease-in-out",
-          isCollapsed ? "lg:grid-cols-[80px_1fr]" : "lg:grid-cols-[240px_1fr]"
+          isMapPage ? "lg:grid-cols-[80px_1fr]" : "lg:grid-cols-[240px_1fr]"
         )}
       >
-        <DashboardSidebar isCollapsed={isCollapsed} />
-        <main className="flex flex-1 flex-col gap-4 bg-background p-4 md:gap-8 md:p-8">
+        <DashboardSidebar isCollapsed={isMapPage} />
+        <main className={cn(
+            "flex flex-1 flex-col", 
+            !isMapPage && "gap-4 bg-background p-4 md:gap-8 md:p-8"
+        )}>
           {children}
         </main>
       </div>
