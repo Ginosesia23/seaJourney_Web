@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -15,8 +15,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { collection, addDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
+import { Badge } from '@/components/ui/badge';
 
 
 const vesselSchema = z.object({
@@ -33,6 +34,15 @@ type Vessel = {
   officialNumber?: string;
   ownerId: string;
 };
+
+type DailyStatus = 'at-sea' | 'standby' | 'in-port';
+interface CurrentStatus {
+    id: string;
+    vesselId: string;
+    position: string;
+    startDate: Timestamp;
+    dailyStates: Record<string, DailyStatus>;
+}
 
 export default function VesselsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -57,7 +67,17 @@ export default function VesselsPage() {
     return collection(firestore, 'users', user.uid, 'vessels');
   }, [firestore, user?.uid]);
 
-  const { data: vessels, isLoading } = useCollection<Vessel>(vesselsCollectionRef);
+  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
+
+  const currentStatusCollectionRef = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    return collection(firestore, 'users', user.uid, 'currentStatus');
+  }, [firestore, user?.uid]);
+
+  const { data: currentStatusData, isLoading: isLoadingStatus } = useCollection<CurrentStatus>(currentStatusCollectionRef);
+  const currentStatus = useMemo(() => currentStatusData?.[0] || null, [currentStatusData]);
+
+  const isLoading = isLoadingVessels || isLoadingStatus;
 
   const handleEdit = (vessel: Vessel) => {
     setEditingVessel(vessel);
@@ -215,7 +235,14 @@ export default function VesselsPage() {
                         ) : vessels && vessels.length > 0 ? (
                         vessels.map((vessel) => (
                             <TableRow key={vessel.id}>
-                                <TableCell className="font-medium">{vessel.name}</TableCell>
+                                <TableCell className="font-medium">
+                                    <div className="flex items-center gap-2">
+                                        <span>{vessel.name}</span>
+                                        {currentStatus && currentStatus.vesselId === vessel.id && (
+                                            <Badge variant="secondary">Current</Badge>
+                                        )}
+                                    </div>
+                                </TableCell>
                                 <TableCell>{vessel.type}</TableCell>
                                 <TableCell>{vessel.officialNumber || 'N/A'}</TableCell>
                                 <TableCell>
