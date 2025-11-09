@@ -1,12 +1,12 @@
 
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, differenceInDays, eachDayOfInterval } from 'date-fns';
-import { CalendarIcon, MapPin, Ship, Briefcase, Info, PlusCircle, Loader2 } from 'lucide-react';
+import { format, differenceInDays, eachDayOfInterval, fromUnixTime } from 'date-fns';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -18,8 +18,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { collection, addDoc, doc } from 'firebase/firestore';
+import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError, WithId } from '@/firebase';
+import { collection, addDoc, doc, setDoc, Timestamp, deleteDoc } from 'firebase/firestore';
 
 const currentStatusSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
@@ -31,7 +31,10 @@ const currentStatusSchema = z.object({
 type CurrentStatusFormValues = z.infer<typeof currentStatusSchema>;
 
 type DailyStatus = 'at-sea' | 'standby' | 'in-port';
-interface CurrentStatus extends CurrentStatusFormValues {
+interface CurrentStatus {
+    vesselId: string;
+    position: string;
+    startDate: Timestamp;
     dailyStates: Record<string, DailyStatus>;
 }
 
@@ -57,12 +60,11 @@ const vesselStates: { value: DailyStatus; label: string, color: string }[] = [
 ]
 
 export default function CurrentPage() {
-  const [currentStatus, setCurrentStatus] = useState<CurrentStatus | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
   const [isAddVesselDialogOpen, setIsAddVesselDialogOpen] = useState(false);
   const [isSavingVessel, setIsSavingVessel] = useState(false);
-
+  
   const { user } = useUser();
   const firestore = useFirestore();
 
@@ -72,6 +74,15 @@ export default function CurrentPage() {
   }, [firestore, user?.uid]);
 
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
+
+  const currentStatusCollectionRef = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    return collection(firestore, 'users', user.uid, 'currentStatus');
+  }, [firestore, user?.uid]);
+
+  const { data: currentStatusData, isLoading: isLoadingStatus } = useCollection<CurrentStatus>(currentStatusCollectionRef);
+
+  const currentStatus = useMemo(() => currentStatusData?.[0] || null, [currentStatusData]);
 
   const statusForm = useForm<CurrentStatusFormValues>({
     resolver: zodResolver(currentStatusSchema),
@@ -92,7 +103,8 @@ export default function CurrentPage() {
     },
   });
 
-  function onStatusSubmit(data: CurrentStatusFormValues) {
+  async function onStatusSubmit(data: CurrentStatusFormValues) {
+    if (!currentStatusCollectionRef) return;
     const today = new Date();
     const interval = eachDayOfInterval({ start: data.startDate, end: today });
     const dailyStates: Record<string, DailyStatus> = {};
@@ -100,11 +112,22 @@ export default function CurrentPage() {
         dailyStates[format(day, 'yyyy-MM-dd')] = data.vesselState;
     });
 
-    setCurrentStatus({
-        ...data,
-        dailyStates
-    });
-    statusForm.reset();
+    const newStatus = {
+      ...data,
+      startDate: Timestamp.fromDate(data.startDate),
+      dailyStates,
+    }
+    
+    addDoc(currentStatusCollectionRef, newStatus)
+      .then(() => statusForm.reset())
+      .catch((serverError) => {
+        const permissionError = new FirestorePermissionError({
+          path: currentStatusCollectionRef.path,
+          operation: 'create',
+          requestResourceData: newStatus,
+        });
+        errorEmitter.emit('permission-error', permissionError);
+      });
   }
 
   async function onAddVesselSubmit(data: AddVesselFormValues) {
@@ -130,21 +153,46 @@ export default function CurrentPage() {
   }
 
   const handleDayStateChange = (day: Date, state: DailyStatus) => {
-    if (!currentStatus) return;
+    if (!currentStatus || !currentStatusCollectionRef) return;
 
     const dateKey = format(day, 'yyyy-MM-dd');
-    setCurrentStatus(prev => ({
-        ...prev!,
+    const updatedStatus = {
+        ...currentStatus,
         dailyStates: {
-            ...prev!.dailyStates,
+            ...currentStatus.dailyStates,
             [dateKey]: state
         }
-    }));
-    setIsStatusDialogOpen(false);
+    };
+    
+    const docRef = doc(currentStatusCollectionRef, currentStatus.id);
+    setDoc(docRef, updatedStatus, { merge: true })
+        .then(() => setIsStatusDialogOpen(false))
+        .catch((serverError) => {
+            const permissionError = new FirestorePermissionError({
+                path: docRef.path,
+                operation: 'update',
+                requestResourceData: updatedStatus,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+        });
+  }
+
+  const handleEndTrip = () => {
+    if (!currentStatus || !currentStatusCollectionRef) return;
+    const docRef = doc(currentStatusCollectionRef, currentStatus.id);
+
+    deleteDoc(docRef).catch((serverError) => {
+      const permissionError = new FirestorePermissionError({
+        path: docRef.path,
+        operation: 'delete',
+      });
+      errorEmitter.emit('permission-error', permissionError);
+    });
   }
   
+  const startDate = currentStatus ? fromUnixTime(currentStatus.startDate.seconds) : null;
   const selectedVessel = currentStatus ? vessels?.find(v => v.id === currentStatus.vesselId) : null;
-  const daysOnboard = currentStatus ? differenceInDays(new Date(), currentStatus.startDate) + 1 : 0;
+  const daysOnboard = startDate ? differenceInDays(new Date(), startDate) + 1 : 0;
   
   const totalDaysByState = useMemo(() => {
     if (!currentStatus) return { 'at-sea': 0, standby: 0, 'in-port': 0 };
@@ -154,13 +202,21 @@ export default function CurrentPage() {
     }, {} as Record<DailyStatus, number>);
   }, [currentStatus]);
 
+  if (isLoadingStatus) {
+    return (
+        <div className="flex items-center justify-center h-full">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </div>
+    )
+  }
+
   return (
     <div className="w-full max-w-7xl mx-auto">
        <div className="flex items-center gap-3 mb-8">
           <MapPin className="h-6 w-6" />
           <CardTitle>Current Status</CardTitle>
         </div>
-      {currentStatus && selectedVessel ? (
+      {currentStatus && selectedVessel && startDate ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             <div className="lg:col-span-2">
                 <Card className="rounded-xl shadow-sm">
@@ -206,7 +262,7 @@ export default function CurrentPage() {
                                     const dateKey = format(date, 'yyyy-MM-dd');
                                     const state = currentStatus.dailyStates[dateKey];
                                     const stateInfo = vesselStates.find(s => s.value === state);
-                                    const isDateInRange = date >= currentStatus.startDate && date <= new Date();
+                                    const isDateInRange = date >= startDate && date <= new Date();
 
                                     return (
                                     <div className="relative h-full w-full flex items-center justify-center">
@@ -270,7 +326,7 @@ export default function CurrentPage() {
                             <CalendarIcon className="h-5 w-5 text-muted-foreground" />
                             <div>
                                 <p className="text-sm text-muted-foreground">Start Date</p>
-                                <p className="font-semibold">{format(currentStatus.startDate, 'PPP')}</p>
+                                <p className="font-semibold">{format(startDate, 'PPP')}</p>
                             </div>
                         </div>
                          <div className="text-center pt-2">
@@ -296,7 +352,7 @@ export default function CurrentPage() {
                     </CardContent>
                 </Card>
                 <div className="pt-2 flex justify-center">
-                    <Button onClick={() => setCurrentStatus(null)}>End Current Trip</Button>
+                    <Button onClick={handleEndTrip}>End Current Trip</Button>
                 </div>
             </div>
         </div>

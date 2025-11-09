@@ -64,7 +64,16 @@ service cloud.firestore {
     match /users/{userId}/profile/testimonials/{testimonialId} {
       allow read, write: if isOwner(userId);
     }
+    
+    /**
+     * @description Enforces user-ownership for the current status. A user can only read and write their own current status.
+     * @path /users/{userId}/currentStatus/{statusId}
+     * @allow (read, write) User with UID 'user123' can access their current status document at /users/user123/currentStatus/status123.
+     * @deny (read, write) User with UID 'user456' attempts to access current status document at /users/user123/currentStatus/status123.
+     * @principle Enforces collection ownership for read and write operations, as it is expected to be a single-document collection.
+     */
+    match /users/{userId}/currentStatus/{statusId} {
+        allow read, write: if isOwner(userId);
+    }
   }
 }
-
-    
