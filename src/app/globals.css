@@ -118,9 +118,9 @@
     --header-foreground: 210 40% 98%;
 
     /* Map colors */
-    --map-ocean: 220 15% 15%;
+    --map-ocean: 211 100% 5%;
     --map-land: 217.2 32.6% 17.5%;
-    --map-land-stroke: 217.2 32.6% 25%;
+    --map-land-stroke: 220 15% 15%;
   }
 }
 
@@ -134,14 +134,8 @@
 }
 
 @layer utilities {
-  @keyframes dash {
-    to {
-      stroke-dashoffset: 0;
-    }
-  }
   .animate-passage {
     stroke-dasharray: 1000;
     stroke-dashoffset: 1000;
-    animation: dash 5s linear forwards;
   }
 }
