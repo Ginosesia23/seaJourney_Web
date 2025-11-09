@@ -150,6 +150,43 @@
         "startDate",
         "dailyStates"
       ]
+    },
+    "Trip": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Trip",
+      "type": "object",
+      "description": "Represents a user's completed trip record.",
+      "properties": {
+        "vesselId": {
+          "type": "string",
+          "description": "The ID of the vessel for the trip."
+        },
+        "position": {
+          "type": "string",
+          "description": "The user's position or role on the vessel."
+        },
+        "startDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The start date of the trip."
+        },
+        "endDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The end date of the trip."
+        },
+        "dailyStates": {
+          "type": "object",
+          "description": "A map of dates to vessel states (e.g., 'at-sea', 'in-port') for the duration of the trip."
+        }
+      },
+      "required": [
+        "vesselId",
+        "position",
+        "startDate",
+        "endDate",
+        "dailyStates"
+      ]
     }
   },
   "auth": {
@@ -232,6 +269,26 @@
             {
               "name": "statusId",
               "description": "The unique identifier of the status document."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/trips/{tripId}",
+        "definition": {
+          "entityName": "Trip",
+          "schema": {
+            "$ref": "#/backend/entities/Trip"
+          },
+          "description": "Stores a user's past trip records. Path-based ownership enforces that a trip is owned by the user.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            },
+            {
+              "name": "tripId",
+              "description": "The unique identifier of the trip."
             }
           ]
         }

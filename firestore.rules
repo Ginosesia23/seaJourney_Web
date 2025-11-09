@@ -75,5 +75,16 @@ service cloud.firestore {
     match /users/{userId}/currentStatus/{statusId} {
         allow read, write: if isOwner(userId);
     }
+
+    /**
+     * @description Enforces user-ownership for past trip records.
+     * @path /users/{userId}/trips/{tripId}
+     * @allow (read, create) User with UID 'user123' can read their past trips and create new ones.
+     * @deny (write, delete) No modifications to past trips are allowed to maintain data integrity.
+     * @principle Enforces collection ownership for read and create, while making past records immutable.
+     */
+    match /users/{userId}/trips/{tripId} {
+      allow read, create: if isOwner(userId);
+    }
   }
 }

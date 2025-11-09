@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { collection, addDoc, doc, setDoc, Timestamp, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, Timestamp, deleteDoc, writeBatch } from 'firebase/firestore';
 
 const currentStatusSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
@@ -110,7 +110,7 @@ export default function CurrentPage() {
         vesselId: currentStatus.vesselId,
         position: currentStatus.position,
         startDate: fromUnixTime(currentStatus.startDate.seconds),
-        vesselState: 'at-sea', // Default for the form, not reflecting saved state
+        vesselState: 'at-sea',
       });
     } else {
         statusForm.reset({
@@ -120,19 +120,17 @@ export default function CurrentPage() {
             vesselState: 'at-sea',
         })
     }
-  }, [currentStatus, statusForm]);
+  }, [currentStatus]);
 
   async function onStatusSubmit(data: CurrentStatusFormValues) {
     if (!currentStatusCollectionRef || !user) return;
     
     const today = new Date();
-    // Prevent starting a trip in the future, although the calendar should prevent this.
     if(data.startDate > today) {
         console.error("Start date cannot be in the future.");
         return;
     }
 
-    // Ensure there's only one active trip. This is belt-and-suspenders.
     if (currentStatusData && currentStatusData.length > 0) {
         for (const status of currentStatusData) {
             await deleteDoc(doc(currentStatusCollectionRef, status.id));
@@ -209,17 +207,43 @@ export default function CurrentPage() {
         });
   }
 
-  const handleEndTrip = () => {
-    if (!currentStatus || !currentStatusCollectionRef) return;
-    const docRef = doc(currentStatusCollectionRef, currentStatus.id);
+  const handleEndTrip = async () => {
+    if (!currentStatus || !firestore || !user?.uid) return;
+    
+    const tripsCollectionRef = collection(firestore, 'users', user.uid, 'trips');
+    const currentStatusDocRef = doc(currentStatusCollectionRef, currentStatus.id);
 
-    deleteDoc(docRef).catch((serverError) => {
-      const permissionError = new FirestorePermissionError({
-        path: docRef.path,
-        operation: 'delete',
-      });
-      errorEmitter.emit('permission-error', permissionError);
-    });
+    const pastTripData = {
+        ...currentStatus,
+        endDate: Timestamp.now(),
+    };
+    delete (pastTripData as any).id; // Don't need to store the old doc id
+
+    const batch = writeBatch(firestore);
+
+    // 1. Create new trip in 'trips' collection
+    const newTripRef = doc(tripsCollectionRef);
+    batch.set(newTripRef, pastTripData);
+
+    // 2. Delete the 'currentStatus' document
+    batch.delete(currentStatusDocRef);
+
+    try {
+        await batch.commit();
+    } catch (serverError) {
+        console.error("Failed to end trip:", serverError);
+        // Emitting a generic error as this is a multi-step operation
+        const permissionError = new FirestorePermissionError({
+            path: `/users/${user.uid}`,
+            operation: 'write',
+            requestResourceData: { 
+                note: "Batch write to archive trip failed",
+                tripData: pastTripData,
+                currentStatusPath: currentStatusDocRef.path
+            },
+        });
+        errorEmitter.emit('permission-error', permissionError);
+    }
   }
   
   const startDate = currentStatus ? fromUnixTime(currentStatus.startDate.seconds) : null;
@@ -577,5 +601,3 @@ export default function CurrentPage() {
     </div>
   );
 }
-
-    
