@@ -65,7 +65,7 @@ export default function DashboardPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
             <Select defaultValue={sampleYears[0]}>
-                <SelectTrigger className="w-full sm:w-[150px]">
+                <SelectTrigger className="w-full sm:w-auto rounded-full">
                     <SelectValue placeholder="Filter by year..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -75,7 +75,7 @@ export default function DashboardPage() {
                 </SelectContent>
             </Select>
             <Select defaultValue={sampleVessels[0].id}>
-                <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectTrigger className="w-full sm:w-auto rounded-full">
                     <SelectValue placeholder="Filter by vessel..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -85,7 +85,7 @@ export default function DashboardPage() {
                 </SelectContent>
             </Select>
             <Select defaultValue={sampleVesselTypes[0]}>
-                <SelectTrigger className="w-full sm:w-[150px]">
+                <SelectTrigger className="w-full sm:w-auto rounded-full">
                     <SelectValue placeholder="Filter by type..." />
                 </SelectTrigger>
                 <SelectContent>
