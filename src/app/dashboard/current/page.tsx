@@ -5,8 +5,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, differenceInDays, eachDayOfInterval, fromUnixTime, isSameDay, isBefore, isAfter, startOfDay, endOfDay } from 'date-fns';
-import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2 } from 'lucide-react';
+import { format, differenceInDays, eachDayOfInterval, fromUnixTime, isSameDay, startOfDay, endOfDay } from 'date-fns';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -304,34 +304,47 @@ export default function CurrentPage() {
         </div>
       {isDisplayingStatus ? (
         <div className="space-y-8">
-            <Card className="rounded-xl shadow-sm">
-                <CardHeader>
-                    <CardTitle>Trip Summary</CardTitle>
-                    <CardDescription>
-                    You are currently on {selectedVessel.name}
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                    <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
-                        <Briefcase className="h-5 w-5 text-muted-foreground" />
-                        <div>
-                            <p className="text-sm text-muted-foreground">Position</p>
-                            <p className="font-semibold">{currentStatus.position}</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
-                        <CalendarIcon className="h-5 w-5 text-muted-foreground" />
-                        <div>
-                            <p className="text-sm text-muted-foreground">Start Date</p>
-                            <p className="font-semibold">{format(startDate, 'PPP')}</p>
-                        </div>
-                    </div>
-                        <div className="text-center">
-                        <p className="text-sm text-muted-foreground">Total time onboard</p>
-                        <p className="text-4xl font-bold text-primary">{daysOnboard} days</p>
-                    </div>
-                </CardContent>
-            </Card>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <Card className="rounded-xl shadow-sm">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-medium">Vessel</CardTitle>
+                        <Ship className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-xl font-bold">{selectedVessel.name}</div>
+                        <p className="text-xs text-muted-foreground">{selectedVessel.type}</p>
+                    </CardContent>
+                </Card>
+                <Card className="rounded-xl shadow-sm">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-medium">Position</CardTitle>
+                        <Briefcase className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-xl font-bold">{currentStatus.position}</div>
+                         <p className="text-xs text-muted-foreground">&nbsp;</p>
+                    </CardContent>
+                </Card>
+                <Card className="rounded-xl shadow-sm">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-medium">Start Date</CardTitle>
+                        <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-xl font-bold">{format(startDate, 'PPP')}</div>
+                         <p className="text-xs text-muted-foreground">&nbsp;</p>
+                    </CardContent>
+                </Card>
+                <Card className="rounded-xl shadow-sm bg-primary/10 border-primary/20">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-medium">Total Time Onboard</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-center">
+                        <p className="text-4xl font-bold text-primary">{daysOnboard}</p>
+                        <p className="text-xs text-muted-foreground">days</p>
+                    </CardContent>
+                </Card>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
                 <div className="lg:col-span-2">
@@ -362,7 +375,7 @@ export default function CurrentPage() {
                                     onSelect={setSelectedDate}
                                     onDayClick={(day, modifiers) => {
                                         if(modifiers.disabled) return;
-                                        if(startDate && day < startDate) return;
+                                        if(startDate && day < startOfDay(startDate)) return;
                                         setSelectedDate(day);
                                         setIsStatusDialogOpen(true);
                                     }}
@@ -381,7 +394,7 @@ export default function CurrentPage() {
                                         const dateKey = format(date, 'yyyy-MM-dd');
                                         const state = currentStatus.dailyStates[dateKey];
                                         const stateInfo = vesselStates.find(s => s.value === state);
-                                        const isDateInRange = startDate && date >= startDate && date <= new Date();
+                                        const isDateInRange = startDate && date >= startOfDay(startDate) && date <= endOfDay(new Date());
                                         
                                         const isSelected = activeModifiers.selected;
 
@@ -640,5 +653,7 @@ export default function CurrentPage() {
     </div>
   );
 }
+
+    
 
     
