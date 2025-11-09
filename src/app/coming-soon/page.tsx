@@ -48,7 +48,6 @@ const tiers = [
     features: [
       'All Standard features',
       'Unlimited vessels',
-      'Multi-date state tracking',
       'Advanced career analytics',
       'Certification progress tracking',
       '6GB online storage',
@@ -64,6 +63,7 @@ const tiers = [
     description: 'For captains and managers overseeing multiple crew members.',
     features: [
       'All Premium features',
+      'Multi-date state tracking',
       'Crew management tools',
       'Fleet-wide reporting',
       'Unlimited online storage',
@@ -219,4 +219,3 @@ export default function ComingSoonPage() {
     </div>
   );
 }
-
