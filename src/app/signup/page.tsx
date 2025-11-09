@@ -91,7 +91,7 @@ export default function SignupPage() {
   return (
     <div className="dark flex min-h-screen flex-col items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
-        <Card className="w-full border-none bg-card text-card-foreground shadow-2xl">
+        <Card className="w-full border-none bg-card text-card-foreground shadow-2xl rounded-xl">
           <CardHeader className="text-center">
             <div className="mb-4 flex justify-center">
               <Logo />
