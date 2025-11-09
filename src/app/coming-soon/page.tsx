@@ -11,16 +11,16 @@ import { cn } from '@/lib/utils';
 
 const tiers = [
   {
-    name: 'Free',
+    name: 'By Invitation',
     price: '$0',
     priceSuffix: '/ month',
-    description: 'For individuals getting started with tracking their sea time.',
+    description: 'For crew members invited by a vessel with an active subscription.',
     features: [
-      'Basic sea time logging',
-      'Log up to 1 vessel',
-      'Community support',
+      'Sea time logging via vessel',
+      'View your signed testimonials',
+      'Part of a managed crew',
     ],
-    cta: 'Get Started',
+    cta: 'Invite Only',
     type: 'crew',
   },
   {
@@ -172,7 +172,10 @@ export default function ComingSoonPage() {
 
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
               {filteredTiers.map((tier) => (
-                <Card key={tier.name} className={`flex flex-col rounded-lg ${tier.highlighted ? 'border-primary ring-2 ring-primary' : ''}`}>
+                <Card key={tier.name} className={cn(
+                    "flex flex-col rounded-lg",
+                    tier.highlighted ? 'border-primary ring-2 ring-primary' : ''
+                )}>
                   <CardHeader className="flex-grow">
                     <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
                     <div className="flex items-baseline gap-1">
@@ -195,7 +198,7 @@ export default function ComingSoonPage() {
                     <Button 
                       className="w-full rounded-lg"
                       variant={tier.highlighted ? 'default' : 'outline'}
-                      disabled
+                      disabled={tier.cta !== 'Get Started'}
                     >
                       {tier.cta}
                     </Button>
