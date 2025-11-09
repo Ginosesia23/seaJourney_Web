@@ -30,7 +30,7 @@ type ProfileFormValues = z.infer<typeof profileSchema>;
 
 function ProfileSkeleton() {
     return (
-        <Card className="rounded-xl bg-card shadow-sm">
+        <Card className="rounded-xl bg-card shadow-md transition-shadow hover:shadow-lg">
             <CardHeader>
                 <Skeleton className="h-7 w-48" />
                 <Skeleton className="h-4 w-64 mt-1" />
@@ -118,7 +118,7 @@ export function UserProfileCard() {
   const getInitials = (name: string) => name.split(' ').map((n) => n[0]).join('');
 
   return (
-    <Card className="rounded-xl bg-card shadow-sm">
+    <Card className="rounded-xl bg-card shadow-md transition-shadow hover:shadow-lg">
       <CardHeader>
         <CardTitle>User Profile</CardTitle>
         <CardDescription>This information will be displayed on your testimonials and other documents.</CardDescription>
