@@ -1,61 +1,162 @@
 
 'use client';
 
-import { Ship, LifeBuoy, Route, Anchor } from 'lucide-react';
+import { Ship, LifeBuoy, Route, Anchor, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import MainChart from '@/components/dashboard/main-chart';
 import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from 'recharts';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { format } from 'date-fns';
+import { format, getYear } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
+import { collection, Timestamp } from 'firebase/firestore';
+import { useMemo, useState } from 'react';
+import { differenceInDays, fromUnixTime } from 'date-fns';
 
-const totalSeaDaysData = {
-  total: '1,284',
+type Vessel = {
+  id: string;
+  name: string;
+  type: string;
+  ownerId: string;
 };
 
-const testimonialData = {
-    total: 23,
-    breakdown: [
-        { name: 'Positive', value: 80, color: 'hsl(var(--primary))'},
-        { name: 'Neutral', value: 15, color: 'hsl(var(--accent))' },
-        { name: 'Negative', value: 5, color: 'hsl(var(--muted-foreground))'},
-    ]
-}
-
-const passagesData = {
-    total: 48,
+type Trip = {
+    id: string;
+    vesselId: string;
+    position: string;
+    startDate: Timestamp;
+    endDate: Timestamp;
+    dailyStates: Record<string, string>;
 };
 
-const vesselsData = {
-    total: 7,
+type CurrentStatus = {
+    id: string;
+    vesselId: string;
+    position: string;
+    startDate: Timestamp;
+    dailyStates: Record<string, string>;
+};
+
+type Testimonial = {
+    id: string;
+    rating: number;
 }
-
-const recentActivity = [
-    { vessel: 'M/Y "Odyssey"', days: 14, date: '2024-06-15', type: 'Motor Yacht' },
-    { vessel: 'S/Y "Wanderer"', days: 32, date: '2024-05-02', type: 'Sailing Yacht' },
-    { vessel: 'M/Y "Eclipse"', days: 7, date: '2024-03-20', type: 'Motor Yacht' },
-    { vessel: 'M/Y "Stardust"', days: 90, date: '2024-02-10', type: 'Motor Yacht' },
-    { vessel: 'S/Y "Zephyr"', days: 21, date: '2023-11-28', type: 'Sailing Yacht' },
-]
-
-const sampleYears = ['All Years', '2024', '2023', '2022'];
-const sampleVessels = [
-    { id: 'all', name: 'All Vessels' },
-    { id: 'vessel-1', name: 'M/Y "Odyssey"' },
-    { id: 'vessel-2', name: 'S/Y "Wanderer"' },
-    { id: 'vessel-3', name: 'M/Y "Eclipse"' },
-    { id: 'vessel-4', name: 'M/Y "Stardust"' },
-    { id: 'vessel-5', name: 'S/Y "Zephyr"' },
-];
-const sampleVesselTypes = ['All Types', 'Motor Yacht', 'Sailing Yacht', 'Commercial'];
 
 export default function DashboardPage() {
+  const { user } = useUser();
+  const firestore = useFirestore();
+
+  const [selectedYear, setSelectedYear] = useState('all');
+  const [selectedVessel, setSelectedVessel] = useState('all');
+
+  const vesselsCollectionRef = useMemoFirebase(() => 
+    user ? collection(firestore, 'users', user.uid, 'vessels') : null, 
+    [user, firestore]
+  );
+  const tripsCollectionRef = useMemoFirebase(() => 
+    user ? collection(firestore, 'users', user.uid, 'trips') : null, 
+    [user, firestore]
+  );
+  const currentStatusCollectionRef = useMemoFirebase(() => 
+    user ? collection(firestore, 'users', user.uid, 'currentStatus') : null, 
+    [user, firestore]
+  );
+  const testimonialsCollectionRef = useMemoFirebase(() => 
+    user ? collection(firestore, 'users', user.uid, 'profile', user.uid, 'testimonials') : null, 
+    [user, firestore]
+  );
+
+  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
+  const { data: trips, isLoading: isLoadingTrips } = useCollection<Trip>(tripsCollectionRef);
+  const { data: currentStatusData, isLoading: isLoadingStatus } = useCollection<CurrentStatus>(currentStatusCollectionRef);
+  const { data: testimonials, isLoading: isLoadingTestimonials } = useCollection<Testimonial>(testimonialsCollectionRef);
+  
+  const currentStatus = useMemo(() => currentStatusData?.[0] || null, [currentStatusData]);
+
+  const filteredTrips = useMemo(() => {
+    return (trips || []).filter(trip => {
+      const tripYear = getYear(fromUnixTime(trip.endDate.seconds));
+      const yearMatch = selectedYear === 'all' || tripYear === parseInt(selectedYear, 10);
+      const vesselMatch = selectedVessel === 'all' || trip.vesselId === selectedVessel;
+      return yearMatch && vesselMatch;
+    });
+  }, [trips, selectedYear, selectedVessel]);
+
+  const totalSeaDays = useMemo(() => {
+    const pastTripDays = filteredTrips.reduce((acc, trip) => acc + Object.keys(trip.dailyStates).length, 0);
+    const currentTripDays = (selectedYear === 'all' && selectedVessel === 'all' && currentStatus)
+        ? Object.keys(currentStatus.dailyStates).length
+        : 0;
+    return pastTripDays + currentTripDays;
+  }, [filteredTrips, currentStatus, selectedYear, selectedVessel]);
+
+  const recentActivity = useMemo(() => {
+    return (trips || [])
+        .sort((a, b) => b.endDate.seconds - a.endDate.seconds)
+        .slice(0, 5)
+        .map(trip => {
+            const vessel = vessels?.find(v => v.id === trip.vesselId);
+            return {
+                ...trip,
+                vesselName: vessel?.name || 'Unknown Vessel',
+                days: differenceInDays(fromUnixTime(trip.endDate.seconds), fromUnixTime(trip.startDate.seconds)) + 1
+            }
+        });
+  }, [trips, vessels]);
+  
+  const availableYears = useMemo(() => {
+    if (!trips) return [];
+    const years = new Set(trips.map(trip => getYear(fromUnixTime(trip.endDate.seconds))));
+    return ['All', ...Array.from(years).sort((a, b) => b - a).map(String)];
+  }, [trips]);
+
+  const availableVessels = useMemo(() => {
+    if(!vessels) return [];
+    return [{ id: 'all', name: 'All Vessels' }, ...vessels];
+  }, [vessels]);
+
+  const chartData = useMemo(() => {
+    const months = Array.from({length: 12}).map((_, i) => {
+        const d = new Date();
+        d.setMonth(d.getMonth() - i);
+        return { month: format(d, 'MMM'), seaDays: 0 };
+    }).reverse();
+
+    const allRecords = [...(trips || []), ...(currentStatus ? [currentStatus] : [])];
+    
+    allRecords.forEach(record => {
+      Object.keys(record.dailyStates).forEach(dateStr => {
+        const date = new Date(dateStr);
+        const monthStr = format(date, 'MMM');
+        const month = months.find(m => m.month === monthStr);
+        if(month) {
+            month.seaDays++;
+        }
+      });
+    });
+
+    return months;
+
+  }, [trips, currentStatus]);
+
+
+  const isLoading = isLoadingVessels || isLoadingTrips || isLoadingStatus || isLoadingTestimonials;
+  
+  if (isLoading) {
+    return (
+        <div className="flex items-center justify-center h-full">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -64,33 +165,23 @@ export default function DashboardPage() {
             <CardDescription>Your career at a glance.</CardDescription>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-            <Select defaultValue={sampleYears[0]}>
+            <Select value={selectedYear} onValueChange={setSelectedYear}>
                 <SelectTrigger className="w-full sm:w-auto rounded-full">
                     <SelectValue placeholder="Filter by year..." />
                 </SelectTrigger>
                 <SelectContent>
-                    {sampleYears.map(year => (
-                        <SelectItem key={year} value={year}>{year}</SelectItem>
+                    {availableYears.map(year => (
+                        <SelectItem key={year} value={year.toLowerCase()}>{year}</SelectItem>
                     ))}
                 </SelectContent>
             </Select>
-            <Select defaultValue={sampleVessels[0].id}>
+            <Select value={selectedVessel} onValueChange={setSelectedVessel}>
                 <SelectTrigger className="w-full sm:w-auto rounded-full">
                     <SelectValue placeholder="Filter by vessel..." />
                 </SelectTrigger>
                 <SelectContent>
-                    {sampleVessels.map(vessel => (
+                    {availableVessels.map(vessel => (
                         <SelectItem key={vessel.id} value={vessel.id}>{vessel.name}</SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
-            <Select defaultValue={sampleVesselTypes[0]}>
-                <SelectTrigger className="w-full sm:w-auto rounded-full">
-                    <SelectValue placeholder="Filter by type..." />
-                </SelectTrigger>
-                <SelectContent>
-                    {sampleVesselTypes.map(type => (
-                        <SelectItem key={type} value={type}>{type}</SelectItem>
                     ))}
                 </SelectContent>
             </Select>
@@ -103,8 +194,8 @@ export default function DashboardPage() {
                   <Ship className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                  <div className="text-2xl font-bold">{totalSeaDaysData.total}</div>
-                  <p className="text-xs text-muted-foreground">+5.2% from last month</p>
+                  <div className="text-2xl font-bold">{totalSeaDays}</div>
+                  <p className="text-xs text-muted-foreground">{selectedYear === 'all' && selectedVessel === 'all' ? 'All time' : 'Based on filters'}</p>
               </CardContent>
           </Card>
 
@@ -114,8 +205,8 @@ export default function DashboardPage() {
                   <LifeBuoy className="h-4 w-4 text-muted-foreground"/>
               </CardHeader>
               <CardContent>
-                  <div className="text-2xl font-bold">{testimonialData.total}</div>
-                  <p className="text-xs text-muted-foreground">3 new positive reviews</p>
+                  <div className="text-2xl font-bold">{testimonials?.length || 0}</div>
+                  <p className="text-xs text-muted-foreground">Total testimonials collected</p>
               </CardContent>
           </Card>
           
@@ -125,8 +216,8 @@ export default function DashboardPage() {
                   <Route className="h-4 w-4 text-muted-foreground"/>
               </CardHeader>
               <CardContent>
-                  <div className="text-2xl font-bold">{passagesData.total}</div>
-                  <p className="text-xs text-muted-foreground">+2 since last week</p>
+                  <div className="text-2xl font-bold">{trips?.length || 0}</div>
+                  <p className="text-xs text-muted-foreground">Total completed trips</p>
               </CardContent>
           </Card>
 
@@ -136,8 +227,8 @@ export default function DashboardPage() {
                   <Anchor className="h-4 w-4 text-muted-foreground"/>
               </CardHeader>
               <CardContent>
-                  <div className="text-2xl font-bold">{vesselsData.total}</div>
-                  <p className="text-xs text-muted-foreground">1 new vessel added</p>
+                  <div className="text-2xl font-bold">{vessels?.length || 0}</div>
+                  <p className="text-xs text-muted-foreground">Total vessels in your fleet</p>
               </CardContent>
           </Card>
       </div>
@@ -149,7 +240,7 @@ export default function DashboardPage() {
                 <CardDescription>Your sea days logged over the past year.</CardDescription>
             </CardHeader>
             <CardContent>
-                <MainChart />
+                <MainChart data={chartData}/>
             </CardContent>
         </Card>
         <Card className="rounded-xl shadow-sm">
@@ -166,15 +257,21 @@ export default function DashboardPage() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {recentActivity.map((activity, index) => (
-                        <TableRow key={index}>
+                        {recentActivity.length > 0 ? recentActivity.map((activity) => (
+                        <TableRow key={activity.id}>
                             <TableCell>
-                                <div className="font-medium">{activity.vessel}</div>
+                                <div className="font-medium">{activity.vesselName}</div>
                                 <div className="text-sm text-muted-foreground">{activity.days} days</div>
                             </TableCell>
-                            <TableCell className="text-right">{format(new Date(activity.date), 'dd MMM, yyyy')}</TableCell>
+                            <TableCell className="text-right">{format(fromUnixTime(activity.endDate.seconds), 'dd MMM, yyyy')}</TableCell>
                         </TableRow>
-                        ))}
+                        )) : (
+                            <TableRow>
+                                <TableCell colSpan={2} className="h-24 text-center">
+                                    No recent activity found.
+                                </TableCell>
+                            </TableRow>
+                        )}
                     </TableBody>
                 </Table>
             </CardContent>

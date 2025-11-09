@@ -1,22 +1,6 @@
 'use client';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-
-const data = [
-  { month: 'Jan', seaDays: 30 },
-  { month: 'Feb', seaDays: 28 },
-  { month: 'Mar', seaDays: 45 },
-  { month: 'Apr', seaDays: 42 },
-  { month: 'May', seaDays: 50 },
-  { month: 'Jun', seaDays: 48 },
-  { month: 'Jul', seaDays: 55 },
-  { month: 'Aug', seaDays: 60 },
-  { month: 'Sep', seaDays: 58 },
-  { month: 'Oct', seaDays: 62 },
-  { month: 'Nov', seaDays: 55 },
-  { month: 'Dec', seaDays: 70 },
-];
 
 const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -47,7 +31,11 @@ const CustomTooltip = ({ active, payload, label }: any) => {
     return null;
   };
 
-export default function MainChart() {
+interface MainChartProps {
+    data: { month: string; seaDays: number }[];
+}
+
+export default function MainChart({ data }: MainChartProps) {
   return (
     <div className="h-[250px] w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -57,7 +45,6 @@ export default function MainChart() {
                 tickLine={false} 
                 axisLine={false} 
                 tickMargin={8}
-                tickFormatter={(value) => value.slice(0, 3)}
                 stroke="hsl(var(--muted-foreground))"
                 fontSize={12}
             />
