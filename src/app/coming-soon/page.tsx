@@ -74,7 +74,7 @@ const tiers = [
   },
   {
     name: 'Vessel Basic',
-    price: '$29.99',
+    price: '$299.99',
     priceSuffix: '/ month',
     description: 'Essential tracking for a single vessel and its crew.',
     features: [
@@ -117,8 +117,8 @@ const tiers = [
   },
   {
     name: 'Vessel Enterprise',
-    price: '$299.99',
-    priceSuffix: '/ month',
+    price: 'Custom',
+    priceSuffix: '',
     description: 'Scalable solution for large fleets and management companies.',
     features: [
       'Track unlimited crew members',
