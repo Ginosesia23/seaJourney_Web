@@ -4,7 +4,7 @@ import { BookOpenCheck } from 'lucide-react';
 
 const HowToUse = () => {
   return (
-    <section id="how-to-use" className="bg-background py-16 sm:py-24">
+    <section id="how-to-use" className="py-16 sm:py-24 bg-green-50">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <BookOpenCheck className="mx-auto h-12 w-12 text-primary" />

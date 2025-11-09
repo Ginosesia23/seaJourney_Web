@@ -4,7 +4,7 @@ import { ShoppingBag } from 'lucide-react';
 
 const ShopPromo = () => {
   return (
-    <section id="shop-promo" className="bg-background py-16 sm:py-24">
+    <section id="shop-promo" className="py-16 sm:py-24" style={{ backgroundColor: '#FFFFFF', color: 'hsl(var(--foreground))' }}>
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <ShoppingBag className="mx-auto h-12 w-12 text-primary" />
