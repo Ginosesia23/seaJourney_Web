@@ -61,8 +61,9 @@ service cloud.firestore {
      * @deny (create, get, update, delete) User with UID 'user456' attempts to access testimonial document at /users/user123/profile/testimonials/test456.
      * @principle Enforces document ownership for all operations on testimonials.
      */
-    match /users/{userId}/profile/testimonials/{testimonialId} {
-      allow read, write: if isOwner(userId);
+    match /users/{userId}/profile/{testimonialId}/testimonials/{testimonialDocId} {
+      allow get, list, create: if isOwner(userId);
+      allow update, delete: if isOwner(userId) && resource.data.userProfileId == userId;
     }
     
     /**
