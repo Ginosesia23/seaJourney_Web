@@ -172,7 +172,7 @@ export default function ComingSoonPage() {
 
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
               {filteredTiers.map((tier) => (
-                <Card key={tier.name} className={`flex flex-col ${tier.highlighted ? 'border-primary ring-2 ring-primary' : ''}`}>
+                <Card key={tier.name} className={`flex flex-col rounded-lg ${tier.highlighted ? 'border-primary ring-2 ring-primary' : ''}`}>
                   <CardHeader className="flex-grow">
                     <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
                     <div className="flex items-baseline gap-1">
