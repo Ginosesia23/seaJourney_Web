@@ -38,7 +38,7 @@ const navGroups = [
       { href: '/dashboard/current', label: 'Current', icon: MapPin, disabled: false },
       { href: '/dashboard/history', label: 'History', icon: History, disabled: true },
       { href: '/dashboard/passages', label: 'Passages', icon: Map, disabled: true },
-      { href: '/dashboard/vessels', label: 'Vessels', icon: Ship, disabled: true },
+      { href: '/dashboard/vessels', label: 'Vessels', icon: Ship, disabled: false },
     ]
   },
   {
