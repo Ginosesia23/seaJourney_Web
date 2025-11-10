@@ -151,12 +151,12 @@ export default function ComingSoonPage() {
               </p>
             </div>
             
-            <div className="mt-10 flex justify-center gap-2 rounded-lg bg-muted p-1.5 max-w-sm mx-auto">
+            <div className="mt-10 flex justify-center gap-2 rounded-full bg-muted p-1.5 max-w-sm mx-auto">
                 <Button
                   onClick={() => setPlanType('crew')}
                   variant={planType === 'crew' ? 'default' : 'ghost'}
                   className={cn(
-                    "w-full rounded-lg", 
+                    "w-full rounded-full", 
                     planType === 'crew' && 'bg-primary text-primary-foreground hover:bg-primary/90'
                   )}
                 >
@@ -167,7 +167,7 @@ export default function ComingSoonPage() {
                   onClick={() => setPlanType('vessel')}
                   variant={planType === 'vessel' ? 'default' : 'ghost'}
                   className={cn(
-                    "w-full rounded-lg", 
+                    "w-full rounded-full", 
                     planType === 'vessel' && 'bg-primary text-primary-foreground hover:bg-primary/90'
                   )}
                 >
@@ -179,7 +179,7 @@ export default function ComingSoonPage() {
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
               {filteredTiers.map((tier) => (
                 <Card key={tier.name} className={cn(
-                    "flex flex-col rounded-lg",
+                    "flex flex-col rounded-2xl",
                     tier.highlighted ? 'border-primary ring-2 ring-primary' : ''
                 )}>
                   <CardHeader className="flex-grow">
@@ -202,7 +202,7 @@ export default function ComingSoonPage() {
                   </CardContent>
                   <CardFooter>
                     <Button 
-                      className="w-full rounded-lg"
+                      className="w-full rounded-full"
                       variant={tier.highlighted ? 'default' : 'outline'}
                       disabled={tier.cta !== 'Get Started'}
                     >
