@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -21,6 +22,7 @@ import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, Fi
 import { collection, addDoc, doc, setDoc, Timestamp, deleteDoc, writeBatch } from 'firebase/firestore';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import { DateRange } from 'react-day-picker';
 
 const currentStatusSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
@@ -65,12 +67,13 @@ const vesselStates: { value: DailyStatus; label: string, color: string }[] = [
 ];
 
 export default function CurrentPage() {
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
   const [isAddVesselDialogOpen, setIsAddVesselDialogOpen] = useState(false);
   const [isSavingVessel, setIsSavingVessel] = useState(false);
   const [notes, setNotes] = useState('');
   const [isSavingNotes, setIsSavingNotes] = useState(false);
+  const [month, setMonth] = useState<Date>(new Date());
 
   const { user } = useUser();
   const firestore = useFirestore();
@@ -130,6 +133,12 @@ export default function CurrentPage() {
         setNotes('');
     }
   }, [currentStatus]);
+
+  useEffect(() => {
+    if(dateRange?.from && dateRange?.to) {
+        setIsStatusDialogOpen(true);
+    }
+  }, [dateRange]);
 
   async function onStatusSubmit(data: CurrentStatusFormValues) {
     if (!currentStatusCollectionRef || !user) return;
@@ -193,29 +202,39 @@ export default function CurrentPage() {
         });
   }
 
-  const handleDayStateChange = (day: Date, state: DailyStatus) => {
-    if (!currentStatus || !currentStatusCollectionRef) return;
+  const handleRangeStateChange = async (state: DailyStatus) => {
+    if (!currentStatus || !currentStatusCollectionRef || !dateRange?.from || !dateRange?.to) return;
 
-    const dateKey = format(day, 'yyyy-MM-dd');
-    const updatedStatus = {
-        dailyStates: {
-            ...currentStatus.dailyStates,
-            [dateKey]: state
-        }
-    };
-    
     const docRef = doc(currentStatusCollectionRef, currentStatus.id);
-    setDoc(docRef, updatedStatus, { merge: true })
-        .then(() => setIsStatusDialogOpen(false))
-        .catch((serverError) => {
-            const permissionError = new FirestorePermissionError({
-                path: docRef.path,
-                operation: 'update',
-                requestResourceData: updatedStatus,
-            });
-            errorEmitter.emit('permission-error', permissionError);
-        });
+    const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
+
+    const updatedDailyStates = { ...currentStatus.dailyStates };
+    interval.forEach(day => {
+        const dateKey = format(day, 'yyyy-MM-dd');
+        updatedDailyStates[dateKey] = state;
+    });
+    
+    const updatedStatus = { dailyStates: updatedDailyStates };
+
+    try {
+      await setDoc(docRef, updatedStatus, { merge: true });
+      toast({
+        title: "Status Updated",
+        description: `Status set to "${state}" for the selected range.`
+      });
+    } catch (serverError) {
+      const permissionError = new FirestorePermissionError({
+          path: docRef.path,
+          operation: 'update',
+          requestResourceData: updatedStatus,
+      });
+      errorEmitter.emit('permission-error', permissionError);
+    } finally {
+        setIsStatusDialogOpen(false);
+        setDateRange(undefined);
+    }
   }
+
 
   const handleSaveNotes = async () => {
     if (!currentStatus || !currentStatusCollectionRef) return;
@@ -385,7 +404,7 @@ export default function CurrentPage() {
                         <div className="flex justify-between items-center">
                             <div>
                                 <CardTitle>Monthly Log</CardTitle>
-                                <CardDescription>Click a day to update its status.</CardDescription>
+                                <CardDescription>Click and drag to select a date range.</CardDescription>
                             </div>
                             <TooltipProvider>
                                 <Tooltip>
@@ -393,34 +412,36 @@ export default function CurrentPage() {
                                         <Info className="h-4 w-4 text-muted-foreground" />
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                        <p>The calendar shows your status per day. <br/>Future dates are disabled.</p>
+                                        <p>Click a day to start a range, and click another to finish. <br/>Future dates are disabled.</p>
                                     </TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <Dialog open={isStatusDialogOpen} onOpenChange={setIsStatusDialogOpen}>
+                        <Dialog open={isStatusDialogOpen} onOpenChange={(open) => {
+                            if (!open) {
+                                setDateRange(undefined);
+                            }
+                            setIsStatusDialogOpen(open);
+                        }}>
                             <Calendar
-                                mode="single"
-                                selected={selectedDate}
-                                onSelect={setSelectedDate}
-                                onDayClick={(day, modifiers) => {
-                                    if(modifiers.disabled) return;
-                                    if(startDate && day < startOfDay(startDate)) return;
-                                    setSelectedDate(day);
-                                    setIsStatusDialogOpen(true);
-                                }}
-                                month={selectedDate}
-                                onMonthChange={setSelectedDate}
+                                mode="range"
+                                selected={dateRange}
+                                onSelect={setDateRange}
+                                month={month}
+                                onMonthChange={setMonth}
                                 className="p-0"
                                 classNames={{
-                                    day_selected: 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground rounded-full',
+                                    day_range_start: "day-range-start",
+                                    day_range_end: "day-range-end",
+                                    day_selected: 'bg-primary/20 text-primary-foreground hover:bg-primary/30 rounded-full',
                                     day_today: 'bg-accent text-accent-foreground rounded-full',
                                     day_disabled: 'text-muted-foreground opacity-50',
                                     day_outside: 'text-muted-foreground opacity-50',
                                     cell: "w-10 h-10 text-sm p-0 relative focus-within:relative focus-within:z-20",
                                     day: "h-10 w-10 p-0 font-normal rounded-full",
+                                    
                                 }}
                                 disabled={[{ before: startOfDay(startDate) }, { after: endOfDay(new Date()) }]}
                                 components={{
@@ -456,7 +477,11 @@ export default function CurrentPage() {
                             />
                             <DialogContent>
                                 <DialogHeader>
-                                    <DialogTitle>Update status for {selectedDate ? format(selectedDate, 'PPP') : ''}</DialogTitle>
+                                    <DialogTitle>
+                                        {dateRange?.from && dateRange.to ? 
+                                            `Update status for ${format(dateRange.from, 'PPP')} - ${format(dateRange.to, 'PPP')}`
+                                            : 'Select a date range'}
+                                    </DialogTitle>
                                 </DialogHeader>
                                 <div className="flex flex-col gap-4 py-4">
                                 {vesselStates.map((state) => (
@@ -464,7 +489,7 @@ export default function CurrentPage() {
                                     key={state.value}
                                     variant="outline"
                                     className="justify-start gap-3 rounded-lg"
-                                    onClick={() => handleDayStateChange(selectedDate!, state.value)}
+                                    onClick={() => handleRangeStateChange(state.value)}
                                     >
                                     <span className={cn('h-3 w-3 rounded-full', state.color)}></span>
                                     {state.label}
@@ -702,3 +727,4 @@ export default function CurrentPage() {
     </div>
   );
 }
+
