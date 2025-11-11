@@ -3,7 +3,7 @@
  * @fileoverview Firestore Security Rules for SeaJourney Landing Website.
  *
  * Core Philosophy:
- * This ruleset enforces a strict user-ownership model for user profiles, vessels, and their associated testimonials. Only the authenticated user can create, read, update, or delete their own data.
+ * This ruleset enforces a strict user-ownership model for user profiles, vessels, and their associated testimonials. Only the authenticated user can create, read, update, or delete their own data. Vessel managers have specific permissions to view crew data.
  *
  * Data Structure:
  * - User profiles are stored under `/users/{userId}/profile`.
@@ -11,7 +11,7 @@
  * - Testimonials are stored as subcollections under user profiles at `/users/{userId}/profile/testimonials/{testimonialId}`.
  *
  * Key Security Decisions:
- * - User listing is implicitly disallowed as there is no top-level collection of users.
+ * - User listing is allowed for 'vessel' and 'admin' roles via a collection group query on 'profile'.
  * - Read-only collections are not applicable in this data model.
  * - All write operations are strictly controlled by user ownership, enforced by matching the authenticated user's UID against the document path.
  *
@@ -30,6 +30,13 @@ service cloud.firestore {
     }
 
     /**
+     * @description Checks if the requesting user has a 'vessel' or 'admin' role. This requires a read from the user's own profile.
+     */
+    function isVesselManagerOrAdmin() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)/profile/$(request.auth.uid)).data.role in ['vessel', 'admin'];
+    }
+
+    /**
      * @description Enforces user-ownership for user profiles. A user profile is stored as a single document in a subcollection of the user's collection. The user profile is a single document with the same ID as the user's UID.
      * @path /users/{userId}/profile/{profileId}
      * @allow (create) User with UID 'user123' creates their profile document at /users/user123/profile/user123.
@@ -45,6 +52,9 @@ service cloud.firestore {
                     && request.resource.data.subscriptionTier in ['free', 'premium', 'premium-plus', 'professional']
                     && request.resource.data.subscriptionStatus in ['active', 'inactive', 'past-due'];
       allow delete: if isOwner(userId) && userId == profileId;
+      
+      // Allow vessel managers and admins to list all profiles
+      allow list: if isVesselManagerOrAdmin();
     }
 
     /**
