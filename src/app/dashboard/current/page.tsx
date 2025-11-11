@@ -308,28 +308,7 @@ export default function CurrentPage() {
   }, [currentStatus]);
 
   const getRangeClass = (day: Date): string => {
-    if (!currentStatus || !startDate) return '';
-    
-    const dateKey = format(day, 'yyyy-MM-dd');
-    const state = currentStatus.dailyStates[dateKey];
-    if (!state) return '';
-  
-    const prevDay = new Date(day.getTime() - 86400000);
-    const nextDay = new Date(day.getTime() + 86400000);
-    
-    const prevDayKey = format(prevDay, 'yyyy-MM-dd');
-    const nextDayKey = format(nextDay, 'yyyy-MM-dd');
-    
-    const prevState = currentStatus.dailyStates[prevDayKey];
-    const nextState = currentStatus.dailyStates[nextDayKey];
-  
-    const isStartOfRange = prevState !== state || isSameDay(day, startDate);
-    const isEndOfRange = nextState !== state || isSameDay(day, endOfDay(new Date()));
-  
-    if (isStartOfRange && isEndOfRange) return 'rounded-full';
-    if (isStartOfRange) return 'rounded-l-full';
-    if (isEndOfRange) return 'rounded-r-full';
-    return 'rounded-none';
+    return 'rounded-full';
   };
   
 
@@ -727,4 +706,3 @@ export default function CurrentPage() {
     </div>
   );
 }
-
