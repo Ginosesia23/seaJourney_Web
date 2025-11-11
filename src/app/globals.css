@@ -97,26 +97,26 @@
   }
 
   .dark .theme-dashboard {
-    --background: 220 15% 10%;
+    --background: 222 47% 11%;
     --foreground: 210 40% 98%;
-    --card: 220 15% 15%;
+    --card: 222 47% 11%;
     --card-foreground: 210 40% 98%;
-    --popover: 220 15% 5%;
+    --popover: 222 47% 11%;
     --popover-foreground: 210 40% 98%;
-    --primary: 205 90% 60%;
-    --primary-foreground: 220 20% 10%;
-    --secondary: 217.2 32.6% 17.5%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 217 33% 17%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 180 80% 50%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 17%;
     --accent-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 25%;
-    --input: 217.2 32.6% 25%;
-    --ring: 205 90% 55%;
-    --header: 220 15% 15%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 210 40% 98%;
+    --header: 222 47% 11%;
     --header-foreground: 210 40% 98%;
-
+    
     /* Map colors */
     --map-ocean: 211 100% 5%;
     --map-land: 217.2 32.6% 17.5%;
