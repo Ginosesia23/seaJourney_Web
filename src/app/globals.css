@@ -97,11 +97,11 @@
   }
 
   .dark .theme-dashboard {
-    --background: 222 47% 11%;
+    --background: 229 64% 5%;
     --foreground: 210 40% 98%;
-    --card: 222 47% 11%;
+    --card: 229 64% 5%;
     --card-foreground: 210 40% 98%;
-    --popover: 222 47% 11%;
+    --popover: 229 64% 5%;
     --popover-foreground: 210 40% 98%;
     --primary: 210 40% 98%;
     --primary-foreground: 222 47% 11%;
@@ -114,7 +114,7 @@
     --border: 217 33% 17%;
     --input: 217 33% 17%;
     --ring: 210 40% 98%;
-    --header: 222 47% 11%;
+    --header: 229 64% 5%;
     --header-foreground: 210 40% 98%;
     
     /* Map colors */
