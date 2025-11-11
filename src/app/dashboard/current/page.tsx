@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -416,11 +415,11 @@ export default function CurrentPage() {
                                 onMonthChange={setSelectedDate}
                                 className="p-0"
                                 classNames={{
-                                    day_selected: 'bg-transparent text-foreground ring-2 ring-primary rounded-full',
-                                    day_today: 'text-primary font-bold rounded-full',
+                                    day_selected: 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground rounded-full',
+                                    day_today: 'bg-accent text-accent-foreground rounded-full',
                                     day_disabled: 'text-muted-foreground opacity-50',
                                     day_outside: 'text-muted-foreground opacity-50',
-                                    cell: "w-10 h-10 text-sm p-0 relative [&:has([aria-selected])]:bg-transparent first:[&:has([aria-selected])]:rounded-l-full last:[&:has([aria-selected])]:rounded-r-full focus-within:relative focus-within:z-20",
+                                    cell: "w-10 h-10 text-sm p-0 relative focus-within:relative focus-within:z-20",
                                     day: "h-10 w-10 p-0 font-normal rounded-full",
                                 }}
                                 disabled={[{ before: startOfDay(startDate) }, { after: endOfDay(new Date()) }]}
@@ -442,7 +441,7 @@ export default function CurrentPage() {
                                         <Tooltip>
                                         <TooltipTrigger asChild>
                                             <div className="relative h-full w-full flex items-center justify-center">
-                                                <div className={cn('absolute inset-y-2 inset-x-0', stateInfo.color, rangeClass)}></div>
+                                                <div className={cn('absolute inset-y-1.5 inset-x-0', stateInfo.color, rangeClass)}></div>
                                                 <span className={cn("relative z-10 font-medium", state ? 'text-white' : 'text-foreground')} style={{textShadow: state ? '0 1px 2px rgba(0,0,0,0.5)' : 'none'}}>{format(date, 'd')}</span>
                                             </div>
                                         </TooltipTrigger>
