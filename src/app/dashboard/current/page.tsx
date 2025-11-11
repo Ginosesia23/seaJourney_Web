@@ -132,7 +132,7 @@ export default function CurrentPage() {
         })
         setNotes('');
     }
-  }, [currentStatus]);
+  }, [currentStatus, statusForm]);
 
   useEffect(() => {
     if(dateRange?.from && dateRange?.to) {
@@ -306,10 +306,6 @@ export default function CurrentPage() {
         return acc;
     }, {} as Record<DailyStatus, number>);
   }, [currentStatus]);
-
-  const getRangeClass = (day: Date): string => {
-    return 'rounded-full';
-  };
   
 
   if (isLoadingStatus || isLoadingVessels) {
@@ -434,14 +430,12 @@ export default function CurrentPage() {
                                         return <div className="relative h-full w-full flex items-center justify-center">{format(date, 'd')}</div>;
                                     }
                                     
-                                    const rangeClass = getRangeClass(date);
-                                    
                                     return (
                                     <TooltipProvider>
                                         <Tooltip>
                                         <TooltipTrigger asChild>
                                             <div className="relative h-full w-full flex items-center justify-center">
-                                                <div className={cn('absolute inset-y-1.5 inset-x-0', stateInfo.color, rangeClass)}></div>
+                                                <div className={cn('absolute inset-1.5 rounded-full', stateInfo.color)}></div>
                                                 <span className={cn("relative z-10 font-medium", state ? 'text-white' : 'text-foreground')} style={{textShadow: state ? '0 1px 2px rgba(0,0,0,0.5)' : 'none'}}>{format(date, 'd')}</span>
                                             </div>
                                         </TooltipTrigger>
@@ -706,3 +700,5 @@ export default function CurrentPage() {
     </div>
   );
 }
+
+    
