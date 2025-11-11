@@ -101,6 +101,7 @@ export default function CrewPage() {
                                 filteredProfiles.map((profile) => {
                                     const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
                                     const displayName = fullName || profile.username;
+                                    const regDate = profile.registrationDate ? new Date(profile.registrationDate) : null;
 
                                     return (
                                         <TableRow key={profile.id}>
@@ -125,7 +126,7 @@ export default function CrewPage() {
                                                 </Badge>
                                             </TableCell>
                                             <TableCell>
-                                                {format(new Date(profile.registrationDate), 'dd MMM, yyyy')}
+                                                {regDate && !isNaN(regDate.getTime()) ? format(regDate, 'dd MMM, yyyy') : 'N/A'}
                                             </TableCell>
                                             <TableCell>
                                                 <DropdownMenu>
