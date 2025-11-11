@@ -98,7 +98,7 @@ export default function DashboardSidebar({ isCollapsed, userProfile }: { isColla
                         </h3>
                       )}
                       {group.items.map((item) => {
-                        if (item.requiredRole && userProfile?.role !== item.requiredRole) {
+                        if (item.requiredRole && userProfile?.role !== item.requiredRole && userProfile?.role !== 'admin') {
                           return null;
                         }
                         
@@ -109,7 +109,7 @@ export default function DashboardSidebar({ isCollapsed, userProfile }: { isColla
                                 href={item.href}
                                 className={cn(
                                   'flex items-center justify-center gap-3 rounded-lg h-10 w-10 text-muted-foreground transition-all hover:text-primary',
-                                  pathname === item.href && 'bg-muted text-primary',
+                                  pathname === item.href && 'bg-muted text-accent',
                                   item.disabled && 'cursor-not-allowed opacity-50'
                                 )}
                                 aria-disabled={item.disabled}
@@ -129,7 +129,7 @@ export default function DashboardSidebar({ isCollapsed, userProfile }: { isColla
                             href={item.href}
                             className={cn(
                               'flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary',
-                              pathname === item.href && 'bg-muted text-primary',
+                              pathname === item.href && 'bg-muted text-accent',
                               item.disabled && 'cursor-not-allowed opacity-50'
                             )}
                             aria-disabled={item.disabled}
