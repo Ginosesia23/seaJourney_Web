@@ -47,7 +47,7 @@ const Header = () => {
 
         <div className="flex items-center gap-2">
           {!isShopPage && (
-            <Button asChild className="hidden rounded-lg md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
+            <Button asChild className="hidden rounded-full md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
               <Link href="/shop">
                 Shop
               </Link>
@@ -59,14 +59,14 @@ const Header = () => {
           <div className="hidden md:flex items-center gap-2">
             {!isUserLoading && (
               user ? (
-                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-lg">
+                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
                   <Link href="/dashboard">
                     <LayoutDashboard className="mr-2 h-5 w-5" />
                     Dashboard
                   </Link>
                 </Button>
               ) : (
-                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-lg">
+                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
                   <Link href="/login">Sign In</Link>
                 </Button>
               )

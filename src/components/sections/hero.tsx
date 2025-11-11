@@ -16,13 +16,13 @@ const Hero = () => {
               The #1 app for yacht crew and maritime professionals to track sea days, manage testimonials, and accelerate their journey to the next certificate.
             </p>
             <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center lg:justify-start">
-              <Button asChild size="lg" className="rounded-lg bg-accent hover:bg-accent/90 text-accent-foreground">
+              <Button asChild size="lg" className="rounded-full bg-accent hover:bg-accent/90 text-accent-foreground">
                 <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" target="_blank" rel="noopener noreferrer">
                   <AppStoreIcon className="mr-2 h-5 w-5" />
-                  Download Now
+                  Download
                 </Link>
               </Button>
-              <Button asChild variant="outline" size="lg" className="rounded-lg border-primary-foreground/20 text-primary-foreground bg-primary-foreground/10 hover:bg-primary-foreground/20">
+              <Button asChild variant="outline" size="lg" className="rounded-full border-primary-foreground/20 text-accent-foreground bg-primary-foreground/10 hover:bg-primary-foreground/20">
                 <Link href="#features">Learn More &rarr;</Link>
               </Button>
             </div>

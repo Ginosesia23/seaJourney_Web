@@ -11,6 +11,7 @@ import {
   Globe,
   History,
   User,
+  Users,
   Map,
   PieChart,
   BarChart2,
@@ -54,6 +55,7 @@ const navGroups = [
     title: 'Management',
     items: [
         { href: '/dashboard/profile', label: 'Profile', icon: User, disabled: false },
+        { href: '/dashboard/crew', label: 'Crew', icon: Users, disabled: false, requiredRole: 'vessel' },
         { href: '/dashboard/testimonials', label: 'Testimonials', icon: LifeBuoy, disabled: true },
         { href: '/dashboard/certificates', label: 'Certificates', icon: Award, disabled: true },
         { href: '/dashboard/export', label: 'Export', icon: Download, disabled: true },
@@ -68,7 +70,11 @@ const navGroups = [
     }
 ];
 
-export default function DashboardSidebar({ isCollapsed }: { isCollapsed?: boolean }) {
+interface UserProfile {
+  role: 'crew' | 'vessel' | 'admin';
+}
+
+export default function DashboardSidebar({ isCollapsed, userProfile }: { isCollapsed?: boolean, userProfile: UserProfile | null }) {
   const pathname = usePathname();
 
   return (
@@ -91,8 +97,12 @@ export default function DashboardSidebar({ isCollapsed }: { isCollapsed?: boolea
                           {group.title}
                         </h3>
                       )}
-                      {group.items.map((item) => (
-                        isCollapsed ? (
+                      {group.items.map((item) => {
+                        if (item.requiredRole && userProfile?.role !== item.requiredRole) {
+                          return null;
+                        }
+                        
+                        return isCollapsed ? (
                           <Tooltip key={item.href}>
                             <TooltipTrigger asChild>
                               <Link
@@ -129,7 +139,7 @@ export default function DashboardSidebar({ isCollapsed }: { isCollapsed?: boolea
                             <span>{item.label}</span>
                           </Link>
                         )
-                      ))}
+                       })}
                   </div>
               ))}
             </nav>

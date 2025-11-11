@@ -12,6 +12,7 @@ import { useTheme } from 'next-themes';
 
 interface UserProfile {
   subscriptionTier: 'free' | 'premium' | 'premium-plus' | 'professional';
+  role: 'crew' | 'vessel' | 'admin';
 }
 
 export default function DashboardLayout({
@@ -66,14 +67,14 @@ export default function DashboardLayout({
 
   return (
     <div className={cn("theme-dashboard", theme === "dark" ? "dark" : "")}>
-      <DashboardHeader />
+      <DashboardHeader userProfile={userProfile}/>
       <div
         className={cn(
           "grid min-h-[calc(100vh-4rem)] flex-1 transition-[grid-template-columns] duration-300 ease-in-out",
           isMapPage ? "lg:grid-cols-[80px_1fr]" : "lg:grid-cols-[240px_1fr]"
         )}
       >
-        <DashboardSidebar isCollapsed={isMapPage} />
+        <DashboardSidebar isCollapsed={isMapPage} userProfile={userProfile} />
         <main className={cn(
             "flex flex-1 flex-col", 
             !isMapPage && "gap-4 bg-background p-4 md:gap-8 md:p-8"

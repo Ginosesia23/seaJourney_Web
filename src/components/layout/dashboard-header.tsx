@@ -34,8 +34,12 @@ import { Sheet, SheetContent, SheetTrigger } from '../ui/sheet';
 import DashboardSidebar from './dashboard-sidebar';
 import { useTheme } from 'next-themes';
 
+interface UserProfile {
+  role: 'crew' | 'vessel' | 'admin';
+}
 
-export default function DashboardHeader() {
+
+export default function DashboardHeader({ userProfile }: { userProfile: UserProfile | null }) {
   const auth = useAuth();
   const { user } = useFirebaseUser();
   const router = useRouter();
@@ -66,7 +70,7 @@ export default function DashboardHeader() {
                     </Button>
                 </SheetTrigger>
                 <SheetContent side="left" className="flex flex-col bg-card p-0">
-                   <DashboardSidebar />
+                   <DashboardSidebar userProfile={userProfile} />
                 </SheetContent>
             </Sheet>
             <div className="hidden lg:block">
