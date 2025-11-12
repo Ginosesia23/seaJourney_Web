@@ -1,7 +1,6 @@
-
 'use client';
 
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
+import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 
 interface ChartData {
     name: string;
@@ -13,12 +12,12 @@ interface StateBreakdownChartProps {
     data: ChartData[];
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     return (
       <div className="rounded-lg border bg-background p-2 shadow-sm">
         <div className="grid grid-cols-2 gap-2 items-center">
-            <div className="font-bold text-foreground">{payload[0].payload.name}</div>
+            <div className="font-bold text-foreground">{payload[0].name}</div>
             <div className="font-bold text-foreground text-right">{`${payload[0].value} days`}</div>
         </div>
       </div>
@@ -28,39 +27,53 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
+const CustomLegend = (props: any) => {
+    const { payload } = props;
+    return (
+        <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+            {payload.map((entry: any, index: number) => (
+                <li key={`item-${index}`} className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                    <span>{entry.value}</span>
+                </li>
+            ))}
+        </ul>
+    );
+}
 
 export default function StateBreakdownChart({ data }: StateBreakdownChartProps) {
   if (!data || data.length === 0) {
     return <p className="text-muted-foreground text-sm text-center py-8">No data to display.</p>;
   }
 
+  const totalDays = data.reduce((acc, curr) => acc + curr.days, 0);
+
   return (
-    <div style={{ width: '100%', height: 200 }}>
+    <div style={{ width: '100%', height: 250 }} className="relative">
         <ResponsiveContainer>
-            <BarChart layout="vertical" data={data} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
-                <XAxis type="number" hide />
-                <YAxis 
-                    type="category" 
-                    dataKey="name" 
-                    tickLine={false} 
-                    axisLine={false}
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    width={120}
-                />
-                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'hsl(var(--muted))' }}/>
-                <Bar dataKey="days" radius={[0, 4, 4, 0]}>
-                    <LabelList 
-                        dataKey="days" 
-                        position="right" 
-                        formatter={(value: number) => `${value}`}
-                        className="font-bold fill-foreground"
-                    />
-                </Bar>
-            </BarChart>
+            <PieChart>
+                <Tooltip content={<CustomTooltip />} />
+                <Pie
+                    data={data}
+                    dataKey="days"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius="60%"
+                    outerRadius="80%"
+                    paddingAngle={2}
+                >
+                    {data.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} stroke={entry.fill} />
+                    ))}
+                </Pie>
+                <Legend content={<CustomLegend />} verticalAlign="bottom" wrapperStyle={{ paddingTop: 20 }}/>
+            </PieChart>
         </ResponsiveContainer>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="text-4xl font-bold text-foreground">{totalDays}</span>
+            <span className="text-sm text-muted-foreground">Total Days</span>
+        </div>
     </div>
   );
 }
-
-    
