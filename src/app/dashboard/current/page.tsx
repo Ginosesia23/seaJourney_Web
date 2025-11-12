@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -5,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInDays, eachDayOfInterval, fromUnixTime, isSameDay, startOfDay, endOfDay } from 'date-fns';
-import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock } from 'lucide-react';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock, Waves, Anchor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -58,12 +59,12 @@ type Vessel = {
   ownerId: string;
 };
 
-const vesselStates: { value: DailyStatus; label: string, color: string }[] = [
-    { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))' },
-    { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))' },
-    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))' },
-    { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))' },
-    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))' },
+const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
+    { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
+    { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
+    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: MapPin },
+    { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
+    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
 ];
 
 export default function CurrentPage() {
@@ -338,7 +339,8 @@ export default function CurrentPage() {
   }, [currentStatus]);
 
   const todayKey = format(new Date(), 'yyyy-MM-dd');
-  const todayStatus = currentStatus?.dailyStates[todayKey];
+  const todayStatusValue = currentStatus?.dailyStates[todayKey];
+  const todayStatusInfo = todayStatusValue ? vesselStates.find(s => s.value === todayStatusValue) : null;
   
 
   if (isLoadingStatus || isLoadingVessels) {
@@ -409,24 +411,46 @@ export default function CurrentPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
                 <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
                     <CardHeader>
-                        <CardTitle>Today's Status</CardTitle>
-                        <CardDescription>Quickly update your status for today.</CardDescription>
+                        <CardTitle>Today's Log</CardTitle>
+                        <CardDescription>{format(new Date(), 'PPP')}</CardDescription>
                     </CardHeader>
-                    <CardContent className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {vesselStates.map(state => (
-                            <Button 
-                                key={state.value} 
-                                variant={todayStatus === state.value ? 'default' : 'outline'}
-                                className={cn(
-                                    "rounded-lg justify-start gap-2",
-                                    todayStatus === state.value && `bg-[${state.color}] hover:bg-[${state.color}]/90 border-transparent text-white`
-                                )}
-                                onClick={() => handleTodayStateChange(state.value)}
+                    <CardContent className="space-y-4">
+                        {todayStatusInfo ? (
+                             <div 
+                                className="flex items-center gap-4 rounded-lg border p-4"
+                                style={{
+                                    borderColor: todayStatusInfo.color,
+                                    backgroundColor: `${todayStatusInfo.color.replace(')', ', 0.1)')}`
+                                }}
                             >
-                                <span className={cn('h-3 w-3 rounded-full', state.color.replace('hsl(var(--chart-', 'bg-').replace('))', '-500'))}></span>
-                                {state.label}
-                            </Button>
-                        ))}
+                                <div className="h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-full" style={{backgroundColor: todayStatusInfo.color}}>
+                                    <todayStatusInfo.icon className="h-5 w-5 text-white" />
+                                </div>
+                                <div>
+                                    <p className="font-bold text-lg" style={{color: todayStatusInfo.color}}>{todayStatusInfo.label}</p>
+                                    <p className="text-sm text-muted-foreground">Your status for today.</p>
+                                </div>
+                            </div>
+                        ) : (
+                             <p className="text-muted-foreground">No status set for today.</p>
+                        )}
+                       
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {vesselStates.map(state => (
+                                <Button
+                                    key={state.value}
+                                    variant="outline"
+                                    className={cn(
+                                        "rounded-lg justify-start gap-2",
+                                        todayStatusValue === state.value && "ring-2 ring-offset-2 ring-primary"
+                                    )}
+                                    onClick={() => handleTodayStateChange(state.value)}
+                                >
+                                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: state.color }}></span>
+                                    {state.label}
+                                </Button>
+                            ))}
+                        </div>
                     </CardContent>
                 </Card>
                  <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
@@ -521,17 +545,26 @@ export default function CurrentPage() {
                                     </DialogTitle>
                                 </DialogHeader>
                                 <div className="flex flex-col gap-4 py-4">
-                                {vesselStates.map((state) => (
+                                {vesselStates.map((state) => {
+                                    const colorClass = state.color.replace('hsl(var(--chart-', '').replace('))', '');
+                                     const calendarStateColorMap: Record<string, string> = {
+                                        'blue': 'bg-blue-500',
+                                        'orange': 'bg-orange-500',
+                                        'green': 'bg-green-500',
+                                        'gray': 'bg-gray-500',
+                                        'red': 'bg-red-500',
+                                    }
+                                    return (
                                      <Button
                                         key={state.value}
                                         variant="outline"
                                         className="justify-start gap-3 rounded-lg"
                                         onClick={() => handleRangeStateChange(state.value)}
                                         >
-                                        <span className={cn('h-3 w-3 rounded-full', state.color.replace('hsl(var(--chart-', 'bg-').replace('))', '-500'))}></span>
+                                        <span className={cn('h-3 w-3 rounded-full', calendarStateColorMap[colorClass])}></span>
                                         {state.label}
                                      </Button>
-                                ))}
+                                )})}
                                 </div>
                             </DialogContent>
                         </Dialog>
@@ -756,3 +789,5 @@ export default function CurrentPage() {
     </div>
   );
 }
+
+    
