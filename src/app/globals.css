@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -34,6 +35,13 @@
 
     --header: 211 100% 5%;
     --header-foreground: 210 40% 98%;
+
+    /* Chart Colors */
+    --chart-blue: 205 90% 45%;
+    --chart-orange: 25 95% 53%;
+    --chart-green: 142 76% 36%;
+    --chart-gray: 215 14% 34%;
+    --chart-red: 0 84% 60%;
   }
  
   .dark {
@@ -67,6 +75,13 @@
 
     --header: 211 100% 5%;
     --header-foreground: 210 40% 98%;
+
+     /* Chart Colors */
+    --chart-blue: 205 90% 60%;
+    --chart-orange: 25 95% 60%;
+    --chart-green: 142 76% 46%;
+    --chart-gray: 215 14% 54%;
+    --chart-red: 0 84% 70%;
   }
 
   .theme-dashboard {
@@ -139,3 +154,5 @@
     stroke-dashoffset: 1000;
   }
 }
+
+    

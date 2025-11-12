@@ -23,6 +23,7 @@ import { collection, addDoc, doc, setDoc, Timestamp, deleteDoc, writeBatch } fro
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { DateRange } from 'react-day-picker';
+import StateBreakdownChart from '@/components/dashboard/state-breakdown-chart';
 
 const currentStatusSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
@@ -59,11 +60,11 @@ type Vessel = {
 };
 
 const vesselStates: { value: DailyStatus; label: string, color: string }[] = [
-    { value: 'underway', label: 'Underway', color: 'bg-blue-500' },
-    { value: 'at-anchor', label: 'At Anchor', color: 'bg-orange-500' },
-    { value: 'in-port', label: 'In Port', color: 'bg-green-500' },
-    { value: 'on-leave', label: 'On Leave', color: 'bg-gray-500' },
-    { value: 'in-yard', label: 'In Yard / Maintenance', color: 'bg-red-500' },
+    { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))' },
+    { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))' },
+    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))' },
+    { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))' },
+    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))' },
 ];
 
 export default function CurrentPage() {
@@ -300,11 +301,19 @@ export default function CurrentPage() {
   const daysOnboard = startDate ? differenceInDays(new Date(), startDate) + 1 : 0;
   
   const totalDaysByState = useMemo(() => {
-    if (!currentStatus) return { 'underway': 0, 'at-anchor': 0, 'in-port': 0, 'on-leave': 0, 'in-yard': 0 };
-    return Object.values(currentStatus.dailyStates).reduce((acc, state) => {
+    if (!currentStatus) return [];
+    
+    const stateCounts = Object.values(currentStatus.dailyStates).reduce((acc, state) => {
         acc[state] = (acc[state] || 0) + 1;
         return acc;
     }, {} as Record<DailyStatus, number>);
+
+    return vesselStates.map(stateInfo => ({
+        name: stateInfo.label,
+        days: stateCounts[stateInfo.value] || 0,
+        fill: stateInfo.color,
+    })).filter(item => item.days > 0);
+
   }, [currentStatus]);
   
 
@@ -422,21 +431,30 @@ export default function CurrentPage() {
                                 components={{
                                 DayContent: ({ date }) => {
                                     const dateKey = format(date, 'yyyy-MM-dd');
-                                    const state = currentStatus.dailyStates[dateKey];
-                                    const stateInfo = vesselStates.find(s => s.value === state);
+                                    const stateValue = currentStatus.dailyStates[dateKey];
+                                    const stateInfo = vesselStates.find(s => s.value === stateValue);
                                     const isDateInRange = startDate && date >= startOfDay(startDate) && date <= endOfDay(new Date());
 
                                     if (!isDateInRange || !stateInfo) {
                                         return <div className="relative h-full w-full flex items-center justify-center">{format(date, 'd')}</div>;
                                     }
                                     
+                                    const colorClass = stateInfo.color.replace('hsl(var(--chart-', '').replace('))', '');
+                                    const calendarStateColorMap: Record<string, string> = {
+                                        'blue': 'bg-blue-500',
+                                        'orange': 'bg-orange-500',
+                                        'green': 'bg-green-500',
+                                        'gray': 'bg-gray-500',
+                                        'red': 'bg-red-500',
+                                    }
+
                                     return (
                                     <TooltipProvider>
                                         <Tooltip>
                                         <TooltipTrigger asChild>
                                             <div className="relative h-full w-full flex items-center justify-center">
-                                                <div className={cn('absolute inset-1.5 rounded-full', stateInfo.color)}></div>
-                                                <span className={cn("relative z-10 font-medium", state ? 'text-white' : 'text-foreground')} style={{textShadow: state ? '0 1px 2px rgba(0,0,0,0.5)' : 'none'}}>{format(date, 'd')}</span>
+                                                <div className={cn('absolute inset-1.5 rounded-full', calendarStateColorMap[colorClass])}></div>
+                                                <span className={cn("relative z-10 font-medium", stateValue ? 'text-white' : 'text-foreground')} style={{textShadow: stateValue ? '0 1px 2px rgba(0,0,0,0.5)' : 'none'}}>{format(date, 'd')}</span>
                                             </div>
                                         </TooltipTrigger>
                                         <TooltipContent>
@@ -458,15 +476,15 @@ export default function CurrentPage() {
                                 </DialogHeader>
                                 <div className="flex flex-col gap-4 py-4">
                                 {vesselStates.map((state) => (
-                                    <Button
-                                    key={state.value}
-                                    variant="outline"
-                                    className="justify-start gap-3 rounded-lg"
-                                    onClick={() => handleRangeStateChange(state.value)}
-                                    >
-                                    <span className={cn('h-3 w-3 rounded-full', state.color)}></span>
-                                    {state.label}
-                                    </Button>
+                                     <Button
+                                        key={state.value}
+                                        variant="outline"
+                                        className="justify-start gap-3 rounded-lg"
+                                        onClick={() => handleRangeStateChange(state.value)}
+                                        >
+                                        <span className={cn('h-3 w-3 rounded-full', state.color.replace('hsl(var(--chart-', 'bg-').replace('))', '-500'))}></span>
+                                        {state.label}
+                                     </Button>
                                 ))}
                                 </div>
                             </DialogContent>
@@ -474,20 +492,12 @@ export default function CurrentPage() {
                     </CardContent>
                 </Card>
                 <div className="space-y-8">
-                    <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+                   <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
                         <CardHeader>
                             <CardTitle>Day Breakdown</CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-3">
-                            {vesselStates.map(state => (
-                                <div key={state.value} className="flex justify-between items-center text-sm">
-                                    <div className="flex items-center gap-2">
-                                        <span className={cn('h-2.5 w-2.5 rounded-full', state.color)}></span>
-                                        <span className="text-muted-foreground">{state.label}</span>
-                                    </div>
-                                    <span className="font-semibold">{totalDaysByState[state.value] || 0} days</span>
-                                </div>
-                            ))}
+                        <CardContent>
+                            <StateBreakdownChart data={totalDaysByState} />
                         </CardContent>
                     </Card>
                     
