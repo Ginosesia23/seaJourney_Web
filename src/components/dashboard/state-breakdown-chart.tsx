@@ -47,6 +47,7 @@ export default function StateBreakdownChart({ data }: StateBreakdownChartProps) 
   }
 
   const totalDays = data.reduce((acc, curr) => acc + curr.days, 0);
+  const maxState = data.reduce((max, current) => (current.days > max.days ? current : max), data[0]);
 
   return (
     <div style={{ width: '100%', height: 250 }} className="relative">
@@ -61,10 +62,19 @@ export default function StateBreakdownChart({ data }: StateBreakdownChartProps) 
                     cy="50%"
                     innerRadius="60%"
                     outerRadius="80%"
-                    paddingAngle={2}
+                    paddingAngle={5}
                 >
                     {data.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} stroke={entry.fill} />
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={entry.fill} 
+                          stroke={entry.fill}
+                          style={{
+                            transform: entry.name === maxState.name ? 'scale(1.05)' : 'scale(1)',
+                            transformOrigin: 'center center',
+                            transition: 'transform 0.2s ease-in-out',
+                          }}
+                        />
                     ))}
                 </Pie>
                 <Legend content={<CustomLegend />} verticalAlign="bottom" wrapperStyle={{ paddingTop: 20 }}/>
