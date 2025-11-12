@@ -414,43 +414,28 @@ export default function CurrentPage() {
                         <CardTitle>Today's Log</CardTitle>
                         <CardDescription>{format(new Date(), 'PPP')}</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                        {todayStatusInfo ? (
-                             <div 
-                                className="flex items-center gap-4 rounded-lg border p-4"
-                                style={{
-                                    borderColor: todayStatusInfo.color,
-                                    backgroundColor: `${todayStatusInfo.color.replace(')', ', 0.1)')}`
-                                }}
-                            >
-                                <div className="h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-full" style={{backgroundColor: todayStatusInfo.color}}>
-                                    <todayStatusInfo.icon className="h-5 w-5 text-white" />
-                                </div>
-                                <div>
-                                    <p className="font-bold text-lg" style={{color: todayStatusInfo.color}}>{todayStatusInfo.label}</p>
-                                    <p className="text-sm text-muted-foreground">Your status for today.</p>
-                                </div>
-                            </div>
-                        ) : (
-                             <p className="text-muted-foreground">No status set for today.</p>
-                        )}
-                       
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                            {vesselStates.map(state => (
-                                <Button
+                    <CardContent className="space-y-2">
+                        {vesselStates.map(state => {
+                            const isActive = todayStatusValue === state.value;
+                            return (
+                                <button
                                     key={state.value}
-                                    variant="outline"
-                                    className={cn(
-                                        "rounded-lg justify-start gap-2",
-                                        todayStatusValue === state.value && "ring-2 ring-offset-2 ring-primary"
-                                    )}
                                     onClick={() => handleTodayStateChange(state.value)}
+                                    className={cn(
+                                        "w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors",
+                                        isActive 
+                                            ? 'bg-primary/10 text-primary ring-2 ring-primary'
+                                            : 'hover:bg-muted/50'
+                                    )}
                                 >
-                                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: state.color }}></span>
-                                    {state.label}
-                                </Button>
-                            ))}
-                        </div>
+                                    <span className="flex h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: isActive ? state.color : 'hsl(var(--muted))' }}>
+                                        <state.icon className={cn("h-4 w-4", isActive ? 'text-primary-foreground' : 'text-muted-foreground')} />
+                                    </span>
+                                    <span className={cn("font-medium", isActive ? 'text-primary' : 'text-foreground')}>{state.label}</span>
+                                    <span className={cn("ml-auto h-4 w-4 rounded-full border-2", isActive ? 'bg-primary border-primary' : 'border-muted-foreground/50')}></span>
+                                </button>
+                            );
+                        })}
                     </CardContent>
                 </Card>
                  <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
