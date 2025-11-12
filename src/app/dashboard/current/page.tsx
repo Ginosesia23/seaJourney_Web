@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -6,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInDays, eachDayOfInterval, fromUnixTime, isSameDay, startOfDay, endOfDay } from 'date-fns';
-import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText } from 'lucide-react';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -236,6 +235,28 @@ export default function CurrentPage() {
     }
   }
 
+  const handleTodayStateChange = async (state: DailyStatus) => {
+    if (!currentStatus || !currentStatusCollectionRef) return;
+
+    const todayKey = format(new Date(), 'yyyy-MM-dd');
+    const docRef = doc(currentStatusCollectionRef, currentStatus.id);
+    const updatedStatus = {
+        dailyStates: {
+            ...currentStatus.dailyStates,
+            [todayKey]: state,
+        },
+    };
+    
+    setDoc(docRef, updatedStatus, { merge: true })
+      .catch((serverError) => {
+        const permissionError = new FirestorePermissionError({
+            path: docRef.path,
+            operation: 'update',
+            requestResourceData: updatedStatus,
+        });
+        errorEmitter.emit('permission-error', permissionError);
+      });
+  };
 
   const handleSaveNotes = async () => {
     if (!currentStatus || !currentStatusCollectionRef) return;
@@ -315,6 +336,9 @@ export default function CurrentPage() {
     })).filter(item => item.days > 0);
 
   }, [currentStatus]);
+
+  const todayKey = format(new Date(), 'yyyy-MM-dd');
+  const todayStatus = currentStatus?.dailyStates[todayKey];
   
 
   if (isLoadingStatus || isLoadingVessels) {
@@ -381,9 +405,31 @@ export default function CurrentPage() {
                     </CardContent>
                 </Card>
             </div>
-
+            
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
                 <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+                    <CardHeader>
+                        <CardTitle>Today's Status</CardTitle>
+                        <CardDescription>Quickly update your status for today.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {vesselStates.map(state => (
+                            <Button 
+                                key={state.value} 
+                                variant={todayStatus === state.value ? 'default' : 'outline'}
+                                className={cn(
+                                    "rounded-lg justify-start gap-2",
+                                    todayStatus === state.value && `bg-[${state.color}] hover:bg-[${state.color}]/90 border-transparent text-white`
+                                )}
+                                onClick={() => handleTodayStateChange(state.value)}
+                            >
+                                <span className={cn('h-3 w-3 rounded-full', state.color.replace('hsl(var(--chart-', 'bg-').replace('))', '-500'))}></span>
+                                {state.label}
+                            </Button>
+                        ))}
+                    </CardContent>
+                </Card>
+                 <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
                     <CardHeader>
                         <div className="flex justify-between items-center">
                             <div>
@@ -491,37 +537,37 @@ export default function CurrentPage() {
                         </Dialog>
                     </CardContent>
                 </Card>
-                <div className="space-y-8">
-                   <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
-                        <CardHeader>
-                            <CardTitle>Day Breakdown</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <StateBreakdownChart data={totalDaysByState} />
-                        </CardContent>
-                    </Card>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+                    <CardHeader>
+                        <CardTitle>Day Breakdown</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <StateBreakdownChart data={totalDaysByState} />
+                    </CardContent>
+                </Card>
                     
-                    <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
-                        <CardHeader className="flex flex-row items-center gap-3">
-                             <BookText className="h-5 w-5" />
-                            <CardTitle>Trip Notes</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                           <Textarea 
-                                placeholder="Add notes about your trip..."
-                                value={notes}
-                                onChange={(e) => setNotes(e.target.value)}
-                                className="min-h-[100px]"
-                           />
-                        </CardContent>
-                        <CardFooter>
-                            <Button onClick={handleSaveNotes} disabled={isSavingNotes} className="rounded-lg">
-                                {isSavingNotes && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Save Notes
-                            </Button>
-                        </CardFooter>
-                    </Card>
-                </div>
+                <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+                    <CardHeader className="flex flex-row items-center gap-3">
+                            <BookText className="h-5 w-5" />
+                        <CardTitle>Trip Notes</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <Textarea 
+                            placeholder="Add notes about your trip..."
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            className="min-h-[100px]"
+                        />
+                    </CardContent>
+                    <CardFooter>
+                        <Button onClick={handleSaveNotes} disabled={isSavingNotes} className="rounded-lg">
+                            {isSavingNotes && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Save Notes
+                        </Button>
+                    </CardFooter>
+                </Card>
             </div>
         </div>
       ) : (
@@ -710,5 +756,3 @@ export default function CurrentPage() {
     </div>
   );
 }
-
-    
