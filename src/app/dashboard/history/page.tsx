@@ -4,10 +4,14 @@
 import { useState, useMemo } from 'react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, Timestamp } from 'firebase/firestore';
-import { History, Loader2, Search } from 'lucide-react';
+import { History, Loader2, Search, LayoutGrid, List } from 'lucide-react';
 import { CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { VesselSummaryCard, VesselSummarySkeleton } from '@/components/dashboard/vessel-summary-card';
+import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 type Vessel = {
   id: string;
@@ -37,6 +41,7 @@ export default function HistoryPage() {
   const { user } = useUser();
   const firestore = useFirestore();
   const [searchTerm, setSearchTerm] = useState('');
+  const [layout, setLayout] = useState<'card' | 'table'>('card');
 
   const vesselsCollectionRef = useMemoFirebase(() => 
     user ? collection(firestore, 'users', user.uid, 'vessels') : null, 
@@ -112,27 +117,93 @@ export default function HistoryPage() {
               <CardDescription>A summary of your sea time on each vessel.</CardDescription>
           </div>
         </div>
-        <div className="relative w-full sm:max-w-xs">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input 
-                placeholder="Filter vessels..."
-                className="pl-8"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-            />
+        <div className="flex w-full sm:w-auto items-center gap-2">
+            <div className="relative w-full sm:max-w-xs">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input 
+                    placeholder="Filter vessels..."
+                    className="pl-8"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+                <Button variant={layout === 'card' ? 'secondary': 'ghost'} size="icon" onClick={() => setLayout('card')} className="h-8 w-8 rounded-md">
+                    <LayoutGrid className="h-4 w-4"/>
+                </Button>
+                 <Button variant={layout === 'table' ? 'secondary': 'ghost'} size="icon" onClick={() => setLayout('table')} className="h-8 w-8 rounded-md">
+                    <List className="h-4 w-4"/>
+                </Button>
+            </div>
         </div>
       </div>
       
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Array.from({ length: 3 }).map((_, i) => <VesselSummarySkeleton key={i} />)}
-        </div>
+        layout === 'card' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Array.from({ length: 3 }).map((_, i) => <VesselSummarySkeleton key={i} />)}
+            </div>
+        ) : (
+             <div className="border rounded-xl">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Vessel</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Total Days</TableHead>
+                            <TableHead>Trips</TableHead>
+                            <TableHead>Status</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        <TableRow>
+                            <TableCell colSpan={5} className="h-24 text-center">
+                                <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+                            </TableCell>
+                        </TableRow>
+                    </TableBody>
+                </Table>
+            </div>
+        )
       ) : filteredVessels.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredVessels.map(vessel => (
-            <VesselSummaryCard key={vessel.id} vesselSummary={vessel} />
-          ))}
-        </div>
+        layout === 'card' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredVessels.map(vessel => (
+                <VesselSummaryCard key={vessel.id} vesselSummary={vessel} />
+            ))}
+            </div>
+        ) : (
+            <div className="border rounded-xl">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Vessel</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Total Days</TableHead>
+                            <TableHead>Trips</TableHead>
+                            <TableHead>Status</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {filteredVessels.map(vessel => (
+                            <TableRow key={vessel.id}>
+                                <TableCell className="font-medium">{vessel.name}</TableCell>
+                                <TableCell className="text-muted-foreground">{vessel.type}</TableCell>
+                                <TableCell>{vessel.totalDays}</TableCell>
+                                <TableCell>{vessel.tripCount}</TableCell>
+                                <TableCell>
+                                    {vessel.isCurrent ? (
+                                        <Badge variant="secondary">Current</Badge>
+                                    ) : (
+                                        <Badge variant="outline">Past</Badge>
+                                    )}
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </div>
+        )
       ) : (
         <div className="text-center py-16 text-muted-foreground">
           <p>No vessels found.</p>
