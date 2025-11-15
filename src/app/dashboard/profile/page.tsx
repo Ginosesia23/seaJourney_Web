@@ -1,3 +1,4 @@
+
 'use client';
 
 import { UserProfileCard } from '@/components/dashboard/user-profile';

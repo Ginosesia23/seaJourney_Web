@@ -27,7 +27,7 @@ type VesselSummary = {
 
 export function VesselSummaryCard({ vesselSummary }: { vesselSummary: VesselSummary }) {
     return (
-        <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg flex flex-col h-full">
+        <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg flex flex-col h-full">
             <CardHeader>
                 <div className="flex justify-between items-start">
                     <div>
@@ -73,7 +73,7 @@ export function VesselSummaryCard({ vesselSummary }: { vesselSummary: VesselSumm
 
 export function VesselSummarySkeleton() {
     return (
-        <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+        <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
             <CardHeader>
                 <div className="flex justify-between items-start">
                     <div>

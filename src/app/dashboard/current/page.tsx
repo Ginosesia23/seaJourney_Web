@@ -395,7 +395,7 @@ export default function CurrentPage() {
       {isDisplayingStatus ? (
         <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium">Vessel</CardTitle>
                         <Ship className="h-4 w-4 text-muted-foreground" />
@@ -405,7 +405,7 @@ export default function CurrentPage() {
                         <p className="text-xs text-muted-foreground">{selectedVessel.type}</p>
                     </CardContent>
                 </Card>
-                <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium">Position</CardTitle>
                         <Briefcase className="h-4 w-4 text-muted-foreground" />
@@ -415,7 +415,7 @@ export default function CurrentPage() {
                          <p className="text-xs text-muted-foreground">&nbsp;</p>
                     </CardContent>
                 </Card>
-                <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium">Start Date</CardTitle>
                         <CalendarIcon className="h-4 w-4 text-muted-foreground" />
@@ -425,7 +425,7 @@ export default function CurrentPage() {
                          <p className="text-xs text-muted-foreground">&nbsp;</p>
                     </CardContent>
                 </Card>
-                <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg bg-primary/10 border-primary/20">
+                <Card className="rounded-xl bg-primary/10 border-primary/20">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium">Total Time Onboard</CardTitle>
                     </CardHeader>
@@ -437,7 +437,7 @@ export default function CurrentPage() {
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-                <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                     <CardHeader>
                         <CardTitle>Today's Log</CardTitle>
                         <CardDescription>{format(new Date(), 'PPP')}</CardDescription>
@@ -466,7 +466,7 @@ export default function CurrentPage() {
                         })}
                     </CardContent>
                 </Card>
-                 <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+                 <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                     <CardHeader>
                         <div className="flex justify-between items-center">
                             <div>
@@ -585,7 +585,7 @@ export default function CurrentPage() {
                 </Card>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-                <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                     <CardHeader>
                         <CardTitle>Day Breakdown</CardTitle>
                     </CardHeader>
@@ -594,7 +594,7 @@ export default function CurrentPage() {
                     </CardContent>
                 </Card>
                     
-                <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                     <CardHeader className="flex flex-row items-center gap-3">
                             <BookText className="h-5 w-5" />
                         <CardTitle>Trip Notes</CardTitle>
@@ -617,7 +617,7 @@ export default function CurrentPage() {
             </div>
         </div>
       ) : (
-        <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg max-w-lg mx-auto">
+        <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg max-w-lg mx-auto">
           <CardHeader>
             <CardTitle>Set Your Current Vessel</CardTitle>
             <CardDescription>Log the vessel you are currently working on to start tracking your sea time.</CardDescription>

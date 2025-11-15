@@ -227,7 +227,7 @@ export default function DashboardPage() {
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
-         <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+         <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Total Sea Days</CardTitle>
                   <Ship className="h-4 w-4 text-muted-foreground" />
@@ -238,7 +238,7 @@ export default function DashboardPage() {
               </CardContent>
           </Card>
 
-          <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+          <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Testimonials</CardTitle>
                   <LifeBuoy className="h-4 w-4 text-muted-foreground"/>
@@ -249,7 +249,7 @@ export default function DashboardPage() {
               </CardContent>
           </Card>
           
-          <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+          <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Passages Logged</CardTitle>
                   <Route className="h-4 w-4 text-muted-foreground"/>
@@ -260,7 +260,7 @@ export default function DashboardPage() {
               </CardContent>
           </Card>
 
-          <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+          <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Vessels Logged</CardTitle>
                   <Anchor className="h-4 w-4 text-muted-foreground"/>
@@ -273,7 +273,7 @@ export default function DashboardPage() {
       </div>
       
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg lg:col-span-2">
+        <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg lg:col-span-2">
             <CardHeader>
                 <CardTitle>Sea Day Analytics</CardTitle>
                 <CardDescription>Your sea days logged over the past year.</CardDescription>
@@ -282,7 +282,7 @@ export default function DashboardPage() {
                 <MainChart data={chartData}/>
             </CardContent>
         </Card>
-        <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+        <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
             <CardHeader>
                 <CardTitle>Recent Activity</CardTitle>
                 <CardDescription>Your most recently logged sea time.</CardDescription>
@@ -319,7 +319,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 md:grid-cols-2 md:gap-8">
         {longestPassage && (
-            <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+            <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Longest Passage</CardTitle>
                     <Award className="h-4 w-4 text-muted-foreground" />
@@ -331,7 +331,7 @@ export default function DashboardPage() {
             </Card>
         )}
         {topVessel && (
-            <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+            <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Top Vessel</CardTitle>
                     <Star className="h-4 w-4 text-muted-foreground" />

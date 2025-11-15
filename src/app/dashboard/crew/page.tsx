@@ -60,7 +60,7 @@ export default function CrewPage() {
 
     return (
         <div className="w-full max-w-7xl mx-auto">
-            <Card className="rounded-xl shadow-md transition-shadow hover:shadow-lg">
+            <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                 <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div>
                         <div className="flex items-center gap-3">
