@@ -236,5 +236,5 @@ export default function WorldMapPage() {
         [-80.1, 25.7],   // Miami
     ];
 
-    return <HexWorldMap baseHexRadius={4} passageData={[passage1]} />;
+    return <HexWorldMap baseHexRadius={2} passageData={[passage1]} />;
 }
