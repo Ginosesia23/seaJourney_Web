@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, differenceInDays, eachDayOfInterval, fromUnixTime, isSameDay, startOfDay, endOfDay } from 'date-fns';
+import { format, differenceInDays, eachDayOfInterval, fromUnixTime, isSameDay, startOfDay, endOfDay, parse } from 'date-fns';
 import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock, Waves, Anchor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -115,8 +115,8 @@ export default function CurrentPage() {
     },
   });
 
-  useEffect(() => {
-    if (currentStatus) {
+   useEffect(() => {
+    if (currentStatus && firestore && user?.uid) {
       statusForm.reset({
         vesselId: currentStatus.vesselId,
         position: currentStatus.position,
@@ -124,6 +124,39 @@ export default function CurrentPage() {
         vesselState: 'underway',
       });
       setNotes(currentStatus.notes || '');
+
+      // Logic to backfill missing dates
+      const startDate = fromUnixTime(currentStatus.startDate.seconds);
+      const today = endOfDay(new Date());
+      if (startDate > today) return;
+
+      const allDates = eachDayOfInterval({ start: startOfDay(startDate), end: today });
+      let lastKnownState: DailyStatus | null = null;
+      let needsUpdate = false;
+      const updatedDailyStates = { ...currentStatus.dailyStates };
+
+      allDates.forEach(date => {
+        const dateKey = format(date, 'yyyy-MM-dd');
+        if (updatedDailyStates[dateKey]) {
+          lastKnownState = updatedDailyStates[dateKey];
+        } else if (lastKnownState) {
+          updatedDailyStates[dateKey] = lastKnownState;
+          needsUpdate = true;
+        }
+      });
+
+      if (needsUpdate) {
+        const docRef = doc(firestore, 'users', user.uid, 'currentStatus', currentStatus.id);
+        setDoc(docRef, { dailyStates: updatedDailyStates }, { merge: true })
+          .catch((serverError) => {
+            const permissionError = new FirestorePermissionError({
+                path: docRef.path,
+                operation: 'update',
+                requestResourceData: { dailyStates: updatedDailyStates },
+            });
+            errorEmitter.emit('permission-error', permissionError);
+          });
+      }
     } else {
         statusForm.reset({
             vesselId: '',
@@ -133,7 +166,7 @@ export default function CurrentPage() {
         })
         setNotes('');
     }
-  }, [currentStatus, statusForm]);
+  }, [currentStatus, firestore, user?.uid, statusForm]);
 
   useEffect(() => {
     if(dateRange?.from && dateRange?.to) {
@@ -217,23 +250,18 @@ export default function CurrentPage() {
     
     const updatedStatus = { dailyStates: updatedDailyStates };
 
-    try {
-      await setDoc(docRef, updatedStatus, { merge: true });
-      toast({
-        title: "Status Updated",
-        description: `Status set to "${state}" for the selected range.`
-      });
-    } catch (serverError) {
-      const permissionError = new FirestorePermissionError({
-          path: docRef.path,
-          operation: 'update',
-          requestResourceData: updatedStatus,
-      });
-      errorEmitter.emit('permission-error', permissionError);
-    } finally {
+    setDoc(docRef, updatedStatus, { merge: true })
+      .catch((serverError) => {
+        const permissionError = new FirestorePermissionError({
+            path: docRef.path,
+            operation: 'update',
+            requestResourceData: updatedStatus,
+        });
+        errorEmitter.emit('permission-error', permissionError);
+      }).finally(() => {
         setIsStatusDialogOpen(false);
         setDateRange(undefined);
-    }
+      });
   }
 
   const handleTodayStateChange = async (state: DailyStatus) => {
@@ -774,5 +802,7 @@ export default function CurrentPage() {
     </div>
   );
 }
+
+    
 
     
