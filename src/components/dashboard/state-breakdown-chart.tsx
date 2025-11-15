@@ -1,6 +1,18 @@
+
 'use client';
 
-import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
+import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
+import { Waves, Anchor, MapPin, Briefcase, Ship } from 'lucide-react';
+
+const vesselStates: { value: string; label: string, color: string, icon: React.FC<any> }[] = [
+    { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
+    { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
+    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: MapPin },
+    { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
+    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
+];
 
 interface ChartData {
     name: string;
@@ -27,19 +39,6 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null;
 };
 
-const CustomLegend = (props: any) => {
-    const { payload } = props;
-    return (
-        <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            {payload.map((entry: any, index: number) => (
-                <li key={`item-${index}`} className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
-                    <span>{entry.value}</span>
-                </li>
-            ))}
-        </ul>
-    );
-}
 
 export default function StateBreakdownChart({ data }: StateBreakdownChartProps) {
   if (!data || data.length === 0) {
@@ -47,42 +46,59 @@ export default function StateBreakdownChart({ data }: StateBreakdownChartProps) 
   }
 
   const totalDays = data.reduce((acc, curr) => acc + curr.days, 0);
-  const maxState = data.reduce((max, current) => (current.days > max.days ? current : max), data[0]);
 
   return (
-    <div style={{ width: '100%', height: 250 }} className="relative">
-        <ResponsiveContainer>
-            <PieChart>
-                <Tooltip content={<CustomTooltip />} />
-                <Pie
-                    data={data}
-                    dataKey="days"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius="60%"
-                    outerRadius="80%"
-                    paddingAngle={5}
-                >
-                    {data.map((entry, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
-                          fill={entry.fill} 
-                          stroke={entry.fill}
-                          style={{
-                            transform: entry.name === maxState.name ? 'scale(1.05)' : 'scale(1)',
-                            transformOrigin: 'center center',
-                            transition: 'transform 0.2s ease-in-out',
-                          }}
-                        />
-                    ))}
-                </Pie>
-                <Legend content={<CustomLegend />} verticalAlign="bottom" wrapperStyle={{ paddingTop: 20 }}/>
-            </PieChart>
-        </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-4xl font-bold text-foreground">{totalDays}</span>
-            <span className="text-sm text-muted-foreground">Total Days</span>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+        <div className="relative h-[200px] w-full">
+            <ResponsiveContainer>
+                <PieChart>
+                    <Tooltip content={<CustomTooltip />} />
+                    <Pie
+                        data={data}
+                        dataKey="days"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius="60%"
+                        outerRadius="80%"
+                        paddingAngle={5}
+                        stroke="hsl(var(--border))"
+                        strokeWidth={2}
+                    >
+                        {data.map((entry, index) => (
+                            <Cell 
+                            key={`cell-${index}`} 
+                            fill={entry.fill} 
+                            />
+                        ))}
+                    </Pie>
+                </PieChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-4xl font-bold text-foreground">{totalDays}</span>
+                <span className="text-sm text-muted-foreground">Total Days</span>
+            </div>
+        </div>
+        <div className="space-y-4">
+            {vesselStates.map(stateInfo => {
+                const stateData = data.find(d => d.name === stateInfo.label);
+                const days = stateData?.days || 0;
+                const percentage = totalDays > 0 ? (days / totalDays) * 100 : 0;
+                const Icon = stateInfo.icon;
+
+                return (
+                    <div key={stateInfo.value}>
+                        <div className="flex justify-between items-center mb-1 text-sm">
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                                <Icon className="h-4 w-4" style={{color: stateInfo.color}}/>
+                                <span>{stateInfo.label}</span>
+                            </div>
+                            <span className="font-medium text-foreground">{days} days</span>
+                        </div>
+                        <Progress value={percentage} indicatorClassName={cn(stateInfo.color)} style={{'--primary': stateInfo.color} as any}/>
+                    </div>
+                )
+            })}
         </div>
     </div>
   );
