@@ -100,7 +100,7 @@ const StepSection = ({ step, index, platform }: { step: (typeof iosSteps)[0], in
             "text-center lg:text-left transition-transform duration-700 ease-in-out",
             isTextFirst ? 'lg:order-1' : 'lg:order-2',
           )}>
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-accent/10 mb-4">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 mb-4">
               {step.icon}
             </div>
             <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">{step.title}</h2>
