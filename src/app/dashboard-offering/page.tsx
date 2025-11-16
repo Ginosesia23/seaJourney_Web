@@ -45,10 +45,7 @@ export default function DashboardOfferingPage() {
       <main className="flex-1">
         {/* Hero Section */}
         <section className="relative overflow-hidden bg-header text-header-foreground py-20 sm:py-28">
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 bg-gradient-to-br from-primary via-primary/80 to-background opacity-30"
-          />
+          
           <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-3xl text-center">
               <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-6xl">
