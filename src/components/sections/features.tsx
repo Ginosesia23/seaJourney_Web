@@ -3,22 +3,22 @@ import { CalendarDays, FileSignature, Award, Ship } from 'lucide-react';
 
 const features = [
   {
-    icon: <CalendarDays className="h-8 w-8 text-primary" />,
+    icon: <CalendarDays className="h-8 w-8 text-accent" />,
     title: 'Effortless Sea Time Logging',
     description: 'Quickly log your days at sea, vessel details, and position. Our smart tracker makes it simple and accurate.',
   },
   {
-    icon: <FileSignature className="h-8 w-8 text-primary" />,
+    icon: <FileSignature className="h-8 w-8 text-accent" />,
     title: 'Digital Testimonials',
     description: 'Generate and export professional sea time testimonials. Get them digitally signed by captains and chief engineers.',
   },
   {
-    icon: <Award className="h-8 w-8 text-primary" />,
+    icon: <Award className="h-8 w-8 text-accent" />,
     title: 'Certification Ready',
     description: 'Easily compile and export all necessary documentation for your ticket applications and certificate renewals.',
   },
   {
-    icon: <Ship className="h-8 w-8 text-primary" />,
+    icon: <Ship className="h-8 w-8 text-accent" />,
     title: 'Multi-Vessel Support',
     description: 'Manage your sea time across multiple vessels, from superyachts to commercial ships, all in one place.',
   },
