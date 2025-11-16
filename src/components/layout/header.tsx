@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -19,7 +20,8 @@ import { useUser } from '@/firebase';
 
 const navLinks = [
   { href: '/how-to-use', label: 'How to Use' },
-  { href: '/coming-soon', label: 'Coming Soon' },
+  { href: '/dashboard-offering', label: 'Dashboard' },
+  { href: '/coming-soon', label: 'Pricing' },
 ];
 
 const Header = () => {
@@ -62,7 +64,7 @@ const Header = () => {
                 <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
                   <Link href="/dashboard">
                     <LayoutDashboard className="mr-2 h-5 w-5" />
-                    Dashboard
+                    My Dashboard
                   </Link>
                 </Button>
               ) : (
@@ -132,7 +134,7 @@ const Header = () => {
                    {!isUserLoading && (
                       user ? (
                         <Link href="/dashboard" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
-                          Dashboard
+                          My Dashboard
                         </Link>
                       ) : (
                         <Link href="/login" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
