@@ -28,7 +28,7 @@ const CTA = () => {
             Download SeaJourney today and take the next step in your professional journey.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" target="_blank" rel="noopener noreferrer" className="flex w-full sm:w-auto items-center justify-center rounded-full bg-primary px-5 py-3 text-base font-medium text-primary-foreground shadow-md transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-primary">
+            <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" target="_blank" rel="noopener noreferrer" className="flex w-full sm:w-auto items-center justify-center rounded-full bg-primary px-5 py-3 text-base font-medium text-white shadow-md transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-primary">
               <AppStoreIcon className="mr-3 h-8 w-8" />
               <div>
                 <p className="text-xs">Download on the</p>
