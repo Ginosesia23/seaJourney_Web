@@ -19,7 +19,7 @@ export default function AndroidTesterSignup() {
             The Android version of SeaJourney is coming soon. Sign up to become a beta tester and get early access.
           </p>
           <div className="mt-10">
-            <Button asChild size="lg" className="rounded-full text-primary-foreground" style={{ backgroundColor: '#3DDC84' }}>
+            <Button asChild size="lg" className="rounded-full text-white" style={{ backgroundColor: '#3DDC84' }}>
               <Link href="https://play.google.com/apps/internaltest/4701575652585709401" target="_blank" rel="noopener noreferrer">
                 Download Beta App
               </Link>
