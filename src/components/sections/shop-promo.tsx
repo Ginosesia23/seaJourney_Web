@@ -15,7 +15,7 @@ const ShopPromo = () => {
             Love the app? Check out our online store for branded merchandise and help support future development.
           </p>
           <div className="mt-10">
-            <Button asChild size="lg" className="rounded-lg">
+            <Button asChild size="lg" className="rounded-full">
               <Link href="/shop">Visit the Shop</Link>
             </Button>
           </div>

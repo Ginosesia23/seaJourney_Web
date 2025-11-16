@@ -15,7 +15,7 @@ const HowToUse = () => {
             Our step-by-step guide will walk you through everything from logging your first day to exporting professional documents.
           </p>
           <div className="mt-10">
-            <Button asChild size="lg" className="rounded-lg">
+            <Button asChild size="lg" className="rounded-full">
               <Link href="/how-to-use">View the Guide</Link>
             </Button>
           </div>
