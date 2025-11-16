@@ -62,7 +62,7 @@ export default function DashboardOfferingPage() {
               </div>
               <div className="flex justify-center">
                 <Image
-                  src="/dashboard-preview.png"
+                  src="/dashboard_image.png"
                   alt="A preview of the SeaJourney dashboard showing charts and stats."
                   width={600}
                   height={400}
