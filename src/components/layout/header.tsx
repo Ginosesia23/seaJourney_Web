@@ -19,7 +19,7 @@ import { Cart } from '@/components/cart';
 import { useUser } from '@/firebase';
 
 const navLinks = [
-  { href: '/how-to-use', label: 'How to Use' },
+  { href: '/how-to-use', label: 'Guide' },
   { href: '/dashboard-offering', label: 'Dashboard' },
   { href: '/coming-soon', label: 'Pricing' },
 ];
