@@ -40,7 +40,7 @@ const Features = () => {
           {features.map((feature) => (
             <Card key={feature.title} className="transform transition-transform duration-300 hover:-translate-y-2 hover:shadow-xl bg-card border-border/50">
               <CardHeader>
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
+                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-accent/10">
                   {feature.icon}
                 </div>
                 <CardTitle className="pt-4 font-headline text-xl">{feature.title}</CardTitle>
