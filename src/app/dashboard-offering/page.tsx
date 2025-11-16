@@ -44,29 +44,33 @@ export default function DashboardOfferingPage() {
       <Header />
       <main className="flex-1">
         {/* Hero Section */}
-        <section className="bg-header text-header-foreground py-20 sm:py-28">
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid items-center gap-12 lg:grid-cols-2">
-              <div className="text-center lg:text-left">
-                <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-6xl">
-                  Your Career Command Center
-                </h1>
-                <p className="mt-6 text-lg leading-8 text-header-foreground/80">
-                  Visualize your sea time, manage your fleet, and chart your course to success with our powerful dashboard for premium members.
-                </p>
-                <div className="mt-10 flex items-center justify-center gap-4 lg:justify-start">
-                  <Button asChild size="lg" className="rounded-full bg-accent hover:bg-accent/90 text-white">
-                    <Link href="/signup">Get Started</Link>
-                  </Button>
-                </div>
+        <section className="relative overflow-hidden bg-header text-header-foreground py-20 sm:py-28">
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 bg-gradient-to-br from-primary via-primary/80 to-background opacity-30"
+          />
+          <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-3xl text-center">
+              <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-6xl">
+                Your Career Command Center
+              </h1>
+              <p className="mt-6 text-lg leading-8 text-header-foreground/80">
+                Visualize your sea time, manage your fleet, and chart your course to success with our powerful dashboard for premium members.
+              </p>
+              <div className="mt-10 flex items-center justify-center gap-4">
+                <Button asChild size="lg" className="rounded-full bg-accent hover:bg-accent/90 text-white">
+                  <Link href="/signup">Get Started</Link>
+                </Button>
               </div>
-              <div className="flex justify-center">
-                <Image
+            </div>
+            <div className="mt-16 flex justify-center [perspective:2000px]">
+              <div className="rounded-lg border bg-card/5 p-2 shadow-2xl [transform:rotateX(15deg)]">
+                 <Image
                   src="/dashboard_image.png"
                   alt="A preview of the SeaJourney dashboard showing charts and stats."
-                  width={600}
-                  height={400}
-                  className="shadow-2xl [filter:drop-shadow(0_0_15px_rgba(255,255,255,0.25))]"
+                  width={1000}
+                  height={600}
+                  className="[filter:drop-shadow(0_0_15px_rgba(255,255,255,0.25))]"
                   data-ai-hint="dashboard preview charts"
                   priority
                 />
