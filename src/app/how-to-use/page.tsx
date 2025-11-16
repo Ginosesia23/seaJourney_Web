@@ -27,8 +27,8 @@ const iosSteps = [
     icon: <ListChecks className="h-8 w-8 text-accent" />,
     title: '3. Log Your Sea Time',
     description: "Log your sea days with our intuitive calendar. Just select the dates, and the app will calculate your time for you.",
-    image: 'https://picsum.photos/seed/how-to-3/800/600',
-    imageHint: 'app calendar logging iOS'
+    image: '/hero-1.png',
+    imageHint: 'app screenshot'
   },
   {
     icon: <FileSignature className="h-8 w-8 text-accent" />,
@@ -65,8 +65,8 @@ const androidSteps = [
     icon: <ListChecks className="h-8 w-8 text-accent" />,
     title: '3. Log Your Sea Time',
     description: "Log your sea days with our intuitive calendar. Just select the dates, and the app will calculate your time for you.",
-    image: 'https://picsum.photos/seed/how-to-android-3/800/600',
-    imageHint: 'app calendar logging Android'
+    image: '/hero-1.png',
+    imageHint: 'app screenshot'
   },
   {
     icon: <FileSignature className="h-8 w-8 text-accent" />,
