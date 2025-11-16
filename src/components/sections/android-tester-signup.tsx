@@ -17,14 +17,14 @@ const GooglePlayIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 export default function AndroidTesterSignup() {
   return (
-    <section id="android-testers" className="py-16 sm:py-24 bg-green-50">
+    <section id="android-testers" className="py-16 sm:py-24 bg-header text-header-foreground">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <Smartphone className="mx-auto h-12 w-12 text-[#3DDC84]" />
-          <h2 className="mt-4 font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
+          <h2 className="mt-4 font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
             Be the First to Test on Android
           </h2>
-          <p className="mt-4 text-lg leading-8 text-foreground/80">
+          <p className="mt-4 text-lg leading-8 text-header-foreground/80">
             The Android version of SeaJourney is coming soon. Sign up to become a beta tester and get early access.
           </p>
           <div className="mt-10">

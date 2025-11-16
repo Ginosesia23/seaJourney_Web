@@ -18,7 +18,7 @@ export const AppStoreIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 const CTA = () => {
   return (
-    <section id="cta" className="bg-background">
+    <section id="cta" className="bg-background text-foreground">
       <div className="container mx-auto px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
