@@ -4,7 +4,6 @@ import Hero from '@/components/sections/hero';
 import Features from '@/components/sections/features';
 import Testimonials from '@/components/sections/testimonials';
 import HowToUse from '@/components/sections/how-to-use';
-import CTA from '@/components/sections/cta';
 import AndroidTesterSignup from '@/components/sections/android-tester-signup';
 import ShopPromo from '@/components/sections/shop-promo';
 
@@ -18,7 +17,6 @@ export default function Home() {
         <HowToUse />
         <Testimonials />
         <ShopPromo />
-        <CTA />
         <AndroidTesterSignup />
       </main>
       <Footer />
