@@ -26,7 +26,7 @@ const features = [
 
 const Features = () => {
   return (
-    <section id="features" className="py-16 sm:py-24" style={{ backgroundColor: '#FFFFFF', color: 'hsl(var(--foreground))' }}>
+    <section id="features" className="py-16 sm:py-24">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
