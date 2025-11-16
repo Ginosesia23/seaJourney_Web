@@ -66,7 +66,7 @@ export default function DashboardOfferingPage() {
                   alt="A preview of the SeaJourney dashboard showing charts and stats."
                   width={600}
                   height={400}
-                  className="rounded-xl shadow-2xl [filter:drop-shadow(0_0_15px_rgba(255,255,255,0.25))]"
+                  className="shadow-2xl [filter:drop-shadow(0_0_15px_rgba(255,255,255,0.25))]"
                   data-ai-hint="dashboard preview charts"
                   priority
                 />
