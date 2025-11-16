@@ -38,7 +38,7 @@ const Features = () => {
         </div>
         <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
           {features.map((feature) => (
-            <Card key={feature.title} className="transform transition-transform duration-300 hover:-translate-y-2 hover:shadow-xl bg-card border-border/50 rounded-xl">
+            <Card key={feature.title} className="transform transition-transform duration-300 hover:-translate-y-2 hover:shadow-xl bg-card border-border/50 rounded-2xl">
               <CardHeader>
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10">
                   {feature.icon}
