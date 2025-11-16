@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
-import { ListChecks, Ship, User, FileSignature, FileText, Apple, Smartphone } from 'lucide-react';
+import { ListChecks, Ship, User, FileSignature, FileText, Smartphone } from 'lucide-react';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { AppStoreIcon } from '@/components/sections/cta';
 
 const iosSteps = [
   {
@@ -28,7 +29,7 @@ const iosSteps = [
     title: '3. Log Your Sea Time',
     description: "Log your sea days with our intuitive calendar. Just select the dates, and the app will calculate your time for you.",
     image: '/hero-1.png',
-    imageHint: 'app screenshot'
+    imageHint: 'app calendar logging'
   },
   {
     icon: <FileSignature className="h-8 w-8 text-accent" />,
@@ -66,7 +67,7 @@ const androidSteps = [
     title: '3. Log Your Sea Time',
     description: "Log your sea days with our intuitive calendar. Just select the dates, and the app will calculate your time for you.",
     image: '/hero-1.png',
-    imageHint: 'app screenshot'
+    imageHint: 'app calendar logging'
   },
   {
     icon: <FileSignature className="h-8 w-8 text-accent" />,
@@ -150,7 +151,7 @@ export default function HowToUsePage() {
                     platform === 'ios' && 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
                   )}
                 >
-                  <Apple className="mr-2 h-5 w-5" />
+                  <AppStoreIcon className="mr-2 h-5 w-5" />
                   iOS
                 </Button>
                 <Button
