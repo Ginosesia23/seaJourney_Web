@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -18,6 +19,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 const verificationSchema = z.object({
+  officialId: z.string().min(1, 'Official ID is required.'),
   verificationCode: z.string().min(6, 'Verification code must be at least 6 characters.'),
 });
 
@@ -49,7 +51,7 @@ export default function VerificationPage() {
 
   const form = useForm<VerificationFormValues>({
     resolver: zodResolver(verificationSchema),
-    defaultValues: { verificationCode: '' },
+    defaultValues: { officialId: '', verificationCode: '' },
   });
 
   const handleVerification = async (data: VerificationFormValues) => {
@@ -60,6 +62,8 @@ export default function VerificationPage() {
     setError(null);
 
     try {
+      // For now, we are only using the verification code to find the record.
+      // The officialId is collected for future use.
       const docRef = doc(firestore, 'verificationRecords', data.verificationCode);
       const docSnap = await getDoc(docRef);
 
@@ -93,26 +97,39 @@ export default function VerificationPage() {
               </div>
               <CardTitle className="mt-4 font-headline text-3xl">Sea Time Verification Portal</CardTitle>
               <CardDescription className="mt-2 text-lg">
-                Enter the unique verification code from a SeaJourney document to verify its authenticity.
+                Enter the official and document IDs to verify the record's authenticity.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(handleVerification)} className="flex items-start gap-2">
-                  <FormField
+                <form onSubmit={form.handleSubmit(handleVerification)} className="space-y-4">
+                   <FormField
                     control={form.control}
-                    name="verificationCode"
+                    name="officialId"
                     render={({ field }) => (
-                      <FormItem className="flex-grow">
-                        <FormLabel className="sr-only">Verification Code</FormLabel>
+                      <FormItem>
+                        <FormLabel>Official ID</FormLabel>
                         <FormControl>
-                          <Input placeholder="Enter code..." {...field} className="h-11 text-base" />
+                          <Input placeholder="Enter your official ID..." {...field} className="h-11 text-base" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                  <Button type="submit" size="lg" className="h-11" disabled={isLoading}>
+                  <FormField
+                    control={form.control}
+                    name="verificationCode"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Document Verification Code</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter document code..." {...field} className="h-11 text-base" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button type="submit" size="lg" className="h-11 w-full" disabled={isLoading}>
                     {isLoading ? (
                       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                     ) : (
