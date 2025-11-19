@@ -111,5 +111,18 @@ service cloud.firestore {
     match /users/{userId}/trips/{tripId} {
       allow read, create: if isOwner(userId);
     }
+
+    /**
+     * @description Public-facing verification records.
+     * @path /verificationRecords/{recordId}
+     * @allow (get) Anyone can read a verification record to verify a document.
+     * @allow (create) Only authenticated users can create verification records for their own data (logic to be enforced in backend).
+     * @deny (update, delete, list) No one can modify, delete, or list all verification records.
+     */
+    match /verificationRecords/{recordId} {
+      allow get: if true;
+      allow create: if request.auth != null;
+      allow update, delete, list: if false;
+    }
   }
 }

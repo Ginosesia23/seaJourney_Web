@@ -209,6 +209,53 @@
         "endDate",
         "dailyStates"
       ]
+    },
+    "VerificationRecord": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "VerificationRecord",
+      "type": "object",
+      "description": "Stores a snapshot of a verifiable record, identified by a unique code.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique verification code."
+        },
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user this record belongs to."
+        },
+        "recordType": {
+          "type": "string",
+          "enum": ["testimonial", "seatime_report"],
+          "description": "The type of record being verified."
+        },
+        "issuedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when the verification record was created."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when this verification code expires."
+        },
+        "data": {
+          "type": "object",
+          "description": "A snapshot of the key data from the verified record.",
+          "properties": {
+            "userName": { "type": "string" },
+            "vesselName": { "type": "string" },
+            "position": { "type": "string" },
+            "startDate": { "type": "string", "format": "date-time" },
+            "endDate": { "type": "string", "format": "date-time" },
+            "totalDays": { "type": "number" },
+            "seaDays": { "type": "number" },
+            "leaveDays": { "type": "number" }
+          },
+          "required": ["userName", "vesselName", "position", "startDate", "endDate", "totalDays"]
+        }
+      },
+      "required": ["id", "userId", "recordType", "issuedAt", "data"]
     }
   },
   "auth": {
@@ -314,8 +361,24 @@
             }
           ]
         }
+      },
+      {
+        "path": "/verificationRecords/{recordId}",
+        "definition": {
+          "entityName": "VerificationRecord",
+          "schema": {
+            "$ref": "#/backend/entities/VerificationRecord"
+          },
+          "description": "Stores public, verifiable snapshots of sea time records. These are read-only for the public portal.",
+          "params": [
+            {
+              "name": "recordId",
+              "description": "The unique verification code."
+            }
+          ]
+        }
       }
     ],
-    "reasoning": "This Firestore data structure is designed to support the SeaJourney Landing website's user profiles and testimonials. The primary focus is on enabling secure and scalable data access while adhering to Authorization Independence and simplifying security rules. User profiles are stored under `/users/{userId}/profile/{userId}` following the Path-Based ownership access modeling strategy, where the profile document ID is the same as the user ID. This ensures a user can only access their own profile document. Testimonials are stored as subcollections of user profiles under `/users/{userId}/profile/testimonials/{testimonialId}`. By nesting the testimonials as a subcollection under each user profile, we establish clear ownership and enhance data organization. Vessels are stored in a top-level collection for each user `/users/{userId}/vessels/{vesselId}` which also enforces user ownership via the path.\n\nAuthorization Independence is achieved without denormalization as the path inherently enforces ownership, thus eliminating the need to read the data to authorize access. For testimonials, ownership is implied by the parent user profile. In this design, listing testimonials will be restricted to the user's own profile or testimonials can be queried across all users if this is required.\n\nQAPs (Rules are not Filters): The design supports secure `list` operations. Because testimonials are nested under user profiles and access to a profile is inherently restricted to the profile's user, reading all testimonials using the collection group query can be secured. It is recommended not to combine different security requirements into the same collection."
+    "reasoning": "This Firestore data structure is designed to support the SeaJourney Landing website's user profiles and testimonials. The primary focus is on enabling secure and scalable data access while adhering to Authorization Independence and simplifying security rules. User profiles are stored under `/users/{userId}/profile/{userId}` following the Path-Based ownership access modeling strategy, where the profile document ID is the same as the user ID. This ensures a user can only access their own profile document. Testimonials are stored as subcollections of user profiles under `/users/{userId}/profile/testimonials/{testimonialId}`. By nesting the testimonials as a subcollection under each user profile, we establish clear ownership and enhance data organization. Vessels are stored in a top-level collection for each user `/users/{userId}/vessels/{vesselId}` which also enforces user ownership via the path. The addition of a public `verificationRecords` collection allows anonymous users (like the MCA) to read specific, non-sensitive records for verification purposes without compromising the security of user data."
   }
 }
