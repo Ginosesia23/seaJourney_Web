@@ -110,7 +110,7 @@ export default function VerificationPage() {
                       <FormItem>
                         <FormLabel>Official ID</FormLabel>
                         <FormControl>
-                          <Input placeholder="Enter your official ID..." {...field} className="h-11 text-base" />
+                          <Input placeholder="Enter your official ID..." {...field} className="h-11 text-base rounded-lg" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -123,13 +123,13 @@ export default function VerificationPage() {
                       <FormItem>
                         <FormLabel>Document Verification Code</FormLabel>
                         <FormControl>
-                          <Input placeholder="Enter document code..." {...field} className="h-11 text-base" />
+                          <Input placeholder="Enter document code..." {...field} className="h-11 text-base rounded-lg" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                  <Button type="submit" size="lg" className="h-11 w-full" disabled={isLoading}>
+                  <Button type="submit" size="lg" className="h-11 w-full rounded-lg" disabled={isLoading}>
                     {isLoading ? (
                       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                     ) : (
