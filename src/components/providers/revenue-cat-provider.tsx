@@ -26,7 +26,7 @@ export const useRevenueCat = () => {
 };
 
 const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
-  const { user } = useUser();
+  const { user, isUserLoading } = useUser();
   const { toast } = useToast();
   const router = useRouter();
 
@@ -51,7 +51,12 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       // Ensure Purchases is not already configured
       if (!Purchases.isConfigured()) {
         Purchases.setLogLevel(LogLevel.DEBUG);
-        Purchases.configure({ apiKey });
+        try {
+          Purchases.configure({ apiKey });
+        } catch (e: any) {
+          console.error("RevenueCat configuration failed:", e.message);
+          return;
+        }
       }
 
       const offerings = await Purchases.getOfferings();
@@ -67,11 +72,17 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const updateUser = async () => {
-      if (user?.uid && revenueCatState.isReady && Purchases.isConfigured()) {
+      // Wait until Firebase user is loaded and RevenueCat is ready
+      if (isUserLoading || !revenueCatState.isReady || !Purchases.isConfigured()) {
+        return;
+      }
+
+      if (user && user.uid) {
         try {
           const { customerInfo } = await Purchases.logIn(user.uid);
           setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
         } catch (error) {
+          console.warn("RevenueCat: Could not log in. Trying to restore purchases.", error);
           try {
             const newCustomerInfo = await Purchases.restorePurchases();
             setRevenueCatState(prevState => ({ ...prevState, customerInfo: newCustomerInfo }));
@@ -84,7 +95,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
             })
           }
         }
-      } else if (!user && revenueCatState.isReady && Purchases.isConfigured()) {
+      } else if (!user) {
         try {
             const { customerInfo } = await Purchases.logOut();
             setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
@@ -94,7 +105,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       }
     };
     updateUser();
-  }, [user, revenueCatState.isReady, toast]);
+  }, [user, isUserLoading, revenueCatState.isReady, toast]);
 
   const purchasePackage = async (pkg: PurchasesPackage) => {
     if (!process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY) {
