@@ -3,7 +3,6 @@
 
 import React, { useState } from "react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle, Fingerprint, Cloud, FileText } from 'lucide-react';
 
@@ -73,14 +72,11 @@ const planDetails = {
 
 export const SeaJourneyVerificationFlow: React.FC = () => {
   const [activePlan, setActivePlan] = useState<PlanKey>("free");
-  const [activeStep, setActiveStep] = useState<"log" | "store" | "export">(
-    "log",
-  );
 
   const summary = PLAN_COPY[activePlan];
 
   return (
-    <section className="w-full max-w-6xl mx-auto my-16">
+    <section className="w-full max-w-6xl mx-auto">
       <header className="text-center mb-12">
         <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
           SeaJourney Verification Ecosystem
@@ -90,33 +86,6 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
           Free, Hybrid and Premium verification paths.
         </p>
       </header>
-
-      {/* Top steps */}
-      <div className="relative mb-12 flex flex-col md:flex-row justify-center items-center gap-4 md:gap-8">
-        <div className="absolute top-1/2 left-0 w-full h-0.5 bg-border -translate-y-1/2 hidden md:block" />
-        
-        {[
-          { key: "log" as const, label: "1. Log Sea Time", desc: "Crew records days, ranks, vessels." },
-          { key: "store" as const, label: "2. Store Data", desc: "Local device or cloud sync." },
-          { key: "export" as const, label: "3. Choose Export", desc: "Free, Hybrid, or Premium." },
-        ].map((step, index) => (
-          <div key={step.key} className="relative z-10 flex flex-col items-center text-center">
-            <Button
-              variant={activeStep === step.key ? "default" : "outline"}
-              size="icon"
-              className={cn(
-                "rounded-full h-12 w-12 text-lg font-bold transition-all",
-                activeStep === step.key && "bg-primary text-primary-foreground ring-4 ring-background"
-              )}
-              onClick={() => setActiveStep(step.key)}
-            >
-              {index + 1}
-            </Button>
-            <h3 className="mt-4 text-base font-semibold">{step.label}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">{step.desc}</p>
-          </div>
-        ))}
-      </div>
 
       <p className="text-center text-muted-foreground mb-8">
         Export paths from SeaJourney to MCA-usable documents:
@@ -129,10 +98,7 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
           return (
             <button
                 key={key}
-                onClick={() => {
-                    setActivePlan(key as PlanKey);
-                    setActiveStep("export");
-                }}
+                onClick={() => setActivePlan(key as PlanKey)}
                 className="text-left h-full"
             >
                 <Card className={cn(
