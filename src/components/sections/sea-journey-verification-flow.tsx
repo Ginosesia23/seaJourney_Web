@@ -2,13 +2,15 @@
 'use client';
 
 import React, { useState } from "react";
+import Link from 'next/link';
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CheckCircle, Fingerprint, Bot, Share2, ScanLine, ShieldCheck, FileText } from 'lucide-react';
+import { CheckCircle, Fingerprint, FileText, ShieldCheck, UserPlus, Search } from 'lucide-react';
+import { Button } from "../ui/button";
 
 type PlanKey = "free" | "hybrid" | "premium";
 
-const planDetails = {
+const planDetails: Record<PlanKey, { icon: React.FC<any>, title: string, subtitle: string, description: string }> = {
     free: {
         icon: FileText,
         title: "Free Export",
@@ -32,7 +34,7 @@ const planDetails = {
 const breakdownDetails: Record<PlanKey, { icon: React.FC<any>, title: string, description: string }[]> = {
     free: [
         {
-            icon: Bot,
+            icon: FileText,
             title: "1. Log & Generate",
             description: "Crew logs their sea time on their device. When ready, they generate a standard PDF testimonial. No unique code is created for this basic export."
         },
@@ -42,41 +44,41 @@ const breakdownDetails: Record<PlanKey, { icon: React.FC<any>, title: string, de
             description: "The generated PDF is manually sent to the captain or a superior officer for a traditional (wet or digital) signature, just like a paper document."
         },
         {
-            icon: ScanLine,
+            icon: Search,
             title: "3. Manual Verification",
             description: "The maritime authority (e.g., MCA) reviews the signed PDF. Verification relies entirely on the authenticity of the captain's signature on the document."
         }
     ],
     hybrid: [
         {
-            icon: Bot,
+            icon: Fingerprint,
             title: "1. Generate Unique Code",
             description: "User generates an official testimonial. The app creates a unique, unguessable verification code and a data snapshot which is stored securely in the cloud."
         },
         {
-            icon: Share2,
+            icon: Fingerprint,
             title: "2. Share with Official",
             description: "The unique code is embedded in the exported PDF's footer and as a QR code. This document is then shared with the maritime official for verification."
         },
         {
-            icon: ScanLine,
+            icon: Search,
             title: "3. Official Verifies Online",
             description: "The official visits the SeaJourney verification portal, enters the code, and instantly sees the original, tamper-proof data snapshot to confirm its authenticity."
         }
     ],
     premium: [
         {
-            icon: Bot,
+            icon: ShieldCheck,
             title: "1. Captain's Digital Sign-off",
             description: "Crew requests a testimonial sign-off within the app. The captain receives a secure link, authenticates, and digitally signs the record, creating an auditable log."
         },
         {
-            icon: Share2,
+            icon: ShieldCheck,
             title: "2. Export Verifiable PDF",
             description: "The exported PDF contains a unique verification code and QR code that links directly to the digitally-signed, timestamped record in the SeaJourney cloud."
         },
         {
-            icon: ScanLine,
+            icon: Search,
             title: "3. Full Audit Trail Verification",
             description: "The official uses the portal to view not just the record, but the entire audit trail: who signed it, when it was signed, and the history of the record, providing maximum trust."
         }
@@ -163,19 +165,59 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
             How It Works: <span className="capitalize">{activePlan}</span>
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {breakdownDetails[activePlan].map((step, index) => (
-                <Card key={index} className="bg-card/50 rounded-xl">
-                    <CardHeader className="text-center items-center">
-                         <div className={cn("flex h-12 w-12 items-center justify-center rounded-full mb-2", activeColors.bg)}>
-                             <step.icon className={cn("h-6 w-6", activeColors.icon)} />
-                        </div>
-                        <CardTitle className="font-headline text-lg">{step.title}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-center text-sm text-foreground/80">{step.description}</p>
-                    </CardContent>
-                </Card>
-            ))}
+            {breakdownDetails[activePlan].map((step, index) => {
+                const BreakdownIcon = step.icon;
+                return (
+                    <Card key={index} className="bg-card/50 rounded-xl">
+                        <CardHeader className="text-center items-center">
+                            <div className={cn("flex h-12 w-12 items-center justify-center rounded-full mb-2", activeColors.bg)}>
+                                <BreakdownIcon className={cn("h-6 w-6", activeColors.icon)} />
+                            </div>
+                            <CardTitle className="font-headline text-lg">{step.title}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-center text-sm text-foreground/80">{step.description}</p>
+                        </CardContent>
+                    </Card>
+                );
+            })}
+        </div>
+      </div>
+      
+      {/* CTA Section */}
+      <div className="mt-24">
+         <h3 className="text-center font-headline text-2xl font-bold tracking-tight text-primary mb-8">
+            What's Next?
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+            <Card className="text-center hover:shadow-xl transition-shadow rounded-2xl">
+                <CardHeader>
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 mb-2">
+                        <Search className="h-6 w-6 text-primary" />
+                    </div>
+                    <CardTitle className="font-headline text-xl">For Officials</CardTitle>
+                    <CardDescription>Verify a document using the official verification portal.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Button asChild className="rounded-full">
+                        <Link href="/verify">Verify a Record</Link>
+                    </Button>
+                </CardContent>
+            </Card>
+             <Card className="text-center hover:shadow-xl transition-shadow rounded-2xl">
+                <CardHeader>
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 mb-2">
+                        <UserPlus className="h-6 w-6 text-accent" />
+                    </div>
+                    <CardTitle className="font-headline text-xl">For Crew</CardTitle>
+                    <CardDescription>Start logging your sea time and generate verifiable documents.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                     <Button asChild variant="accent" className="rounded-full bg-accent text-accent-foreground hover:bg-accent/90">
+                        <Link href="/coming-soon">Get Started</Link>
+                    </Button>
+                </CardContent>
+            </Card>
         </div>
       </div>
     </section>
