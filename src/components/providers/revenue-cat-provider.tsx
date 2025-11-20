@@ -67,7 +67,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const updateUser = async () => {
-      if (user && revenueCatState.isReady && Purchases.isConfigured()) {
+      if (user?.uid && revenueCatState.isReady && Purchases.isConfigured()) {
         try {
           const { customerInfo } = await Purchases.logIn(user.uid);
           setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
