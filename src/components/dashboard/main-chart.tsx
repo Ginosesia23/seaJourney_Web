@@ -6,23 +6,25 @@ const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
         <div className="rounded-lg border bg-background p-2 shadow-sm">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="flex flex-col space-y-1">
-              <span className="text-[0.70rem] uppercase text-muted-foreground">
-                Month
-              </span>
-              <span className="font-bold text-muted-foreground">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-bold text-foreground">
                 {label}
-              </span>
-            </div>
-            <div className="flex flex-col space-y-1">
-              <span className="text-[0.70rem] uppercase text-muted-foreground">
-                Sea Days
-              </span>
-              <span className="font-bold text-foreground">
-                {payload[0].value}
-              </span>
-            </div>
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-1">
+            {payload.slice().reverse().map((p: any, index: number) => (
+                 <div key={index} className="flex justify-between items-center gap-4">
+                    <div className="flex items-center gap-2">
+                        <div className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: p.fill}}></div>
+                        <span className="text-[0.70rem] uppercase text-muted-foreground">
+                            {p.name}
+                        </span>
+                    </div>
+                    <span className="font-bold text-foreground">
+                        {p.value}
+                    </span>
+                 </div>
+            ))}
           </div>
         </div>
       );
@@ -32,8 +34,16 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   };
 
 interface MainChartProps {
-    data: { month: string; seaDays: number }[];
+    data: { month: string; [key: string]: number | string }[];
 }
+
+const dataKeys = [
+    { key: "underway", color: "hsl(var(--chart-blue))" },
+    { key: "inPort", color: "hsl(var(--chart-green))" },
+    { key: "atAnchor", color: "hsl(var(--chart-orange))" },
+    { key: "onLeave", color: "hsl(var(--chart-gray))" },
+    { key: "inYard", color: "hsl(var(--chart-red))" }
+];
 
 export default function MainChart({ data }: MainChartProps) {
   return (
@@ -57,12 +67,16 @@ export default function MainChart({ data }: MainChartProps) {
             />
             <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--border) / 0.5)" />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.5 }} />
-            <Bar 
-                dataKey="seaDays"
-                radius={[4, 4, 0, 0]}
-                fill="hsl(var(--primary))"
-                
-            />
+            
+            {dataKeys.map((item, index) => (
+                <Bar 
+                    key={item.key}
+                    dataKey={item.key} 
+                    stackId="a"
+                    fill={item.color}
+                    radius={index === dataKeys.length - 1 ? [4, 4, 0, 0] : [0,0,0,0]}
+                />
+            ))}
         </BarChart>
         </ResponsiveContainer>
     </div>

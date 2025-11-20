@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -12,6 +13,15 @@ import { cn } from '@/lib/utils';
 import MainChart from '@/components/dashboard/main-chart';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+
+const chartData = [
+    { month: "Jan", underway: 10, inPort: 5, atAnchor: 2 }, { month: "Feb", underway: 12, inPort: 8, atAnchor: 0 }, 
+    { month: "Mar", underway: 20, inPort: 5, atAnchor: 0 }, { month: "Apr", underway: 15, inPort: 7, atAnchor: 3 }, 
+    { month: "May", underway: 22, inPort: 8, atAnchor: 0 }, { month: "Jun", underway: 12, inPort: 6, atAnchor: 4 },
+    { month: "Jul", underway: 25, inPort: 3, atAnchor: 0 }, { month: "Aug", underway: 18, inPort: 6, atAnchor: 2 }, 
+    { month: "Sep", underway: 14, inPort: 5, atAnchor: 1 }, { month: "Oct", underway: 20, inPort: 7, atAnchor: 0 }, 
+    { month: "Nov", underway: 19, inPort: 4, atAnchor: 2 }, { month: "Dec", underway: 26, inPort: 5, atAnchor: 0 }
+];
 
 const features = [
     {
@@ -44,12 +54,7 @@ const features = [
                     ))}
                 </div>
                  <div className="h-[150px] w-full mt-2">
-                    <MainChart data={[
-                        { month: "Jan", seaDays: 15 }, { month: "Feb", seaDays: 20 }, { month: "Mar", seaDays: 25 },
-                        { month: "Apr", seaDays: 22 }, { month: "May", seaDays: 30 }, { month: "Jun", seaDays: 18 },
-                         { month: "Jul", seaDays: 28 }, { month: "Aug", seaDays: 24 }, { month: "Sep", seaDays: 19 },
-                          { month: "Oct", seaDays: 27 }, { month: "Nov", seaDays: 23 }, { month: "Dec", seaDays: 31 }
-                    ]} />
+                    <MainChart data={chartData} />
                 </div>
             </CardContent>
         </Card>
@@ -70,12 +75,7 @@ const features = [
           <CardDescription className="text-white/50">Your sea days logged over the past year.</CardDescription>
         </CardHeader>
         <CardContent className="flex-grow flex items-center justify-center">
-            <MainChart data={[
-                { month: "Jan", seaDays: 15 }, { month: "Feb", seaDays: 20 }, { month: "Mar", seaDays: 25 },
-                { month: "Apr", seaDays: 22 }, { month: "May", seaDays: 30 }, { month: "Jun", seaDays: 18 },
-                 { month: "Jul", seaDays: 28 }, { month: "Aug", seaDays: 24 }, { month: "Sep", seaDays: 19 },
-                  { month: "Oct", seaDays: 27 }, { month: "Nov", seaDays: 23 }, { month: "Dec", seaDays: 31 }
-            ]} />
+            <MainChart data={chartData} />
         </CardContent>
       </Card>
     )
