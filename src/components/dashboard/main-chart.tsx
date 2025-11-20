@@ -6,21 +6,17 @@ const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
         <div className="rounded-lg border bg-background p-2 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-bold text-foreground">
-                {label}
-            </span>
-          </div>
           <div className="grid grid-cols-1 gap-1">
+            <p className="font-bold text-foreground mb-1">{label}</p>
             {payload.slice().reverse().map((p: any, index: number) => (
                  <div key={index} className="flex justify-between items-center gap-4">
                     <div className="flex items-center gap-2">
                         <div className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: p.fill}}></div>
-                        <span className="text-[0.70rem] uppercase text-muted-foreground">
+                        <span className="text-xs uppercase text-muted-foreground">
                             {p.name}
                         </span>
                     </div>
-                    <span className="font-bold text-foreground">
+                    <span className="font-bold text-foreground text-sm">
                         {p.value}
                     </span>
                  </div>
@@ -38,11 +34,11 @@ interface MainChartProps {
 }
 
 const dataKeys = [
-    { key: "underway", color: "hsl(var(--chart-blue))" },
-    { key: "inPort", color: "hsl(var(--chart-green))" },
-    { key: "atAnchor", color: "hsl(var(--chart-orange))" },
-    { key: "onLeave", color: "hsl(var(--chart-gray))" },
-    { key: "inYard", color: "hsl(var(--chart-red))" }
+    { key: "underway", name: "Underway", color: "hsl(var(--chart-blue))" },
+    { key: "inPort", name: "In Port", color: "hsl(var(--chart-green))" },
+    { key: "atAnchor", name: "At Anchor", color: "hsl(var(--chart-orange))" },
+    { key: "onLeave", name: "On Leave", color: "hsl(var(--chart-gray))" },
+    { key: "inYard", name: "In Yard", color: "hsl(var(--chart-red))" }
 ];
 
 export default function MainChart({ data }: MainChartProps) {
@@ -71,10 +67,11 @@ export default function MainChart({ data }: MainChartProps) {
             {dataKeys.map((item, index) => (
                 <Bar 
                     key={item.key}
-                    dataKey={item.key} 
+                    dataKey={item.key}
+                    name={item.name} 
                     stackId="a"
                     fill={item.color}
-                    radius={index === dataKeys.length - 1 ? [4, 4, 0, 0] : [0,0,0,0]}
+                    radius={index === dataKeys.filter(dk => data[0] && data[0][dk.key] > 0).length - 1 ? [4, 4, 0, 0] : [0,0,0,0]}
                 />
             ))}
         </BarChart>
