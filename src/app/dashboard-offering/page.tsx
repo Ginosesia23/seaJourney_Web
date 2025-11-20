@@ -136,25 +136,25 @@ const features = [
     title: 'World Map',
     description: 'Chart your global experience.',
     component: (
-        <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
-             <div className="w-full max-w-lg aspect-video rounded-lg bg-primary/5 flex items-center justify-center relative overflow-hidden p-4">
-                <svg viewBox="0 0 800 400" className="w-full h-full">
-                    <defs>
-                        <pattern id="hex-bg" patternUnits="userSpaceOnUse" width="14" height="24.25" patternTransform="scale(1) rotate(0)">
-                            <g>
-                            <polygon points="7,0 0,4.04 0,12.12 7,16.16 14,12.12 14,4.04" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
-                            <polygon points="7,16.16 0,20.2 0,28.28 7,32.32 14,28.28 14,20.2" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
-                            </g>
-                        </pattern>
-                    </defs>
-                    <rect width="800" height="400" fill="url(#hex-bg)"></rect>
-                    <path d="M 240 250 C 350 180, 550 180, 680 280" stroke="hsl(var(--accent))" strokeWidth="2" fill="none" strokeDasharray="4 6" className="opacity-70 animate-dash" />
-                    <path d="M 280 310 C 400 380, 600 380, 750 290" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-50 animate-dash-reverse" />
-                </svg>
-             </div>
-             <CardTitle className="text-lg flex items-center gap-2 text-white/80 mt-6">World Map</CardTitle>
-             <CardDescription className="text-white/50">Visualize Your Global Journeys</CardDescription>
-        </Card>
+      <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
+        <div className="w-full max-w-lg aspect-video rounded-lg bg-primary/5 flex items-center justify-center relative overflow-hidden p-4">
+          <svg viewBox="0 0 800 400" className="w-full h-full">
+            <defs>
+              <pattern id="hex-bg" patternUnits="userSpaceOnUse" width="14" height="24.25" patternTransform="scale(1) rotate(0)">
+                <g>
+                <polygon points="7,0 0,4.04 0,12.12 7,16.16 14,12.12 14,4.04" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
+                <polygon points="7,16.16 0,20.2 0,28.28 7,32.32 14,28.28 14,20.2" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
+                </g>
+              </pattern>
+            </defs>
+            <rect width="800" height="400" fill="url(#hex-bg)"></rect>
+            <path d="M 240 250 C 350 180, 550 180, 680 280" stroke="hsl(var(--accent))" strokeWidth="2" fill="none" strokeDasharray="4 6" className="opacity-70 animate-dash" />
+            <path d="M 280 310 C 400 380, 600 380, 750 290" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-50 animate-dash-reverse" />
+          </svg>
+        </div>
+        <CardTitle className="text-lg flex items-center gap-2 text-white/80 mt-6">World Map</CardTitle>
+        <CardDescription className="text-white/50">Visualize Your Global Journeys</CardDescription>
+      </Card>
     )
   },
   {
