@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect } from 'react';
@@ -9,6 +10,7 @@ import DashboardHeader from '@/components/layout/dashboard-header';
 import DashboardSidebar from '@/components/layout/dashboard-sidebar';
 import { cn } from '@/lib/utils';
 import { ThemeProvider, useTheme } from 'next-themes';
+import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 
 interface UserProfile {
   subscriptionTier: 'free' | 'premium' | 'premium-plus' | 'professional';
@@ -21,6 +23,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { theme } = useTheme();
   const firestore = useFirestore();
+  const { customerInfo } = useRevenueCat();
+
 
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
@@ -37,13 +41,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Redirect to plan selection if the user is on the free tier
-    if (userProfile && userProfile.subscriptionTier === 'free') {
+    const hasActiveSubscription = customerInfo?.activeSubscriptions?.length ?? 0 > 0;
+
+    if (userProfile && userProfile.subscriptionTier === 'free' && !hasActiveSubscription) {
         router.push('/coming-soon');
         return;
     }
 
-  }, [user, isUserLoading, userProfile, isProfileLoading, router]);
+  }, [user, isUserLoading, userProfile, isProfileLoading, router, customerInfo]);
 
   const isMapPage = pathname === '/dashboard/world-map';
   const isLoading = isUserLoading || isProfileLoading;
@@ -56,8 +61,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // If there's no user, or if the user is on the free tier, don't render the dashboard
-  if (!user || userProfile?.subscriptionTier === 'free') {
+  const hasActiveSubscription = customerInfo?.activeSubscriptions?.length ?? 0 > 0;
+  if (!user || (userProfile?.subscriptionTier === 'free' && !hasActiveSubscription)) {
     return null;
   }
 

@@ -6,9 +6,15 @@ import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Check, Ship, User, Download } from 'lucide-react';
+import { Check, Ship, User, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
+// import type { PurchasesPackage } from 'purchases-react-native';
+
+// Mock type
+type PurchasesPackage = any;
+
 
 const tiers = [
   {
@@ -27,6 +33,7 @@ const tiers = [
   },
   {
     name: 'Standard',
+    identifier: 'standard',
     price: '£9.99',
     priceSuffix: '/ month',
     description: 'For dedicated professionals who need advanced tracking.',
@@ -38,12 +45,13 @@ const tiers = [
       '4GB online storage',
       '10 document export limit'
     ],
-    cta: 'Coming Soon',
+    cta: 'Choose Plan',
     highlighted: true,
     type: 'crew',
   },
   {
     name: 'Premium',
+    identifier: 'premium',
     price: '£19.99',
     priceSuffix: '/ month',
     description: 'For career-focused seafarers needing detailed analytics.',
@@ -55,11 +63,12 @@ const tiers = [
       '6GB online storage',
       '20 document export limit'
     ],
-    cta: 'Coming Soon',
+    cta: 'Choose Plan',
     type: 'crew',
   },
   {
     name: 'Premium+',
+    identifier: 'premium_plus',
     price: '£49.99',
     priceSuffix: '/ month',
     description: 'For captains and managers overseeing multiple crew members.',
@@ -71,11 +80,12 @@ const tiers = [
       'Unlimited online storage',
       'Unlimited document exports'
     ],
-    cta: 'Coming Soon',
+    cta: 'Choose Plan',
     type: 'crew',
   },
   {
     name: 'Vessel Basic',
+    identifier: 'vessel_basic',
     price: '£299.99',
     priceSuffix: '/ month',
     description: 'Essential tracking for a single vessel and its crew.',
@@ -85,11 +95,12 @@ const tiers = [
       'Basic reporting',
       'Email support',
     ],
-    cta: 'Coming Soon',
+    cta: 'Choose Plan',
     type: 'vessel',
   },
   {
     name: 'Vessel Pro',
+    identifier: 'vessel_pro',
     price: '£599.99',
     priceSuffix: '/ month',
     description: 'Comprehensive management for a professional yacht.',
@@ -99,12 +110,13 @@ const tiers = [
       'Advanced compliance reporting',
       'Priority support',
     ],
-    cta: 'Coming Soon',
+    cta: 'Choose Plan',
     highlighted: true,
     type: 'vessel',
   },
   {
     name: 'Vessel Fleet',
+    identifier: 'vessel_fleet',
     price: '£1199.99',
     priceSuffix: '/ month',
     description: 'Ideal for managing multiple vessels and larger crews.',
@@ -114,11 +126,12 @@ const tiers = [
       'Fleet-wide analytics',
       'API access for integrations',
     ],
-    cta: 'Coming Soon',
+    cta: 'Choose Plan',
     type: 'vessel',
   },
   {
     name: 'Vessel Enterprise',
+    identifier: 'vessel_enterprise',
     price: 'Custom',
     priceSuffix: '',
     description: 'Scalable solution for large fleets and management companies.',
@@ -128,7 +141,7 @@ const tiers = [
       'Dedicated account manager',
       'Custom onboarding & support',
     ],
-    cta: 'Coming Soon',
+    cta: 'Contact Us',
     type: 'vessel',
   },
 ];
@@ -136,7 +149,21 @@ const tiers = [
 
 export default function ComingSoonPage() {
   const [planType, setPlanType] = useState('crew');
+  const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
+  const { offerings, purchasePackage } = useRevenueCat();
+
   const filteredTiers = tiers.filter(tier => tier.type === planType);
+  
+  const handlePurchase = async (rcPackage: PurchasesPackage) => {
+    setIsPurchasing(rcPackage.identifier);
+    try {
+        await purchasePackage(rcPackage);
+    } catch (e) {
+        // Error is handled in the provider
+    } finally {
+        setIsPurchasing(null);
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -149,7 +176,7 @@ export default function ComingSoonPage() {
                 Choose Your Voyage
               </h1>
               <p className="mt-4 text-lg leading-8 text-foreground/80">
-                We're launching new plans soon. Find the perfect fit for your maritime career and get ready to set sail.
+                Find the perfect fit for your maritime career and get ready to set sail.
               </p>
             </div>
             
@@ -179,57 +206,65 @@ export default function ComingSoonPage() {
               </div>
 
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
-              {filteredTiers.map((tier) => (
-                <Card key={tier.name} className={cn(
-                    "flex flex-col rounded-2xl",
-                    tier.name === 'Free' ? 'bg-primary/5 border-primary/20' : '',
-                    tier.highlighted ? 'border-primary ring-2 ring-primary' : ''
-                )}>
-                  <CardHeader className="flex-grow">
-                    {tier.name === 'Free' ? (
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 mb-4">
-                            <Download className="h-6 w-6 text-accent"/>
-                        </div>
-                    ) : (
-                        <>
-                            <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
-                            <div className="flex items-baseline gap-1">
-                               <span className="text-4xl font-bold tracking-tight">{tier.price}</span>
-                               <span className="text-sm font-semibold text-muted-foreground">{tier.priceSuffix}</span>
+              {filteredTiers.map((tier) => {
+                const rcPackage = offerings?.current?.availablePackages.find((p: any) => p.product.identifier === tier.identifier);
+                const priceString = rcPackage?.product.priceString || tier.price;
+                const isProcessing = isPurchasing === rcPackage?.identifier;
+                
+                return (
+                    <Card key={tier.name} className={cn(
+                        "flex flex-col rounded-2xl",
+                        tier.name === 'Free' ? 'bg-primary/5 border-primary/20' : '',
+                        tier.highlighted ? 'border-primary ring-2 ring-primary' : ''
+                    )}>
+                    <CardHeader className="flex-grow">
+                        {tier.name === 'Free' ? (
+                            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 mb-4">
+                                <Download className="h-6 w-6 text-accent"/>
                             </div>
-                        </>
-                    )}
-                    <CardDescription>{tier.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-4">
-                      {tier.features.map((feature) => (
-                        <li key={feature} className="flex items-start">
-                          <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
-                          <span>{feature}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </CardContent>
-                  <CardFooter>
-                    {tier.href ? (
-                        <Button asChild className="w-full rounded-full" variant={tier.name === 'Free' ? 'default' : (tier.highlighted ? 'default' : 'outline')}>
-                            <Link href={tier.href} target="_blank" rel="noopener noreferrer">
-                                <Download className="mr-2 h-4 w-4" /> {tier.cta}
-                            </Link>
-                        </Button>
-                    ) : (
-                        <Button 
-                            className="w-full rounded-full"
-                            variant={tier.highlighted ? 'default' : 'outline'}
-                            disabled={tier.cta !== 'Get Started'}
-                        >
-                            {tier.cta}
-                        </Button>
-                    )}
-                  </CardFooter>
-                </Card>
-              ))}
+                        ) : (
+                            <>
+                                <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
+                                <div className="flex items-baseline gap-1">
+                                <span className="text-4xl font-bold tracking-tight">{priceString}</span>
+                                <span className="text-sm font-semibold text-muted-foreground">{tier.priceSuffix}</span>
+                                </div>
+                            </>
+                        )}
+                        <CardDescription>{tier.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <ul className="space-y-4">
+                        {tier.features.map((feature) => (
+                            <li key={feature} className="flex items-start">
+                            <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
+                            <span>{feature}</span>
+                            </li>
+                        ))}
+                        </ul>
+                    </CardContent>
+                    <CardFooter>
+                        {tier.href ? (
+                            <Button asChild className="w-full rounded-full" variant={tier.name === 'Free' ? 'default' : (tier.highlighted ? 'default' : 'outline')}>
+                                <Link href={tier.href} target="_blank" rel="noopener noreferrer">
+                                    <Download className="mr-2 h-4 w-4" /> {tier.cta}
+                                </Link>
+                            </Button>
+                        ) : (
+                            <Button 
+                                className="w-full rounded-full"
+                                variant={tier.highlighted ? 'default' : 'outline'}
+                                disabled={!rcPackage || isProcessing}
+                                onClick={() => rcPackage && handlePurchase(rcPackage)}
+                            >
+                                {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                {tier.cta}
+                            </Button>
+                        )}
+                    </CardFooter>
+                    </Card>
+                )
+              })}
             </div>
           </div>
         </section>
