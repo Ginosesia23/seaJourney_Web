@@ -42,9 +42,8 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const initAndLogin = async () => {
-      // Wait until Firebase user is loaded
       if (isUserLoading) {
-        return;
+        return; // Wait until Firebase auth state is resolved
       }
       
       const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
@@ -54,44 +53,56 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
+      // Configure RevenueCat once if not already configured
+      if (!Purchases.isConfigured()) {
+        try {
+          await Purchases.configure({ apiKey });
+          Purchases.setLogLevel(LogLevel.DEBUG);
+        } catch (e: any) {
+          console.error("RevenueCat configuration failed:", e.message);
+          return;
+        }
+      }
+
       if (user && user.uid) {
-         try {
-            if (!Purchases.isConfigured()) {
-                Purchases.setLogLevel(LogLevel.DEBUG);
-                await Purchases.configure({ apiKey });
-            }
-            
-            console.log(`RC: about to log in with UID: ${user.uid}`);
-            const { customerInfo, created } = await Purchases.logIn(user.uid);
-            const offerings = await Purchases.getOfferings();
+        // User is logged in, proceed with RevenueCat login
+        try {
+          console.log(`RC: about to log in with UID: ${user.uid}`);
+          const { customerInfo, created } = await Purchases.logIn(user.uid);
+          const offerings = await Purchases.getOfferings();
 
-            setRevenueCatState({
-                customerInfo: customerInfo,
-                offerings: offerings.current,
-                isReady: true
-            });
-
+          setRevenueCatState({
+            customerInfo: customerInfo,
+            offerings: offerings.current,
+            isReady: true
+          });
         } catch (error: any) {
-            console.error("RevenueCat setup failed:", error.message);
-            toast({
-              title: "Subscription Error",
-              description: "Could not connect to the subscription service.",
-              variant: "destructive"
-            });
-            setRevenueCatState(s => ({ ...s, isReady: true }));
+          console.error("RevenueCat setup failed:", error);
+          toast({
+            title: "Subscription Error",
+            description: "Could not connect to the subscription service.",
+            variant: "destructive"
+          });
+          setRevenueCatState(s => ({ ...s, isReady: true }));
         }
       } else {
-        // Handle logged-out state
-        if(Purchases.isConfigured()){
+        // User is logged out
+        try {
+          if (Purchases.isConfigured()) {
             await Purchases.logOut();
-        }
-        setRevenueCatState({
+          }
+          setRevenueCatState({
             customerInfo: null,
             offerings: null,
             isReady: true
-        });
+          });
+        } catch (error) {
+          console.error("RevenueCat logout failed:", error);
+           setRevenueCatState(s => ({ ...s, isReady: true }));
+        }
       }
     };
+    
     initAndLogin();
   }, [user, isUserLoading, toast]);
 
