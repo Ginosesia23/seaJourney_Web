@@ -4,26 +4,29 @@
 import React, { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CheckCircle, Fingerprint, Cloud, FileText, Bot, Share2, ScanLine } from 'lucide-react';
+import { CheckCircle, Fingerprint, Cloud, FileText, Bot, Share2, ScanLine, ShieldCheck } from 'lucide-react';
 
 type PlanKey = "free" | "hybrid" | "premium";
 
 const planDetails = {
     free: {
+        icon: FileText,
         title: "Free Export",
         subtitle: "Captain Signed PDF",
-        description: "A basic PDF summary is generated from locally stored logs for the captain to sign, similar to a traditional paper logbook.",
+        description: "A basic PDF summary is generated for the captain to sign, similar to a traditional paper logbook.",
         mca_title: "MCA Verification",
         mca_desc: "The MCA reviews the signed PDF, treating the captain's signature as the primary proof of service.",
     },
     hybrid: {
+        icon: Cloud,
         title: "Hybrid Export",
         subtitle: "PDF + QR + Cloud Snapshot",
-        description: "Generates a PDF with a unique QR code. A tamper-proof snapshot of the record is stored in the cloud for verification.",
+        description: "Generates a PDF with a unique QR code. A tamper-proof snapshot of the record is stored for verification.",
         mca_title: "MCA Verification",
         mca_desc: "The MCA scans the QR code to instantly confirm that the PDF matches the original, secure record.",
     },
     premium: {
+        icon: ShieldCheck,
         title: "Premium Export",
         subtitle: "Full Digital Verifiable Logbook",
         description: "The captain provides a digital sign-off within the app, creating a secure, auditable log with a full history.",
@@ -104,6 +107,7 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         {Object.entries(planDetails).map(([key, plan]) => {
           const isActive = activePlan === key;
+          const Icon = plan.icon;
           return (
             <button
                 key={key}
@@ -115,18 +119,17 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
                     isActive ? "border-primary ring-2 ring-primary shadow-2xl -translate-y-2" : "hover:shadow-xl hover:-translate-y-1"
                 )}>
                     <CardHeader>
-                        <div className="flex justify-between items-center">
-                           <CardTitle className="font-headline text-xl">{plan.title}</CardTitle>
+                        <div className="flex justify-between items-start">
+                           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 mb-4">
+                                <Icon className="h-6 w-6 text-accent" />
+                           </div>
                            {isActive && <CheckCircle className="h-6 w-6 text-primary"/>}
                         </div>
+                        <CardTitle className="font-headline text-xl">{plan.title}</CardTitle>
                         <CardDescription>{plan.subtitle}</CardDescription>
                     </CardHeader>
                     <CardContent className="flex-grow space-y-3">
                          <p className="text-sm text-foreground/80">{plan.description}</p>
-                         <div className="rounded-lg border bg-muted/50 p-4">
-                            <h4 className="font-semibold text-sm flex items-center gap-2"><Cloud className="h-4 w-4"/> {plan.mca_title}</h4>
-                            <p className="text-sm text-muted-foreground mt-2">{plan.mca_desc}</p>
-                        </div>
                     </CardContent>
                 </Card>
             </button>
