@@ -6,22 +6,24 @@ import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Check, Ship, User } from 'lucide-react';
+import { Check, Ship, User, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 const tiers = [
   {
-    name: 'By Invitation',
-    price: '',
+    name: 'Free',
+    price: '£0',
     priceSuffix: '',
-    description: 'For crew members invited by a vessel with an active subscription.',
+    description: 'Get started with the essential tools to track your sea time on the free version of the app.',
     features: [
-      'Sea time logging via vessel',
-      'View your signed testimonials',
-      'Part of a managed crew',
+      'Sea time logging',
+      'Basic PDF exports',
+      'Digital testimonial requests',
     ],
-    cta: 'Invite Only',
+    cta: 'Download',
     type: 'crew',
+    href: 'https://apps.apple.com/gb/app/seajourney/id6751553072'
   },
   {
     name: 'Standard',
@@ -201,13 +203,21 @@ export default function ComingSoonPage() {
                     </ul>
                   </CardContent>
                   <CardFooter>
-                    <Button 
-                      className="w-full rounded-full"
-                      variant={tier.highlighted ? 'default' : 'outline'}
-                      disabled={tier.cta !== 'Get Started'}
-                    >
-                      {tier.cta}
-                    </Button>
+                    {tier.href ? (
+                        <Button asChild className="w-full rounded-full" variant={tier.highlighted ? 'default' : 'outline'}>
+                            <Link href={tier.href} target="_blank" rel="noopener noreferrer">
+                                <Download className="mr-2 h-4 w-4" /> {tier.cta}
+                            </Link>
+                        </Button>
+                    ) : (
+                        <Button 
+                            className="w-full rounded-full"
+                            variant={tier.highlighted ? 'default' : 'outline'}
+                            disabled={tier.cta !== 'Get Started'}
+                        >
+                            {tier.cta}
+                        </Button>
+                    )}
                   </CardFooter>
                 </Card>
               ))}
