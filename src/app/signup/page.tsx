@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -5,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,6 +32,7 @@ export default function SignupPage() {
   const auth = useAuth();
   const firestore = useFirestore();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
 
   const form = useForm<SignupFormValues>({
@@ -62,30 +64,37 @@ export default function SignupPage() {
         subscriptionStatus: 'active',
       };
       
-      setDoc(userProfileRef, profileData)
-        .catch(async (serverError) => {
-          const permissionError = new FirestorePermissionError({
-            path: userProfileRef.path,
-            operation: 'create',
-            requestResourceData: profileData
-          });
-          errorEmitter.emit('permission-error', permissionError);
-        });
+      await setDoc(userProfileRef, profileData);
 
+      const redirectUrl = searchParams.get('redirect') || '/coming-soon';
+      router.push(redirectUrl);
 
-      router.push('/coming-soon');
     } catch (error) {
       const authError = error as AuthError;
       console.error('Signup failed:', authError);
-      let errorMessage = 'An unknown error occurred during sign-up.';
+      
       if (authError.code === 'auth/email-already-in-use') {
-        errorMessage = 'This email is already in use. Please try another one or log in.';
+        toast({
+          title: 'Signup Failed',
+          description: 'This email is already in use. Please try another one or log in.',
+          variant: 'destructive',
+        });
+      } else if (authError.code) {
+        const userProfileRef = doc(firestore, 'users', 'dummy-uid-for-error', 'profile', 'dummy-uid-for-error');
+        const permissionError = new FirestorePermissionError({
+            path: userProfileRef.path,
+            operation: 'create',
+            requestResourceData: { email: data.email, username: data.username, role: 'crew' }
+          });
+        errorEmitter.emit('permission-error', permissionError);
       }
-      toast({
-        title: 'Signup Failed',
-        description: errorMessage,
-        variant: 'destructive',
-      });
+       else {
+        toast({
+          title: 'Signup Failed',
+          description: 'An unknown error occurred during sign-up.',
+          variant: 'destructive',
+        });
+      }
     } finally {
       setIsLoading(false);
     }

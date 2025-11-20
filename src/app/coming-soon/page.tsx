@@ -11,6 +11,8 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 import type { PurchasesPackage } from '@revenuecat/purchases-js';
+import { useUser } from '@/firebase';
+import { useRouter } from 'next/navigation';
 
 const tiers = [
   {
@@ -146,11 +148,17 @@ const tiers = [
 export default function ComingSoonPage() {
   const [planType, setPlanType] = useState('crew');
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
-  const { offerings, purchasePackage } = useRevenueCat();
+  const { offerings, purchasePackage, isReady: isRevenueCatReady } = useRevenueCat();
+  const { user, isUserLoading } = useUser();
+  const router = useRouter();
 
   const filteredTiers = tiers.filter(tier => tier.type === planType);
   
   const handlePurchase = async (pkg: PurchasesPackage | null) => {
+    if (!user) {
+      router.push('/signup?redirect=/coming-soon');
+      return;
+    }
     if (!pkg) return;
     setIsPurchasing(pkg.identifier);
     try {
@@ -205,6 +213,7 @@ export default function ComingSoonPage() {
                 const offering = offerings?.all[tier.identifier || ''];
                 const pkg = offering?.availablePackages[0];
                 const isProcessing = isPurchasing === pkg?.identifier;
+                const isLoading = isUserLoading || !isRevenueCatReady;
                 
                 return (
                     <Card key={tier.name} className={cn(
@@ -249,11 +258,11 @@ export default function ComingSoonPage() {
                             <Button 
                                 className="w-full rounded-full"
                                 variant={tier.highlighted ? 'default' : 'outline'}
-                                disabled={isProcessing || !pkg}
+                                disabled={isLoading || isProcessing}
                                 onClick={() => handlePurchase(pkg || null)}
                             >
-                                {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                {tier.cta}
+                                {(isLoading || isProcessing) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                {isLoading ? 'Loading...' : (user ? tier.cta : 'Sign Up to Subscribe')}
                             </Button>
                         )}
                     </CardFooter>
