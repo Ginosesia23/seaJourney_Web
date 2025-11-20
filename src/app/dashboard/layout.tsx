@@ -34,6 +34,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>(userProfileRef);
 
   useEffect(() => {
+    // Wait until all user and subscription data is loaded
     if (isUserLoading || isProfileLoading || !isRevenueCatReady) return;
 
     if (!user) {
@@ -41,8 +42,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const hasActiveSubscription = customerInfo?.activeSubscriptions?.length ?? 0 > 0;
-
+    const hasActiveSubscription = (customerInfo?.activeSubscriptions?.length ?? 0) > 0;
+    
+    // If the user is on the free tier and has no active subscription from RevenueCat, redirect them.
     if (userProfile && userProfile.subscriptionTier === 'free' && !hasActiveSubscription) {
         router.push('/coming-soon');
         return;
@@ -53,6 +55,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const isMapPage = pathname === '/dashboard/world-map';
   const isLoading = isUserLoading || isProfileLoading || !isRevenueCatReady;
 
+  // Show a full-screen loader while we wait for user and subscription data.
   if (isLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
@@ -61,9 +64,10 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const hasActiveSubscription = customerInfo?.activeSubscriptions?.length ?? 0 > 0;
+  // After loading, check if the user should be on this page. 
+  // This prevents rendering children before a potential redirect.
+  const hasActiveSubscription = (customerInfo?.activeSubscriptions?.length ?? 0) > 0;
   if (!user || (userProfile?.subscriptionTier === 'free' && !hasActiveSubscription)) {
-    // Redirecting is handled in useEffect, this prevents rendering children before redirect
     return null;
   }
 
