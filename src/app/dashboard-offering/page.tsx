@@ -96,8 +96,8 @@ const features = [
     description: 'Chart your global experience.',
     component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
-             <div className="w-64 h-64 rounded-full bg-primary/5 flex items-center justify-center relative overflow-hidden animate-pulse">
-                <Globe className="h-32 w-32 text-primary/30" />
+             <div className="w-64 h-64 rounded-full bg-primary/5 flex items-center justify-center relative overflow-hidden">
+                <Globe className="h-32 w-32 text-primary/30 animate-pulse" />
                 <div className="absolute inset-0 bg-grid-white/5 [mask-image:radial-gradient(ellipse_at_center,white_20%,transparent_80%)]"></div>
                 <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
                     <path d="M 20 50 C 40 20, 60 20, 80 50" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-70" style={{ animation: 'dash 5s linear infinite' }} />
