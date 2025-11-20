@@ -41,77 +41,65 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
   });
 
   useEffect(() => {
-    const init = async () => {
-      const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
-      if (!apiKey) {
-        console.error("RevenueCat API key not found. Please set NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY in your .env file.");
-        setRevenueCatState(s => ({ ...s, isReady: true }));
+    const initAndLogin = async () => {
+      // Wait until Firebase user is loaded
+      if (isUserLoading) {
         return;
       }
-      // Ensure Purchases is not already configured
-      if (!Purchases.isConfigured()) {
-        Purchases.setLogLevel(LogLevel.DEBUG);
-        try {
-          Purchases.configure({ apiKey });
-        } catch (e: any) {
-          console.error("RevenueCat configuration failed:", e.message);
-          return;
-        }
-      }
-
-      const offerings = await Purchases.getOfferings();
-      const customerInfo = await Purchases.getCustomerInfo();
-      setRevenueCatState({
-        customerInfo: customerInfo,
-        offerings: offerings.current,
-        isReady: true
-      });
-    };
-    init();
-  }, []);
-
-  useEffect(() => {
-    const updateUser = async () => {
-      // Wait until Firebase user is loaded and RevenueCat is ready
-      if (isUserLoading || !revenueCatState.isReady || !Purchases.isConfigured()) {
+      
+      const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
+      if (!apiKey) {
+        console.error("RevenueCat API key not found.");
+        setRevenueCatState(s => ({ ...s, isReady: true }));
         return;
       }
 
       if (user && user.uid) {
-        try {
-          const { customerInfo } = await Purchases.logIn(user.uid);
-          setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
-        } catch (error) {
-          console.warn("RevenueCat: Could not log in. Trying to restore purchases.", error);
-          try {
-            const newCustomerInfo = await Purchases.restorePurchases();
-            setRevenueCatState(prevState => ({ ...prevState, customerInfo: newCustomerInfo }));
-          } catch (e) {
-            console.error("RevenueCat: Could not restore purchases.", e);
+         try {
+            if (!Purchases.isConfigured()) {
+                Purchases.setLogLevel(LogLevel.DEBUG);
+                await Purchases.configure({ apiKey });
+            }
+            
+            const { customerInfo, created } = await Purchases.logIn(user.uid);
+            const offerings = await Purchases.getOfferings();
+
+            setRevenueCatState({
+                customerInfo: customerInfo,
+                offerings: offerings.current,
+                isReady: true
+            });
+
+        } catch (error: any) {
+            console.error("RevenueCat setup failed:", error.message);
             toast({
-              title: "Restore Purchases Failed",
-              description: "We couldn't restore your previous purchases. Please try again.",
-              variant: 'destructive',
-            })
-          }
+              title: "Subscription Error",
+              description: "Could not connect to the subscription service.",
+              variant: "destructive"
+            });
+            setRevenueCatState(s => ({ ...s, isReady: true }));
         }
-      } else if (!user) {
-        try {
-            const { customerInfo } = await Purchases.logOut();
-            setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
-        } catch(e) {
-            console.error("RevenueCat: Failed to log out", e);
+      } else {
+        // Handle logged-out state
+        if(Purchases.isConfigured()){
+            await Purchases.logOut();
         }
+        setRevenueCatState({
+            customerInfo: null,
+            offerings: null,
+            isReady: true
+        });
       }
     };
-    updateUser();
-  }, [user, isUserLoading, revenueCatState.isReady, toast]);
+    initAndLogin();
+  }, [user, isUserLoading, toast]);
+
 
   const purchasePackage = async (pkg: PurchasesPackage) => {
-    if (!process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY) {
+    if (!revenueCatState.isReady || !Purchases.isConfigured()) {
         toast({
             title: "Purchase Inactive",
-            description: "Payment system is not configured.",
+            description: "Payment system is not yet ready.",
             variant: "destructive"
         });
         return;
@@ -137,10 +125,10 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const restorePurchases = async () => {
-     if (!process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY) {
+     if (!revenueCatState.isReady || !Purchases.isConfigured()) {
       toast({
         title: "Restore Inactive",
-        description: "Payment system is not configured.",
+        description: "Payment system is not yet ready.",
         variant: "destructive"
       });
       return;
