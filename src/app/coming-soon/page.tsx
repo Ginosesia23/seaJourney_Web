@@ -9,10 +9,11 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Check, Ship, User, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
-import type { PurchasesPackage } from '@revenuecat/purchases-js';
 import { useUser } from '@/firebase';
 import { useRouter } from 'next/navigation';
+import { Purchases, LogLevel } from '@revenuecat/purchases-js';
+import type { PurchasesPackage, PurchasesOffering } from '@revenuecat/purchases-js';
+import { useToast } from '@/hooks/use-toast';
 
 const tiers = [
   {
@@ -148,21 +149,62 @@ const tiers = [
 export default function ComingSoonPage() {
   const [planType, setPlanType] = useState('crew');
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
-  const { offerings, purchasePackage, isReady: isRevenueCatReady } = useRevenueCat();
   const { user, isUserLoading } = useUser();
   const router = useRouter();
+  const { toast } = useToast();
 
   const filteredTiers = tiers.filter(tier => tier.type === planType);
   
-  const handlePurchase = async (pkg: PurchasesPackage | null) => {
+  const handlePurchase = async (tierIdentifier: string | undefined) => {
     if (!user) {
-      router.push('/signup?redirect=/coming-soon');
+      router.push(`/signup?redirect=/coming-soon`);
       return;
     }
-    if (!pkg) return;
-    setIsPurchasing(pkg.identifier);
+    if (!tierIdentifier) return;
+
+    setIsPurchasing(tierIdentifier);
+    
     try {
-      await purchasePackage(pkg);
+      const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
+      if (!apiKey) {
+        throw new Error("RevenueCat API key not found.");
+      }
+
+      Purchases.setLogLevel(LogLevel.DEBUG);
+      
+      if (!Purchases.isConfigured()) {
+          await Purchases.configure({ apiKey, appUserID: user.uid });
+      }
+
+      const offerings = await Purchases.getOfferings();
+      const offering = offerings.all[tierIdentifier];
+      
+      if (!offering) {
+        throw new Error(`No offering found for identifier: ${tierIdentifier}`);
+      }
+
+      const pkg = offering.availablePackages[0];
+      if (!pkg) {
+        throw new Error(`No package found for offering: ${tierIdentifier}`);
+      }
+      
+      const { customerInfo } = await Purchases.purchasePackage(pkg);
+      
+      toast({
+        title: "Purchase Successful",
+        description: "Your subscription has been activated!",
+      });
+      router.push('/dashboard');
+
+    } catch (e: any) {
+      if (!e.userCancelled) {
+         console.error("RevenueCat: Purchase failed.", e);
+         toast({
+            title: "Purchase Failed",
+            description: e.message || "An unexpected error occurred. Please try again.",
+            variant: "destructive"
+         });
+       }
     } finally {
       setIsPurchasing(null);
     }
@@ -210,10 +252,8 @@ export default function ComingSoonPage() {
 
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
               {filteredTiers.map((tier) => {
-                const offering = offerings?.all[tier.identifier || ''];
-                const pkg = offering?.availablePackages[0];
-                const isProcessing = isPurchasing === pkg?.identifier;
-                const isLoading = isUserLoading || !isRevenueCatReady;
+                const isProcessing = isPurchasing === tier.identifier;
+                const isLoading = isUserLoading;
                 
                 return (
                     <Card key={tier.name} className={cn(
@@ -230,7 +270,7 @@ export default function ComingSoonPage() {
                             <>
                                 <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
                                 <div className="flex items-baseline gap-1">
-                                <span className="text-4xl font-bold tracking-tight">{pkg?.product.priceString || tier.price}</span>
+                                <span className="text-4xl font-bold tracking-tight">{tier.price}</span>
                                 <span className="text-sm font-semibold text-muted-foreground">{tier.priceSuffix}</span>
                                 </div>
                             </>
@@ -254,15 +294,21 @@ export default function ComingSoonPage() {
                                     <Download className="mr-2 h-4 w-4" /> {tier.cta}
                                 </Link>
                             </Button>
+                        ) : tier.identifier === 'vessel_enterprise' ? (
+                             <Button className="w-full rounded-full" variant={tier.highlighted ? 'default' : 'outline'}>
+                                <Link href="mailto:support@seajourney.com">
+                                    {tier.cta}
+                                </Link>
+                            </Button>
                         ) : (
                             <Button 
                                 className="w-full rounded-full"
                                 variant={tier.highlighted ? 'default' : 'outline'}
                                 disabled={isLoading || isProcessing}
-                                onClick={() => handlePurchase(pkg || null)}
+                                onClick={() => handlePurchase(tier.identifier)}
                             >
                                 {(isLoading || isProcessing) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                {isLoading ? 'Loading...' : (user ? tier.cta : 'Sign Up to Subscribe')}
+                                {isProcessing ? 'Processing...' : (isLoading ? 'Loading...' : (user ? tier.cta : 'Sign Up to Subscribe'))}
                             </Button>
                         )}
                     </CardFooter>
