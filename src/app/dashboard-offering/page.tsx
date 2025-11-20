@@ -6,12 +6,12 @@ import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { BarChart2, Ship, Globe, FileText, ArrowRight } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
+import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Route, Anchor } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MainChart from '@/components/dashboard/main-chart';
 import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const features = [
   {
@@ -22,15 +22,16 @@ const features = [
     component: (
       <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2 text-white/80">
+          <CardTitle className="text-lg flex items-center gap-2 text-white/80">
             <BarChart2 className="h-5 w-5" />
             Sea Day Analytics
           </CardTitle>
+          <CardDescription className="text-white/50">Your sea days logged over the past year.</CardDescription>
         </CardHeader>
         <CardContent className="flex-grow flex items-center justify-center">
             <MainChart data={[
-                { month: "J", seaDays: 15 }, { month: "F", seaDays: 20 }, { month: "M", seaDays: 25 },
-                { month: "A", seaDays: 22 }, { month: "M", seaDays: 30 }, { month: "J", seaDays: 18 }
+                { month: "Jan", seaDays: 15 }, { month: "Feb", seaDays: 20 }, { month: "Mar", seaDays: 25 },
+                { month: "Apr", seaDays: 22 }, { month: "May", seaDays: 30 }, { month: "Jun", seaDays: 18 }
             ]} />
         </CardContent>
       </Card>
@@ -44,29 +45,36 @@ const features = [
      component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
             <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2 text-white/80">
+                <CardTitle className="text-lg flex items-center gap-2 text-white/80">
                     <Ship className="h-5 w-5" />
                     Vessel Fleet
                 </CardTitle>
+                <CardDescription className="text-white/50">Your managed vessels and their status.</CardDescription>
             </CardHeader>
             <CardContent className="flex-grow">
                 <Table>
+                    <TableHeader>
+                        <TableRow className="border-white/10 hover:bg-transparent">
+                            <TableHead className="text-white/80">Vessel</TableHead>
+                            <TableHead className="text-white/80">Status</TableHead>
+                            <TableHead className="text-white/80 text-right">Total Days</TableHead>
+                        </TableRow>
+                    </TableHeader>
                     <TableBody>
-                        <TableRow className="border-none hover:bg-white/5">
-                            <TableCell className="p-2 font-medium text-white">M/Y Odyssey</TableCell>
-                            <TableCell className="p-2 text-right"><Badge variant="secondary">Current</Badge></TableCell>
+                        <TableRow className="border-white/10 hover:bg-white/5">
+                            <TableCell className="font-medium text-white">M/Y Odyssey</TableCell>
+                            <TableCell><Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">Current</Badge></TableCell>
+                            <TableCell className="text-right text-white">421</TableCell>
                         </TableRow>
-                        <TableRow className="border-none hover:bg-white/5">
-                            <TableCell className="p-2 font-medium text-white">S/Y Wanderer</TableCell>
-                            <TableCell className="p-2 text-right"><Badge variant="outline">Past</Badge></TableCell>
+                        <TableRow className="border-white/10 hover:bg-white/5">
+                            <TableCell className="font-medium text-white">S/Y Wanderer</TableCell>
+                            <TableCell><Badge variant="outline" className="border-white/20 text-white/60">Past</Badge></TableCell>
+                            <TableCell className="text-right text-white">189</TableCell>
                         </TableRow>
-                         <TableRow className="border-none hover:bg-white/5">
-                            <TableCell className="p-2 font-medium text-white">M/Y Eclipse</TableCell>
-                            <TableCell className="p-2 text-right"><Badge variant="outline">Past</Badge></TableCell>
-                        </TableRow>
-                         <TableRow className="border-none hover:bg-white/5">
-                            <TableCell className="p-2 font-medium text-white">Catamaran Zenith</TableCell>
-                            <TableCell className="p-2 text-right"><Badge variant="outline">Past</Badge></TableCell>
+                         <TableRow className="border-white/10 hover:bg-white/5">
+                            <TableCell className="font-medium text-white">M/Y Eclipse</TableCell>
+                            <TableCell><Badge variant="outline" className="border-white/20 text-white/60">Past</Badge></TableCell>
+                            <TableCell className="text-right text-white">256</TableCell>
                         </TableRow>
                     </TableBody>
                 </Table>
@@ -82,9 +90,11 @@ const features = [
     component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
              <div className="w-48 h-48 rounded-full bg-primary/10 flex items-center justify-center relative overflow-hidden">
-                <Globe className="h-24 w-24 text-primary/50" />
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 border-t-2 border-primary/50 animate-spin" style={{animationDuration: '10s'}}></div>
+                <Globe className="h-24 w-24 text-primary/50 animate-pulse" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 border-t-2 border-primary/50 rounded-full animate-spin" style={{animationDuration: '10s'}}></div>
              </div>
+             <CardTitle className="text-lg flex items-center gap-2 text-white/80 mt-6">World Map</CardTitle>
+             <CardDescription className="text-white/50">Visualize Your Journeys</CardDescription>
         </Card>
     )
   },
@@ -96,21 +106,22 @@ const features = [
     component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
             <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2 text-white/80">
+                <CardTitle className="text-lg flex items-center gap-2 text-white/80">
                     <FileText className="h-5 w-5" />
                     Export Center
                 </CardTitle>
+                 <CardDescription className="text-white/50">One-click professional documents.</CardDescription>
             </CardHeader>
             <CardContent className="flex-grow space-y-3">
-                <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer">
+                <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer transition-colors">
                     <span className="text-white">Full Sea Time Report.pdf</span>
                     <ArrowRight className="h-4 w-4 text-white/50" />
                 </div>
-                <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer">
+                <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer transition-colors">
                     <span className="text-white">Testimonial_Capt_Smith.pdf</span>
                     <ArrowRight className="h-4 w-4 text-white/50" />
                 </div>
-                 <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer">
+                 <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer transition-colors">
                     <span className="text-white">Career_Summary.pdf</span>
                     <ArrowRight className="h-4 w-4 text-white/50" />
                 </div>
@@ -122,7 +133,6 @@ const features = [
 
 export default function DashboardOfferingPage() {
     const [activeFeature, setActiveFeature] = useState(features[0].id);
-    const ActiveComponent = features.find(f => f.id === activeFeature)?.component;
 
   return (
     <div className="flex min-h-screen flex-col bg-header">
@@ -132,14 +142,15 @@ export default function DashboardOfferingPage() {
         {/* Interactive Showcase Section */}
         <section className="relative overflow-hidden bg-header text-header-foreground py-20 sm:py-28">
             <div className="absolute inset-0 bg-grid-white/5 [mask-image:linear-gradient(to_bottom,white_10%,transparent_70%)]"></div>
+            <div className="absolute inset-0 bg-gradient-to-br from-black/20 via-transparent to-primary/20"></div>
 
             <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="text-center lg:text-left">
+                <div className="text-center">
                     <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-6xl">
                         Your Career Command Center
                     </h1>
-                    <p className="mt-6 max-w-2xl mx-auto lg:mx-0 text-lg leading-8 text-header-foreground/80">
-                        This is a preview of the powerful dashboard you'll unlock. Select a feature to see it in action.
+                    <p className="mt-6 max-w-2xl mx-auto text-lg leading-8 text-header-foreground/80">
+                        This is more than a logbook; it's a powerful toolkit to navigate your maritime career. Select a feature to see it in action.
                     </p>
                 </div>
 
@@ -154,15 +165,18 @@ export default function DashboardOfferingPage() {
                                     key={feature.id}
                                     onClick={() => setActiveFeature(feature.id)}
                                     className={cn(
-                                        "w-full text-left p-4 rounded-xl transition-all duration-300 border",
+                                        "w-full relative text-left p-4 rounded-xl transition-all duration-300 border overflow-hidden group",
                                         isActive 
                                             ? "bg-primary/30 border-primary/50 ring-2 ring-primary" 
                                             : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
                                     )}
                                 >
+                                    <div className="absolute top-0 left-0 h-full w-1 bg-primary/70 transition-all duration-300 scale-y-0 group-hover:scale-y-100 origin-bottom"></div>
+                                    <div className={cn("absolute top-0 left-0 h-px w-full bg-gradient-to-r from-primary/50 via-primary/30 to-transparent transition-transform duration-500 -translate-x-full group-hover:translate-x-0", isActive && 'translate-x-0')}></div>
+                                    
                                     <div className="flex items-center gap-4">
                                         <div className={cn(
-                                            "flex-shrink-0 h-10 w-10 flex items-center justify-center rounded-lg",
+                                            "flex-shrink-0 h-10 w-10 flex items-center justify-center rounded-lg transition-colors",
                                             isActive ? "bg-primary/80" : "bg-white/10"
                                         )}>
                                             <Icon className={cn("h-5 w-5", isActive ? "text-white" : "text-white/70")} />
@@ -180,11 +194,19 @@ export default function DashboardOfferingPage() {
                     {/* Right: Dashboard Preview */}
                     <div className="lg:col-span-8 [perspective:2000px]">
                         <div className={cn(
-                            "relative aspect-[4/3] w-full rounded-2xl border-2 border-primary/30 bg-black/30 p-4 shadow-2xl backdrop-blur-sm",
+                            "relative aspect-[4/3] w-full rounded-2xl border-2 border-primary/30 bg-black/50 p-4 shadow-2xl shadow-primary/10 backdrop-blur-sm",
                             "transition-transform duration-500 [transform-style:preserve-3d] [transform:rotateY(-10deg)]"
                         )}>
                             <div className="absolute -inset-px rounded-2xl border-2 border-primary/50 opacity-20 animate-pulse"></div>
-                             {ActiveComponent}
+                             
+                             {features.map(feature => (
+                                <div key={feature.id} className={cn(
+                                    "absolute inset-4 transition-opacity duration-500",
+                                    activeFeature === feature.id ? 'opacity-100' : 'opacity-0'
+                                )}>
+                                    {feature.component}
+                                </div>
+                             ))}
                         </div>
                     </div>
                 </div>
@@ -224,4 +246,3 @@ export default function DashboardOfferingPage() {
     </div>
   );
 }
-
