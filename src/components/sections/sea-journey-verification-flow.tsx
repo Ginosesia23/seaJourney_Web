@@ -14,24 +14,18 @@ const planDetails = {
         title: "Free Export",
         subtitle: "Captain Signed PDF",
         description: "A basic PDF summary is generated for the captain to sign, similar to a traditional paper logbook.",
-        mca_title: "MCA Verification",
-        mca_desc: "The MCA reviews the signed PDF, treating the captain's signature as the primary proof of service.",
     },
     hybrid: {
         icon: Cloud,
         title: "Hybrid Export",
         subtitle: "PDF + QR + Cloud Snapshot",
         description: "Generates a PDF with a unique QR code. A tamper-proof snapshot of the record is stored for verification.",
-        mca_title: "MCA Verification",
-        mca_desc: "The MCA scans the QR code to instantly confirm that the PDF matches the original, secure record.",
     },
     premium: {
         icon: ShieldCheck,
         title: "Premium Export",
         subtitle: "Full Digital Verifiable Logbook",
         description: "The captain provides a digital sign-off within the app, creating a secure, auditable log with a full history.",
-        mca_title: "MCA Verification",
-        mca_desc: "The MCA views the complete, digitally-signed record and its audit trail directly in the portal.",
     }
 }
 
@@ -108,6 +102,11 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
         {Object.entries(planDetails).map(([key, plan]) => {
           const isActive = activePlan === key;
           const Icon = plan.icon;
+          const iconColor = 
+            key === 'free' ? 'text-muted-foreground' : 
+            key === 'hybrid' ? 'text-accent' : 
+            'text-primary';
+
           return (
             <button
                 key={key}
@@ -120,8 +119,8 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
                 )}>
                     <CardHeader>
                         <div className="flex justify-between items-start">
-                           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 mb-4">
-                                <Icon className="h-6 w-6 text-accent" />
+                           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/50 mb-4">
+                                <Icon className={cn("h-6 w-6", iconColor)} />
                            </div>
                            {isActive && <CheckCircle className="h-6 w-6 text-primary"/>}
                         </div>
