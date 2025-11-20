@@ -99,30 +99,30 @@ const features = [
                     <TableHeader>
                         <TableRow className="border-white/10 hover:bg-transparent">
                             <TableHead className="text-white/80">Vessel</TableHead>
-                             <TableHead className="text-white/80">Status</TableHead>
-                            <TableHead className="text-white/80 text-right">Total Days</TableHead>
+                            <TableHead className="text-white/80">Total Days</TableHead>
+                            <TableHead className="text-white/80">Status</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         <TableRow className="border-white/10 hover:bg-white/5">
                             <TableCell className="font-medium text-white">M/Y Odyssey</TableCell>
+                            <TableCell className="text-white">421</TableCell>
                             <TableCell><Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">Current</Badge></TableCell>
-                             <TableCell className="text-right text-white">421</TableCell>
                         </TableRow>
                         <TableRow className="border-white/10 hover:bg-white/5">
                             <TableCell className="font-medium text-white">S/Y Wanderer</TableCell>
+                             <TableCell className="text-white">189</TableCell>
                             <TableCell><Badge variant="outline" className="border-white/20 text-white/60">Past</Badge></TableCell>
-                             <TableCell className="text-right text-white">189</TableCell>
                         </TableRow>
                          <TableRow className="border-white/10 hover:bg-white/5">
                             <TableCell className="font-medium text-white">M/Y Eclipse</TableCell>
+                             <TableCell className="text-white">256</TableCell>
                             <TableCell><Badge variant="outline" className="border-white/20 text-white/60">Past</Badge></TableCell>
-                             <TableCell className="text-right text-white">256</TableCell>
                         </TableRow>
                          <TableRow className="border-white/10 hover:bg-white/5">
                             <TableCell className="font-medium text-white">Catamaran Ceta</TableCell>
+                            <TableCell className="text-white">88</TableCell>
                              <TableCell><Badge variant="outline" className="border-white/20 text-white/60">Past</Badge></TableCell>
-                            <TableCell className="text-right text-white">88</TableCell>
                         </TableRow>
                     </TableBody>
                 </Table>
@@ -139,8 +139,7 @@ const features = [
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
              <div className="w-full max-w-lg aspect-video rounded-lg bg-primary/5 flex items-center justify-center relative overflow-hidden p-4">
                 <svg className="w-full h-full" viewBox="0 0 1024 512">
-                  <path fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5" d="M512 0C229.23 0 0 229.23 0 512h1024C1024 229.23 794.77 0 512 0zM493.5 256l-31-43-15-4-3-15 15-18 14-3 15 13 19 14 16 2 31-15 19-15 11 11-13 18-39 31-2 15zm-104.5 13l-16-1-10 16-1 15 11 10 16 3h18l12-10 1-13-10-18-20-2z"></path>
-                  <path fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5" d="M100 248l-1-2-19-14-14-1-12 11-1 12 11 12 11 2h18l13-12 2-11-9-16-19-3zm185 24l-15-14-15-1h-16l-14 13-1 15 10 16 11 2h18l13-10 1-14-10-17-17-3zm-9-58l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-119 50l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm153-31l-14-14-15-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-44-53l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zM800 251l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-143-58l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm53 32l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm116-5l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3z"></path>
+                  <path fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5" d="M512 0C229.23 0 0 229.23 0 512h1024C1024 229.23 794.77 0 512 0zM493.5 256l-31-43-15-4-3-15 15-18 14-3 15 13 19 14 16 2 31-15 19-15 11 11-13 18-39 31-2 15zm-104.5 13l-16-1-10 16-1 15 11 10 16 3h18l12-10 1-13-10-18-20-2zM100 248l-1-2-19-14-14-1-12 11-1 12 11 12 11 2h18l13-12 2-11-9-16-19-3zm185 24l-15-14-15-1h-16l-14 13-1 15 10 16 11 2h18l13-10 1-14-10-17-17-3zm-9-58l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-119 50l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm153-31l-14-14-15-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-44-53l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zM800 251l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-143-58l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm53 32l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm116-5l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3z"></path>
                   <path d="M 240 250 C 350 180, 550 180, 680 280" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="4 6" className="opacity-70 animate-dash" />
                   <path d="M 280 310 C 400 380, 600 380, 750 290" stroke="hsl(var(--accent))" strokeWidth="1" fill="none" strokeDasharray="3 4" className="opacity-50 animate-dash-reverse" />
                 </svg>
