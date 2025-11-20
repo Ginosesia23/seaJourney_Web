@@ -1,7 +1,7 @@
 
 'use client';
 
-import { Ship, LifeBuoy, Route, Anchor, Loader2, Award, Star } from 'lucide-react';
+import { Ship, LifeBuoy, Route, Anchor, Loader2, Award, Star, BookOpenCheck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import MainChart from '@/components/dashboard/main-chart';
 import {
@@ -19,6 +19,7 @@ import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebas
 import { collection, Timestamp } from 'firebase/firestore';
 import { useMemo, useState } from 'react';
 import { differenceInDays, fromUnixTime } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 type Vessel = {
   id: string;
@@ -49,12 +50,15 @@ type Testimonial = {
     rating: number;
 }
 
+type DashboardView = 'overview' | 'testimonials' | 'passages' | 'vessels';
+
 export default function DashboardPage() {
   const { user } = useUser();
   const firestore = useFirestore();
 
   const [selectedYear, setSelectedYear] = useState('all');
   const [selectedVessel, setSelectedVessel] = useState('all');
+  const [activeView, setActiveView] = useState<DashboardView>('overview');
 
   const vesselsCollectionRef = useMemoFirebase(() => 
     user ? collection(firestore, 'users', user.uid, 'vessels') : null, 
@@ -195,6 +199,102 @@ export default function DashboardPage() {
         </div>
     )
   }
+  
+  const renderContent = () => {
+    switch (activeView) {
+      case 'overview':
+        return (
+          <>
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+              <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg lg:col-span-2">
+                  <CardHeader>
+                      <CardTitle>Sea Day Analytics</CardTitle>
+                      <CardDescription>Your sea days logged over the past year.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                      <MainChart data={chartData}/>
+                  </CardContent>
+              </Card>
+              <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+                  <CardHeader>
+                      <CardTitle>Recent Activity</CardTitle>
+                      <CardDescription>Your most recently logged sea time.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                      <Table>
+                          <TableHeader>
+                              <TableRow>
+                                  <TableHead>Vessel</TableHead>
+                                  <TableHead className="text-right">Date</TableHead>
+                              </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                              {recentActivity.length > 0 ? recentActivity.map((activity) => (
+                              <TableRow key={activity.id}>
+                                  <TableCell>
+                                      <div className="font-medium">{activity.vesselName}</div>
+                                      <div className="text-sm text-muted-foreground">{activity.days} days</div>
+                                  </TableCell>
+                                  <TableCell className="text-right">{format(fromUnixTime(activity.endDate.seconds), 'dd MMM, yyyy')}</TableCell>
+                              </TableRow>
+                              )) : (
+                                  <TableRow>
+                                      <TableCell colSpan={2} className="h-24 text-center">
+                                          No recent activity found.
+                                      </TableCell>
+                                  </TableRow>
+                              )}
+                          </TableBody>
+                      </Table>
+                  </CardContent>
+              </Card>
+            </div>
+             <div className="grid gap-4 md:grid-cols-2 md:gap-8">
+              {longestPassage && (
+                  <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">Longest Passage</CardTitle>
+                          <Award className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                          <div className="text-2xl font-bold">{longestPassage.days} days</div>
+                          <p className="text-xs text-muted-foreground">on {longestPassage.vesselName}</p>
+                      </CardContent>
+                  </Card>
+              )}
+              {topVessel && (
+                  <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">Top Vessel</CardTitle>
+                          <Star className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                          <div className="text-2xl font-bold">{topVessel.vesselName}</div>
+                          <p className="text-xs text-muted-foreground">{topVessel.days} total days logged</p>
+                      </CardContent>
+                  </Card>
+              )}
+            </div>
+          </>
+        );
+      case 'testimonials':
+      case 'passages':
+      case 'vessels':
+        return (
+            <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg lg:col-span-3 text-center h-96 flex flex-col justify-center items-center">
+                <CardHeader>
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 mb-4">
+                        <BookOpenCheck className="h-6 w-6 text-primary" />
+                    </div>
+                    <CardTitle>Content for {activeView}</CardTitle>
+                    <CardDescription>This section will show data relevant to {activeView}.</CardDescription>
+                </CardHeader>
+            </Card>
+        )
+      default:
+        return null;
+    }
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -227,18 +327,27 @@ export default function DashboardPage() {
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
-         <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Sea Days</CardTitle>
-                  <Ship className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                  <div className="text-2xl font-bold">{totalSeaDays}</div>
-                  <p className="text-xs text-muted-foreground">{selectedYear === 'all' && selectedVessel === 'all' ? 'All time' : 'Based on filters'}</p>
-              </CardContent>
-          </Card>
+         <button onClick={() => setActiveView('overview')} className="text-left w-full">
+             <Card className={cn(
+                "rounded-xl border transition-all dark:shadow-md",
+                activeView === 'overview' ? 'ring-2 ring-primary bg-primary/5' : 'hover:shadow-lg'
+             )}>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Total Sea Days</CardTitle>
+                      <Ship className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                      <div className="text-2xl font-bold">{totalSeaDays}</div>
+                      <p className="text-xs text-muted-foreground">{selectedYear === 'all' && selectedVessel === 'all' ? 'All time' : 'Based on filters'}</p>
+                  </CardContent>
+              </Card>
+         </button>
 
-          <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+          <button onClick={() => setActiveView('testimonials')} className="text-left w-full">
+            <Card className={cn(
+                "rounded-xl border transition-all dark:shadow-md",
+                activeView === 'testimonials' ? 'ring-2 ring-primary bg-primary/5' : 'hover:shadow-lg'
+            )}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Testimonials</CardTitle>
                   <LifeBuoy className="h-4 w-4 text-muted-foreground"/>
@@ -247,9 +356,14 @@ export default function DashboardPage() {
                   <div className="text-2xl font-bold">{testimonials?.length || 0}</div>
                   <p className="text-xs text-muted-foreground">Total testimonials collected</p>
               </CardContent>
-          </Card>
+            </Card>
+          </button>
           
-          <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+          <button onClick={() => setActiveView('passages')} className="text-left w-full">
+            <Card className={cn(
+                "rounded-xl border transition-all dark:shadow-md",
+                activeView === 'passages' ? 'ring-2 ring-primary bg-primary/5' : 'hover:shadow-lg'
+            )}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Passages Logged</CardTitle>
                   <Route className="h-4 w-4 text-muted-foreground"/>
@@ -258,9 +372,14 @@ export default function DashboardPage() {
                   <div className="text-2xl font-bold">{trips?.length || 0}</div>
                   <p className="text-xs text-muted-foreground">Total completed trips</p>
               </CardContent>
-          </Card>
+            </Card>
+          </button>
 
-          <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+          <button onClick={() => setActiveView('vessels')} className="text-left w-full">
+            <Card className={cn(
+                "rounded-xl border transition-all dark:shadow-md",
+                activeView === 'vessels' ? 'ring-2 ring-primary bg-primary/5' : 'hover:shadow-lg'
+            )}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Vessels Logged</CardTitle>
                   <Anchor className="h-4 w-4 text-muted-foreground"/>
@@ -269,81 +388,15 @@ export default function DashboardPage() {
                   <div className="text-2xl font-bold">{vessels?.length || 0}</div>
                   <p className="text-xs text-muted-foreground">Total vessels in your fleet</p>
               </CardContent>
-          </Card>
+            </Card>
+          </button>
       </div>
       
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg lg:col-span-2">
-            <CardHeader>
-                <CardTitle>Sea Day Analytics</CardTitle>
-                <CardDescription>Your sea days logged over the past year.</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <MainChart data={chartData}/>
-            </CardContent>
-        </Card>
-        <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
-            <CardHeader>
-                <CardTitle>Recent Activity</CardTitle>
-                <CardDescription>Your most recently logged sea time.</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Vessel</TableHead>
-                            <TableHead className="text-right">Date</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {recentActivity.length > 0 ? recentActivity.map((activity) => (
-                        <TableRow key={activity.id}>
-                            <TableCell>
-                                <div className="font-medium">{activity.vesselName}</div>
-                                <div className="text-sm text-muted-foreground">{activity.days} days</div>
-                            </TableCell>
-                            <TableCell className="text-right">{format(fromUnixTime(activity.endDate.seconds), 'dd MMM, yyyy')}</TableCell>
-                        </TableRow>
-                        )) : (
-                            <TableRow>
-                                <TableCell colSpan={2} className="h-24 text-center">
-                                    No recent activity found.
-                                </TableCell>
-                            </TableRow>
-                        )}
-                    </TableBody>
-                </Table>
-            </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 md:gap-8">
-        {longestPassage && (
-            <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Longest Passage</CardTitle>
-                    <Award className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                    <div className="text-2xl font-bold">{longestPassage.days} days</div>
-                    <p className="text-xs text-muted-foreground">on {longestPassage.vesselName}</p>
-                </CardContent>
-            </Card>
-        )}
-        {topVessel && (
-            <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Top Vessel</CardTitle>
-                    <Star className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                    <div className="text-2xl font-bold">{topVessel.vesselName}</div>
-                    <p className="text-xs text-muted-foreground">{topVessel.days} total days logged</p>
-                </CardContent>
-            </Card>
-        )}
+      <div className="space-y-8">
+        {renderContent()}
       </div>
 
     </div>
   );
 }
+
