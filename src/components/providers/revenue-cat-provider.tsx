@@ -41,12 +41,12 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
   });
 
   useEffect(() => {
-    const initAndLogin = async () => {
-      // 1. Wait for Firebase user to be loaded
+    const initRevenueCat = async () => {
+      // Don't do anything until Firebase has loaded the user
       if (isUserLoading) {
         return;
       }
-      
+
       const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
       if (!apiKey) {
         console.error("RevenueCat API key not found. Purchases will be disabled.");
@@ -54,23 +54,18 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
       
-      // Configure RevenueCat once if not already configured
-      if (!Purchases.isConfigured()) {
-          try {
-            await Purchases.configure({ apiKey });
-            Purchases.setLogLevel(LogLevel.DEBUG);
-          } catch (e: any) {
-            console.error("RevenueCat configuration failed:", e.message);
-            return;
-          }
-      }
-
-      // 2. Now, check if we have a valid user to log in
+      // If we have a user, configure and log in
       if (user && user.uid) {
         try {
-          console.log(`RC: about to log in with UID: ${user.uid}`);
-          const { customerInfo, created } = await Purchases.logIn(user.uid);
+          if (!Purchases.isConfigured()) {
+            // Pass the user ID directly into the configure method
+            await Purchases.configure({ apiKey, appUserID: user.uid });
+            Purchases.setLogLevel(LogLevel.DEBUG);
+            console.log(`RC: Configured with UID: ${user.uid}`);
+          }
+          
           const offerings = await Purchases.getOfferings();
+          const customerInfo = await Purchases.getCustomerInfo();
 
           setRevenueCatState({
             customerInfo: customerInfo,
@@ -78,7 +73,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
             isReady: true
           });
         } catch (error: any) {
-          console.error("RevenueCat login failed:", error);
+          console.error("RevenueCat initialization or login failed:", error);
           toast({
             title: "Subscription Error",
             description: "Could not connect to the subscription service.",
@@ -87,22 +82,23 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
           setRevenueCatState(s => ({ ...s, isReady: true }));
         }
       } else {
-        // User is logged out, log out of RevenueCat
-        try {
+        // User is logged out, ensure RevenueCat is logged out too.
+        if (Purchases.isConfigured()) {
+          try {
             await Purchases.logOut();
-            setRevenueCatState({
-                customerInfo: null,
-                offerings: null,
-                isReady: true
-            });
-        } catch (error) {
-            console.error("RevenueCat logout failed:", error);
-            setRevenueCatState(s => ({ ...s, isReady: true }));
+          } catch (error) {
+             console.error("RevenueCat logout failed:", error);
+          }
         }
+        setRevenueCatState({
+            customerInfo: null,
+            offerings: null,
+            isReady: true
+        });
       }
     };
     
-    initAndLogin();
+    initRevenueCat();
   }, [user, isUserLoading, toast]);
 
 
