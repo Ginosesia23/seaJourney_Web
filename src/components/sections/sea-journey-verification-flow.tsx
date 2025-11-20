@@ -106,6 +106,11 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
             key === 'free' ? 'text-muted-foreground' : 
             key === 'hybrid' ? 'text-accent' : 
             'text-[hsl(var(--chart-orange))]';
+            
+          const iconBgColor = 
+            key === 'free' ? 'bg-muted/50' :
+            key === 'hybrid' ? 'bg-accent/10' :
+            'bg-[hsl(var(--chart-orange))]/10';
 
           return (
             <button
@@ -119,7 +124,7 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
                 )}>
                     <CardHeader>
                         <div className="flex justify-between items-start">
-                           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/50 mb-4">
+                           <div className={cn("flex h-12 w-12 items-center justify-center rounded-xl mb-4", iconBgColor)}>
                                 <Icon className={cn("h-6 w-6", iconColor)} />
                            </div>
                            {isActive && <CheckCircle className="h-6 w-6 text-primary"/>}
