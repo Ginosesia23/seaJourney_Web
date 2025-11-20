@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { doc, getDoc } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 import { Loader2, Search, ShieldCheck, ShieldX } from 'lucide-react';
-import { format, differenceInDays, fromUnixTime } from 'date-fns';
+import { format, fromUnixTime } from 'date-fns';
 
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
