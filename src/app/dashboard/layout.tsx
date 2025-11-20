@@ -9,7 +9,7 @@ import { Loader2 } from 'lucide-react';
 import DashboardHeader from '@/components/layout/dashboard-header';
 import DashboardSidebar from '@/components/layout/dashboard-sidebar';
 import { cn } from '@/lib/utils';
-import { ThemeProvider, useTheme } from 'next-themes';
+import { useTheme } from 'next-themes';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 
 interface UserProfile {
@@ -23,7 +23,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { theme } = useTheme();
   const firestore = useFirestore();
-  const { customerInfo } = useRevenueCat();
+  const { customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
 
 
   const userProfileRef = useMemoFirebase(() => {
@@ -34,7 +34,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>(userProfileRef);
 
   useEffect(() => {
-    if (isUserLoading || isProfileLoading) return;
+    if (isUserLoading || isProfileLoading || !isRevenueCatReady) return;
 
     if (!user) {
       router.push('/login');
@@ -48,10 +48,10 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         return;
     }
 
-  }, [user, isUserLoading, userProfile, isProfileLoading, router, customerInfo]);
+  }, [user, isUserLoading, userProfile, isProfileLoading, router, customerInfo, isRevenueCatReady]);
 
   const isMapPage = pathname === '/dashboard/world-map';
-  const isLoading = isUserLoading || isProfileLoading;
+  const isLoading = isUserLoading || isProfileLoading || !isRevenueCatReady;
 
   if (isLoading) {
     return (
@@ -63,6 +63,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   const hasActiveSubscription = customerInfo?.activeSubscriptions?.length ?? 0 > 0;
   if (!user || (userProfile?.subscriptionTier === 'free' && !hasActiveSubscription)) {
+    // Redirecting is handled in useEffect, this prevents rendering children before redirect
     return null;
   }
 
@@ -94,13 +95,6 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="system"
-      enableSystem
-      disableTransitionOnChange
-    >
       <DashboardLayoutContent>{children}</DashboardLayoutContent>
-    </ThemeProvider>
   );
 }

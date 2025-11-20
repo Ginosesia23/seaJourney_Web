@@ -9,7 +9,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Check, Ship, User, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useToast } from '@/hooks/use-toast';
+import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
+import type { PurchasesPackage } from '@revenuecat/purchases-js';
 
 const tiers = [
   {
@@ -145,22 +146,18 @@ const tiers = [
 export default function ComingSoonPage() {
   const [planType, setPlanType] = useState('crew');
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
-  const { toast } = useToast();
+  const { offerings, purchasePackage } = useRevenueCat();
 
   const filteredTiers = tiers.filter(tier => tier.type === planType);
   
-  const handlePurchase = async (tierIdentifier: string) => {
-    setIsPurchasing(tierIdentifier);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    toast({
-        title: "Purchase Unavailable",
-        description: "Payment system integration is not yet active.",
-        variant: "destructive"
-    });
-
-    setIsPurchasing(null);
+  const handlePurchase = async (pkg: PurchasesPackage | null) => {
+    if (!pkg) return;
+    setIsPurchasing(pkg.identifier);
+    try {
+      await purchasePackage(pkg);
+    } finally {
+      setIsPurchasing(null);
+    }
   }
 
   return (
@@ -205,7 +202,9 @@ export default function ComingSoonPage() {
 
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
               {filteredTiers.map((tier) => {
-                const isProcessing = isPurchasing === tier.identifier;
+                const offering = offerings?.all[tier.identifier || ''];
+                const pkg = offering?.availablePackages[0];
+                const isProcessing = isPurchasing === pkg?.identifier;
                 
                 return (
                     <Card key={tier.name} className={cn(
@@ -222,7 +221,7 @@ export default function ComingSoonPage() {
                             <>
                                 <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
                                 <div className="flex items-baseline gap-1">
-                                <span className="text-4xl font-bold tracking-tight">{tier.price}</span>
+                                <span className="text-4xl font-bold tracking-tight">{pkg?.product.priceString || tier.price}</span>
                                 <span className="text-sm font-semibold text-muted-foreground">{tier.priceSuffix}</span>
                                 </div>
                             </>
@@ -250,8 +249,8 @@ export default function ComingSoonPage() {
                             <Button 
                                 className="w-full rounded-full"
                                 variant={tier.highlighted ? 'default' : 'outline'}
-                                disabled={isProcessing}
-                                onClick={() => tier.identifier && handlePurchase(tier.identifier)}
+                                disabled={isProcessing || !pkg}
+                                onClick={() => handlePurchase(pkg || null)}
                             >
                                 {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 {tier.cta}
