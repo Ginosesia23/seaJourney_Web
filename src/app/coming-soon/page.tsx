@@ -25,7 +25,7 @@ const tiers = [
   },
   {
     name: 'Standard',
-    price: '$9.99',
+    price: '£9.99',
     priceSuffix: '/ month',
     description: 'For dedicated professionals who need advanced tracking.',
     features: [
@@ -42,7 +42,7 @@ const tiers = [
   },
   {
     name: 'Premium',
-    price: '$19.99',
+    price: '£19.99',
     priceSuffix: '/ month',
     description: 'For career-focused seafarers needing detailed analytics.',
     features: [
@@ -58,7 +58,7 @@ const tiers = [
   },
   {
     name: 'Premium+',
-    price: '$49.99',
+    price: '£49.99',
     priceSuffix: '/ month',
     description: 'For captains and managers overseeing multiple crew members.',
     features: [
@@ -74,7 +74,7 @@ const tiers = [
   },
   {
     name: 'Vessel Basic',
-    price: '$299.99',
+    price: '£299.99',
     priceSuffix: '/ month',
     description: 'Essential tracking for a single vessel and its crew.',
     features: [
@@ -88,7 +88,7 @@ const tiers = [
   },
   {
     name: 'Vessel Pro',
-    price: '$599.99',
+    price: '£599.99',
     priceSuffix: '/ month',
     description: 'Comprehensive management for a professional yacht.',
     features: [
@@ -103,7 +103,7 @@ const tiers = [
   },
   {
     name: 'Vessel Fleet',
-    price: '$1199.99',
+    price: '£1199.99',
     priceSuffix: '/ month',
     description: 'Ideal for managing multiple vessels and larger crews.',
     features: [
