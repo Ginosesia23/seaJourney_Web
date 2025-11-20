@@ -7,13 +7,54 @@ import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Users, Fingerprint, Bot, CheckCircle, ShieldCheck, AreaChart, ShipWheel } from 'lucide-react';
+import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Users, Fingerprint, Bot, CheckCircle, ShieldCheck, AreaChart, ShipWheel, LayoutDashboard, Route, Anchor } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MainChart from '@/components/dashboard/main-chart';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const features = [
+  {
+    id: 'dashboard',
+    icon: LayoutDashboard,
+    title: 'Dashboard',
+    description: 'Your career at a glance.',
+    component: (
+        <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
+             <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2 text-white/80">
+                    <LayoutDashboard className="h-5 w-5" />
+                    Dashboard Overview
+                </CardTitle>
+                <CardDescription className="text-white/50">Your career command center.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex-grow space-y-4">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-center">
+                    {[
+                        { icon: Ship, label: 'Total Sea Days', value: '421' },
+                        { icon: LifeBuoy, label: 'Testimonials', value: '12' },
+                        { icon: Route, label: 'Passages Logged', value: '34' },
+                        { icon: Anchor, label: 'Vessels Logged', value: '4' }
+                    ].map(stat => (
+                        <div key={stat.label} className="p-2 rounded-lg bg-white/5 border border-white/10">
+                            <stat.icon className="h-4 w-4 text-white/70 mx-auto mb-1" />
+                            <div className="text-xl font-bold text-white">{stat.value}</div>
+                            <div className="text-[10px] text-white/60 uppercase tracking-wider">{stat.label}</div>
+                        </div>
+                    ))}
+                </div>
+                 <div className="h-[150px] w-full mt-2">
+                    <MainChart data={[
+                        { month: "Jan", seaDays: 15 }, { month: "Feb", seaDays: 20 }, { month: "Mar", seaDays: 25 },
+                        { month: "Apr", seaDays: 22 }, { month: "May", seaDays: 30 }, { month: "Jun", seaDays: 18 },
+                         { month: "Jul", seaDays: 28 }, { month: "Aug", seaDays: 24 }, { month: "Sep", seaDays: 19 },
+                          { month: "Oct", seaDays: 27 }, { month: "Nov", seaDays: 23 }, { month: "Dec", seaDays: 31 }
+                    ]} />
+                </div>
+            </CardContent>
+        </Card>
+    )
+  },
   {
     id: 'analytics',
     icon: BarChart2,
@@ -58,7 +99,7 @@ const features = [
                     <TableHeader>
                         <TableRow className="border-white/10 hover:bg-transparent">
                             <TableHead className="text-white/80">Vessel</TableHead>
-                            <TableHead className="text-white/80">Status</TableHead>
+                             <TableHead className="text-white/80">Status</TableHead>
                             <TableHead className="text-white/80 text-right">Total Days</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -66,17 +107,17 @@ const features = [
                         <TableRow className="border-white/10 hover:bg-white/5">
                             <TableCell className="font-medium text-white">M/Y Odyssey</TableCell>
                             <TableCell><Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">Current</Badge></TableCell>
-                            <TableCell className="text-right text-white">421</TableCell>
+                             <TableCell className="text-right text-white">421</TableCell>
                         </TableRow>
                         <TableRow className="border-white/10 hover:bg-white/5">
                             <TableCell className="font-medium text-white">S/Y Wanderer</TableCell>
                             <TableCell><Badge variant="outline" className="border-white/20 text-white/60">Past</Badge></TableCell>
-                            <TableCell className="text-right text-white">189</TableCell>
+                             <TableCell className="text-right text-white">189</TableCell>
                         </TableRow>
                          <TableRow className="border-white/10 hover:bg-white/5">
                             <TableCell className="font-medium text-white">M/Y Eclipse</TableCell>
                             <TableCell><Badge variant="outline" className="border-white/20 text-white/60">Past</Badge></TableCell>
-                            <TableCell className="text-right text-white">256</TableCell>
+                             <TableCell className="text-right text-white">256</TableCell>
                         </TableRow>
                          <TableRow className="border-white/10 hover:bg-white/5">
                             <TableCell className="font-medium text-white">Catamaran Ceta</TableCell>
@@ -97,7 +138,7 @@ const features = [
     component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
              <div className="w-64 h-64 rounded-full bg-primary/5 flex items-center justify-center relative overflow-hidden">
-                <Globe className="h-32 w-32 text-primary/30 animate-pulse" />
+                <Globe className="h-32 w-32 text-primary/30 animate-[spin_30s_linear_infinite]" />
                 <div className="absolute inset-0 bg-grid-white/5 [mask-image:radial-gradient(ellipse_at_center,white_20%,transparent_80%)]"></div>
                 <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
                     <path d="M 20 50 C 40 20, 60 20, 80 50" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-70 animate-dash" />
