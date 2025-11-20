@@ -186,11 +186,19 @@ export default function ComingSoonPage() {
                     tier.highlighted ? 'border-primary ring-2 ring-primary' : ''
                 )}>
                   <CardHeader className="flex-grow">
-                    <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
-                    <div className="flex items-baseline gap-1">
-                       <span className="text-4xl font-bold tracking-tight">{tier.price}</span>
-                       <span className="text-sm font-semibold text-muted-foreground">{tier.priceSuffix}</span>
-                    </div>
+                    {tier.name === 'Free' ? (
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 mb-4">
+                            <Download className="h-6 w-6 text-accent"/>
+                        </div>
+                    ) : (
+                        <>
+                            <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
+                            <div className="flex items-baseline gap-1">
+                               <span className="text-4xl font-bold tracking-tight">{tier.price}</span>
+                               <span className="text-sm font-semibold text-muted-foreground">{tier.priceSuffix}</span>
+                            </div>
+                        </>
+                    )}
                     <CardDescription>{tier.description}</CardDescription>
                   </CardHeader>
                   <CardContent>
