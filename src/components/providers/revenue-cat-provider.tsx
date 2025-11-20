@@ -48,8 +48,11 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         setRevenueCatState(s => ({ ...s, isReady: true }));
         return;
       }
-      Purchases.setLogLevel(LogLevel.DEBUG);
-      Purchases.configure({ apiKey });
+      // Ensure Purchases is not already configured
+      if (!Purchases.isConfigured()) {
+        Purchases.setLogLevel(LogLevel.DEBUG);
+        Purchases.configure({ apiKey });
+      }
 
       const offerings = await Purchases.getOfferings();
       const customerInfo = await Purchases.getCustomerInfo();
@@ -64,7 +67,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const updateUser = async () => {
-      if (user && revenueCatState.isReady) {
+      if (user && revenueCatState.isReady && Purchases.isConfigured()) {
         try {
           const { customerInfo } = await Purchases.logIn(user.uid);
           setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
@@ -81,7 +84,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
             })
           }
         }
-      } else if (!user && revenueCatState.isReady) {
+      } else if (!user && revenueCatState.isReady && Purchases.isConfigured()) {
         try {
             const { customerInfo } = await Purchases.logOut();
             setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
