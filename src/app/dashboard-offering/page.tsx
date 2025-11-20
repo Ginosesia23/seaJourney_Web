@@ -7,7 +7,7 @@ import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Route, Anchor } from 'lucide-react';
+import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Route, Anchor, CheckCircle, Fingerprint, UserPlus, Search, Code, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MainChart from '@/components/dashboard/main-chart';
 import { Badge } from '@/components/ui/badge';
@@ -17,8 +17,8 @@ const features = [
   {
     id: 'analytics',
     icon: BarChart2,
-    title: 'Advanced Analytics',
-    description: 'Visualize your sea time with interactive charts, track progress, and gain insights into your career.',
+    title: 'Analytics',
+    description: 'Visualize your career trajectory.',
     component: (
       <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
         <CardHeader>
@@ -31,7 +31,9 @@ const features = [
         <CardContent className="flex-grow flex items-center justify-center">
             <MainChart data={[
                 { month: "Jan", seaDays: 15 }, { month: "Feb", seaDays: 20 }, { month: "Mar", seaDays: 25 },
-                { month: "Apr", seaDays: 22 }, { month: "May", seaDays: 30 }, { month: "Jun", seaDays: 18 }
+                { month: "Apr", seaDays: 22 }, { month: "May", seaDays: 30 }, { month: "Jun", seaDays: 18 },
+                 { month: "Jul", seaDays: 28 }, { month: "Aug", seaDays: 24 }, { month: "Sep", seaDays: 19 },
+                  { month: "Oct", seaDays: 27 }, { month: "Nov", seaDays: 23 }, { month: "Dec", seaDays: 31 }
             ]} />
         </CardContent>
       </Card>
@@ -40,8 +42,8 @@ const features = [
   {
     id: 'vessels',
     icon: Ship,
-    title: 'Vessel Management',
-    description: 'Keep a comprehensive log of every vessel you\'ve worked on and build your complete maritime history.',
+    title: 'Vessels',
+    description: 'Manage your entire fleet.',
      component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
             <CardHeader>
@@ -76,6 +78,11 @@ const features = [
                             <TableCell><Badge variant="outline" className="border-white/20 text-white/60">Past</Badge></TableCell>
                             <TableCell className="text-right text-white">256</TableCell>
                         </TableRow>
+                         <TableRow className="border-white/10 hover:bg-white/5">
+                            <TableCell className="font-medium text-white">Catamaran Ceta</TableCell>
+                             <TableCell><Badge variant="outline" className="border-white/20 text-white/60">Past</Badge></TableCell>
+                            <TableCell className="text-right text-white">88</TableCell>
+                        </TableRow>
                     </TableBody>
                 </Table>
             </CardContent>
@@ -85,13 +92,18 @@ const features = [
   {
     id: 'map',
     icon: Globe,
-    title: 'Interactive World Map',
-    description: 'Chart your voyages on a stunning hex map and see your global experience come to life.',
+    title: 'World Map',
+    description: 'Chart your global experience.',
     component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
-             <div className="w-48 h-48 rounded-full bg-primary/10 flex items-center justify-center relative overflow-hidden">
-                <Globe className="h-24 w-24 text-primary/50 animate-pulse" />
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 border-t-2 border-primary/50 rounded-full animate-spin" style={{animationDuration: '10s'}}></div>
+             <div className="w-64 h-64 rounded-full bg-primary/5 flex items-center justify-center relative overflow-hidden">
+                <Globe className="h-32 w-32 text-primary/30" />
+                <div className="absolute inset-0 bg-grid-white/5 [mask-image:radial-gradient(ellipse_at_center,white_20%,transparent_80%)]"></div>
+                {/* Animated path */}
+                <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
+                    <path d="M 20 50 Q 50 20 80 50" stroke="hsl(var(--accent))" strokeWidth="1" fill="none" strokeDasharray="5 5" className="animate-pulse" />
+                     <path d="M 25 60 Q 50 80 75 60" stroke="hsl(var(--accent))" strokeWidth="0.5" fill="none" strokeDasharray="2 3" className="animate-pulse" />
+                </svg>
              </div>
              <CardTitle className="text-lg flex items-center gap-2 text-white/80 mt-6">World Map</CardTitle>
              <CardDescription className="text-white/50">Visualize Your Journeys</CardDescription>
@@ -101,8 +113,8 @@ const features = [
   {
     id: 'docs',
     icon: FileText,
-    title: 'Effortless Documentation',
-    description: 'Generate professional sea time reports and signed testimonials, ready for certificate applications.',
+    title: 'Documents',
+    description: 'Generate professional reports.',
     component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
             <CardHeader>
@@ -114,15 +126,24 @@ const features = [
             </CardHeader>
             <CardContent className="flex-grow space-y-3">
                 <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer transition-colors">
-                    <span className="text-white">Full Sea Time Report.pdf</span>
+                    <div className="flex items-center gap-3">
+                        <FileText className="h-4 w-4 text-white/70" />
+                        <span className="text-white">Full Sea Time Report.pdf</span>
+                    </div>
                     <ArrowRight className="h-4 w-4 text-white/50" />
                 </div>
                 <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer transition-colors">
-                    <span className="text-white">Testimonial_Capt_Smith.pdf</span>
+                     <div className="flex items-center gap-3">
+                        <LifeBuoy className="h-4 w-4 text-white/70" />
+                        <span className="text-white">Testimonial_Capt_Smith.pdf</span>
+                    </div>
                     <ArrowRight className="h-4 w-4 text-white/50" />
                 </div>
                  <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer transition-colors">
-                    <span className="text-white">Career_Summary.pdf</span>
+                     <div className="flex items-center gap-3">
+                        <Route className="h-4 w-4 text-white/70" />
+                        <span className="text-white">Career_Summary_2024.pdf</span>
+                    </div>
                     <ArrowRight className="h-4 w-4 text-white/50" />
                 </div>
             </CardContent>
@@ -154,59 +175,72 @@ export default function DashboardOfferingPage() {
                     </p>
                 </div>
 
-                <div className="mt-16 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                    {/* Left: Feature Selector */}
-                    <div className="lg:col-span-4 space-y-4">
-                        {features.map((feature) => {
-                            const Icon = feature.icon;
-                            const isActive = activeFeature === feature.id;
-                            return (
-                                <button
-                                    key={feature.id}
-                                    onClick={() => setActiveFeature(feature.id)}
-                                    className={cn(
-                                        "w-full relative text-left p-4 rounded-xl transition-all duration-300 border overflow-hidden group",
-                                        isActive 
-                                            ? "bg-primary/30 border-primary/50 ring-2 ring-primary" 
-                                            : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
-                                    )}
-                                >
-                                    <div className="absolute top-0 left-0 h-full w-1 bg-primary/70 transition-all duration-300 scale-y-0 group-hover:scale-y-100 origin-bottom"></div>
-                                    <div className={cn("absolute top-0 left-0 h-px w-full bg-gradient-to-r from-primary/50 via-primary/30 to-transparent transition-transform duration-500 -translate-x-full group-hover:translate-x-0", isActive && 'translate-x-0')}></div>
-                                    
-                                    <div className="flex items-center gap-4">
-                                        <div className={cn(
-                                            "flex-shrink-0 h-10 w-10 flex items-center justify-center rounded-lg transition-colors",
-                                            isActive ? "bg-primary/80" : "bg-white/10"
-                                        )}>
-                                            <Icon className={cn("h-5 w-5", isActive ? "text-white" : "text-white/70")} />
-                                        </div>
-                                        <div>
-                                            <h3 className="font-bold text-white">{feature.title}</h3>
-                                            <p className="text-sm text-white/60">{feature.description}</p>
-                                        </div>
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
+                {/* Main Interactive Display */}
+                <div className="relative mt-16 max-w-6xl mx-auto p-2 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
+                    {/* Corner Brackets */}
+                    <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
+                    <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
+                    <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
+                    <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
 
-                    {/* Right: Dashboard Preview */}
-                    <div className="lg:col-span-8 [perspective:2000px]">
-                        <div className={cn(
-                            "relative aspect-[4/3] w-full rounded-2xl border-2 border-primary/30 bg-black/50 p-4 shadow-2xl shadow-primary/10 backdrop-blur-sm",
-                            "transition-transform duration-500 [transform-style:preserve-3d] [transform:rotateY(-10deg)]"
-                        )}>
-                            <div className="absolute -inset-px rounded-2xl border-2 border-primary/50 opacity-20 animate-pulse"></div>
-                             
-                             {features.map(feature => (
-                                <div key={feature.id} className={cn(
-                                    "absolute inset-4 transition-opacity duration-500",
-                                    activeFeature === feature.id ? 'opacity-100' : 'opacity-0'
-                                )}>
-                                    {feature.component}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-0">
+                        {/* Left: Feature Selector */}
+                        <div className="lg:col-span-3 p-4 space-y-2 border-r border-primary/10">
+                            {features.map((feature) => {
+                                const Icon = feature.icon;
+                                const isActive = activeFeature === feature.id;
+                                return (
+                                    <button
+                                        key={feature.id}
+                                        onClick={() => setActiveFeature(feature.id)}
+                                        className={cn(
+                                            "w-full relative text-left p-3 rounded-lg transition-all duration-300 border overflow-hidden group",
+                                            isActive 
+                                                ? "bg-primary/30 border-primary/50" 
+                                                : "bg-white/5 border-transparent hover:bg-white/10 hover:border-white/20"
+                                        )}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className={cn(
+                                                "flex-shrink-0 h-8 w-8 flex items-center justify-center rounded-md transition-colors",
+                                                isActive ? "bg-accent" : "bg-white/10"
+                                            )}>
+                                                <Icon className={cn("h-4 w-4", isActive ? "text-white" : "text-white/70")} />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-sm text-white">{feature.title}</h3>
+                                                <p className="text-xs text-white/60">{feature.description}</p>
+                                            </div>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Right: Dashboard Preview */}
+                        <div className="lg:col-span-9 p-4">
+                            {/* Dashboard Header */}
+                             <div className="flex items-center justify-between pb-2 border-b border-primary/10 mb-4">
+                                <div className="flex items-center gap-2 text-xs text-green-400">
+                                    <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse"></div>
+                                    SYSTEM ONLINE
                                 </div>
-                             ))}
+                                <div className="flex items-center gap-3">
+                                    <div className="text-sm text-white/70">Capt. Jane Doe</div>
+                                    <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-white font-bold text-xs">JD</div>
+                                </div>
+                             </div>
+
+                            <div className="relative aspect-video w-full">
+                                {features.map(feature => (
+                                    <div key={feature.id} className={cn(
+                                        "absolute inset-0 transition-opacity duration-500",
+                                        activeFeature === feature.id ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                                    )}>
+                                        {feature.component}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>
