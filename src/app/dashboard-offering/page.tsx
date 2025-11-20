@@ -172,87 +172,91 @@ export default function DashboardOfferingPage() {
                     </p>
                 </div>
                 
-                <div className="mt-16 space-y-8">
-                     <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
-                        <Card className="bg-card/5 border-white/10 text-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Total Sea Days</CardTitle>
-                                <Ship className="h-4 w-4 text-white/50" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">1,204</div>
-                                <p className="text-xs text-white/50">Across all vessels</p>
-                            </CardContent>
-                        </Card>
-                        <Card className="bg-card/5 border-white/10 text-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Testimonials</CardTitle>
-                                <LifeBuoy className="h-4 w-4 text-white/50"/>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">38</div>
-                                <p className="text-xs text-white/50">Total testimonials collected</p>
-                            </CardContent>
-                        </Card>
-                        <Card className="bg-card/5 border-white/10 text-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Passages Logged</CardTitle>
-                                <Route className="h-4 w-4 text-white/50"/>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">12</div>
-                                <p className="text-xs text-white/50">Total completed trips</p>
-                            </CardContent>
-                        </Card>
-                        <Card className="bg-card/5 border-white/10 text-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Vessels Logged</CardTitle>
-                                <Anchor className="h-4 w-4 text-white/50"/>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">5</div>
-                                <p className="text-xs text-white/50">Total vessels in your fleet</p>
-                            </CardContent>
-                        </Card>
-                    </div>
+                 <div className="mt-16 [perspective:2000px]">
+                    <div className="rounded-xl border-4 border-white/10 bg-black/20 p-4 shadow-2xl transition-transform duration-500 [transform-style:preserve-3d] [transform:rotateY(-10deg)]">
+                        <div className="space-y-8">
+                             <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
+                                <Card className="bg-card/5 border-white/10 text-white">
+                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <CardTitle className="text-sm font-medium">Total Sea Days</CardTitle>
+                                        <Ship className="h-4 w-4 text-white/50" />
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-2xl font-bold">1,204</div>
+                                        <p className="text-xs text-white/50">Across all vessels</p>
+                                    </CardContent>
+                                </Card>
+                                <Card className="bg-card/5 border-white/10 text-white">
+                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <CardTitle className="text-sm font-medium">Testimonials</CardTitle>
+                                        <LifeBuoy className="h-4 w-4 text-white/50"/>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-2xl font-bold">38</div>
+                                        <p className="text-xs text-white/50">Total testimonials collected</p>
+                                    </CardContent>
+                                </Card>
+                                <Card className="bg-card/5 border-white/10 text-white">
+                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <CardTitle className="text-sm font-medium">Passages Logged</CardTitle>
+                                        <Route className="h-4 w-4 text-white/50"/>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-2xl font-bold">12</div>
+                                        <p className="text-xs text-white/50">Total completed trips</p>
+                                    </CardContent>
+                                </Card>
+                                <Card className="bg-card/5 border-white/10 text-white">
+                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <CardTitle className="text-sm font-medium">Vessels Logged</CardTitle>
+                                        <Anchor className="h-4 w-4 text-white/50"/>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-2xl font-bold">5</div>
+                                        <p className="text-xs text-white/50">Total vessels in your fleet</p>
+                                    </CardContent>
+                                </Card>
+                            </div>
 
-                    <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-                        <Card className="lg:col-span-2 bg-card/5 border-white/10 text-white">
-                            <CardHeader>
-                                <CardTitle>Sea Day Analytics</CardTitle>
-                                <CardDescription className="text-white/50">Your sea days logged over the past year.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <MainChart data={dummyChartData}/>
-                            </CardContent>
-                        </Card>
-                        <Card className="bg-card/5 border-white/10 text-white">
-                            <CardHeader>
-                                <CardTitle>Recent Activity</CardTitle>
-                                <CardDescription className="text-white/50">Your most recently logged sea time.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow className="border-white/10 hover:bg-white/5">
-                                            <TableHead className="text-white">Vessel</TableHead>
-                                            <TableHead className="text-right text-white">Date</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {dummyRecentActivity.map((activity) => (
-                                            <TableRow key={activity.vessel} className="border-white/10 hover:bg-white/5">
-                                                <TableCell>
-                                                    <div className="font-medium">{activity.vessel}</div>
-                                                    <div className="text-sm text-white/50">{activity.days} days</div>
-                                                </TableCell>
-                                                <TableCell className="text-right">{activity.date}</TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </CardContent>
-                        </Card>
+                            <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+                                <Card className="lg:col-span-2 bg-card/5 border-white/10 text-white">
+                                    <CardHeader>
+                                        <CardTitle>Sea Day Analytics</CardTitle>
+                                        <CardDescription className="text-white/50">Your sea days logged over the past year.</CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <MainChart data={dummyChartData}/>
+                                    </CardContent>
+                                </Card>
+                                <Card className="bg-card/5 border-white/10 text-white">
+                                    <CardHeader>
+                                        <CardTitle>Recent Activity</CardTitle>
+                                        <CardDescription className="text-white/50">Your most recently logged sea time.</CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow className="border-white/10 hover:bg-white/5">
+                                                    <TableHead className="text-white">Vessel</TableHead>
+                                                    <TableHead className="text-right text-white">Date</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {dummyRecentActivity.map((activity) => (
+                                                    <TableRow key={activity.vessel} className="border-white/10 hover:bg-white/5">
+                                                        <TableCell>
+                                                            <div className="font-medium">{activity.vessel}</div>
+                                                            <div className="text-sm text-white/50">{activity.days} days</div>
+                                                        </TableCell>
+                                                        <TableCell className="text-right">{activity.date}</TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </CardContent>
+                                </Card>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
