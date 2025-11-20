@@ -7,9 +7,10 @@ import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { BarChart2, Ship, Globe, FileText } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { BarChart2, Ship, Globe, FileText, LifeBuoy, Route, Anchor } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import MainChart from '@/components/dashboard/main-chart';
 
 const features = [
   {
@@ -46,6 +47,21 @@ const features = [
   },
 ];
 
+const mockChartData = [
+    { month: "Jan", seaDays: 20 },
+    { month: "Feb", seaDays: 15 },
+    { month: "Mar", seaDays: 25 },
+    { month: "Apr", seaDays: 22 },
+    { month: "May", seaDays: 30 },
+    { month: "Jun", seaDays: 18 },
+    { month: "Jul", seaDays: 28 },
+    { month: "Aug", seaDays: 24 },
+    { month: "Sep", seaDays: 19 },
+    { month: "Oct", seaDays: 27 },
+    { month: "Nov", seaDays: 21 },
+    { month: "Dec", seaDays: 26 },
+]
+
 export default function DashboardOfferingPage() {
   const [selectedFeature, setSelectedFeature] = useState(features[0]);
 
@@ -55,35 +71,73 @@ export default function DashboardOfferingPage() {
       <main className="flex-1">
         {/* Hero Section */}
         <section className="relative overflow-hidden bg-header text-header-foreground py-20 sm:py-28">
-          
-          <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-3xl text-center">
-              <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-6xl">
-                Your Career Command Center
-              </h1>
-              <p className="mt-6 text-lg leading-8 text-header-foreground/80">
-                Visualize your sea time, manage your fleet, and chart your course to success with our powerful dashboard for premium members.
-              </p>
-              <div className="mt-10 flex items-center justify-center gap-4">
-                <Button asChild size="lg" className="rounded-full bg-accent hover:bg-accent/90 text-white">
-                  <Link href="/signup">Get Started</Link>
-                </Button>
-              </div>
+            <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="grid lg:grid-cols-2 gap-12 items-center">
+                    <div className="text-center lg:text-left">
+                        <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-6xl">
+                            Your Career Command Center
+                        </h1>
+                        <p className="mt-6 text-lg leading-8 text-header-foreground/80">
+                            Visualize your sea time, manage your fleet, and chart your course to success with our powerful dashboard for premium members.
+                        </p>
+                        <div className="mt-10 flex items-center justify-center lg:justify-start gap-4">
+                            <Button asChild size="lg" className="rounded-full bg-accent hover:bg-accent/90 text-white">
+                            <Link href="/signup">Get Started</Link>
+                            </Button>
+                        </div>
+                    </div>
+                    <div className="[perspective:2000px]">
+                        <div className="bg-card/5 border border-white/10 rounded-2xl p-4 shadow-2xl [transform:rotateX(10deg)_rotateY(-10deg)_rotateZ(-3deg)]">
+                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-4">
+                                <Card className="bg-card/20 border-white/10 text-white">
+                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <CardTitle className="text-sm font-medium">Total Sea Days</CardTitle>
+                                        <Ship className="h-4 w-4 text-muted-foreground" />
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-2xl font-bold">1,204</div>
+                                    </CardContent>
+                                </Card>
+                                <Card className="bg-card/20 border-white/10 text-white">
+                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <CardTitle className="text-sm font-medium">Testimonials</CardTitle>
+                                        <LifeBuoy className="h-4 w-4 text-muted-foreground"/>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-2xl font-bold">12</div>
+                                    </CardContent>
+                                </Card>
+                                 <Card className="bg-card/20 border-white/10 text-white">
+                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <CardTitle className="text-sm font-medium">Passages</CardTitle>
+                                        <Route className="h-4 w-4 text-muted-foreground"/>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-2xl font-bold">38</div>
+                                    </CardContent>
+                                </Card>
+                                 <Card className="bg-card/20 border-white/10 text-white">
+                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <CardTitle className="text-sm font-medium">Vessels</CardTitle>
+                                        <Anchor className="h-4 w-4 text-muted-foreground"/>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-2xl font-bold">8</div>
+                                    </CardContent>
+                                </Card>
+                            </div>
+                            <Card className="bg-card/20 border-white/10 text-white">
+                                <CardHeader>
+                                    <CardTitle>Sea Day Analytics</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <MainChart data={mockChartData}/>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div className="mt-16 flex justify-center [perspective:2000px]">
-              <div className="rounded-lg border bg-card/5 p-2 shadow-2xl [transform:rotateX(15deg)]">
-                 <Image
-                  src="/dashboard_image.png"
-                  alt="A preview of the SeaJourney dashboard showing charts and stats."
-                  width={1000}
-                  height={600}
-                  className="[filter:drop-shadow(0_0_15px_rgba(255,255,255,0.25))]"
-                  data-ai-hint="dashboard preview charts"
-                  priority
-                />
-              </div>
-            </div>
-          </div>
         </section>
 
         {/* Features Section */}
@@ -171,3 +225,5 @@ export default function DashboardOfferingPage() {
     </div>
   );
 }
+
+    
