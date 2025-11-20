@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const features = [
-  {
+    {
     id: 'dashboard',
     icon: LayoutDashboard,
     title: 'Dashboard',
@@ -137,12 +137,12 @@ const features = [
     description: 'Chart your global experience.',
     component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
-             <div className="w-64 h-64 rounded-full bg-primary/5 flex items-center justify-center relative overflow-hidden">
-                <Globe className="h-32 w-32 text-primary/30 animate-[spin_30s_linear_infinite]" />
-                <div className="absolute inset-0 bg-grid-white/5 [mask-image:radial-gradient(ellipse_at_center,white_20%,transparent_80%)]"></div>
-                <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
-                    <path d="M 20 50 C 40 20, 60 20, 80 50" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-70 animate-dash" />
-                    <path d="M 25 60 C 45 85, 65 85, 85 60" stroke="hsl(var(--accent))" strokeWidth="0.5" fill="none" strokeDasharray="2 3" className="opacity-50 animate-dash-reverse" />
+             <div className="w-full max-w-lg aspect-video rounded-lg bg-primary/5 flex items-center justify-center relative overflow-hidden p-4">
+                <svg className="w-full h-full" viewBox="0 0 1024 512">
+                  <path fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5" d="M512 0C229.23 0 0 229.23 0 512h1024C1024 229.23 794.77 0 512 0zM493.5 256l-31-43-15-4-3-15 15-18 14-3 15 13 19 14 16 2 31-15 19-15 11 11-13 18-39 31-2 15zm-104.5 13l-16-1-10 16-1 15 11 10 16 3h18l12-10 1-13-10-18-20-2z"></path>
+                  <path fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5" d="M100 248l-1-2-19-14-14-1-12 11-1 12 11 12 11 2h18l13-12 2-11-9-16-19-3zm185 24l-15-14-15-1h-16l-14 13-1 15 10 16 11 2h18l13-10 1-14-10-17-17-3zm-9-58l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-119 50l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm153-31l-14-14-15-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-44-53l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zM800 251l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-143-58l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm53 32l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm116-5l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3z"></path>
+                  <path d="M 240 250 C 350 180, 550 180, 680 280" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="4 6" className="opacity-70 animate-dash" />
+                  <path d="M 280 310 C 400 380, 600 380, 750 290" stroke="hsl(var(--accent))" strokeWidth="1" fill="none" strokeDasharray="3 4" className="opacity-50 animate-dash-reverse" />
                 </svg>
              </div>
              <CardTitle className="text-lg flex items-center gap-2 text-white/80 mt-6">World Map</CardTitle>
@@ -281,7 +281,6 @@ export default function DashboardOfferingPage() {
       <Header />
       <main className="flex-1">
         
-        {/* Interactive Showcase Section */}
         <section className="relative overflow-hidden bg-header text-header-foreground py-20 sm:py-28">
             <div className="absolute inset-0 bg-grid-white/5 [mask-image:linear-gradient(to_bottom,white_10%,transparent_70%)]"></div>
             <div className="absolute inset-0 bg-gradient-to-br from-black/20 via-transparent to-primary/20"></div>
@@ -297,7 +296,6 @@ export default function DashboardOfferingPage() {
                 </div>
 
                 <div className="relative mt-16 max-w-6xl mx-auto p-2 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
-                    {/* Corner Brackets */}
                     <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
                     <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
                     <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
@@ -337,7 +335,6 @@ export default function DashboardOfferingPage() {
                             })}
                         </div>
 
-                        {/* Right: Dashboard Preview */}
                         <div className="lg:col-span-9 p-4">
                              <div className="flex items-center justify-between pb-2 border-b border-primary/10 mb-4">
                                 <div className="flex items-center gap-2 text-xs text-green-400">
@@ -392,7 +389,6 @@ export default function DashboardOfferingPage() {
             </div>
         </section>
 
-        {/* CTA Section */}
         <section id="cta" className="bg-header text-header-foreground border-t border-white/10">
             <div className="container mx-auto px-4 py-16 sm:px-6 lg:px-8">
                 <div className="mx-auto max-w-2xl text-center">
