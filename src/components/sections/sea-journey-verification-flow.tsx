@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CheckCircle, Fingerprint, Cloud, FileText, Bot, Share2, ScanLine, ShieldCheck } from 'lucide-react';
+import { CheckCircle, Fingerprint, Bot, Share2, ScanLine, ShieldCheck, FileText } from 'lucide-react';
 
 type PlanKey = "free" | "hybrid" | "premium";
 
@@ -16,7 +16,7 @@ const planDetails = {
         description: "A basic PDF summary is generated for the captain to sign, similar to a traditional paper logbook.",
     },
     hybrid: {
-        icon: Cloud,
+        icon: Fingerprint,
         title: "Hybrid Export",
         subtitle: "PDF + QR + Cloud Snapshot",
         description: "Generates a PDF with a unique QR code. A tamper-proof snapshot of the record is stored for verification.",
