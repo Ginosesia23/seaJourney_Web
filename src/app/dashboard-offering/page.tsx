@@ -8,9 +8,11 @@ import { Button } from '@/components/ui/button';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { BarChart2, Ship, Globe, FileText, LifeBuoy, Route, Anchor } from 'lucide-react';
+import { BarChart2, Ship, Globe, FileText, LifeBuoy, Route, Anchor, FileDown, CheckCircle, MapPin, Briefcase, List } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MainChart from '@/components/dashboard/main-chart';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 
 const features = [
   {
@@ -19,7 +21,23 @@ const features = [
     description: 'Visualize your sea time with interactive charts, track your progress over time, and gain insights into your career trajectory.',
     longDescription: 'Go beyond simple day counting. Our advanced analytics break down your sea time by vessel, position, and even the state of the vessel (at sea, in port, etc.). Interactive charts help you visualize your career progression and identify what you need for your next certificate.',
     image: 'https://picsum.photos/seed/dashboard-feature-1/800/600',
-    imageHint: 'dashboard analytics chart'
+    imageHint: 'dashboard analytics chart',
+    component: (
+      <Card className="h-full bg-card/20 border-white/10 text-white flex flex-col">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <BarChart2 className="h-5 w-5 text-accent" />
+            Advanced Analytics
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex-grow flex items-center justify-center">
+            <MainChart data={[
+                { month: "J", seaDays: 15 }, { month: "F", seaDays: 20 }, { month: "M", seaDays: 25 },
+                { month: "A", seaDays: 22 }, { month: "M", seaDays: 30 }, { month: "J", seaDays: 18 }
+            ]} />
+        </CardContent>
+      </Card>
+    )
   },
   {
     icon: <Ship className="h-8 w-8 text-accent" />,
@@ -27,7 +45,35 @@ const features = [
     description: 'Keep a comprehensive log of every vessel you\'ve worked on. Manage details, track time per vessel, and build your complete maritime history.',
     longDescription: 'Your fleet at your fingertips. Add, edit, and manage all the vessels you\'ve worked on. The dashboard gives you a summary of your time on each one, making it easy to recall specific dates and trips for your CV or applications.',
     image: 'https://picsum.photos/seed/dashboard-feature-2/800/600',
-    imageHint: 'vessel list management'
+    imageHint: 'vessel list management',
+    component: (
+        <Card className="h-full bg-card/20 border-white/10 text-white flex flex-col">
+            <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                    <Ship className="h-5 w-5 text-accent" />
+                    Vessel Management
+                </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-grow">
+                <Table>
+                    <TableBody>
+                        <TableRow className="border-none hover:bg-white/5">
+                            <TableCell className="p-2 font-medium">M/Y Odyssey</TableCell>
+                            <TableCell className="p-2 text-right"><Badge variant="secondary">Current</Badge></TableCell>
+                        </TableRow>
+                        <TableRow className="border-none hover:bg-white/5">
+                            <TableCell className="p-2 font-medium">S/Y Wanderer</TableCell>
+                            <TableCell className="p-2 text-right"><Badge variant="outline">Past</Badge></TableCell>
+                        </TableRow>
+                         <TableRow className="border-none hover:bg-white/5">
+                            <TableCell className="p-2 font-medium">M/Y Eclipse</TableCell>
+                            <TableCell className="p-2 text-right"><Badge variant="outline">Past</Badge></TableCell>
+                        </TableRow>
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+    )
   },
   {
     icon: <Globe className="h-8 w-8 text-accent" />,
@@ -35,7 +81,20 @@ const features = [
     description: 'Chart your voyages on a stunning, interactive hex map. See your global experience come to life and track your passages across the world.',
     longDescription: 'Watch your career span the globe. Our unique interactive map visualizes all your recorded passages, giving you a stunning and shareable overview of your journey. It\'s not just a logbook; it\'s your story.',
     image: 'https://picsum.photos/seed/dashboard-feature-3/800/600',
-    imageHint: 'world map visualization'
+    imageHint: 'world map visualization',
+    component: (
+        <Card className="h-full bg-card/20 border-white/10 text-white flex flex-col">
+            <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                    <Globe className="h-5 w-5 text-accent" />
+                    Interactive Map
+                </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-grow flex items-center justify-center">
+                <Route className="h-16 w-16 text-white/50" />
+            </CardContent>
+        </Card>
+    )
   },
   {
     icon: <FileText className="h-8 w-8 text-accent" />,
@@ -43,7 +102,27 @@ const features = [
     description: 'Generate and export professional sea time reports and signed testimonials, ready for your next certificate application.',
     longDescription: 'Paperwork, simplified. Generate professional, ready-to-print sea time reports and testimonials with just a few clicks. Request digital signatures from captains and have all your documents securely stored and accessible anytime.',
     image: 'https://picsum.photos/seed/dashboard-feature-4/800/600',
-    imageHint: 'document export professional'
+    imageHint: 'document export professional',
+    component: (
+        <Card className="h-full bg-card/20 border-white/10 text-white flex flex-col">
+            <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-accent" />
+                    Documentation
+                </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-grow space-y-2">
+                <div className="flex items-center justify-between text-sm p-2 rounded-md hover:bg-white/5">
+                    <span>Sea Time Report.pdf</span>
+                    <FileDown className="h-4 w-4" />
+                </div>
+                <div className="flex items-center justify-between text-sm p-2 rounded-md hover:bg-white/5">
+                    <span>Testimonial_Capt_Smith.pdf</span>
+                    <CheckCircle className="h-4 w-4 text-green-400" />
+                </div>
+            </CardContent>
+        </Card>
+    )
   },
 ];
 
@@ -86,55 +165,15 @@ export default function DashboardOfferingPage() {
                             </Button>
                         </div>
                     </div>
-                    <div className="[perspective:2000px]">
-                        <div className="bg-card/5 border border-white/10 rounded-2xl p-4 shadow-2xl [transform:rotateX(10deg)_rotateY(-10deg)_rotateZ(-3deg)]">
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-4">
-                                <Card className="bg-card/20 border-white/10 text-white">
-                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                        <CardTitle className="text-sm font-medium">Total Sea Days</CardTitle>
-                                        <Ship className="h-4 w-4 text-muted-foreground" />
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="text-2xl font-bold">1,204</div>
-                                    </CardContent>
-                                </Card>
-                                <Card className="bg-card/20 border-white/10 text-white">
-                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                        <CardTitle className="text-sm font-medium">Testimonials</CardTitle>
-                                        <LifeBuoy className="h-4 w-4 text-muted-foreground"/>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="text-2xl font-bold">12</div>
-                                    </CardContent>
-                                </Card>
-                                 <Card className="bg-card/20 border-white/10 text-white">
-                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                        <CardTitle className="text-sm font-medium">Passages</CardTitle>
-                                        <Route className="h-4 w-4 text-muted-foreground"/>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="text-2xl font-bold">38</div>
-                                    </CardContent>
-                                </Card>
-                                 <Card className="bg-card/20 border-white/10 text-white">
-                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                        <CardTitle className="text-sm font-medium">Vessels</CardTitle>
-                                        <Anchor className="h-4 w-4 text-muted-foreground"/>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="text-2xl font-bold">8</div>
-                                    </CardContent>
-                                </Card>
-                            </div>
-                            <Card className="bg-card/20 border-white/10 text-white">
-                                <CardHeader>
-                                    <CardTitle>Sea Day Analytics</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <MainChart data={mockChartData}/>
-                                </CardContent>
-                            </Card>
-                        </div>
+                    <div className="[perspective:2000px] flex justify-center">
+                        <Image
+                            src="https://picsum.photos/seed/dashboard-hero/800/600"
+                            alt="Dashboard preview"
+                            width={800}
+                            height={600}
+                            className="rounded-xl shadow-2xl [transform:rotateX(10deg)_rotateY(-10deg)_rotateZ(-3deg)]"
+                            data-ai-hint="dashboard preview"
+                        />
                     </div>
                 </div>
             </div>
@@ -225,5 +264,3 @@ export default function DashboardOfferingPage() {
     </div>
   );
 }
-
-    
