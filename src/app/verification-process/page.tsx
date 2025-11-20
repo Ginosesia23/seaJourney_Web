@@ -3,6 +3,7 @@ import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Fingerprint, FileText, ShieldCheck, Search } from 'lucide-react';
+import { SeaJourneyVerificationFlow } from '@/components/sections/sea-journey-verification-flow';
 
 const processSteps = [
   {
@@ -60,6 +61,9 @@ export default function VerificationProcessPage() {
              <div className="mt-20 text-center">
                 <p className="text-muted-foreground">This process ensures that all verified documents are tamper-proof and directly traceable to a secure record in our system.</p>
             </div>
+
+            <SeaJourneyVerificationFlow />
+
           </div>
         </section>
       </main>
