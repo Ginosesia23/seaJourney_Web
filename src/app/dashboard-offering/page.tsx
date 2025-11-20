@@ -1,4 +1,7 @@
 
+'use client';
+
+import { useState } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
@@ -6,12 +9,14 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { BarChart2, Ship, Globe, FileText } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const features = [
   {
     icon: <BarChart2 className="h-8 w-8 text-accent" />,
     title: 'Advanced Analytics',
     description: 'Visualize your sea time with interactive charts, track your progress over time, and gain insights into your career trajectory.',
+    longDescription: 'Go beyond simple day counting. Our advanced analytics break down your sea time by vessel, position, and even the state of the vessel (at sea, in port, etc.). Interactive charts help you visualize your career progression and identify what you need for your next certificate.',
     image: 'https://picsum.photos/seed/dashboard-feature-1/800/600',
     imageHint: 'dashboard analytics chart'
   },
@@ -19,6 +24,7 @@ const features = [
     icon: <Ship className="h-8 w-8 text-accent" />,
     title: 'Vessel Management',
     description: 'Keep a comprehensive log of every vessel you\'ve worked on. Manage details, track time per vessel, and build your complete maritime history.',
+    longDescription: 'Your fleet at your fingertips. Add, edit, and manage all the vessels you\'ve worked on. The dashboard gives you a summary of your time on each one, making it easy to recall specific dates and trips for your CV or applications.',
     image: 'https://picsum.photos/seed/dashboard-feature-2/800/600',
     imageHint: 'vessel list management'
   },
@@ -26,6 +32,7 @@ const features = [
     icon: <Globe className="h-8 w-8 text-accent" />,
     title: 'Interactive World Map',
     description: 'Chart your voyages on a stunning, interactive hex map. See your global experience come to life and track your passages across the world.',
+    longDescription: 'Watch your career span the globe. Our unique interactive map visualizes all your recorded passages, giving you a stunning and shareable overview of your journey. It\'s not just a logbook; it\'s your story.',
     image: 'https://picsum.photos/seed/dashboard-feature-3/800/600',
     imageHint: 'world map visualization'
   },
@@ -33,12 +40,15 @@ const features = [
     icon: <FileText className="h-8 w-8 text-accent" />,
     title: 'Effortless Documentation',
     description: 'Generate and export professional sea time reports and signed testimonials, ready for your next certificate application.',
+    longDescription: 'Paperwork, simplified. Generate professional, ready-to-print sea time reports and testimonials with just a few clicks. Request digital signatures from captains and have all your documents securely stored and accessible anytime.',
     image: 'https://picsum.photos/seed/dashboard-feature-4/800/600',
     imageHint: 'document export professional'
   },
 ];
 
 export default function DashboardOfferingPage() {
+  const [selectedFeature, setSelectedFeature] = useState(features[0]);
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <Header />
@@ -87,19 +97,53 @@ export default function DashboardOfferingPage() {
                 The SeaJourney dashboard provides everything you need to take control of your maritime career records.
               </p>
             </div>
-            <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
+            <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-4 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
               {features.map((feature) => (
-                <Card key={feature.title} className="transform transition-transform duration-300 hover:-translate-y-2 hover:shadow-xl bg-card border-border/50 rounded-2xl">
-                  <CardHeader>
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10">
-                      {feature.icon}
-                    </div>
-                    <CardTitle className="pt-4 font-headline text-xl">{feature.title}</CardTitle>
-                    <CardDescription className="pt-2">{feature.description}</CardDescription>
-                  </CardHeader>
-                </Card>
+                <button
+                  key={feature.title}
+                  className="h-full text-left"
+                  onClick={() => setSelectedFeature(feature)}
+                >
+                  <Card
+                    className={cn(
+                        "flex h-full flex-col transform transition-all duration-300 bg-card border-border/50 rounded-2xl",
+                        selectedFeature.title === feature.title
+                        ? "ring-2 ring-primary shadow-2xl -translate-y-2"
+                        : "hover:shadow-xl hover:-translate-y-1"
+                    )}
+                    >
+                    <CardHeader>
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10">
+                        {feature.icon}
+                      </div>
+                      <CardTitle className="pt-4 font-headline text-xl">{feature.title}</CardTitle>
+                      <CardDescription className="pt-2">{feature.description}</CardDescription>
+                    </CardHeader>
+                  </Card>
+                </button>
               ))}
             </div>
+
+            <div className="mt-16 overflow-hidden rounded-2xl bg-card border">
+                <div className="grid grid-cols-1 lg:grid-cols-2 items-center">
+                    <div className="p-8 lg:p-12">
+                        <h3 className="font-headline text-2xl font-bold text-primary">{selectedFeature.title}</h3>
+                        <p className="mt-4 text-foreground/80">{selectedFeature.longDescription}</p>
+                    </div>
+                    <div className="aspect-video">
+                        <Image
+                            src={selectedFeature.image}
+                            alt={selectedFeature.title}
+                            width={800}
+                            height={600}
+                            className="h-full w-full object-cover"
+                            data-ai-hint={selectedFeature.imageHint}
+                            key={selectedFeature.title}
+                        />
+                    </div>
+                </div>
+            </div>
+
           </div>
         </section>
 
