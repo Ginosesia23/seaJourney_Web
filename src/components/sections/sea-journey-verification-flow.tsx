@@ -105,7 +105,7 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
           const iconColor = 
             key === 'free' ? 'text-muted-foreground' : 
             key === 'hybrid' ? 'text-accent' : 
-            'text-primary';
+            'text-[hsl(var(--chart-orange))]';
 
           return (
             <button
