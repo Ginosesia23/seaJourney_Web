@@ -61,6 +61,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
                 await Purchases.configure({ apiKey });
             }
             
+            console.log(`RC: about to log in with UID: ${user.uid}`);
             const { customerInfo, created } = await Purchases.logIn(user.uid);
             const offerings = await Purchases.getOfferings();
 
