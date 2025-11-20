@@ -9,11 +9,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Check, Ship, User, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
-// import type { PurchasesPackage } from 'react-native-purchases';
-
-// Mock type
-type PurchasesPackage = any;
+import { useToast } from '@/hooks/use-toast';
 
 const tiers = [
   {
@@ -149,19 +145,22 @@ const tiers = [
 export default function ComingSoonPage() {
   const [planType, setPlanType] = useState('crew');
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
-  const { offerings, purchasePackage } = useRevenueCat();
+  const { toast } = useToast();
 
   const filteredTiers = tiers.filter(tier => tier.type === planType);
   
-  const handlePurchase = async (rcPackage: PurchasesPackage) => {
-    setIsPurchasing(rcPackage.identifier);
-    try {
-        await purchasePackage(rcPackage);
-    } catch (e) {
-        // Error is handled in the provider
-    } finally {
-        setIsPurchasing(null);
-    }
+  const handlePurchase = async (tierIdentifier: string) => {
+    setIsPurchasing(tierIdentifier);
+    // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    toast({
+        title: "Purchase Unavailable",
+        description: "Payment system integration is not yet active.",
+        variant: "destructive"
+    });
+
+    setIsPurchasing(null);
   }
 
   return (
@@ -206,9 +205,7 @@ export default function ComingSoonPage() {
 
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
               {filteredTiers.map((tier) => {
-                const rcPackage = offerings?.current?.availablePackages.find((p: any) => p.product.identifier === tier.identifier);
-                const priceString = rcPackage?.product.priceString || tier.price;
-                const isProcessing = isPurchasing === rcPackage?.identifier;
+                const isProcessing = isPurchasing === tier.identifier;
                 
                 return (
                     <Card key={tier.name} className={cn(
@@ -225,7 +222,7 @@ export default function ComingSoonPage() {
                             <>
                                 <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
                                 <div className="flex items-baseline gap-1">
-                                <span className="text-4xl font-bold tracking-tight">{priceString}</span>
+                                <span className="text-4xl font-bold tracking-tight">{tier.price}</span>
                                 <span className="text-sm font-semibold text-muted-foreground">{tier.priceSuffix}</span>
                                 </div>
                             </>
@@ -253,8 +250,8 @@ export default function ComingSoonPage() {
                             <Button 
                                 className="w-full rounded-full"
                                 variant={tier.highlighted ? 'default' : 'outline'}
-                                disabled={!rcPackage || isProcessing}
-                                onClick={() => rcPackage && handlePurchase(rcPackage)}
+                                disabled={isProcessing}
+                                onClick={() => tier.identifier && handlePurchase(tier.identifier)}
                             >
                                 {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 {tier.cta}
