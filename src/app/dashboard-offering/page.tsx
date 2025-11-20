@@ -96,12 +96,12 @@ const features = [
     description: 'Chart your global experience.',
     component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
-             <div className="w-64 h-64 rounded-full bg-primary/5 flex items-center justify-center relative overflow-hidden">
-                <Globe className="h-32 w-32 text-primary/30 animate-pulse" />
+             <div className="w-64 h-64 rounded-full bg-primary/5 flex items-center justify-center relative overflow-hidden animate-pulse">
+                <Globe className="h-32 w-32 text-primary/30" />
                 <div className="absolute inset-0 bg-grid-white/5 [mask-image:radial-gradient(ellipse_at_center,white_20%,transparent_80%)]"></div>
                 <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
-                    <path d="M 20 50 C 40 20, 60 20, 80 50" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-70 animate-pulse" style={{ animationDuration: '3s' }} />
-                    <path d="M 25 60 C 45 85, 65 85, 85 60" stroke="hsl(var(--accent))" strokeWidth="0.5" fill="none" strokeDasharray="2 3" className="opacity-50 animate-pulse" />
+                    <path d="M 20 50 C 40 20, 60 20, 80 50" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-70" style={{ animation: 'dash 5s linear infinite' }} />
+                    <path d="M 25 60 C 45 85, 65 85, 85 60" stroke="hsl(var(--accent))" strokeWidth="0.5" fill="none" strokeDasharray="2 3" className="opacity-50" style={{ animation: 'dash 3s linear infinite reverse' }} />
                 </svg>
              </div>
              <CardTitle className="text-lg flex items-center gap-2 text-white/80 mt-6">World Map</CardTitle>
@@ -272,7 +272,7 @@ export default function DashboardOfferingPage() {
                                         key={feature.id}
                                         onClick={() => setActiveFeature(feature.id)}
                                         className={cn(
-                                            "w-full relative text-left p-3 rounded-lg transition-all duration-300 border overflow-hidden group",
+                                            "w-full relative text-left p-3 rounded-xl transition-all duration-300 border overflow-hidden group",
                                             isActive 
                                                 ? "bg-primary/30 border-primary/50" 
                                                 : "bg-white/5 border-transparent hover:bg-white/10 hover:border-white/20"
@@ -348,6 +348,11 @@ export default function DashboardOfferingPage() {
       </main>
       <Footer />
        <style jsx global>{`
+        @keyframes dash {
+          to {
+            stroke-dashoffset: -100;
+          }
+        }
         .bg-grid-white\\/5 {
           background-image:
             linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
@@ -358,5 +363,3 @@ export default function DashboardOfferingPage() {
     </div>
   );
 }
-
-    
