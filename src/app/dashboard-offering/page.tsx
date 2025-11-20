@@ -7,7 +7,7 @@ import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Users, Fingerprint, Bot, CheckCircle } from 'lucide-react';
+import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Users, Fingerprint, Bot, CheckCircle, ShieldCheck, AreaChart, ShipWheel } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MainChart from '@/components/dashboard/main-chart';
 import { Badge } from '@/components/ui/badge';
@@ -100,8 +100,8 @@ const features = [
                 <Globe className="h-32 w-32 text-primary/30 animate-pulse" />
                 <div className="absolute inset-0 bg-grid-white/5 [mask-image:radial-gradient(ellipse_at_center,white_20%,transparent_80%)]"></div>
                 <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
-                    <path d="M 20 50 C 40 20, 60 20, 80 50" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-70" style={{ animation: 'dash 5s linear infinite' }} />
-                    <path d="M 25 60 C 45 85, 65 85, 85 60" stroke="hsl(var(--accent))" strokeWidth="0.5" fill="none" strokeDasharray="2 3" className="opacity-50" style={{ animation: 'dash 3s linear infinite reverse' }} />
+                    <path d="M 20 50 C 40 20, 60 20, 80 50" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-70 animate-dash" />
+                    <path d="M 25 60 C 45 85, 65 85, 85 60" stroke="hsl(var(--accent))" strokeWidth="0.5" fill="none" strokeDasharray="2 3" className="opacity-50 animate-dash-reverse" />
                 </svg>
              </div>
              <CardTitle className="text-lg flex items-center gap-2 text-white/80 mt-6">World Map</CardTitle>
@@ -325,6 +325,35 @@ export default function DashboardOfferingPage() {
             </div>
         </section>
 
+        {/* Feature Pillars Section */}
+        <section className="bg-header text-header-foreground border-t border-white/10 py-20 sm:py-28">
+            <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+                    <div className="text-center">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 mb-4">
+                            <ShieldCheck className="h-6 w-6 text-accent" />
+                        </div>
+                        <h3 className="font-headline text-xl font-bold text-white">Verifiable Records</h3>
+                        <p className="mt-2 text-header-foreground/80">Generate official, tamper-proof documents with unique QR codes for instant verification by authorities.</p>
+                    </div>
+                    <div className="text-center">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 mb-4">
+                            <AreaChart className="h-6 w-6 text-accent" />
+                        </div>
+                        <h3 className="font-headline text-xl font-bold text-white">Career Analytics</h3>
+                        <p className="mt-2 text-header-foreground/80">Visualize your sea time, track progress towards your next certificate, and gain insights into your career trajectory.</p>
+                    </div>
+                    <div className="text-center">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 mb-4">
+                            <ShipWheel className="h-6 w-6 text-accent" />
+                        </div>
+                        <h3 className="font-headline text-xl font-bold text-white">All-in-One Management</h3>
+                        <p className="mt-2 text-header-foreground/80">From single crew members to entire fleets, our dashboard provides the tools to manage everything in one place.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
 
         {/* CTA Section */}
         <section id="cta" className="bg-header text-header-foreground border-t border-white/10">
@@ -352,6 +381,20 @@ export default function DashboardOfferingPage() {
           to {
             stroke-dashoffset: -100;
           }
+        }
+        @keyframes dash-reverse {
+            from {
+              stroke-dashoffset: -100;
+            }
+            to {
+              stroke-dashoffset: 0;
+            }
+          }
+        .animate-dash {
+            animation: dash 5s linear infinite;
+        }
+        .animate-dash-reverse {
+            animation: dash-reverse 3s linear infinite;
         }
         .bg-grid-white\\/5 {
           background-image:
