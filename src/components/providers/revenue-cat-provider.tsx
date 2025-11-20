@@ -2,15 +2,16 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-// import Purchases, { PurchasesOffering, PurchasesPackage, CustomerInfo, LOG_LEVEL } from 'purchases-react-native';
+// import Purchases, { PurchasesOffering, PurchasesPackage, CustomerInfo, LOG_LEVEL } from 'react-native-purchases';
 import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 
-// Mock types since the library is removed
+// Mock types since the import is commented out
 type CustomerInfo = any;
 type PurchasesOffering = any;
 type PurchasesPackage = any;
+
 
 interface RevenueCatContextType {
   customerInfo: CustomerInfo | null;
@@ -47,10 +48,10 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const init = async () => {
-      console.log("RevenueCatProvider: Skipping initialization as package is not installed.");
       // const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
       // if (!apiKey) {
       //   console.error("RevenueCat API key not found. Please set NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY in your .env file.");
+      //   setRevenueCatState(s => ({ ...s, isReady: true }));
       //   return;
       // }
       // await Purchases.setLogLevel(LOG_LEVEL.DEBUG);
@@ -59,8 +60,8 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       // const offerings = await Purchases.getOfferings();
       // const customerInfo = await Purchases.getCustomerInfo();
       setRevenueCatState({
-        customerInfo: null, // offerings.current,
-        offerings: null,
+        customerInfo: null, // customerInfo,
+        offerings: null, // offerings,
         isReady: true
       });
     };
@@ -69,41 +70,44 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const updateUser = async () => {
-      if (user && revenueCatState.isReady) {
-        // try {
-        //   const { customerInfo } = await Purchases.logIn(user.uid);
-        //   setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
-        // } catch (error) {
-        //   try {
-        //     const newCustomerInfo = await Purchases.restorePurchases();
-        //     setRevenueCatState(prevState => ({ ...prevState, customerInfo: newCustomerInfo }));
-        //   } catch (e) {
-        //     console.error("RevenueCat: Could not restore purchases.", e);
-        //     toast({
-        //       title: "Restore Purchases Failed",
-        //       description: "We couldn't restore your previous purchases. Please try again.",
-        //       variant: 'destructive',
-        //     })
-        //   }
-        // }
-      } else if (!user && revenueCatState.isReady) {
-        // try {
-        //     const { customerInfo } = await Purchases.logOut();
-        //     setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
-        // } catch(e) {
-        //     console.error("RevenueCat: Failed to log out", e);
-        // }
-      }
+      // if (user && revenueCatState.isReady) {
+      //   try {
+      //     const { customerInfo } = await Purchases.logIn(user.uid);
+      //     setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
+      //   } catch (error) {
+      //     try {
+      //       const newCustomerInfo = await Purchases.restorePurchases();
+      //       setRevenueCatState(prevState => ({ ...prevState, customerInfo: newCustomerInfo }));
+      //     } catch (e) {
+      //       console.error("RevenueCat: Could not restore purchases.", e);
+      //       toast({
+      //         title: "Restore Purchases Failed",
+      //         description: "We couldn't restore your previous purchases. Please try again.",
+      //         variant: 'destructive',
+      //       })
+      //     }
+      //   }
+      // } else if (!user && revenueCatState.isReady) {
+      //   try {
+      //       const { customerInfo } = await Purchases.logOut();
+      //       setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
+      //   } catch(e) {
+      //       console.error("RevenueCat: Failed to log out", e);
+      //   }
+      // }
     };
     updateUser();
   }, [user, revenueCatState.isReady, toast]);
 
   const purchasePackage = async (pkg: PurchasesPackage) => {
-    toast({
-        title: "Purchase Inactive",
-        description: "Payment system is not configured.",
-        variant: "destructive"
-     });
+    if (!process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY) {
+        toast({
+            title: "Purchase Inactive",
+            description: "Payment system is not configured.",
+            variant: "destructive"
+        });
+        return;
+    }
     // try {
     //   const { customerInfo } = await Purchases.purchasePackage(pkg);
     //   setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
@@ -125,11 +129,14 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const restorePurchases = async () => {
-     toast({
+     if (!process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY) {
+      toast({
         title: "Restore Inactive",
         description: "Payment system is not configured.",
         variant: "destructive"
       });
+      return;
+    }
     // try {
     //   const restoredCustomerInfo = await Purchases.restorePurchases();
     //   setRevenueCatState(prevState => ({ ...prevState, customerInfo: restoredCustomerInfo }));

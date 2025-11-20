@@ -10,11 +10,10 @@ import { Check, Ship, User, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
-// import type { PurchasesPackage } from 'purchases-react-native';
+// import type { PurchasesPackage } from 'react-native-purchases';
 
 // Mock type
 type PurchasesPackage = any;
-
 
 const tiers = [
   {
