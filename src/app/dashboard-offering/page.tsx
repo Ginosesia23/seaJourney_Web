@@ -8,11 +8,12 @@ import { Button } from '@/components/ui/button';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { BarChart2, Ship, Globe, FileText, FileDown, CheckCircle, Route, LifeBuoy, Anchor, Award } from 'lucide-react';
+import { BarChart2, Ship, Globe, FileText, CheckCircle, Route } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MainChart from '@/components/dashboard/main-chart';
 import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableRow, TableHead, TableHeader } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
+import { FileDown } from 'lucide-react';
 
 const features = [
   {
@@ -146,28 +147,28 @@ export default function DashboardOfferingPage() {
     <div className="flex min-h-screen flex-col bg-background">
       <Header />
       <main className="flex-1">
-        {/* Interactive Dummy Dashboard Section */}
+        {/* Hero Section */}
         <section className="relative overflow-hidden bg-header text-header-foreground py-20 sm:py-28">
             <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="text-center">
-                    <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-6xl">
-                        Your Career Command Center
-                    </h1>
-                    <p className="mt-6 max-w-3xl mx-auto text-lg leading-8 text-header-foreground/80">
-                        This is a preview of the powerful dashboard you'll unlock as a premium member. Visualize your sea time, manage your fleet, and chart your course to success.
-                    </p>
-                </div>
-                
-                 <div className="mt-16 [perspective:2000px]">
-                    <div className="rounded-xl border-4 border-white/10 bg-black/20 p-4 shadow-2xl transition-transform duration-500 hover:[transform:rotateY(-10deg)_scale(1.05)] [transform-style:preserve-3d] [transform:rotateY(-10deg)]">
-                       <Image src="/dashboard-preview.png" alt="SeaJourney Dashboard Preview" width={1200} height={800} className="rounded-lg" />
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+                    <div className="text-center lg:text-left">
+                        <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-6xl">
+                            Your Career Command Center
+                        </h1>
+                        <p className="mt-6 max-w-3xl text-lg leading-8 text-header-foreground/80">
+                            This is a preview of the powerful dashboard you'll unlock as a premium member. Visualize your sea time, manage your fleet, and chart your course to success.
+                        </p>
+                         <div className="mt-10 flex items-center justify-center lg:justify-start gap-4">
+                            <Button asChild size="lg" className="rounded-full bg-accent hover:bg-accent/90 text-white">
+                                <Link href="/signup">Get Started & Unlock Your Dashboard</Link>
+                            </Button>
+                        </div>
                     </div>
-                </div>
-
-                 <div className="mt-16 flex items-center justify-center gap-4">
-                    <Button asChild size="lg" className="rounded-full bg-accent hover:bg-accent/90 text-white">
-                        <Link href="/signup">Get Started & Unlock Your Dashboard</Link>
-                    </Button>
+                     <div className="[perspective:2000px]">
+                        <div className="rounded-xl border-4 border-white/10 bg-black/20 p-4 shadow-2xl transition-transform duration-500 hover:[transform:rotateY(-10deg)_scale(1.05)] [transform-style:preserve-3d] [transform:rotateY(-10deg)]">
+                           <Image src="/dashboard-preview.png" alt="SeaJourney Dashboard Preview" width={1200} height={800} className="rounded-lg" />
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -212,7 +213,7 @@ export default function DashboardOfferingPage() {
                     key={feature.title}
                     ref={(el) => (featureRefs.current[index] = el)}
                     data-index={index}
-                    className="flex flex-col items-start"
+                    className="flex flex-col items-start min-h-[30vh]"
                    >
                      <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 mb-4">
                         {feature.icon}
