@@ -2,6 +2,10 @@
 'use client';
 
 import React, { useState } from "react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CheckCircle, Fingerprint, Cloud, FileText } from 'lucide-react';
 
 type PlanKey = "free" | "hybrid" | "premium";
 
@@ -27,6 +31,46 @@ const PLAN_COPY: Record<PlanKey, { title: string; body: string }> = {
   },
 };
 
+const planDetails = {
+    free: {
+        title: "Free Export",
+        subtitle: "Captain Signed PDF",
+        features: [
+            "Crew logs sea time locally on the device.",
+            "User generates a basic SeaJourney PDF summary.",
+            "Captain or Chief Officer signs the PDF."
+        ],
+        mca_title: "MCA Verification",
+        mca_desc: "MCA reviews the PDF as they would a paper logbook: captain signature + vessel details = primary proof of service.",
+        footnote: "No cloud needed. Ideal for crew who want offline-only logs."
+    },
+    hybrid: {
+        title: "Hybrid Export",
+        subtitle: "PDF + QR + Cloud Snapshot",
+        features: [
+            "User chooses “Official Export” in SeaJourney.",
+            "App generates a PDF with QR code, entry ID and cryptographic hash.",
+            "App uploads only that export snapshot (ID + hash + summary data) to the cloud."
+        ],
+        mca_title: "MCA Verification",
+        mca_desc: "MCA scans the QR or enters the entry ID on the SeaJourney portal, and confirms the PDF matches the stored export, detecting any tampering.",
+        footnote: "Great balance for free users who still want verifiable exports."
+    },
+    premium: {
+        title: "Premium Export",
+        subtitle: "Full Digital Verifiable Logbook",
+        features: [
+            "All logs stored in the SeaJourney cloud with audit trail (timestamps, device, edits).",
+            "Captain / management receives a secure sign-off request and approves via authenticated login.",
+            "SeaJourney seals the entry with a digital signature and immutable hash.",
+            "Exported PDFs include QR, verification link and signature metadata."
+        ],
+        mca_title: "MCA Verification",
+        mca_desc: "MCA opens the SeaJourney portal and can see the original signed record, timestamps, audit trail and vessel sign-off, treating it as an official digital logbook.",
+        footnote: "Designed to be the “gold standard” for digital sea-time evidence."
+    }
+}
+
 export const SeaJourneyVerificationFlow: React.FC = () => {
   const [activePlan, setActivePlan] = useState<PlanKey>("free");
   const [activeStep, setActiveStep] = useState<"log" | "store" | "export">(
@@ -36,231 +80,106 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
   const summary = PLAN_COPY[activePlan];
 
   return (
-    <section className="w-full max-w-5xl mx-auto my-8 px-4 py-6 rounded-3xl bg-[radial-gradient(circle_at_top_left,#003366_0,#000e1c_45%,#00060e_100%)] text-slate-50 shadow-[0_24px_60px_rgba(0,0,0,0.7)]">
-      {/* Header */}
-      <header className="text-center mb-6">
-        <h1 className="text-2xl sm:text-3xl font-semibold tracking-wide mb-1">
+    <section className="w-full max-w-6xl mx-auto my-16">
+      <header className="text-center mb-12">
+        <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
           SeaJourney Verification Ecosystem
-        </h1>
-        <p className="max-w-2xl mx-auto text-sm sm:text-base text-slate-200/80">
+        </h2>
+        <p className="mt-4 max-w-3xl mx-auto text-lg leading-8 text-foreground/80">
           See how SeaJourney turns crew logs into MCA-usable evidence, across
           Free, Hybrid and Premium verification paths.
         </p>
       </header>
 
       {/* Top steps */}
-      <div className="relative flex flex-col md:flex-row justify-between gap-3 md:gap-4 mx-2 mb-3">
-        {/* background line (desktop only) */}
-        <div className="hidden md:block absolute left-[6%] right-[6%] top-[21px] h-[2px] bg-gradient-to-r from-sky-500/30 via-sky-500 to-sky-500/30 pointer-events-none" />
-
+      <div className="relative mb-12 flex flex-col md:flex-row justify-center items-center gap-4 md:gap-8">
+        <div className="absolute top-1/2 left-0 w-full h-0.5 bg-border -translate-y-1/2 hidden md:block" />
+        
         {[
-          {
-            key: "log" as const,
-            label: "1. Log Sea Time",
-            desc: "Crew records days, ranks, vessels.",
-          },
-          {
-            key: "store" as const,
-            label: "2. Store Data",
-            desc: "Local device or secure cloud sync.",
-          },
-          {
-            key: "export" as const,
-            label: "3. Choose Export",
-            desc: "Select Free, Hybrid, or Premium export.",
-          },
-        ].map((step) => {
-          const isActive = activeStep === step.key;
-          return (
-            <button
-              key={step.key}
-              type="button"
+          { key: "log" as const, label: "1. Log Sea Time", desc: "Crew records days, ranks, vessels." },
+          { key: "store" as const, label: "2. Store Data", desc: "Local device or cloud sync." },
+          { key: "export" as const, label: "3. Choose Export", desc: "Free, Hybrid, or Premium." },
+        ].map((step, index) => (
+          <div key={step.key} className="relative z-10 flex flex-col items-center text-center">
+            <Button
+              variant={activeStep === step.key ? "default" : "outline"}
+              size="icon"
+              className={cn(
+                "rounded-full h-12 w-12 text-lg font-bold transition-all",
+                activeStep === step.key && "bg-primary text-primary-foreground ring-4 ring-background"
+              )}
               onClick={() => setActiveStep(step.key)}
-              className={[
-                "relative flex-1 text-center px-3 py-4 rounded-2xl transition-all",
-                "md:bg-transparent md:border-0 border border-sky-500/30 bg-slate-950/50",
-                isActive
-                  ? "md:-translate-y-0.5 opacity-100"
-                  : "opacity-70 hover:opacity-100",
-              ].join(" ")}
             >
-              <div
-                className={[
-                  "mx-auto mb-2 w-4 h-4 rounded-full border-2 border-sky-400",
-                  "bg-[radial-gradient(circle,#00a8ff_0,#0077ff_40%,#000e1c_100%)] shadow-[0_0_14px_rgba(0,168,255,0.8)]",
-                ].join(" ")}
-              />
-              <div className="text-xs sm:text-sm font-semibold">
-                {step.label}
-              </div>
-              <div className="text-[0.7rem] sm:text-xs text-slate-200/80 mt-0.5">
-                {step.desc}
-              </div>
-            </button>
-          );
-        })}
+              {index + 1}
+            </Button>
+            <h3 className="mt-4 text-base font-semibold">{step.label}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{step.desc}</p>
+          </div>
+        ))}
       </div>
 
-      <p className="text-center text-xs sm:text-sm text-slate-200/80 mb-3">
+      <p className="text-center text-muted-foreground mb-8">
         Export paths from SeaJourney to MCA-usable documents:
       </p>
 
       {/* Plan cards */}
-      <div className="flex flex-col lg:flex-row gap-4 mt-2">
-        {/* FREE */}
-        <button
-          type="button"
-          onClick={() => {
-            setActivePlan("free");
-            setActiveStep("export");
-          }}
-          className={[
-            "group flex-1 min-w-0 text-left rounded-2xl border bg-slate-950/70 px-4 py-4 transition-all relative overflow-hidden",
-            activePlan === "free"
-              ? "border-emerald-400 shadow-[0_18px_42px_rgba(0,0,0,0.7)] -translate-y-0.5 bg-slate-950"
-              : "border-sky-500/40 hover:border-emerald-300/80 hover:-translate-y-0.5",
-          ].join(" ")}
-        >
-          <div className="absolute inset-0 opacity-0 group-hover:opacity-40 transition-opacity bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.4),transparent_55%)] pointer-events-none" />
-          <header className="flex items-center gap-2 mb-2 relative z-10">
-            <span className="px-2 py-0.5 text-[0.65rem] uppercase tracking-[0.2em] rounded-full border border-emerald-400 text-emerald-300">
-              Free
-            </span>
-            <h2 className="text-sm sm:text-base font-semibold">
-              Free Export – Captain Signed PDF
-            </h2>
-          </header>
-          <ol className="list-decimal pl-5 space-y-1 text-[0.8rem] sm:text-[0.85rem] relative z-10">
-            <li>Crew logs sea time locally on the device.</li>
-            <li>User generates a basic SeaJourney PDF summary.</li>
-            <li>Captain or Chief Officer signs the PDF.</li>
-          </ol>
-          <div className="mt-2 rounded-xl border border-emerald-400/60 bg-emerald-500/5 px-3 py-2 text-[0.78rem] sm:text-xs relative z-10">
-            <h3 className="uppercase tracking-[0.18em] text-[0.65rem] mb-1 text-emerald-200">
-              MCA Verification
-            </h3>
-            <p className="text-slate-100/90">
-              MCA reviews the PDF as they would a paper logbook: captain
-              signature + vessel details = primary proof of service.
-            </p>
-          </div>
-          <p className="mt-2 text-[0.72rem] sm:text-[0.76rem] text-slate-200/80 relative z-10">
-            No cloud needed. Ideal for crew who want offline-only logs.
-          </p>
-        </button>
-
-        {/* HYBRID */}
-        <button
-          type="button"
-          onClick={() => {
-            setActivePlan("hybrid");
-            setActiveStep("export");
-          }}
-          className={[
-            "group flex-1 min-w-0 text-left rounded-2xl border bg-slate-950/70 px-4 py-4 transition-all relative overflow-hidden",
-            activePlan === "hybrid"
-              ? "border-amber-300 shadow-[0_18px_42px_rgba(0,0,0,0.7)] -translate-y-0.5 bg-slate-950"
-              : "border-sky-500/40 hover:border-amber-200/80 hover:-translate-y-0.5",
-          ].join(" ")}
-        >
-          <div className="absolute inset-0 opacity-0 group-hover:opacity-40 transition-opacity bg-[radial-gradient(circle_at_top_left,rgba(252,211,77,0.4),transparent_55%)] pointer-events-none" />
-          <header className="flex items-center gap-2 mb-2 relative z-10">
-            <span className="px-2 py-0.5 text-[0.65rem] uppercase tracking-[0.2em] rounded-full border border-amber-300 text-amber-200">
-              Hybrid
-            </span>
-            <h2 className="text-sm sm:text-base font-semibold">
-              Hybrid Export – PDF + QR + Cloud Snapshot
-            </h2>
-          </header>
-          <ol className="list-decimal pl-5 space-y-1 text-[0.8rem] sm:text-[0.85rem] relative z-10">
-            <li>User chooses “Official Export” in SeaJourney.</li>
-            <li>
-              App generates a PDF with{" "}
-              <strong>QR code, entry ID and cryptographic hash</strong>.
-            </li>
-            <li>
-              App uploads <strong>only that export snapshot</strong> (ID + hash
-              + summary data) to the cloud.
-            </li>
-          </ol>
-          <div className="mt-2 rounded-xl border border-amber-300/70 bg-amber-300/5 px-3 py-2 text-[0.78rem] sm:text-xs relative z-10">
-            <h3 className="uppercase tracking-[0.18em] text-[0.65rem] mb-1 text-amber-100">
-              MCA Verification
-            </h3>
-            <p className="text-slate-100/90">
-              MCA scans the QR or enters the entry ID on the SeaJourney
-              portal, and confirms the PDF matches the stored export, detecting
-              any tampering.
-            </p>
-          </div>
-          <p className="mt-2 text-[0.72rem] sm:text-[0.76rem] text-slate-200/80 relative z-10">
-            Great balance for free users who still want verifiable exports.
-          </p>
-        </button>
-
-        {/* PREMIUM */}
-        <button
-          type="button"
-          onClick={() => {
-            setActivePlan("premium");
-            setActiveStep("export");
-          }}
-          className={[
-            "group flex-1 min-w-0 text-left rounded-2xl border bg-slate-950/70 px-4 py-4 transition-all relative overflow-hidden",
-            activePlan === "premium"
-              ? "border-sky-400 shadow-[0_18px_42px_rgba(0,0,0,0.7)] -translate-y-0.5 bg-slate-950"
-              : "border-sky-500/40 hover:border-sky-300 hover:-translate-y-0.5",
-          ].join(" ")}
-        >
-          <div className="absolute inset-0 opacity-0 group-hover:opacity-40 transition-opacity bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.4),transparent_55%)] pointer-events-none" />
-          <header className="flex items-center gap-2 mb-2 relative z-10">
-            <span className="px-2 py-0.5 text-[0.65rem] uppercase tracking-[0.2em] rounded-full border border-sky-400 text-sky-200">
-              Premium
-            </span>
-            <h2 className="text-sm sm:text-base font-semibold">
-              Premium Export – Full Digital Verifiable Logbook
-            </h2>
-          </header>
-          <ol className="list-decimal pl-5 space-y-1 text-[0.8rem] sm:text-[0.85rem] relative z-10">
-            <li>
-              All logs stored in the SeaJourney cloud with{" "}
-              <strong>audit trail</strong> (timestamps, device, edits).
-            </li>
-            <li>
-              Captain / management receives a secure sign-off request and
-              approves via authenticated login.
-            </li>
-            <li>
-              SeaJourney seals the entry with a digital signature and immutable
-              hash.
-            </li>
-            <li>
-              Exported PDFs include QR, verification link and signature
-              metadata.
-            </li>
-          </ol>
-          <div className="mt-2 rounded-xl border border-sky-400/70 bg-sky-400/5 px-3 py-2 text-[0.78rem] sm:text-xs relative z-10">
-            <h3 className="uppercase tracking-[0.18em] text-[0.65rem] mb-1 text-sky-100">
-              MCA Verification
-            </h3>
-            <p className="text-slate-100/90">
-              MCA opens the SeaJourney portal and can see the original signed
-              record, timestamps, audit trail and vessel sign-off, treating it
-              as an official digital logbook.
-            </p>
-          </div>
-          <p className="mt-2 text-[0.72rem] sm:text-[0.76rem] text-slate-200/80 relative z-10">
-            Designed to be the “gold standard” for digital sea-time evidence.
-          </p>
-        </button>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+        {Object.entries(planDetails).map(([key, plan]) => {
+          const isActive = activePlan === key;
+          return (
+            <button
+                key={key}
+                onClick={() => {
+                    setActivePlan(key as PlanKey);
+                    setActiveStep("export");
+                }}
+                className="text-left h-full"
+            >
+                <Card className={cn(
+                    "h-full flex flex-col transition-all duration-300 rounded-2xl",
+                    isActive ? "border-primary ring-2 ring-primary shadow-2xl -translate-y-2" : "hover:shadow-xl hover:-translate-y-1"
+                )}>
+                    <CardHeader>
+                        <div className="flex justify-between items-center">
+                           <CardTitle className="font-headline text-xl">{plan.title}</CardTitle>
+                           {isActive && <CheckCircle className="h-6 w-6 text-primary"/>}
+                        </div>
+                        <CardDescription>{plan.subtitle}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex-grow space-y-3">
+                        <ul className="space-y-2">
+                           {plan.features.map((feature, i) => (
+                               <li key={i} className="flex items-start gap-3">
+                                   <Fingerprint className="h-4 w-4 mt-1 text-accent flex-shrink-0"/>
+                                   <span className="text-sm text-foreground/80">{feature}</span>
+                               </li>
+                           ))}
+                        </ul>
+                        <div className="rounded-lg border bg-muted/50 p-4">
+                            <h4 className="font-semibold text-sm flex items-center gap-2"><Cloud className="h-4 w-4"/> {plan.mca_title}</h4>
+                            <p className="text-sm text-muted-foreground mt-2">{plan.mca_desc}</p>
+                        </div>
+                    </CardContent>
+                    <div className="p-6 pt-0">
+                         <p className="text-xs text-muted-foreground italic">{plan.footnote}</p>
+                    </div>
+                </Card>
+            </button>
+          )
+        })}
       </div>
 
       {/* Summary */}
-      <div className="mt-5 rounded-2xl border border-sky-400/70 bg-gradient-to-br from-sky-500/30 via-slate-950/90 to-slate-950 px-4 py-3">
-        <h2 className="text-sm sm:text-base font-semibold mb-1">
-          {summary.title}
-        </h2>
-        <p className="text-xs sm:text-sm text-slate-50/95">{summary.body}</p>
+      <div className="mt-12 rounded-xl border-2 border-primary/80 bg-card p-6 shadow-lg">
+        <div className="flex items-start gap-4">
+            <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center rounded-full bg-primary/10">
+                <FileText className="h-5 w-5 text-primary"/>
+            </div>
+            <div>
+                <h3 className="text-lg font-bold text-primary">{summary.title}</h3>
+                <p className="mt-1 text-foreground/90">{summary.body}</p>
+            </div>
+        </div>
       </div>
     </section>
   );
