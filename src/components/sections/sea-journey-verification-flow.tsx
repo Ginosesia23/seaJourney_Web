@@ -107,6 +107,11 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
   return (
     <section className="w-full max-w-6xl mx-auto">
       <header className="text-center mb-12">
+        <div className="flex justify-center mb-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                <ShieldCheck className="h-6 w-6 text-primary" />
+            </div>
+        </div>
         <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
           SeaJourney Verification Ecosystem
         </h2>
