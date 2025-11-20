@@ -138,10 +138,18 @@ const features = [
     component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
              <div className="w-full max-w-lg aspect-video rounded-lg bg-primary/5 flex items-center justify-center relative overflow-hidden p-4">
-                <svg className="w-full h-full" viewBox="0 0 1024 512">
-                  <path fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5" d="M512 0C229.23 0 0 229.23 0 512h1024C1024 229.23 794.77 0 512 0zM493.5 256l-31-43-15-4-3-15 15-18 14-3 15 13 19 14 16 2 31-15 19-15 11 11-13 18-39 31-2 15zm-104.5 13l-16-1-10 16-1 15 11 10 16 3h18l12-10 1-13-10-18-20-2zM100 248l-1-2-19-14-14-1-12 11-1 12 11 12 11 2h18l13-12 2-11-9-16-19-3zm185 24l-15-14-15-1h-16l-14 13-1 15 10 16 11 2h18l13-10 1-14-10-17-17-3zm-9-58l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-119 50l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm153-31l-14-14-15-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-44-53l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zM800 251l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm-143-58l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm53 32l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3zm116-5l-15-14-14-1h-17l-13 13-1 15 10 15 12 2h18l13-10 1-14-10-17-18-3z"></path>
-                  <path d="M 240 250 C 350 180, 550 180, 680 280" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="4 6" className="opacity-70 animate-dash" />
-                  <path d="M 280 310 C 400 380, 600 380, 750 290" stroke="hsl(var(--accent))" strokeWidth="1" fill="none" strokeDasharray="3 4" className="opacity-50 animate-dash-reverse" />
+                <svg viewBox="0 0 800 400" className="w-full h-full">
+                    <defs>
+                        <pattern id="hex-bg" patternUnits="userSpaceOnUse" width="14" height="24.25" patternTransform="scale(1) rotate(0)">
+                            <g>
+                            <polygon points="7,0 0,4.04 0,12.12 7,16.16 14,12.12 14,4.04" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
+                            <polygon points="7,16.16 0,20.2 0,28.28 7,32.32 14,28.28 14,20.2" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
+                            </g>
+                        </pattern>
+                    </defs>
+                    <rect width="800" height="400" fill="url(#hex-bg)"></rect>
+                    <path d="M 240 250 C 350 180, 550 180, 680 280" stroke="hsl(var(--accent))" strokeWidth="2" fill="none" strokeDasharray="4 6" className="opacity-70 animate-dash" />
+                    <path d="M 280 310 C 400 380, 600 380, 750 290" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-50 animate-dash-reverse" />
                 </svg>
              </div>
              <CardTitle className="text-lg flex items-center gap-2 text-white/80 mt-6">World Map</CardTitle>
