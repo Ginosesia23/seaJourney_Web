@@ -182,6 +182,7 @@ export default function ComingSoonPage() {
               {filteredTiers.map((tier) => (
                 <Card key={tier.name} className={cn(
                     "flex flex-col rounded-2xl",
+                    tier.name === 'Free' ? 'bg-primary/5 border-primary/20' : '',
                     tier.highlighted ? 'border-primary ring-2 ring-primary' : ''
                 )}>
                   <CardHeader className="flex-grow">
@@ -204,7 +205,7 @@ export default function ComingSoonPage() {
                   </CardContent>
                   <CardFooter>
                     {tier.href ? (
-                        <Button asChild className="w-full rounded-full" variant={tier.highlighted ? 'default' : 'outline'}>
+                        <Button asChild className="w-full rounded-full" variant={tier.name === 'Free' ? 'default' : (tier.highlighted ? 'default' : 'outline')}>
                             <Link href={tier.href} target="_blank" rel="noopener noreferrer">
                                 <Download className="mr-2 h-4 w-4" /> {tier.cta}
                             </Link>
