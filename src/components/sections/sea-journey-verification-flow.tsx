@@ -83,8 +83,26 @@ const breakdownDetails: Record<PlanKey, { icon: React.FC<any>, title: string, de
     ]
 }
 
+const planColorStyles: Record<PlanKey, { icon: string; bg: string }> = {
+    free: {
+        icon: 'text-muted-foreground',
+        bg: 'bg-muted/50',
+    },
+    hybrid: {
+        icon: 'text-accent',
+        bg: 'bg-accent/10',
+    },
+    premium: {
+        icon: 'text-[hsl(var(--chart-orange))]',
+        bg: 'bg-[hsl(var(--chart-orange))]/10',
+    },
+};
+
+
 export const SeaJourneyVerificationFlow: React.FC = () => {
   const [activePlan, setActivePlan] = useState<PlanKey>("hybrid");
+  
+  const activeColors = planColorStyles[activePlan];
 
   return (
     <section className="w-full max-w-6xl mx-auto">
@@ -99,23 +117,16 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
 
       {/* Plan cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-        {Object.entries(planDetails).map(([key, plan]) => {
+        {(Object.keys(planDetails) as PlanKey[]).map((key) => {
+          const plan = planDetails[key];
           const isActive = activePlan === key;
           const Icon = plan.icon;
-          const iconColor = 
-            key === 'free' ? 'text-muted-foreground' : 
-            key === 'hybrid' ? 'text-accent' : 
-            'text-[hsl(var(--chart-orange))]';
-            
-          const iconBgColor = 
-            key === 'free' ? 'bg-muted/50' :
-            key === 'hybrid' ? 'bg-accent/10' :
-            'bg-[hsl(var(--chart-orange))]/10';
+          const colors = planColorStyles[key];
 
           return (
             <button
                 key={key}
-                onClick={() => setActivePlan(key as PlanKey)}
+                onClick={() => setActivePlan(key)}
                 className="text-left h-full"
             >
                 <Card className={cn(
@@ -124,8 +135,8 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
                 )}>
                     <CardHeader>
                         <div className="flex justify-between items-start">
-                           <div className={cn("flex h-12 w-12 items-center justify-center rounded-xl mb-4", iconBgColor)}>
-                                <Icon className={cn("h-6 w-6", iconColor)} />
+                           <div className={cn("flex h-12 w-12 items-center justify-center rounded-xl mb-4", colors.bg)}>
+                                <Icon className={cn("h-6 w-6", colors.icon)} />
                            </div>
                            {isActive && <CheckCircle className="h-6 w-6 text-primary"/>}
                         </div>
@@ -150,8 +161,8 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
             {breakdownDetails[activePlan].map((step, index) => (
                 <Card key={index} className="bg-card/50 rounded-xl">
                     <CardHeader className="text-center items-center">
-                         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 mb-2">
-                             <step.icon className="h-6 w-6 text-accent" />
+                         <div className={cn("flex h-12 w-12 items-center justify-center rounded-full mb-2", activeColors.bg)}>
+                             <step.icon className={cn("h-6 w-6", activeColors.icon)} />
                         </div>
                         <CardTitle className="font-headline text-lg">{step.title}</CardTitle>
                     </CardHeader>
