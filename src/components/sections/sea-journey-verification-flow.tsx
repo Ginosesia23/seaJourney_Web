@@ -12,39 +12,23 @@ const planDetails = {
     free: {
         title: "Free Export",
         subtitle: "Captain Signed PDF",
-        features: [
-            "Crew logs sea time locally on the device.",
-            "User generates a basic SeaJourney PDF summary.",
-            "Captain or Chief Officer signs the PDF."
-        ],
+        description: "A basic PDF summary is generated from locally stored logs for the captain to sign, similar to a traditional paper logbook.",
         mca_title: "MCA Verification",
-        mca_desc: "MCA reviews the PDF as they would a paper logbook: captain signature + vessel details = primary proof of service.",
-        footnote: "No cloud needed. Ideal for crew who want offline-only logs."
+        mca_desc: "The MCA reviews the signed PDF, treating the captain's signature as the primary proof of service.",
     },
     hybrid: {
         title: "Hybrid Export",
         subtitle: "PDF + QR + Cloud Snapshot",
-        features: [
-            "User chooses “Official Export” in SeaJourney.",
-            "App generates a PDF with QR code, entry ID and cryptographic hash.",
-            "App uploads only that export snapshot (ID + hash + summary data) to the cloud."
-        ],
+        description: "Generates a PDF with a unique QR code. A tamper-proof snapshot of the record is stored in the cloud for verification.",
         mca_title: "MCA Verification",
-        mca_desc: "MCA scans the QR or enters the entry ID on the SeaJourney portal, and confirms the PDF matches the stored export, detecting any tampering.",
-        footnote: "Great balance for free users who still want verifiable exports."
+        mca_desc: "The MCA scans the QR code to instantly confirm that the PDF matches the original, secure record.",
     },
     premium: {
         title: "Premium Export",
         subtitle: "Full Digital Verifiable Logbook",
-        features: [
-            "All logs stored in the SeaJourney cloud with audit trail (timestamps, device, edits).",
-            "Captain / management receives a secure sign-off request and approves via authenticated login.",
-            "SeaJourney seals the entry with a digital signature and immutable hash.",
-            "Exported PDFs include QR, verification link and signature metadata."
-        ],
+        description: "The captain provides a digital sign-off within the app, creating a secure, auditable log with a full history.",
         mca_title: "MCA Verification",
-        mca_desc: "MCA opens the SeaJourney portal and can see the original signed record, timestamps, audit trail and vessel sign-off, treating it as an official digital logbook.",
-        footnote: "Designed to be the “gold standard” for digital sea-time evidence."
+        mca_desc: "The MCA views the complete, digitally-signed record and its audit trail directly in the portal.",
     }
 }
 
@@ -138,22 +122,12 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
                         <CardDescription>{plan.subtitle}</CardDescription>
                     </CardHeader>
                     <CardContent className="flex-grow space-y-3">
-                        <ul className="space-y-2">
-                           {plan.features.map((feature, i) => (
-                               <li key={i} className="flex items-start gap-3">
-                                   <Fingerprint className="h-4 w-4 mt-1 text-accent flex-shrink-0"/>
-                                   <span className="text-sm text-foreground/80">{feature}</span>
-                               </li>
-                           ))}
-                        </ul>
-                        <div className="rounded-lg border bg-muted/50 p-4">
+                         <p className="text-sm text-foreground/80">{plan.description}</p>
+                         <div className="rounded-lg border bg-muted/50 p-4">
                             <h4 className="font-semibold text-sm flex items-center gap-2"><Cloud className="h-4 w-4"/> {plan.mca_title}</h4>
                             <p className="text-sm text-muted-foreground mt-2">{plan.mca_desc}</p>
                         </div>
                     </CardContent>
-                    <div className="p-6 pt-0">
-                         <p className="text-xs text-muted-foreground italic">{plan.footnote}</p>
-                    </div>
                 </Card>
             </button>
           )
