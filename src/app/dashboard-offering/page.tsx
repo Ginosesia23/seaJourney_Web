@@ -7,7 +7,7 @@ import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Route, Anchor, CheckCircle, Fingerprint, UserPlus, Search, Code, Bot } from 'lucide-react';
+import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Users, Fingerprint, Bot, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MainChart from '@/components/dashboard/main-chart';
 import { Badge } from '@/components/ui/badge';
@@ -97,16 +97,15 @@ const features = [
     component: (
         <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
              <div className="w-64 h-64 rounded-full bg-primary/5 flex items-center justify-center relative overflow-hidden">
-                <Globe className="h-32 w-32 text-primary/30" />
+                <Globe className="h-32 w-32 text-primary/30 animate-pulse" />
                 <div className="absolute inset-0 bg-grid-white/5 [mask-image:radial-gradient(ellipse_at_center,white_20%,transparent_80%)]"></div>
-                {/* Animated path */}
                 <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
-                    <path d="M 20 50 Q 50 20 80 50" stroke="hsl(var(--accent))" strokeWidth="1" fill="none" strokeDasharray="5 5" className="animate-pulse" />
-                     <path d="M 25 60 Q 50 80 75 60" stroke="hsl(var(--accent))" strokeWidth="0.5" fill="none" strokeDasharray="2 3" className="animate-pulse" />
+                    <path d="M 20 50 C 40 20, 60 20, 80 50" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-70 animate-pulse" style={{ animationDuration: '3s' }} />
+                    <path d="M 25 60 C 45 85, 65 85, 85 60" stroke="hsl(var(--accent))" strokeWidth="0.5" fill="none" strokeDasharray="2 3" className="opacity-50 animate-pulse" />
                 </svg>
              </div>
              <CardTitle className="text-lg flex items-center gap-2 text-white/80 mt-6">World Map</CardTitle>
-             <CardDescription className="text-white/50">Visualize Your Journeys</CardDescription>
+             <CardDescription className="text-white/50">Visualize Your Global Journeys</CardDescription>
         </Card>
     )
   },
@@ -141,7 +140,7 @@ const features = [
                 </div>
                  <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer transition-colors">
                      <div className="flex items-center gap-3">
-                        <Route className="h-4 w-4 text-white/70" />
+                        <FileText className="h-4 w-4 text-white/70" />
                         <span className="text-white">Career_Summary_2024.pdf</span>
                     </div>
                     <ArrowRight className="h-4 w-4 text-white/50" />
@@ -150,6 +149,87 @@ const features = [
         </Card>
     )
   },
+  {
+    id: 'crew',
+    icon: Users,
+    title: 'Crew',
+    description: 'Manage your crew members.',
+    component: (
+        <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
+            <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2 text-white/80">
+                    <Users className="h-5 w-5" />
+                    Crew Management
+                </CardTitle>
+                <CardDescription className="text-white/50">Oversee your crew's status and sea time.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex-grow">
+                <div className="space-y-3">
+                    {[{name: 'Alex Johnson', role: 'First Mate', status: 'On Watch'}, {name: 'Samantha Lee', role: 'Chief Engineer', status: 'On Leave'}, {name: 'David Chen', role: 'Captain', status: 'At Anchor'}].map(crew => (
+                        <div key={crew.name} className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5">
+                            <div className="flex items-center gap-3">
+                                <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-white/80 font-bold text-xs">{crew.name.split(' ').map(n=>n[0]).join('')}</div>
+                                <div>
+                                    <div className="text-white font-medium">{crew.name}</div>
+                                    <div className="text-xs text-white/60">{crew.role}</div>
+                                </div>
+                            </div>
+                            <Badge variant={crew.status === 'On Watch' ? 'secondary' : 'outline'} className={cn(crew.status === 'On Watch' && 'bg-green-500/20 text-green-400 border-green-500/30', crew.status === 'On Leave' && 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', 'border-white/20 text-white/60')}>{crew.status}</Badge>
+                        </div>
+                    ))}
+                </div>
+            </CardContent>
+        </Card>
+    )
+  },
+  {
+    id: 'verification',
+    icon: Fingerprint,
+    title: 'Verification',
+    description: 'Ensure document authenticity.',
+    component: (
+      <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
+        <CardHeader className="text-center">
+            <CardTitle className="text-lg flex items-center justify-center gap-2 text-white/80">
+                <Fingerprint className="h-5 w-5" />
+                Verification Hub
+            </CardTitle>
+            <CardDescription className="text-white/50">Instantly verify documents with QR codes.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center justify-center gap-4">
+             <div className="p-4 bg-white rounded-lg">
+                <svg width="100" height="100" viewBox="0 0 33 33" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 0H11V11H0V0Z" fill="black"/><path d="M5.5 5.5H8.25V8.25H5.5V5.5Z" fill="white"/><path d="M22 0H33V11H22V0Z" fill="black"/><path d="M27.5 5.5H30.25V8.25H27.5V5.5Z" fill="white"/><path d="M0 22H11V33H0V22Z" fill="black"/><path d="M5.5 27.5H8.25V30.25H5.5V27.5Z" fill="white"/><path d="M16.5 0V2.75H13.75V0H11V11H13.75V8.25H16.5V11H19.25V8.25H22V5.5H19.25V2.75H22V0H16.5Z" fill="black"/><path d="M19.25 13.75H13.75V16.5H11V13.75H8.25V19.25H11V22H13.75V19.25H19.25V24.75H16.5V27.5H22V24.75H24.75V22H27.5V19.25H24.75V13.75H22V11H19.25V13.75Z" fill="black"/><path d="M2.75 13.75H0V16.5H5.5V13.75H2.75Z" fill="black"/><path d="M33 13.75H27.5V11H24.75V13.75H22V16.5H24.75V19.25H30.25V16.5H33V13.75Z" fill="black"/><path d="M2.75 19.25H5.5V22H0V19.25H2.75Z" fill="black"/><path d="M13.75 22V24.75H11V27.5H5.5V24.75H8.25V22H13.75Z" fill="black"/><path d="M27.5 27.5H24.75V30.25H27.5V33H33V27.5H27.5Z" fill="black"/><path d="M30.25 22H27.5V24.75H30.25V22Z" fill="black"/></svg>
+             </div>
+             <p className="text-sm text-white/70">Scan to verify document: <strong className="text-white">#SJ-8A4B2F</strong></p>
+        </CardContent>
+      </Card>
+    )
+  },
+  {
+    id: 'ai',
+    icon: Bot,
+    title: 'AI Co-Pilot',
+    description: 'Leverage AI for insights.',
+    component: (
+      <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
+        <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2 text-white/80">
+                <Bot className="h-5 w-5" />
+                AI Co-Pilot
+            </CardTitle>
+            <CardDescription className="text-white/50">Your intelligent maritime assistant.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex-grow space-y-4 flex flex-col justify-end">
+            <div className="p-3 rounded-lg bg-white/5 border border-white/10 max-w-[80%] self-start">
+                <p className="text-sm text-white">Generate a summary of my time on M/Y Odyssey for 2023.</p>
+            </div>
+             <div className="p-3 rounded-lg bg-accent/10 border border-accent/20 max-w-[80%] self-end">
+                <p className="text-sm text-white/90 font-mono animate-pulse">Generating report...</p>
+            </div>
+        </CardContent>
+      </Card>
+    )
+  }
 ];
 
 export default function DashboardOfferingPage() {
@@ -175,7 +255,6 @@ export default function DashboardOfferingPage() {
                     </p>
                 </div>
 
-                {/* Main Interactive Display */}
                 <div className="relative mt-16 max-w-6xl mx-auto p-2 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
                     {/* Corner Brackets */}
                     <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
@@ -184,7 +263,6 @@ export default function DashboardOfferingPage() {
                     <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-0">
-                        {/* Left: Feature Selector */}
                         <div className="lg:col-span-3 p-4 space-y-2 border-r border-primary/10">
                             {features.map((feature) => {
                                 const Icon = feature.icon;
@@ -200,6 +278,7 @@ export default function DashboardOfferingPage() {
                                                 : "bg-white/5 border-transparent hover:bg-white/10 hover:border-white/20"
                                         )}
                                     >
+                                        <div className="absolute top-0 left-0 h-full w-px bg-accent/50 transition-all duration-500 ease-in-out" style={{transform: isActive ? 'scaleY(1)' : 'scaleY(0)', transformOrigin: 'top'}}></div>
                                         <div className="flex items-center gap-3">
                                             <div className={cn(
                                                 "flex-shrink-0 h-8 w-8 flex items-center justify-center rounded-md transition-colors",
@@ -219,7 +298,6 @@ export default function DashboardOfferingPage() {
 
                         {/* Right: Dashboard Preview */}
                         <div className="lg:col-span-9 p-4">
-                            {/* Dashboard Header */}
                              <div className="flex items-center justify-between pb-2 border-b border-primary/10 mb-4">
                                 <div className="flex items-center gap-2 text-xs text-green-400">
                                     <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse"></div>
@@ -280,3 +358,5 @@ export default function DashboardOfferingPage() {
     </div>
   );
 }
+
+    
