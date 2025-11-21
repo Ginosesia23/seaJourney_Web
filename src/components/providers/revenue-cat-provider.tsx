@@ -42,11 +42,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const initRevenueCat = async () => {
-      // Don't do anything until Firebase has loaded the user
-      if (isUserLoading) {
-        return;
-      }
-
+      // 1. Get API key
       const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
       if (!apiKey) {
         console.error("RevenueCat API key not found. Purchases will be disabled.");
@@ -54,62 +50,71 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
       
-      // If we have a user, configure and log in
+      // 2. Always wait for Firebase to finish loading
+      if (isUserLoading) {
+        return;
+      }
+
+      // 3. We have a user, so configure and log them in
       if (user && user.uid) {
         try {
           if (!Purchases.isConfigured()) {
-            // Pass the user ID directly into the configure method
-            await Purchases.configure({ apiKey });
             Purchases.setLogLevel(LogLevel.DEBUG);
-            console.log(`RC: Configured with UID: ${user.uid}`);
+            await Purchases.configure({ apiKey });
           }
+          console.log("RC: about to log in with UID:", user.uid);
+          const { customerInfo, created } = await Purchases.logIn(user.uid);
+          console.log(created ? "RC: User created." : "RC: User already existed.");
           
           const offerings = await Purchases.getOfferings();
-          const customerInfo = await Purchases.getCustomerInfo();
 
           setRevenueCatState({
-            customerInfo: customerInfo,
+            customerInfo,
             offerings: offerings.current,
-            isReady: true
+            isReady: true,
           });
+
         } catch (error: any) {
           console.error("RevenueCat initialization or login failed:", error);
           toast({
             title: "Subscription Error",
             description: "Could not connect to the subscription service.",
-            variant: "destructive"
+            variant: "destructive",
           });
           setRevenueCatState(s => ({ ...s, isReady: true }));
         }
-      } else {
-        // User is logged out, ensure RevenueCat is logged out too.
-        if (Purchases.isConfigured()) {
-          try {
-            await Purchases.logOut();
-          } catch (error) {
-             console.error("RevenueCat logout failed:", error);
+      } 
+      // 4. No user, so log them out if needed
+      else {
+        try {
+          // Check if anyone is logged in before trying to log out
+          if (Purchases.isConfigured() && !(await Purchases.isAnonymous())) {
+             console.log("RC: no user, logging out");
+            const customerInfo = await Purchases.logOut();
+            setRevenueCatState({ customerInfo, offerings: null, isReady: true });
+          } else {
+             console.log("RC: no user, logging out if needed");
+             setRevenueCatState(s => ({...s, isReady: true }));
           }
+        } catch (error) {
+          console.error("RevenueCat logout failed:", error);
+          setRevenueCatState(s => ({...s, isReady: true }));
         }
-        setRevenueCatState({
-            customerInfo: null,
-            offerings: null,
-            isReady: true
-        });
       }
     };
-    
-    initRevenueCat();
+
+    void initRevenueCat();
   }, [user, isUserLoading, toast]);
 
 
   const purchasePackage = async (pkg: PurchasesPackage) => {
     if (!revenueCatState.isReady || !Purchases.isConfigured()) {
-        toast({
-            title: "Purchase Inactive",
-            description: "Payment system is not yet ready.",
-            variant: "destructive"
-        });
-        return;
+      toast({
+        title: "Purchase Inactive",
+        description: "Payment system is not yet ready.",
+        variant: "destructive",
+      });
+      return;
     }
     try {
       const { customerInfo } = await Purchases.purchasePackage(pkg);
@@ -120,23 +125,23 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       });
       router.push('/dashboard');
     } catch (e: any) {
-       if (!e.userCancelled) {
-         console.error("RevenueCat: Purchase failed.", e);
-         toast({
-            title: "Purchase Failed",
-            description: e.message || "An unexpected error occurred. Please try again.",
-            variant: "destructive"
-         });
-       }
+      if (!e.userCancelled) {
+        console.error("RevenueCat: Purchase failed.", e);
+        toast({
+          title: "Purchase Failed",
+          description: e.message || "An unexpected error occurred. Please try again.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
   const restorePurchases = async () => {
-     if (!revenueCatState.isReady || !Purchases.isConfigured()) {
+    if (!revenueCatState.isReady || !Purchases.isConfigured()) {
       toast({
         title: "Restore Inactive",
         description: "Payment system is not yet ready.",
-        variant: "destructive"
+        variant: "destructive",
       });
       return;
     }
@@ -152,7 +157,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       toast({
         title: "Restore Failed",
         description: "We couldn't find any purchases to restore.",
-        variant: "destructive"
+        variant: "destructive",
       });
     }
   };
