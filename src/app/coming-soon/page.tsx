@@ -11,13 +11,13 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useUser } from '@/firebase';
 import { useRouter } from 'next/navigation';
-import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 import type { PurchasesPackage } from '@revenuecat/purchases-js';
+import { Purchases, LogLevel } from '@revenuecat/purchases-js';
 import { useToast } from '@/hooks/use-toast';
 
 const tiers = [
   {
-    name: 'Free',
+    name: 'Mobile App',
     price: '£0',
     priceSuffix: '',
     description: 'Get started with the essential tools to track your sea time on the free version of the app.',
@@ -31,9 +31,9 @@ const tiers = [
     href: 'https://apps.apple.com/gb/app/seajourney/id6751553072'
   },
   {
-    name: 'Standard',
+    name: 'Premium',
     identifier: 'standard',
-    price: '£9.99',
+    price: '£5.99',
     priceSuffix: '/ month',
     description: 'For dedicated professionals who need advanced tracking.',
     features: [
@@ -49,9 +49,9 @@ const tiers = [
     type: 'crew',
   },
   {
-    name: 'Premium',
+    name: 'Premium+',
     identifier: 'premium',
-    price: '£19.99',
+    price: '£9.99',
     priceSuffix: '/ month',
     description: 'For career-focused seafarers needing detailed analytics.',
     features: [
@@ -61,23 +61,6 @@ const tiers = [
       'Certification progress tracking',
       '6GB online storage',
       '20 document export limit'
-    ],
-    cta: 'Choose Plan',
-    type: 'crew',
-  },
-  {
-    name: 'Premium+',
-    identifier: 'premium_plus',
-    price: '£49.99',
-    priceSuffix: '/ month',
-    description: 'For captains and managers overseeing multiple crew members.',
-    features: [
-      'All Premium features',
-      'Multi-date state tracking',
-      'Crew management tools',
-      'Fleet-wide reporting',
-      'Unlimited online storage',
-      'Unlimited document exports'
     ],
     cta: 'Choose Plan',
     type: 'crew',
@@ -152,7 +135,6 @@ export default function ComingSoonPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const { toast } = useToast();
-  const { offerings, purchasePackage, isReady } = useRevenueCat();
 
   const filteredTiers = tiers.filter(tier => tier.type === planType);
   
@@ -161,12 +143,28 @@ export default function ComingSoonPage() {
       router.push(`/signup?redirect=/coming-soon`);
       return;
     }
-    if (!tierIdentifier || !offerings) return;
+    
+    if (!tierIdentifier) return;
 
     setIsPurchasing(tierIdentifier);
     
     try {
+      const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
+      if (!apiKey) {
+        throw new Error("RevenueCat API key not found.");
+      }
+
+      Purchases.setLogLevel(LogLevel.DEBUG);
+      if (!Purchases.isConfigured()) {
+          Purchases.configure({
+            apiKey,
+            appUserId: user.uid,
+          });
+      }
+      
+      const offerings = await Purchases.getOfferings();
       const offering = offerings.all[tierIdentifier];
+      
       if (!offering) {
         throw new Error(`No offering found for identifier: ${tierIdentifier}`);
       }
@@ -176,18 +174,30 @@ export default function ComingSoonPage() {
         throw new Error(`No package found for offering: ${tierIdentifier}`);
       }
       
-      await purchasePackage(pkg);
-      // On success, the provider will redirect to the dashboard
+      await Purchases.purchasePackage(pkg);
+      
+      toast({
+        title: "Purchase Successful!",
+        description: "Redirecting you to your new dashboard.",
+      });
+      
+      router.push('/dashboard');
       
     } catch (e: any) {
-      // Errors are handled within the provider, but we can catch cancellations here
-      console.error("Purchase process failed or was cancelled.", e);
+      if (!e.userCancelled) {
+        toast({
+            title: "Purchase Failed",
+            description: e.message || "Could not connect to the subscription manager. Please try again.",
+            variant: 'destructive',
+        });
+        console.error("Purchase process failed.", e);
+      }
     } finally {
       setIsPurchasing(null);
     }
   }
   
-  const isLoading = isUserLoading || !isReady;
+  const isLoading = isUserLoading;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -236,14 +246,17 @@ export default function ComingSoonPage() {
                 return (
                     <Card key={tier.name} className={cn(
                         "flex flex-col rounded-2xl",
-                        tier.name === 'Free' ? 'bg-primary/5 border-primary/20' : '',
+                        tier.name === 'Mobile App' ? 'bg-primary/5 border-primary/20' : '',
                         tier.highlighted ? 'border-primary ring-2 ring-primary' : ''
                     )}>
                     <CardHeader className="flex-grow">
-                        {tier.name === 'Free' ? (
-                            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 mb-4">
-                                <Download className="h-6 w-6 text-accent"/>
-                            </div>
+                        {tier.name === 'Mobile App' ? (
+                            <>
+                               <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
+                                <div className="flex items-baseline gap-1">
+                                    <span className="text-4xl font-bold tracking-tight">Free</span>
+                                </div>
+                            </>
                         ) : (
                             <>
                                 <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
@@ -267,7 +280,7 @@ export default function ComingSoonPage() {
                     </CardContent>
                     <CardFooter>
                         {tier.href ? (
-                            <Button asChild className="w-full rounded-full" variant={tier.name === 'Free' ? 'default' : (tier.highlighted ? 'default' : 'outline')}>
+                            <Button asChild className="w-full rounded-full" variant={tier.name === 'Mobile App' ? 'default' : (tier.highlighted ? 'default' : 'outline')}>
                                 <Link href={tier.href} target="_blank" rel="noopener noreferrer">
                                     <Download className="mr-2 h-4 w-4" /> {tier.cta}
                                 </Link>

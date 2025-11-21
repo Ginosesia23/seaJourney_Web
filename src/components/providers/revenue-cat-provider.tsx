@@ -58,33 +58,36 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       // 3. We have a user, so configure and log them in
       if (user && user.uid) {
         try {
-          if (!Purchases.isConfigured()) {
-            Purchases.setLogLevel(LogLevel.DEBUG);
-            await Purchases.configure({ apiKey });
-          }
-          console.log("RC: about to log in with UID:", user.uid);
-          const { customerInfo, created } = await Purchases.logIn(user.uid);
-          console.log(created ? "RC: User created." : "RC: User already existed.");
-          
-          const offerings = await Purchases.getOfferings();
-
+          Purchases.setLogLevel(LogLevel.DEBUG);
+      
+          let purchasesInstance = Purchases.isConfigured()
+            ? Purchases.getSharedInstance()
+            : Purchases.configure({
+                apiKey,
+                appUserId: user.uid,    // ✅ IMPORTANT: set user here
+              });
+      
+          console.log("RC: Configured with UID:", user.uid);
+      
+          const offerings = await purchasesInstance.getOfferings();
+          const customerInfo = await purchasesInstance.getCustomerInfo();
+      
           setRevenueCatState({
             customerInfo,
             offerings: offerings.current,
             isReady: true,
           });
-
         } catch (error: any) {
-          console.error("RevenueCat initialization or login failed:", error);
+          console.error("RevenueCat initialization failed:", error);
           toast({
             title: "Subscription Error",
             description: "Could not connect to the subscription service.",
             variant: "destructive",
           });
-          setRevenueCatState(s => ({ ...s, isReady: true }));
+          setRevenueCatState((s) => ({ ...s, isReady: true }));
         }
-      } 
-      // 4. No user, so log them out if needed
+      }
+            // 4. No user, so log them out if needed
       else {
         try {
           // Check if anyone is logged in before trying to log out
