@@ -61,12 +61,12 @@ export default function SignupPage() {
         registrationDate: new Date().toISOString(),
         role: 'crew', // Assign default role
         subscriptionTier: 'free',
-        subscriptionStatus: 'active',
+        subscriptionStatus: 'inactive',
       };
       
       await setDoc(userProfileRef, profileData);
 
-      const redirectUrl = searchParams.get('redirect') || '/coming-soon';
+      const redirectUrl = searchParams.get('redirect') || '/dashboard';
       router.push(redirectUrl);
 
     } catch (error) {

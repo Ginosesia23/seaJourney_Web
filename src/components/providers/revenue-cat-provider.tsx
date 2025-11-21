@@ -42,72 +42,59 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const initRevenueCat = async () => {
-      // 1. Get API key
       const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
       if (!apiKey) {
         console.error("RevenueCat API key not found. Purchases will be disabled.");
         setRevenueCatState(s => ({ ...s, isReady: true }));
         return;
       }
-      
-      // 2. Always wait for Firebase to finish loading
+
       if (isUserLoading) {
+        console.log("RC: Firebase user is loading, waiting...");
         return;
       }
+      
+      Purchases.setLogLevel(LogLevel.DEBUG);
 
-      // 3. We have a user, so configure and log them in
-      if (user && user.uid) {
-        try {
-          // Check if already configured, otherwise configure
+      try {
+        if (user) {
+          console.log(`RC: about to configure with UID: ${user.uid}`);
           if (!Purchases.isConfigured()) {
-            Purchases.configure({
-              apiKey,
-            });
-            console.log("RC: Configured with API key.");
+             await Purchases.configure({ apiKey, appUserId: user.uid });
+             console.log("RC: Configured with UID.");
+          } else if ((await Purchases.getAppUserID()) !== user.uid) {
+             console.log("RC: User changed, logging in new user.");
+             await Purchases.logIn(user.uid);
           }
           
-          const logInResult = await Purchases.logIn(user.uid);
-          console.log("RC: Logged in with UID:", user.uid);
-          
-          const offerings = await Purchases.getOfferings();
-          
-          setRevenueCatState({
-            customerInfo: logInResult.customerInfo,
-            offerings: offerings.current,
-            isReady: true,
-          });
-        } catch (error: any) {
-          console.error("RevenueCat initialization or login failed:", error);
-          toast({
-            title: "Subscription Error",
-            description: "Could not connect to the subscription service.",
-            variant: "destructive",
-          });
-          setRevenueCatState((s) => ({ ...s, isReady: true }));
+        } else {
+          console.log("RC: no user, configuring for anonymous.");
+           if (!Purchases.isConfigured()) {
+            await Purchases.configure({ apiKey });
+            console.log("RC: Configured for anonymous user.");
+          } else if (!await Purchases.isAnonymous()) {
+            console.log("RC: User logged out, logging out of RC.");
+            await Purchases.logOut();
+          }
         }
-      }
-      // 4. No user, handle anonymous state or log out
-      else {
-        try {
-          if (!Purchases.isConfigured()) {
-             Purchases.configure({apiKey});
-          }
-          
-          // If a user was logged in, log them out. Otherwise, we can treat as anonymous.
-          if (!(await Purchases.isAnonymous())) {
-             console.log("RC: no user, logging out");
-            const customerInfo = await Purchases.logOut();
-            setRevenueCatState({ customerInfo, offerings: null, isReady: true });
-          } else {
-             console.log("RC: no user, already anonymous.");
-             const offerings = await Purchases.getOfferings();
-             const customerInfo = await Purchases.getCustomerInfo();
-             setRevenueCatState({ customerInfo, offerings: offerings.current, isReady: true });
-          }
-        } catch (error) {
-          console.error("RevenueCat anonymous/logout failed:", error);
-          setRevenueCatState(s => ({...s, isReady: true }));
-        }
+        
+        const offerings = await Purchases.getOfferings();
+        const customerInfo = await Purchases.getCustomerInfo();
+        
+        setRevenueCatState({
+          customerInfo,
+          offerings: offerings.current,
+          isReady: true,
+        });
+
+      } catch (error: any) {
+        console.error("RevenueCat initialization or login failed:", error);
+        toast({
+          title: "Subscription Error",
+          description: "Could not connect to the subscription service.",
+          variant: "destructive",
+        });
+        setRevenueCatState((s) => ({ ...s, isReady: true }));
       }
     };
 

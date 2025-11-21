@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import type { PurchasesPackage } from '@revenuecat/purchases-js';
 import { Purchases, LogLevel } from '@revenuecat/purchases-js';
 import { useToast } from '@/hooks/use-toast';
+import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 
 const tiers = [
   {
@@ -133,6 +134,7 @@ export default function ComingSoonPage() {
   const [planType, setPlanType] = useState('crew');
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
   const { user, isUserLoading } = useUser();
+  const { purchasePackage, offerings } = useRevenueCat();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -144,25 +146,18 @@ export default function ComingSoonPage() {
       return;
     }
     
-    if (!tierIdentifier) return;
+    if (!tierIdentifier || !offerings) {
+        toast({
+            title: "Error",
+            description: "Subscription offerings not available. Please try again later.",
+            variant: "destructive",
+        });
+        return;
+    };
 
     setIsPurchasing(tierIdentifier);
     
     try {
-      const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
-      if (!apiKey) {
-        throw new Error("RevenueCat API key not found.");
-      }
-
-      Purchases.setLogLevel(LogLevel.DEBUG);
-      if (!Purchases.isConfigured()) {
-          Purchases.configure({
-            apiKey,
-            appUserId: user.uid,
-          });
-      }
-      
-      const offerings = await Purchases.getOfferings();
       const offering = offerings.all[tierIdentifier];
       
       if (!offering) {
@@ -174,24 +169,17 @@ export default function ComingSoonPage() {
         throw new Error(`No package found for offering: ${tierIdentifier}`);
       }
       
-      await Purchases.purchasePackage(pkg);
-      
-      toast({
-        title: "Purchase Successful!",
-        description: "Redirecting you to your new dashboard.",
-      });
-      
-      router.push('/dashboard');
+      await purchasePackage(pkg);
       
     } catch (e: any) {
-      if (!e.userCancelled) {
-        toast({
-            title: "Purchase Failed",
-            description: e.message || "Could not connect to the subscription manager. Please try again.",
-            variant: 'destructive',
-        });
         console.error("Purchase process failed.", e);
-      }
+        if (!e.userCancelled) {
+            toast({
+                title: "Purchase Failed",
+                description: e.message || "An unexpected error occurred during purchase.",
+                variant: 'destructive',
+            });
+        }
     } finally {
       setIsPurchasing(null);
     }
