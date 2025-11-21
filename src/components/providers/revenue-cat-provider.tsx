@@ -2,7 +2,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { Purchases, PurchasesOffering, PurchasesPackage, CustomerInfo, LogLevel } from '@revenuecat/purchases-js';
+import { Purchases, PurchasesOffering, CustomerInfo, LogLevel } from '@revenuecat/purchases-js';
 import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
@@ -53,18 +53,19 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       }
 
       Purchases.setLogLevel(LogLevel.DEBUG);
+      
+      let purchases: Purchases;
+      if (user) {
+        console.log(`RC: Configuring for user: ${user.uid}`);
+        purchases = new Purchases(apiKey, user.uid);
+      } else {
+        console.log("RC: Configuring for anonymous user.");
+        purchases = new Purchases(apiKey);
+      }
 
       try {
-        if (user) {
-          console.log(`RC: Configuring for user: ${user.uid}`);
-          await Purchases.configure({ apiKey, appUserId: user.uid });
-        } else {
-          console.log("RC: Configuring for anonymous user.");
-          await Purchases.configure({ apiKey }); 
-        }
-
-        const customerInfo = await Purchases.getCustomerInfo();
-        const offerings = await Purchases.getOfferings();
+        const customerInfo = await purchases.getCustomerInfo();
+        const offerings = await purchases.getOfferings();
         
         setRevenueCatState({
           customerInfo,
@@ -87,7 +88,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
   }, [user, isUserLoading, toast]);
 
   const restorePurchases = async () => {
-    if (!revenueCatState.isReady || !Purchases.isConfigured()) {
+    if (!revenueCatState.isReady) {
       toast({
         title: "Restore Inactive",
         description: "Payment system is not yet ready.",
@@ -96,7 +97,14 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
     try {
-      const restoredCustomerInfo = await Purchases.restorePurchases();
+      // Restore logic will need to re-initialize an instance if not available
+      const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
+      if (!apiKey) {
+        throw new Error("RevenueCat API key not configured for restore.");
+      }
+      const purchases = new Purchases(apiKey, user?.uid);
+      const restoredCustomerInfo = await purchases.restorePurchases();
+
       setRevenueCatState(prevState => ({ ...prevState, customerInfo: restoredCustomerInfo }));
       toast({
         title: "Purchases Restored",
