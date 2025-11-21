@@ -11,8 +11,8 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useUser } from '@/firebase';
 import { useRouter } from 'next/navigation';
-import { Purchases, LogLevel } from '@revenuecat/purchases-js';
-import type { PurchasesPackage, PurchasesOffering } from '@revenuecat/purchases-js';
+import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
+import type { PurchasesPackage } from '@revenuecat/purchases-js';
 import { useToast } from '@/hooks/use-toast';
 
 const tiers = [
@@ -152,6 +152,7 @@ export default function ComingSoonPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const { toast } = useToast();
+  const { offerings, purchasePackage, isReady } = useRevenueCat();
 
   const filteredTiers = tiers.filter(tier => tier.type === planType);
   
@@ -160,25 +161,12 @@ export default function ComingSoonPage() {
       router.push(`/signup?redirect=/coming-soon`);
       return;
     }
-    if (!tierIdentifier) return;
+    if (!tierIdentifier || !offerings) return;
 
     setIsPurchasing(tierIdentifier);
     
     try {
-      const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
-      if (!apiKey) {
-        throw new Error("RevenueCat API key not found.");
-      }
-
-      Purchases.setLogLevel(LogLevel.DEBUG);
-      
-      if (!Purchases.isConfigured()) {
-          await Purchases.configure({ apiKey, appUserID: user.uid });
-      }
-
-      const offerings = await Purchases.getOfferings();
       const offering = offerings.all[tierIdentifier];
-      
       if (!offering) {
         throw new Error(`No offering found for identifier: ${tierIdentifier}`);
       }
@@ -188,27 +176,18 @@ export default function ComingSoonPage() {
         throw new Error(`No package found for offering: ${tierIdentifier}`);
       }
       
-      const { customerInfo } = await Purchases.purchasePackage(pkg);
+      await purchasePackage(pkg);
+      // On success, the provider will redirect to the dashboard
       
-      toast({
-        title: "Purchase Successful",
-        description: "Your subscription has been activated!",
-      });
-      router.push('/dashboard');
-
     } catch (e: any) {
-      if (!e.userCancelled) {
-         console.error("RevenueCat: Purchase failed.", e);
-         toast({
-            title: "Purchase Failed",
-            description: e.message || "An unexpected error occurred. Please try again.",
-            variant: "destructive"
-         });
-       }
+      // Errors are handled within the provider, but we can catch cancellations here
+      console.error("Purchase process failed or was cancelled.", e);
     } finally {
       setIsPurchasing(null);
     }
   }
+  
+  const isLoading = isUserLoading || !isReady;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -253,7 +232,6 @@ export default function ComingSoonPage() {
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
               {filteredTiers.map((tier) => {
                 const isProcessing = isPurchasing === tier.identifier;
-                const isLoading = isUserLoading;
                 
                 return (
                     <Card key={tier.name} className={cn(

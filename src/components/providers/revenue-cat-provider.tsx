@@ -59,7 +59,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         try {
           if (!Purchases.isConfigured()) {
             // Pass the user ID directly into the configure method
-            await Purchases.configure({ apiKey, appUserID: user.uid });
+            await Purchases.configure({ apiKey });
             Purchases.setLogLevel(LogLevel.DEBUG);
             console.log(`RC: Configured with UID: ${user.uid}`);
           }
