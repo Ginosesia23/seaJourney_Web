@@ -58,27 +58,26 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       // 3. We have a user, so configure and log them in
       if (user && user.uid) {
         try {
-          Purchases.setLogLevel(LogLevel.DEBUG);
-      
-          let purchasesInstance = Purchases.isConfigured()
-            ? Purchases.getSharedInstance()
-            : Purchases.configure({
-                apiKey,
-                appUserId: user.uid,    // ✅ IMPORTANT: set user here
-              });
-      
-          console.log("RC: Configured with UID:", user.uid);
-      
-          const offerings = await purchasesInstance.getOfferings();
-          const customerInfo = await purchasesInstance.getCustomerInfo();
-      
+          // Check if already configured, otherwise configure
+          if (!Purchases.isConfigured()) {
+            Purchases.configure({
+              apiKey,
+            });
+            console.log("RC: Configured with API key.");
+          }
+          
+          const logInResult = await Purchases.logIn(user.uid);
+          console.log("RC: Logged in with UID:", user.uid);
+          
+          const offerings = await Purchases.getOfferings();
+          
           setRevenueCatState({
-            customerInfo,
+            customerInfo: logInResult.customerInfo,
             offerings: offerings.current,
             isReady: true,
           });
         } catch (error: any) {
-          console.error("RevenueCat initialization failed:", error);
+          console.error("RevenueCat initialization or login failed:", error);
           toast({
             title: "Subscription Error",
             description: "Could not connect to the subscription service.",
@@ -87,20 +86,26 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
           setRevenueCatState((s) => ({ ...s, isReady: true }));
         }
       }
-            // 4. No user, so log them out if needed
+      // 4. No user, handle anonymous state or log out
       else {
         try {
-          // Check if anyone is logged in before trying to log out
-          if (Purchases.isConfigured() && !(await Purchases.isAnonymous())) {
+          if (!Purchases.isConfigured()) {
+             Purchases.configure({apiKey});
+          }
+          
+          // If a user was logged in, log them out. Otherwise, we can treat as anonymous.
+          if (!(await Purchases.isAnonymous())) {
              console.log("RC: no user, logging out");
             const customerInfo = await Purchases.logOut();
             setRevenueCatState({ customerInfo, offerings: null, isReady: true });
           } else {
-             console.log("RC: no user, logging out if needed");
-             setRevenueCatState(s => ({...s, isReady: true }));
+             console.log("RC: no user, already anonymous.");
+             const offerings = await Purchases.getOfferings();
+             const customerInfo = await Purchases.getCustomerInfo();
+             setRevenueCatState({ customerInfo, offerings: offerings.current, isReady: true });
           }
         } catch (error) {
-          console.error("RevenueCat logout failed:", error);
+          console.error("RevenueCat anonymous/logout failed:", error);
           setRevenueCatState(s => ({...s, isReady: true }));
         }
       }

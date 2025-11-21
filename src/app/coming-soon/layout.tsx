@@ -1,16 +1,12 @@
 
 'use client';
 
-import RevenueCatProvider from '@/components/providers/revenue-cat-provider';
-
+// This file is no longer needed as RevenueCatProvider is in the root layout.
+// We keep it to avoid breaking Next.js build but return children directly.
 export default function ComingSoonLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <RevenueCatProvider>
-      {children}
-    </RevenueCatProvider>
-  );
+  return <>{children}</>;
 }

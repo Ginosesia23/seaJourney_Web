@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { Menu, X, LayoutDashboard } from 'lucide-react';
+import { Menu, X, LayoutDashboard, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -16,7 +16,8 @@ import {
 } from '@/components/ui/sheet';
 import Logo from '@/components/logo';
 import { Cart } from '@/components/cart';
-import { useUser } from '@/firebase';
+import { useAuth, useUser } from '@/firebase';
+import { useRevenueCat } from '../providers/revenue-cat-provider';
 
 const navLinks = [
   { href: '/how-to-use', label: 'Guide' },
@@ -29,6 +30,51 @@ const Header = () => {
   const pathname = usePathname();
   const isShopPage = pathname.startsWith('/shop');
   const { user, isUserLoading } = useUser();
+  const auth = useAuth();
+  const { customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
+  
+  const handleSignOut = () => {
+    if (auth) {
+      auth.signOut();
+    }
+  };
+
+  const hasActiveSubscription = (customerInfo?.activeSubscriptions?.length ?? 0) > 0;
+
+  const renderUserAuthButton = () => {
+    if (isUserLoading || !isRevenueCatReady) {
+      return (
+         <Button variant="ghost" className="hover:bg-white/10 rounded-full" disabled>Loading...</Button>
+      )
+    }
+
+    if (user) {
+      if (hasActiveSubscription) {
+         return (
+            <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
+              <Link href="/dashboard">
+                <LayoutDashboard className="mr-2 h-5 w-5" />
+                My Dashboard
+              </Link>
+            </Button>
+         )
+      } else {
+         return (
+            <Button variant="ghost" className="hover:bg-white/10 rounded-full" onClick={handleSignOut}>
+                <LogOut className="mr-2 h-5 w-5" />
+                Sign Out
+            </Button>
+         )
+      }
+    } else {
+        return (
+            <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
+              <Link href="/login">Sign In</Link>
+            </Button>
+        )
+    }
+  }
+
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-header bg-header text-header-foreground backdrop-blur-sm">
@@ -59,20 +105,7 @@ const Header = () => {
           {isShopPage && <Cart />}
           
           <div className="hidden md:flex items-center gap-2">
-            {!isUserLoading && (
-              user ? (
-                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
-                  <Link href="/dashboard">
-                    <LayoutDashboard className="mr-2 h-5 w-5" />
-                    My Dashboard
-                  </Link>
-                </Button>
-              ) : (
-                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
-                  <Link href="/login">Sign In</Link>
-                </Button>
-              )
-            )}
+            {renderUserAuthButton()}
           </div>
 
 
@@ -133,9 +166,15 @@ const Header = () => {
                 <div className="border-t border-primary/10 pt-6">
                    {!isUserLoading && (
                       user ? (
-                        <Link href="/dashboard" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
-                          My Dashboard
-                        </Link>
+                        hasActiveSubscription ? (
+                          <Link href="/dashboard" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
+                            My Dashboard
+                          </Link>
+                        ) : (
+                          <button onClick={() => { handleSignOut(); setIsOpen(false); }} className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground">
+                            Sign Out
+                          </button>
+                        )
                       ) : (
                         <Link href="/login" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
                           Sign In
