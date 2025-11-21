@@ -1,17 +1,16 @@
 'use server';
 
 import { Purchases } from '@revenuecat/purchases-js';
-import { auth } from 'firebase-admin';
-
-if (!process.env.REVENUECAT_SECRET_API_KEY) {
-  throw new Error('RevenueCat secret API key is not set.');
-}
 
 // This function will run on the server
 export async function purchaseSubscriptionPackage(
   packageIdentifier: string,
   appUserId: string
 ) {
+  if (!process.env.REVENUECAT_SECRET_API_KEY) {
+    throw new Error('RevenueCat secret API key is not set in your .env file.');
+  }
+
   if (!appUserId) {
     throw new Error('User is not authenticated.');
   }
