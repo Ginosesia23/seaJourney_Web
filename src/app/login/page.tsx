@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -78,9 +79,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="dark flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md">
-        <Card className="w-full border-none bg-card text-card-foreground shadow-2xl rounded-xl">
+    <div className="dark flex min-h-screen flex-col items-center justify-center bg-header px-4">
+      <div className="relative w-full max-w-md p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
+        <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
+        <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
+        <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
+        <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
+        
+        <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
           <CardHeader className="text-center">
              <div className="mb-4 flex justify-center">
               <LogoOnboarding />
@@ -129,7 +135,7 @@ export default function LoginPage() {
                 <span className="w-full border-t" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                <span className="bg-header px-2 text-muted-foreground">Or continue with</span>
               </div>
             </div>
 

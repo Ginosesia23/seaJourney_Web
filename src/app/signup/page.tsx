@@ -101,9 +101,14 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="dark flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md">
-        <Card className="w-full border-none bg-card text-card-foreground shadow-2xl rounded-xl">
+    <div className="dark flex min-h-screen flex-col items-center justify-center bg-header px-4">
+       <div className="relative w-full max-w-md p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
+        <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
+        <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
+        <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
+        <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
+        
+        <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
           <CardHeader className="text-center">
             <div className="mb-4 flex justify-center">
               <LogoOnboarding />
