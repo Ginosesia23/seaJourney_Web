@@ -79,7 +79,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="dark flex min-h-screen flex-col items-center justify-center bg-header px-4">
+    <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
        <div className="mb-8">
         <LogoOnboarding />
       </div>
