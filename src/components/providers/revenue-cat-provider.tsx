@@ -11,7 +11,6 @@ interface RevenueCatContextType {
   customerInfo: CustomerInfo | null;
   offerings: PurchasesOffering | null;
   isReady: boolean;
-  purchasePackage: (pkg: PurchasesPackage) => Promise<void>;
   restorePurchases: () => Promise<void>;
 }
 
@@ -50,27 +49,22 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       }
       
       if (isUserLoading) {
-        return; // Wait for Firebase to determine the user state
+        return;
       }
 
       Purchases.setLogLevel(LogLevel.DEBUG);
-      let customerInfo = null;
-      let offerings = null;
 
       try {
         if (user) {
           console.log(`RC: Configuring for user: ${user.uid}`);
           await Purchases.configure({ apiKey, appUserId: user.uid });
-          customerInfo = await Purchases.getCustomerInfo();
-          offerings = await Purchases.getOfferings();
-          console.log(`RC: Configured with UID: ${user.uid}`);
         } else {
           console.log("RC: Configuring for anonymous user.");
-          await Purchases.configure({ apiKey }); // No appUserId for anonymous users
-          customerInfo = await Purchases.getCustomerInfo();
-          offerings = await Purchases.getOfferings();
-          console.log("RC: Configured for anonymous user.");
+          await Purchases.configure({ apiKey }); 
         }
+
+        const customerInfo = await Purchases.getCustomerInfo();
+        const offerings = await Purchases.getOfferings();
         
         setRevenueCatState({
           customerInfo,
@@ -91,36 +85,6 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
     void initRevenueCat();
   }, [user, isUserLoading, toast]);
-
-
-  const purchasePackage = async (pkg: PurchasesPackage) => {
-    if (!revenueCatState.isReady || !Purchases.isConfigured()) {
-      toast({
-        title: "Purchase Inactive",
-        description: "Payment system is not yet ready.",
-        variant: "destructive",
-      });
-      return;
-    }
-    try {
-      const { customerInfo } = await Purchases.purchasePackage(pkg);
-      setRevenueCatState(prevState => ({ ...prevState, customerInfo }));
-      toast({
-        title: "Purchase Successful",
-        description: "Your subscription has been activated!",
-      });
-      router.push('/dashboard');
-    } catch (e: any) {
-      if (!e.userCancelled) {
-        console.error("RevenueCat: Purchase failed.", e);
-        toast({
-          title: "Purchase Failed",
-          description: e.message || "An unexpected error occurred. Please try again.",
-          variant: "destructive",
-        });
-      }
-    }
-  };
 
   const restorePurchases = async () => {
     if (!revenueCatState.isReady || !Purchases.isConfigured()) {
@@ -149,7 +113,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <RevenueCatContext.Provider value={{ ...revenueCatState, purchasePackage, restorePurchases }}>
+    <RevenueCatContext.Provider value={{ ...revenueCatState, restorePurchases }}>
       {children}
     </RevenueCatContext.Provider>
   );

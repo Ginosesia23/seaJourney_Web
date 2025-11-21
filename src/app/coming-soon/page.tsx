@@ -11,10 +11,10 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useUser } from '@/firebase';
 import { useRouter } from 'next/navigation';
-import type { PurchasesPackage } from '@revenuecat/purchases-js';
-import { Purchases, LogLevel } from '@revenuecat/purchases-js';
 import { useToast } from '@/hooks/use-toast';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
+import { purchaseSubscriptionPackage } from '@/app/actions';
+
 
 const tiers = [
   {
@@ -134,7 +134,7 @@ export default function ComingSoonPage() {
   const [planType, setPlanType] = useState('crew');
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
   const { user, isUserLoading } = useUser();
-  const { purchasePackage, offerings } = useRevenueCat();
+  const { offerings } = useRevenueCat();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -158,28 +158,25 @@ export default function ComingSoonPage() {
     setIsPurchasing(tierIdentifier);
     
     try {
-      const offering = offerings.all[tierIdentifier];
+      const result = await purchaseSubscriptionPackage(tierIdentifier, user.uid);
       
-      if (!offering) {
-        throw new Error(`No offering found for identifier: ${tierIdentifier}`);
+      if (result.success) {
+        toast({
+          title: "Purchase Successful",
+          description: "Your subscription has been activated!",
+        });
+        router.push('/dashboard');
+      } else {
+        throw new Error(result.error || 'An unexpected error occurred.');
       }
-
-      const pkg = offering.availablePackages[0];
-      if (!pkg) {
-        throw new Error(`No package found for offering: ${tierIdentifier}`);
-      }
-      
-      await purchasePackage(pkg);
       
     } catch (e: any) {
         console.error("Purchase process failed.", e);
-        if (!e.userCancelled) {
-            toast({
-                title: "Purchase Failed",
-                description: e.message || "An unexpected error occurred during purchase.",
-                variant: 'destructive',
-            });
-        }
+        toast({
+            title: "Purchase Failed",
+            description: e.message || "An unexpected error occurred during purchase.",
+            variant: 'destructive',
+        });
     } finally {
       setIsPurchasing(null);
     }
