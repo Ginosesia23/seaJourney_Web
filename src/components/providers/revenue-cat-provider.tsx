@@ -48,36 +48,38 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         setRevenueCatState(s => ({ ...s, isReady: true }));
         return;
       }
-
+      
+      // Wait for Firebase user to be loaded
       if (isUserLoading) {
-        console.log("RC: Firebase user is loading, waiting...");
         return;
       }
-      
+
       Purchases.setLogLevel(LogLevel.DEBUG);
 
       try {
         if (user) {
-          console.log(`RC: about to configure with UID: ${user.uid}`);
-          if (!Purchases.isConfigured()) {
+           console.log(`RC: about to configure with UID: ${user.uid}`);
+           if (!Purchases.isConfigured()) {
              await Purchases.configure({ apiKey, appUserId: user.uid });
              console.log("RC: Configured with UID.");
-          } else if ((await Purchases.getAppUserID()) !== user.uid) {
-             console.log("RC: User changed, logging in new user.");
-             await Purchases.logIn(user.uid);
-          }
-          
+           } else {
+             const currentRCUser = await Purchases.getAppUserID();
+             if (currentRCUser !== user.uid) {
+               console.log("RC: User changed, logging in new user.");
+               await Purchases.logIn(user.uid);
+             }
+           }
         } else {
           console.log("RC: no user, configuring for anonymous.");
-           if (!Purchases.isConfigured()) {
+          if (!Purchases.isConfigured()) {
             await Purchases.configure({ apiKey });
             console.log("RC: Configured for anonymous user.");
-          } else if (!await Purchases.isAnonymous()) {
-            console.log("RC: User logged out, logging out of RC.");
-            await Purchases.logOut();
+          } else if (!(await Purchases.isAnonymous())) {
+             console.log("RC: User logged out, logging out of RC.");
+             await Purchases.logOut();
           }
         }
-        
+
         const offerings = await Purchases.getOfferings();
         const customerInfo = await Purchases.getCustomerInfo();
         

@@ -1,12 +1,2 @@
-
-'use client';
-
-// This file is no longer needed as RevenueCatProvider is in the root layout.
-// We keep it to avoid breaking Next.js build but return children directly.
-export default function ComingSoonLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return <>{children}</>;
-}
+// This file is intentionally blank and can be deleted.
+// It was removed to prevent premature initialization of the RevenueCatProvider on public pages.
