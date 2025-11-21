@@ -49,39 +49,29 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
       
-      // Wait for Firebase user to be loaded
+      // Wait for Firebase user to be loaded before doing anything.
       if (isUserLoading) {
         return;
       }
 
       Purchases.setLogLevel(LogLevel.DEBUG);
+      let customerInfo = null;
+      let offerings = null;
 
       try {
         if (user) {
-           console.log(`RC: about to configure with UID: ${user.uid}`);
-           if (!Purchases.isConfigured()) {
-             await Purchases.configure({ apiKey, appUserId: user.uid });
-             console.log("RC: Configured with UID.");
-           } else {
-             const currentRCUser = await Purchases.getAppUserID();
-             if (currentRCUser !== user.uid) {
-               console.log("RC: User changed, logging in new user.");
-               await Purchases.logIn(user.uid);
-             }
-           }
+          console.log(`RC: Configuring for user: ${user.uid}`);
+          await Purchases.configure({ apiKey, appUserId: user.uid });
+          customerInfo = await Purchases.getCustomerInfo();
+          offerings = await Purchases.getOfferings();
+          console.log(`RC: Configured with UID: ${user.uid}`);
         } else {
-          console.log("RC: no user, configuring for anonymous.");
-          if (!Purchases.isConfigured()) {
-            await Purchases.configure({ apiKey });
-            console.log("RC: Configured for anonymous user.");
-          } else if (!(await Purchases.isAnonymous())) {
-             console.log("RC: User logged out, logging out of RC.");
-             await Purchases.logOut();
-          }
+          console.log("RC: Configuring for anonymous user.");
+          await Purchases.configure({ apiKey });
+          customerInfo = await Purchases.getCustomerInfo();
+          offerings = await Purchases.getOfferings();
+          console.log("RC: Configured for anonymous user.");
         }
-
-        const offerings = await Purchases.getOfferings();
-        const customerInfo = await Purchases.getCustomerInfo();
         
         setRevenueCatState({
           customerInfo,
@@ -90,13 +80,18 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         });
 
       } catch (error: any) {
-        console.error("RevenueCat initialization or login failed:", error);
-        toast({
-          title: "Subscription Error",
-          description: "Could not connect to the subscription service.",
-          variant: "destructive",
-        });
-        setRevenueCatState((s) => ({ ...s, isReady: true }));
+        console.error("RevenueCat initialization failed:", error);
+        // Don't show a toast for this common initialization error on public pages
+        if (error.message.includes("is not valid")) {
+            // Silently fail if the user ID is invalid during initial load
+        } else {
+            toast({
+              title: "Subscription Error",
+              description: "Could not connect to the subscription service.",
+              variant: "destructive",
+            });
+        }
+        setRevenueCatState((s) => ({ ...s, isReady: true, customerInfo: null, offerings: null }));
       }
     };
 

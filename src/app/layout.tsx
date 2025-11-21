@@ -4,9 +4,9 @@ import { Toaster } from '@/components/ui/toaster';
 import './globals.css';
 import { cn } from '@/lib/utils';
 import { CartProvider } from '@/context/cart-context';
+import { ThemeProvider } from '@/context/theme-provider';
 import { FirebaseClientProvider } from '@/firebase';
 import RevenueCatProvider from '@/components/providers/revenue-cat-provider';
-import { ThemeProvider } from '@/context/theme-provider';
 
 export const metadata: Metadata = {
   title: 'SeaJourney - Seatime Tracker for Maritime Professionals',
