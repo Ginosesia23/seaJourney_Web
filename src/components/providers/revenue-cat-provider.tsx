@@ -49,9 +49,8 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
       
-      // Wait for Firebase user to be loaded before doing anything.
       if (isUserLoading) {
-        return;
+        return; // Wait for Firebase to determine the user state
       }
 
       Purchases.setLogLevel(LogLevel.DEBUG);
@@ -67,7 +66,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
           console.log(`RC: Configured with UID: ${user.uid}`);
         } else {
           console.log("RC: Configuring for anonymous user.");
-          await Purchases.configure({ apiKey });
+          await Purchases.configure({ apiKey }); // No appUserId for anonymous users
           customerInfo = await Purchases.getCustomerInfo();
           offerings = await Purchases.getOfferings();
           console.log("RC: Configured for anonymous user.");
@@ -81,16 +80,11 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
       } catch (error: any) {
         console.error("RevenueCat initialization failed:", error);
-        // Don't show a toast for this common initialization error on public pages
-        if (error.message.includes("is not valid")) {
-            // Silently fail if the user ID is invalid during initial load
-        } else {
-            toast({
-              title: "Subscription Error",
-              description: "Could not connect to the subscription service.",
-              variant: "destructive",
-            });
-        }
+        toast({
+          title: "Subscription Error",
+          description: "Could not connect to the subscription service.",
+          variant: "destructive",
+        });
         setRevenueCatState((s) => ({ ...s, isReady: true, customerInfo: null, offerings: null }));
       }
     };
