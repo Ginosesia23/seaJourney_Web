@@ -82,7 +82,8 @@ export default function DashboardPage() {
   const currentStatus = useMemo(() => currentStatusData?.[0] || null, [currentStatusData]);
 
   const filteredTrips = useMemo(() => {
-    return (trips || []).filter(trip => {
+    if (!trips) return [];
+    return trips.filter(trip => {
       const tripYear = getYear(fromUnixTime(trip.endDate.seconds));
       const yearMatch = selectedYear === 'all' || tripYear === parseInt(selectedYear, 10);
       const vesselMatch = selectedVessel === 'all' || trip.vesselId === selectedVessel;
@@ -99,11 +100,12 @@ export default function DashboardPage() {
   }, [filteredTrips, currentStatus, selectedYear, selectedVessel]);
 
   const recentActivity = useMemo(() => {
-    return (trips || [])
+    if (!trips || !vessels) return [];
+    return trips
         .sort((a, b) => b.endDate.seconds - a.endDate.seconds)
         .slice(0, 5)
         .map(trip => {
-            const vessel = vessels?.find(v => v.id === trip.vesselId);
+            const vessel = vessels.find(v => v.id === trip.vesselId);
             return {
                 ...trip,
                 vesselName: vessel?.name || 'Unknown Vessel',
@@ -115,7 +117,7 @@ export default function DashboardPage() {
   const availableYears = useMemo(() => {
     if (!trips) return [];
     const years = new Set(trips.map(trip => getYear(fromUnixTime(trip.endDate.seconds))));
-    return ['All', ...Array.from(years).sort((a, b) => b - a).map(String)];
+    return ['all', ...Array.from(years).sort((a, b) => b - a).map(String)];
   }, [trips]);
 
   const availableVessels = useMemo(() => {
@@ -148,12 +150,12 @@ export default function DashboardPage() {
   }, [trips, currentStatus]);
 
   const longestPassage = useMemo(() => {
-    if (!trips || trips.length === 0) return null;
+    if (!trips || trips.length === 0 || !vessels) return null;
     const longest = trips.reduce((max, trip) => {
       const days = Object.keys(trip.dailyStates).length;
       return days > (max ? Object.keys(max.dailyStates).length : 0) ? trip : max;
     });
-    const vessel = vessels?.find(v => v.id === longest.vesselId);
+    const vessel = vessels.find(v => v.id === longest.vesselId);
     return {
       vesselName: vessel?.name || 'Unknown',
       days: Object.keys(longest.dailyStates).length
@@ -211,7 +213,9 @@ export default function DashboardPage() {
                 </SelectTrigger>
                 <SelectContent>
                     {availableYears.map(year => (
-                        <SelectItem key={year} value={year.toLowerCase()}>{year}</SelectItem>
+                        <SelectItem key={year} value={year.toLowerCase()}>
+                            {year.charAt(0).toUpperCase() + year.slice(1)}
+                        </SelectItem>
                     ))}
                 </SelectContent>
             </Select>

@@ -10,21 +10,20 @@ import DashboardHeader from '@/components/layout/dashboard-header';
 import DashboardSidebar from '@/components/layout/dashboard-sidebar';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
-import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
+import RevenueCatProvider, { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 
 interface UserProfile {
   subscriptionTier: 'free' | 'premium' | 'premium-plus' | 'professional';
   role: 'crew' | 'vessel' | 'admin';
 }
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+function DashboardContent({ children }: { children: React.ReactNode }) {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const pathname = usePathname();
   const { theme } = useTheme();
   const firestore = useFirestore();
   const { customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
-
 
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
@@ -34,28 +33,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>(userProfileRef);
 
   useEffect(() => {
-    // Wait until all user and subscription data is loaded
-    if (isUserLoading || isProfileLoading || !isRevenueCatReady) return;
+    if (isUserLoading || !isRevenueCatReady) return;
 
     if (!user) {
       router.push('/login');
       return;
     }
-
-    const hasActiveSubscription = (customerInfo?.activeSubscriptions?.length ?? 0) > 0;
     
-    // If the user is on the free tier and has no active subscription from RevenueCat, redirect them.
-    if (userProfile && userProfile.subscriptionTier === 'free' && !hasActiveSubscription) {
-        router.push('/coming-soon');
-        return;
+    const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
+    
+    if (userProfile?.subscriptionTier === 'free' && !hasActiveSubscription) {
+        if (pathname !== '/coming-soon') {
+            router.push('/coming-soon');
+        }
     }
 
-  }, [user, isUserLoading, userProfile, isProfileLoading, router, customerInfo, isRevenueCatReady]);
+  }, [user, isUserLoading, userProfile, isProfileLoading, router, customerInfo, isRevenueCatReady, pathname]);
 
   const isMapPage = pathname === '/dashboard/world-map';
-  const isLoading = isUserLoading || isProfileLoading || !isRevenueCatReady;
+  const isLoading = isUserLoading || !isRevenueCatReady || isProfileLoading;
 
-  // Show a full-screen loader while we wait for user and subscription data.
   if (isLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
@@ -63,17 +60,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
     );
   }
-
-  // After loading, check if the user should be on this page. 
-  // This prevents rendering children before a potential redirect.
-  const hasActiveSubscription = (customerInfo?.activeSubscriptions?.length ?? 0) > 0;
-  if (!user || (userProfile?.subscriptionTier === 'free' && !hasActiveSubscription)) {
-    return null;
+  
+  const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
+  if (!user || (userProfile?.subscriptionTier === 'free' && !hasActiveSubscription && pathname !== '/coming-soon')) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
     <div className={cn("theme-dashboard", theme === "dark" ? "dark" : "")}>
-      <DashboardHeader userProfile={userProfile}/>
+      <DashboardHeader userProfile={userProfile} />
       <div
         className={cn(
           "grid min-h-[calc(100vh-4rem)] flex-1 transition-[grid-template-columns] duration-300 ease-in-out",
@@ -89,5 +88,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </main>
       </div>
     </div>
+  );
+}
+
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <RevenueCatProvider>
+      <DashboardContent>{children}</DashboardContent>
+    </RevenueCatProvider>
   );
 }
