@@ -102,6 +102,9 @@ export default function SignupPage() {
 
   return (
     <div className="dark flex min-h-screen flex-col items-center justify-center bg-header px-4">
+      <div className="mb-8">
+        <LogoOnboarding />
+      </div>
        <div className="relative w-full max-w-md p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
         <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
         <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
@@ -110,9 +113,6 @@ export default function SignupPage() {
         
         <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
           <CardHeader className="text-center">
-            <div className="mb-4 flex justify-center">
-              <LogoOnboarding />
-            </div>
             <CardTitle className="font-headline text-2xl">Create an Account</CardTitle>
             <CardDescription>Join SeaJourney and start tracking your sea time.</CardDescription>
           </CardHeader>
