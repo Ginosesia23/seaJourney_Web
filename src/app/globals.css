@@ -154,7 +154,7 @@
     stroke-dashoffset: 1000;
   }
   .animated-gradient-background {
-    background: linear-gradient(135deg, hsl(var(--header)), hsl(var(--background)), hsl(var(--primary) / 0.5));
+    background: linear-gradient(135deg, hsl(var(--header)), hsl(var(--background)), hsl(var(--primary) / 0.2));
     background-size: 200% 200%;
     animation: gradient-animation 15s ease infinite;
   }
