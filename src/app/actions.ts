@@ -1,13 +1,14 @@
-'use server';
 
-import { Purchases } from '@revenuecat/purchases-js';
+'use server';
 
 // This function will run on the server
 export async function purchaseSubscriptionPackage(
   packageIdentifier: string,
   appUserId: string
 ) {
-  if (!process.env.REVENUECAT_SECRET_API_KEY) {
+  const secretApiKey = process.env.REVENUECAT_SECRET_API_KEY;
+
+  if (!secretApiKey) {
     throw new Error('RevenueCat secret API key is not set in your .env file.');
   }
 
@@ -15,32 +16,47 @@ export async function purchaseSubscriptionPackage(
     throw new Error('User is not authenticated.');
   }
 
-  // Initialize RevenueCat SDK on the server with the secret key
-  const purchases = new Purchases(process.env.REVENUECAT_SECRET_API_KEY!);
-
   try {
-    // This is a placeholder for server-side purchase logic.
-    // In a real scenario, you'd integrate with a payment gateway here
-    // and then grant entitlement via RevenueCat's API.
-    // For the purpose of this prototype, we'll simulate granting entitlement.
-    
+    // For this prototype, we are granting a promotional subscription.
+    // The entitlement identifier is derived from the package identifier.
+    // e.g. 'default_monthly' -> 'default'
     const parts = packageIdentifier.split('_');
-    const entitlementId = parts[0]; // e.g., 'standard', 'premium', 'vessel'
+    const entitlementId = parts[0]; 
 
-    await purchases.grantEntitlement(appUserId, entitlementId);
+    const response = await fetch(
+      `https://api.revenuecat.com/v1/subscribers/${appUserId}/entitlements/${entitlementId}/promotional`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${secretApiKey}`,
+        },
+        body: JSON.stringify({
+          duration: 'monthly', // Grant a monthly promotional subscription
+        }),
+      }
+    );
+    
+    if (!response.ok) {
+        const errorBody = await response.json();
+        console.error('RevenueCat API Error:', errorBody);
+        throw new Error(`Failed to grant entitlement. Status: ${response.status} - ${errorBody.message || 'Unknown error'}`);
+    }
 
-    // After granting, we fetch the updated customer info to confirm.
-    const customerInfo = await purchases.getCustomerInfo(appUserId);
+    const data = await response.json();
 
-    // Check if the entitlement is now active.
-    if (customerInfo.entitlements.active[entitlementId]) {
-      return { success: true, customerInfo };
+    // The response contains subscriber data, let's check if the entitlement is active
+    const subscriber = data.subscriber;
+    const activeEntitlement = subscriber.entitlements[entitlementId];
+
+    if (activeEntitlement && new Date(activeEntitlement.expires_date) > new Date()) {
+       return { success: true, customerInfo: subscriber };
     } else {
-      throw new Error(`Failed to grant entitlement: ${entitlementId}`);
+       throw new Error(`Entitlement '${entitlementId}' not found or expired after grant.`);
     }
 
   } catch (error: any) {
-    console.error('Server-side purchase failed:', error);
+    console.error('Server-side promotional grant failed:', error);
     return { success: false, error: error.message };
   }
 }
