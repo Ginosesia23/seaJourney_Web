@@ -33,7 +33,7 @@ const tiers = [
   },
   {
     name: 'Standard',
-    identifier: 'default',
+    identifier: 'sj_starter',
     price: '£5.99',
     priceSuffix: '/ month',
     description: 'For dedicated professionals who need advanced tracking.',
@@ -269,11 +269,10 @@ export default function ComingSoonPage() {
                             price = monthlyPackage.product.priceString;
                         }
                         tierDescription = tierOffering.serverDescription;
-                        // You could also store features in metadata:
-                        // const metadataFeatures = tierOffering.metadata.features;
-                        // if (metadataFeatures && Array.isArray(metadataFeatures)) {
-                        //   features = metadataFeatures.map(String);
-                        // }
+                        const metadataFeatures = (tierOffering.metadata as any)?.features;
+                        if (metadataFeatures && Array.isArray(metadataFeatures)) {
+                           features = metadataFeatures.map(String);
+                        }
                     }
                 }
 
@@ -348,3 +347,5 @@ export default function ComingSoonPage() {
     </div>
   );
 }
+
+    
