@@ -16,17 +16,19 @@ import {
 } from '@/components/ui/sheet';
 import Logo from '@/components/logo';
 import { Cart } from '@/components/cart';
+import { useUser } from '@/firebase';
 
 const navLinks = [
   { href: '/how-to-use', label: 'Guide' },
   { href: '/dashboard-offering', label: 'Dashboard' },
-  { href: '/coming-soon', label: 'Pricing' },
+  { href: '/offers', label: 'Join' },
 ];
 
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
   const isShopPage = pathname.startsWith('/shop');
+  const { user } = useUser();
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-header bg-header text-header-foreground backdrop-blur-sm">
@@ -57,9 +59,15 @@ const Header = () => {
           {isShopPage && <Cart />}
           
           <div className="hidden md:flex items-center gap-2">
-             <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
-              <Link href="/login">Sign In</Link>
-            </Button>
+            {user ? (
+                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
+                    <Link href="/dashboard">Go to Dashboard</Link>
+                </Button>
+            ) : (
+                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
+                    <Link href="/login">Sign In</Link>
+                </Button>
+            )}
           </div>
 
 
@@ -118,9 +126,15 @@ const Header = () => {
                 </nav>
 
                 <div className="border-t border-primary/10 pt-6">
+                  {user ? (
+                     <Link href="/dashboard" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
+                        Dashboard
+                    </Link>
+                  ) : (
                     <Link href="/login" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
                         Sign In
                     </Link>
+                  )}
                 </div>
 
               </div>
