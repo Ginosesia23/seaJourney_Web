@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Check, Ship, User, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useUser, useFirestore } from '@/firebase';
+import { useUser, useFirestore, errorEmitter, FirestorePermissionError } from '@/firebase';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
@@ -191,36 +191,44 @@ export default function ComingSoonPage() {
     setIsPurchasing(tierIdentifier);
     
     try {
-      // The entitlement identifier is the tier's main identifier
       const result = await purchaseSubscriptionPackage(tierIdentifier, user.uid);
       
       if (result.success && result.entitlementId) {
-        
-        // Update user profile in Firestore on the client-side
         const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
-        await setDoc(userProfileRef, {
-           subscriptionTier: result.entitlementId,
-           subscriptionStatus: 'active',
-        }, { merge: true });
+        const profileUpdateData = {
+          subscriptionTier: result.entitlementId,
+          subscriptionStatus: 'active',
+        };
 
-        toast({
-          title: "Purchase Successful",
-          description: "Your subscription has been activated!",
-        });
-        router.push('/dashboard');
+        setDoc(userProfileRef, profileUpdateData, { merge: true })
+          .then(() => {
+            toast({
+              title: "Purchase Successful",
+              description: "Your subscription has been activated!",
+            });
+            router.push('/dashboard');
+          })
+          .catch((serverError) => {
+            const permissionError = new FirestorePermissionError({
+              path: userProfileRef.path,
+              operation: 'update',
+              requestResourceData: profileUpdateData,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+            setIsPurchasing(null); // Re-enable button on failure
+          });
+
       } else {
-        throw new Error(result.error || 'An unexpected error occurred.');
+        throw new Error(result.error || 'An unexpected error occurred during entitlement grant.');
       }
       
     } catch (e: any) {
-        console.error("Purchase process failed.", e);
         toast({
             title: "Purchase Failed",
             description: e.message || "An unexpected error occurred during purchase.",
             variant: 'destructive',
         });
-    } finally {
-      setIsPurchasing(null);
+        setIsPurchasing(null);
     }
   }
   
