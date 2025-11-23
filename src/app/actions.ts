@@ -1,6 +1,12 @@
 
 'use server';
 
+import { doc, setDoc } from 'firebase/firestore';
+import { getSdks } from '@/firebase'; // Assuming getSdks is available for server-side admin-like init
+import { initializeApp, getApps, App } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+import { firebaseConfig } from '@/firebase/config';
+
 // This function will run on the server
 export async function purchaseSubscriptionPackage(
   entitlementId: string, // This is the entitlement identifier, e.g., "sj_starter"
@@ -17,8 +23,7 @@ export async function purchaseSubscriptionPackage(
   }
 
   try {
-    // For this prototype, we are granting a promotional subscription.
-    // The entitlement identifier is passed directly from the client.
+    // Grant the promotional entitlement via RevenueCat API
     const response = await fetch(
       `https://api.revenuecat.com/v1/subscribers/${appUserId}/entitlements/${entitlementId}/promotional`,
       {
@@ -40,12 +45,30 @@ export async function purchaseSubscriptionPackage(
     }
 
     const data = await response.json();
-
-    // The response contains subscriber data, let's check if the entitlement is active
     const subscriber = data.subscriber;
     const activeEntitlement = subscriber.entitlements[entitlementId];
 
     if (activeEntitlement && new Date(activeEntitlement.expires_date) > new Date()) {
+       // --- START: Update Firestore ---
+       // This part requires a server-side way to interact with Firestore.
+       // We'll use a simple admin-like initialization here.
+       // NOTE: For a real production app, you'd use the Firebase Admin SDK.
+       // For this prototype, we re-initialize a firestore instance on the server.
+       let app: App;
+       if (!getApps().length) {
+         app = initializeApp(firebaseConfig, 'server-action-app');
+       } else {
+         app = getApps()[0];
+       }
+       const firestore = getFirestore(app);
+
+       const userProfileRef = doc(firestore, 'users', appUserId, 'profile', appUserId);
+       await setDoc(userProfileRef, {
+           subscriptionTier: entitlementId, // e.g., 'sj_starter'
+           subscriptionStatus: 'active',
+       }, { merge: true });
+       // --- END: Update Firestore ---
+
        return { success: true, customerInfo: subscriber };
     } else {
        throw new Error(`Entitlement '${entitlementId}' not found or expired after grant.`);

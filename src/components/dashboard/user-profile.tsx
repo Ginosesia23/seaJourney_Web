@@ -17,6 +17,8 @@ import { Loader2, User as UserIcon } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format } from 'date-fns';
+import { Badge } from '../ui/badge';
+import { cn } from '@/lib/utils';
 
 
 const profileSchema = z.object({
@@ -118,11 +120,30 @@ export function UserProfileCard() {
   const registrationDate = userProfile?.registrationDate ? new Date(userProfile.registrationDate) : null;
   const getInitials = (name: string) => name.split(' ').map((n) => n[0]).join('');
 
+  const subscriptionStatus = userProfile?.subscriptionStatus;
+  const subscriptionTier = userProfile?.subscriptionTier;
+
   return (
     <Card className="rounded-xl border bg-card dark:shadow-md transition-shadow dark:hover:shadow-lg">
       <CardHeader>
-        <CardTitle>User Profile</CardTitle>
-        <CardDescription>This information will be displayed on your testimonials and other documents.</CardDescription>
+        <div className="flex justify-between items-start">
+            <div>
+                <CardTitle>User Profile</CardTitle>
+                <CardDescription>This information will be displayed on your testimonials and other documents.</CardDescription>
+            </div>
+            {subscriptionTier && subscriptionStatus && (
+                <div className="text-right">
+                    <Badge 
+                        className={cn(
+                            subscriptionStatus === 'active' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-destructive/20 text-destructive-foreground'
+                        )}
+                    >
+                        {subscriptionStatus}
+                    </Badge>
+                    <p className="text-sm text-muted-foreground mt-1 capitalize">{subscriptionTier.replace('sj_', '')}</p>
+                </div>
+            )}
+        </div>
       </CardHeader>
       <CardContent>
         <Form {...form}>
