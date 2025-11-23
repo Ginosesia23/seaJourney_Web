@@ -1,3 +1,4 @@
+
 import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Quote } from 'lucide-react';
@@ -26,13 +27,13 @@ const testimonialsData = [
 
 const Testimonials = () => {
   return (
-    <section id="testimonials" className="py-16 sm:py-24 bg-background text-foreground">
+    <section id="testimonials" className="py-16 sm:py-24 bg-header text-header-foreground">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
+          <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
             Trusted by Crew and Captains Alike
           </h2>
-          <p className="mt-4 text-lg leading-8 text-foreground/80">
+          <p className="mt-4 text-lg leading-8 text-header-foreground/80">
             See why maritime professionals around the world trust SeaJourney to manage their careers.
           </p>
         </div>
@@ -40,14 +41,14 @@ const Testimonials = () => {
           {testimonialsData.map((testimonial) => {
             const image = PlaceHolderImages.find(p => p.id === testimonial.id);
             return (
-              <Card key={testimonial.name} className="flex flex-col justify-between shadow-lg transition-shadow duration-300 hover:shadow-xl bg-card text-card-foreground overflow-hidden rounded-2xl">
+              <Card key={testimonial.name} className="flex flex-col justify-between shadow-lg transition-shadow duration-300 hover:shadow-xl bg-black/20 border-primary/20 backdrop-blur-sm text-card-foreground overflow-hidden rounded-2xl">
                 <CardContent className="flex-grow p-6">
-                  <Quote className="h-8 w-8 text-primary" />
-                  <blockquote className="mt-4 text-lg text-foreground/90">
+                  <Quote className="h-8 w-8 text-accent" />
+                  <blockquote className="mt-4 text-lg text-header-foreground/90">
                     "{testimonial.quote}"
                   </blockquote>
                 </CardContent>
-                <div className="flex items-center gap-4 bg-[hsl(222.2,84%,10.5%)] text-primary-foreground p-6">
+                <div className="flex items-center gap-4 bg-black/30 p-6">
                   {image && (
                     <Image
                       src={image.imageUrl}
@@ -60,7 +61,7 @@ const Testimonials = () => {
                   )}
                   <div>
                     <p className="font-bold text-white">{testimonial.name}</p>
-                    <p className="text-sm text-primary-foreground/70">{testimonial.title}</p>
+                    <p className="text-sm text-header-foreground/70">{testimonial.title}</p>
                   </div>
                 </div>
               </Card>
@@ -73,3 +74,5 @@ const Testimonials = () => {
 };
 
 export default Testimonials;
+
+    

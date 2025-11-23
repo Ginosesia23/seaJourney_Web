@@ -1,3 +1,4 @@
+
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { CalendarDays, FileSignature, Award, Ship } from 'lucide-react';
 
@@ -26,25 +27,25 @@ const features = [
 
 const Features = () => {
   return (
-    <section id="features" className="py-16 sm:py-24 bg-background text-foreground">
+    <section id="features" className="py-16 sm:py-24 bg-header text-header-foreground">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
+          <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
             The Captain's Choice for Career Progression
           </h2>
-          <p className="mt-4 text-lg leading-8 text-foreground/80">
+          <p className="mt-4 text-lg leading-8 text-header-foreground/80">
             SeaJourney provides all the tools you need to accurately log your experience and advance your maritime career.
           </p>
         </div>
         <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 sm:grid-cols-2 lg:max-w-none lg:grid-cols-4">
           {features.map((feature) => (
-            <Card key={feature.title} className="transform transition-transform duration-300 hover:-translate-y-2 hover:shadow-xl bg-card border-border/50 rounded-2xl">
+            <Card key={feature.title} className="transform transition-transform duration-300 hover:-translate-y-2 hover:shadow-xl bg-black/20 border-primary/20 backdrop-blur-sm rounded-2xl">
               <CardHeader>
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10">
                   {feature.icon}
                 </div>
-                <CardTitle className="pt-4 font-headline text-xl">{feature.title}</CardTitle>
-                <CardDescription className="pt-2">{feature.description}</CardDescription>
+                <CardTitle className="pt-4 font-headline text-xl text-white">{feature.title}</CardTitle>
+                <CardDescription className="pt-2 text-header-foreground/80">{feature.description}</CardDescription>
               </CardHeader>
             </Card>
           ))}
@@ -55,3 +56,5 @@ const Features = () => {
 };
 
 export default Features;
+
+    

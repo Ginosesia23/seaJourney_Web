@@ -11,8 +11,10 @@ const Hero = () => {
   const { user } = useUser();
 
   return (
-    <section className="bg-header text-header-foreground py-20 sm:py-28">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+    <section className="relative overflow-hidden bg-header text-header-foreground py-20 sm:py-28">
+        <div className="absolute inset-0 animated-gradient-background"></div>
+        <div className="absolute inset-0 bg-black/30"></div>
+      <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid items-center gap-12 lg:grid-cols-2">
           <div className="text-center lg:text-left">
             {user ? (
@@ -69,3 +71,5 @@ const Hero = () => {
 };
 
 export default Hero;
+
+    
