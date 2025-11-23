@@ -3,7 +3,7 @@
 
 // This function will run on the server
 export async function purchaseSubscriptionPackage(
-  packageIdentifier: string,
+  entitlementId: string, // This is the entitlement identifier, e.g., "sj_starter"
   appUserId: string
 ) {
   const secretApiKey = process.env.REVENUECAT_SECRET_API_KEY;
@@ -18,10 +18,7 @@ export async function purchaseSubscriptionPackage(
 
   try {
     // For this prototype, we are granting a promotional subscription.
-    // The entitlement identifier is the offering identifier.
-    // e.g. for a package from the 'standard' offering, the entitlement is 'standard'.
-    const entitlementId = packageIdentifier;
-
+    // The entitlement identifier is passed directly from the client.
     const response = await fetch(
       `https://api.revenuecat.com/v1/subscribers/${appUserId}/entitlements/${entitlementId}/promotional`,
       {

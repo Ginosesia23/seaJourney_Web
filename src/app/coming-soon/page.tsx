@@ -33,7 +33,8 @@ const tiers = [
   },
   {
     name: 'Standard',
-    identifier: 'sj_starter',
+    identifier: 'sj_starter', // This is the entitlement ID
+    offeringIdentifier: 'default', // This is the offering ID
     price: '£5.99',
     priceSuffix: '/ month',
     description: 'For dedicated professionals who need advanced tracking.',
@@ -51,6 +52,7 @@ const tiers = [
   {
     name: 'Premium',
     identifier: 'premium',
+    offeringIdentifier: 'premium',
     price: '£9.99',
     priceSuffix: '/ month',
     description: 'For career-focused seafarers needing detailed analytics.',
@@ -69,6 +71,7 @@ const tiers = [
   {
     name: 'Pro',
     identifier: 'pro',
+    offeringIdentifier: 'pro',
     price: '£14.99',
     priceSuffix: '/ month',
     description: 'The ultimate toolkit for maritime professionals.',
@@ -156,13 +159,13 @@ export default function ComingSoonPage() {
 
   const filteredTiers = tiers.filter(tier => tier.type === planType);
   
-  const handlePurchase = async (tierIdentifier: string | undefined) => {
+  const handlePurchase = async (tierIdentifier: string | undefined, offeringIdentifier: string | undefined) => {
     if (!user) {
       router.push(`/signup?redirect=/coming-soon`);
       return;
     }
     
-    if (!tierIdentifier || !offerings || !offerings.all[tierIdentifier]) {
+    if (!tierIdentifier || !offeringIdentifier || !offerings || !offerings.all[offeringIdentifier]) {
         toast({
             title: "Error",
             description: "Subscription package not found.",
@@ -171,7 +174,7 @@ export default function ComingSoonPage() {
         return;
     };
 
-    const offering = offerings.all[tierIdentifier];
+    const offering = offerings.all[offeringIdentifier];
     const pkg = offering?.availablePackages[0];
 
     if (!pkg) {
@@ -186,7 +189,7 @@ export default function ComingSoonPage() {
     setIsPurchasing(tierIdentifier);
     
     try {
-      // The entitlement identifier is the same as the offering identifier
+      // The entitlement identifier is the tier's main identifier
       const result = await purchaseSubscriptionPackage(tierIdentifier, user.uid);
       
       if (result.success) {
@@ -260,9 +263,10 @@ export default function ComingSoonPage() {
                 let price = tier.price;
                 let tierDescription = tier.description;
                 let features = tier.features;
+                const offeringIdentifier = (tier as any).offeringIdentifier;
 
-                if (tier.identifier && offerings && offerings.all && offerings.all[tier.identifier]) {
-                    const tierOffering = offerings.all[tier.identifier];
+                if (offeringIdentifier && offerings && offerings.all && offerings.all[offeringIdentifier]) {
+                    const tierOffering = offerings.all[offeringIdentifier];
                     if (tierOffering) {
                         const monthlyPackage = tierOffering.availablePackages.find(p => p.packageType === 'MONTHLY' || p.packageType === 'ANNUAL');
                         if (monthlyPackage) {
@@ -329,7 +333,7 @@ export default function ComingSoonPage() {
                                 className="w-full rounded-full"
                                 variant={tier.highlighted ? 'default' : 'outline'}
                                 disabled={isLoading || isProcessing}
-                                onClick={() => handlePurchase(tier.identifier)}
+                                onClick={() => handlePurchase(tier.identifier, (tier as any).offeringIdentifier)}
                             >
                                 {(isLoading || isProcessing) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 {isProcessing ? 'Processing...' : (isLoading ? 'Loading...' : (user ? tier.cta : 'Sign Up to Subscribe'))}
@@ -347,5 +351,3 @@ export default function ComingSoonPage() {
     </div>
   );
 }
-
-    
