@@ -46,7 +46,6 @@ const tiers = [
       '10 document export limit'
     ],
     cta: 'Choose Plan',
-    highlighted: true,
     type: 'crew',
   },
   {
@@ -62,6 +61,23 @@ const tiers = [
       'Certification progress tracking',
       '6GB online storage',
       '20 document export limit'
+    ],
+    cta: 'Choose Plan',
+    highlighted: true,
+    type: 'crew',
+  },
+  {
+    name: 'Pro',
+    identifier: 'pro',
+    price: '£14.99',
+    priceSuffix: '/ month',
+    description: 'The ultimate toolkit for maritime professionals.',
+    features: [
+      'All Premium features',
+      'AI Co-pilot for reports',
+      'Unlimited document exports',
+      '10GB online storage',
+      'Priority support'
     ],
     cta: 'Choose Plan',
     type: 'crew',
@@ -241,10 +257,10 @@ export default function ComingSoonPage() {
                 const isProcessing = isPurchasing === tier.identifier;
                 
                 let price = tier.price;
-                if (tier.identifier === 'standard' && offerings && offerings.all && offerings.all[tier.identifier]) {
-                    const standardOffering = offerings.all[tier.identifier];
-                    if (standardOffering) {
-                        const monthlyPackage = standardOffering.availablePackages.find(p => p.packageType === 'MONTHLY');
+                if (tier.identifier && offerings && offerings.all && offerings.all[tier.identifier]) {
+                    const tierOffering = offerings.all[tier.identifier];
+                    if (tierOffering) {
+                        const monthlyPackage = tierOffering.availablePackages.find(p => p.packageType === 'MONTHLY');
                         if (monthlyPackage) {
                             price = monthlyPackage.product.priceString;
                         }
