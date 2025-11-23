@@ -2,10 +2,9 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import Purchases, { PurchasesOffering, CustomerInfo, LogLevel, Offerings } from '@revenuecat/purchases-js';
+import { Purchases, type PurchasesOffering, type CustomerInfo, LogLevel, type Offerings } from '@revenuecat/purchases-js';
 import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { useRouter } from 'next/navigation';
 
 interface RevenueCatContextType {
   customerInfo: CustomerInfo | null;
