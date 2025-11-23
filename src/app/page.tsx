@@ -8,6 +8,7 @@ import HowToUse from '@/components/sections/how-to-use';
 import AndroidTesterSignup from '@/components/sections/android-tester-signup';
 import ShopPromo from '@/components/sections/shop-promo';
 import DashboardPreview from '@/components/sections/dashboard-preview';
+import PricingPromo from '@/components/sections/pricing-promo';
 
 export default function Home() {
   return (
@@ -17,6 +18,7 @@ export default function Home() {
         <Hero />
         <Features />
         <DashboardPreview />
+        <PricingPromo />
         <HowToUse />
         <Testimonials />
         <ShopPromo />
