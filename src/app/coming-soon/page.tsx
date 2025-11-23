@@ -33,7 +33,7 @@ const tiers = [
   },
   {
     name: 'Standard',
-    identifier: 'standard',
+    identifier: 'default',
     price: '£5.99',
     priceSuffix: '/ month',
     description: 'For dedicated professionals who need advanced tracking.',
@@ -338,3 +338,4 @@ export default function ComingSoonPage() {
     </div>
   );
 }
+
