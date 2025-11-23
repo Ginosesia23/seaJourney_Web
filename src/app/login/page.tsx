@@ -17,7 +17,7 @@ import { signInWithEmailAndPassword, signInAnonymously, AuthError, User } from '
 import { Loader2 } from 'lucide-react';
 import LogoOnboarding from '@/components/logo-onboarding';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
-import Purchases from '@revenuecat/purchases-js';
+import { Purchases } from '@revenuecat/purchases-js';
 
 
 const loginSchema = z.object({
@@ -42,7 +42,12 @@ export default function LoginPage() {
   
   const checkSubscriptionAndRedirect = async (user: User) => {
       try {
-        const purchases = new Purchases(process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY!, user.uid);
+        const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
+        if (!apiKey) {
+            throw new Error("RevenueCat API key not configured.");
+        }
+        
+        const purchases = new Purchases(apiKey, user.uid);
         const customerInfo = await purchases.getCustomerInfo();
         const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
 
