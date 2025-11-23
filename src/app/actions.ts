@@ -18,10 +18,9 @@ export async function purchaseSubscriptionPackage(
 
   try {
     // For this prototype, we are granting a promotional subscription.
-    // The entitlement identifier is derived from the package identifier.
-    // e.g. 'default_monthly' -> 'default'
-    const parts = packageIdentifier.split('_');
-    const entitlementId = parts[0]; 
+    // The entitlement identifier is the offering identifier.
+    // e.g. for a package from the 'standard' offering, the entitlement is 'standard'.
+    const entitlementId = packageIdentifier;
 
     const response = await fetch(
       `https://api.revenuecat.com/v1/subscribers/${appUserId}/entitlements/${entitlementId}/promotional`,
