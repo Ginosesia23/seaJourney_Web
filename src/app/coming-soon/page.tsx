@@ -89,6 +89,7 @@ const tiers = [
   {
     name: 'Vessel Basic',
     identifier: 'vessel_basic',
+    offeringIdentifier: 'vessel_basic',
     price: '£299.99',
     priceSuffix: '/ month',
     description: 'Essential tracking for a single vessel and its crew.',
@@ -104,6 +105,7 @@ const tiers = [
   {
     name: 'Vessel Pro',
     identifier: 'vessel_pro',
+    offeringIdentifier: 'vessel_pro',
     price: '£599.99',
     priceSuffix: '/ month',
     description: 'Comprehensive management for a professional yacht.',
@@ -120,6 +122,7 @@ const tiers = [
   {
     name: 'Vessel Fleet',
     identifier: 'vessel_fleet',
+    offeringIdentifier: 'vessel_fleet',
     price: '£1199.99',
     priceSuffix: '/ month',
     description: 'Ideal for managing multiple vessels and larger crews.',
@@ -135,6 +138,7 @@ const tiers = [
   {
     name: 'Vessel Enterprise',
     identifier: 'vessel_enterprise',
+    offeringIdentifier: 'vessel_enterprise',
     price: 'Custom',
     priceSuffix: '',
     description: 'Scalable solution for large fleets and management companies.',
@@ -193,10 +197,10 @@ export default function ComingSoonPage() {
     try {
       const result = await purchaseSubscriptionPackage(tierIdentifier, user.uid);
       
-      if (result.success && result.entitlementId) {
+      if (result.success && result.customerInfo?.entitlements.active[tierIdentifier]) {
         const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
         const profileUpdateData = {
-          subscriptionTier: result.entitlementId,
+          subscriptionTier: tierIdentifier,
           subscriptionStatus: 'active',
         };
 
