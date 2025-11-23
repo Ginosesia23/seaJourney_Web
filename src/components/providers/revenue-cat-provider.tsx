@@ -2,14 +2,14 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { Purchases, PurchasesOffering, CustomerInfo, LogLevel } from '@revenuecat/purchases-js';
+import { Purchases, PurchasesOffering, CustomerInfo, LogLevel, Offerings } from '@revenuecat/purchases-js';
 import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 
 interface RevenueCatContextType {
   customerInfo: CustomerInfo | null;
-  offerings: PurchasesOffering | null;
+  offerings: Offerings | null;
   isReady: boolean;
   restorePurchases: () => Promise<void>;
 }
@@ -31,7 +31,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
   const [revenueCatState, setRevenueCatState] = useState<{
     customerInfo: CustomerInfo | null;
-    offerings: PurchasesOffering | null;
+    offerings: Offerings | null;
     isReady: boolean;
   }>({
     customerInfo: null,
@@ -71,7 +71,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
         setRevenueCatState({
           customerInfo,
-          offerings: offerings.current,
+          offerings,
           isReady: true,
         });
 

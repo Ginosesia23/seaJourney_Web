@@ -146,7 +146,7 @@ export default function ComingSoonPage() {
       return;
     }
     
-    if (!tierIdentifier) {
+    if (!tierIdentifier || !offerings || !offerings.all[tierIdentifier]) {
         toast({
             title: "Error",
             description: "Subscription package not found.",
@@ -155,7 +155,7 @@ export default function ComingSoonPage() {
         return;
     };
 
-    const offering = offerings?.all[tierIdentifier];
+    const offering = offerings.all[tierIdentifier];
     const pkg = offering?.availablePackages[0];
 
     if (!pkg) {
@@ -241,8 +241,8 @@ export default function ComingSoonPage() {
                 const isProcessing = isPurchasing === tier.identifier;
                 
                 let price = tier.price;
-                if (tier.identifier === 'standard') {
-                    const standardOffering = offerings?.all['standard'];
+                if (tier.identifier === 'standard' && offerings && offerings.all) {
+                    const standardOffering = offerings.all['standard'];
                     if (standardOffering) {
                         const monthlyPackage = standardOffering.availablePackages.find(p => p.packageType === 'MONTHLY');
                         if (monthlyPackage) {
