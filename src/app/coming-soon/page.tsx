@@ -186,7 +186,8 @@ export default function ComingSoonPage() {
     setIsPurchasing(tierIdentifier);
     
     try {
-      const result = await purchaseSubscriptionPackage(pkg.identifier, user.uid);
+      // The entitlement identifier is the same as the offering identifier
+      const result = await purchaseSubscriptionPackage(tierIdentifier, user.uid);
       
       if (result.success) {
         toast({
@@ -257,13 +258,22 @@ export default function ComingSoonPage() {
                 const isProcessing = isPurchasing === tier.identifier;
                 
                 let price = tier.price;
+                let tierDescription = tier.description;
+                let features = tier.features;
+
                 if (tier.identifier && offerings && offerings.all && offerings.all[tier.identifier]) {
                     const tierOffering = offerings.all[tier.identifier];
                     if (tierOffering) {
-                        const monthlyPackage = tierOffering.availablePackages.find(p => p.packageType === 'MONTHLY' || p.packageType === 'ANNUAL'); // Or other package types
+                        const monthlyPackage = tierOffering.availablePackages.find(p => p.packageType === 'MONTHLY' || p.packageType === 'ANNUAL');
                         if (monthlyPackage) {
                             price = monthlyPackage.product.priceString;
                         }
+                        tierDescription = tierOffering.serverDescription;
+                        // You could also store features in metadata:
+                        // const metadataFeatures = tierOffering.metadata.features;
+                        // if (metadataFeatures && Array.isArray(metadataFeatures)) {
+                        //   features = metadataFeatures.map(String);
+                        // }
                     }
                 }
 
@@ -290,11 +300,11 @@ export default function ComingSoonPage() {
                                 </div>
                             </>
                         )}
-                        <CardDescription>{tier.description}</CardDescription>
+                        <CardDescription>{tierDescription}</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <ul className="space-y-4">
-                        {tier.features.map((feature) => (
+                        {features.map((feature) => (
                             <li key={feature} className="flex items-start">
                             <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
                             <span>{feature}</span>
@@ -338,4 +348,3 @@ export default function ComingSoonPage() {
     </div>
   );
 }
-
