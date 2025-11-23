@@ -146,19 +146,31 @@ export default function ComingSoonPage() {
       return;
     }
     
-    if (!tierIdentifier || !offerings) {
+    if (!tierIdentifier) {
         toast({
             title: "Error",
-            description: "Subscription offerings not available. Please try again later.",
+            description: "Subscription package not found.",
             variant: "destructive",
         });
         return;
     };
 
+    const offering = offerings?.all[tierIdentifier];
+    const pkg = offering?.availablePackages[0];
+
+    if (!pkg) {
+        toast({
+            title: "Error",
+            description: "Subscription offering not available. Please try again later.",
+            variant: "destructive",
+        });
+        return;
+    }
+
     setIsPurchasing(tierIdentifier);
     
     try {
-      const result = await purchaseSubscriptionPackage(tierIdentifier, user.uid);
+      const result = await purchaseSubscriptionPackage(pkg.identifier, user.uid);
       
       if (result.success) {
         toast({
@@ -228,6 +240,17 @@ export default function ComingSoonPage() {
               {filteredTiers.map((tier) => {
                 const isProcessing = isPurchasing === tier.identifier;
                 
+                let price = tier.price;
+                if (tier.identifier === 'standard') {
+                    const standardOffering = offerings?.all['standard'];
+                    if (standardOffering) {
+                        const monthlyPackage = standardOffering.availablePackages.find(p => p.packageType === 'MONTHLY');
+                        if (monthlyPackage) {
+                            price = monthlyPackage.product.priceString;
+                        }
+                    }
+                }
+
                 return (
                     <Card key={tier.name} className={cn(
                         "flex flex-col rounded-2xl",
@@ -246,7 +269,7 @@ export default function ComingSoonPage() {
                             <>
                                 <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
                                 <div className="flex items-baseline gap-1">
-                                <span className="text-4xl font-bold tracking-tight">{tier.price}</span>
+                                <span className="text-4xl font-bold tracking-tight">{price}</span>
                                 <span className="text-sm font-semibold text-muted-foreground">{tier.priceSuffix}</span>
                                 </div>
                             </>
