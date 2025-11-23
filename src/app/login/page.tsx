@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -13,9 +13,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/firebase';
-import { signInWithEmailAndPassword, signInAnonymously, AuthError } from 'firebase/auth';
+import { signInWithEmailAndPassword, signInAnonymously, AuthError, User } from 'firebase/auth';
 import { Loader2 } from 'lucide-react';
 import LogoOnboarding from '@/components/logo-onboarding';
+import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
+import Purchases from '@revenuecat/purchases-js';
+
 
 const loginSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address.' }),
@@ -30,18 +33,37 @@ export default function LoginPage() {
   const auth = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const { isReady: isRevenueCatReady } = useRevenueCat();
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: '', password: '' },
   });
+  
+  const checkSubscriptionAndRedirect = async (user: User) => {
+      try {
+        const purchases = new Purchases(process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY!, user.uid);
+        const customerInfo = await purchases.getCustomerInfo();
+        const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
+
+        if (hasActiveSubscription) {
+            router.push('/dashboard');
+        } else {
+            router.push('/coming-soon');
+        }
+      } catch (error) {
+        console.error("Failed to check subscription status:", error);
+        // Default to dashboard on error, layout will handle redirect if needed
+        router.push('/dashboard');
+      }
+  };
 
   const handleLogin = async (data: LoginFormValues) => {
     if (!auth) return;
     setIsLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, data.email, data.password);
-      router.push('/dashboard');
+      const userCredential = await signInWithEmailAndPassword(auth, data.email, data.password);
+      await checkSubscriptionAndRedirect(userCredential.user);
     } catch (error) {
       const authError = error as AuthError;
       console.error('Login failed:', authError);
@@ -54,7 +76,6 @@ export default function LoginPage() {
         description: errorMessage,
         variant: 'destructive',
       });
-    } finally {
       setIsLoading(false);
     }
   };
@@ -63,8 +84,8 @@ export default function LoginPage() {
     if (!auth) return;
     setIsAnonymousLoading(true);
     try {
-      await signInAnonymously(auth);
-      router.push('/dashboard');
+      const userCredential = await signInAnonymously(auth);
+      await checkSubscriptionAndRedirect(userCredential.user);
     } catch (error) {
       const authError = error as AuthError;
       console.error('Anonymous login failed:', authError);
@@ -73,7 +94,6 @@ export default function LoginPage() {
         description: 'Could not sign in anonymously. Please try again later.',
         variant: 'destructive',
       });
-    } finally {
       setIsAnonymousLoading(false);
     }
   };
@@ -123,8 +143,8 @@ export default function LoginPage() {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full rounded-lg" disabled={isLoading} variant="default">
-                  {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <Button type="submit" className="w-full rounded-lg" disabled={isLoading || !isRevenueCatReady} variant="default">
+                  {(isLoading || !isRevenueCatReady) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Sign In
                 </Button>
               </form>
@@ -139,8 +159,8 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <Button variant="outline" className="w-full rounded-lg" onClick={handleAnonymousLogin} disabled={isAnonymousLoading}>
-              {isAnonymousLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Button variant="outline" className="w-full rounded-lg" onClick={handleAnonymousLogin} disabled={isAnonymousLoading || !isRevenueCatReady}>
+              {(isAnonymousLoading || !isRevenueCatReady) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Sign In Anonymously
             </Button>
             
