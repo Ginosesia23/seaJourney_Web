@@ -159,19 +159,19 @@ export default function ComingSoonPage() {
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
-  const { offerings, isReady } = useRevenueCat();
+  const { offerings, isReady: isRevenueCatReady } = useRevenueCat();
   const router = useRouter();
   const { toast } = useToast();
 
   const filteredTiers = tiers.filter(tier => tier.type === planType);
   
-  const handlePurchase = async (tierIdentifier: string | undefined, offeringIdentifier: string | undefined) => {
+  const handlePurchase = async (tierIdentifier: string, offeringIdentifier: string) => {
     if (!user || !firestore) {
-      router.push(`/signup?redirect=/coming-soon`);
+      router.push(`/signup?redirect=/offers`);
       return;
     }
     
-    if (!tierIdentifier || !offeringIdentifier || !offerings || !offerings.all[offeringIdentifier]) {
+    if (!offerings || !offerings.all[offeringIdentifier]) {
         toast({
             title: "Error",
             description: "Subscription package not found.",
@@ -179,18 +179,6 @@ export default function ComingSoonPage() {
         });
         return;
     };
-
-    const offering = offerings.all[offeringIdentifier];
-    const pkg = offering?.availablePackages[0];
-
-    if (!pkg) {
-        toast({
-            title: "Error",
-            description: "Subscription offering not available. Please try again later.",
-            variant: "destructive",
-        });
-        return;
-    }
 
     setIsPurchasing(tierIdentifier);
     
@@ -204,39 +192,32 @@ export default function ComingSoonPage() {
           subscriptionStatus: 'active',
         };
 
-        setDoc(userProfileRef, profileUpdateData, { merge: true })
-          .then(() => {
-            toast({
-              title: "Purchase Successful",
-              description: "Your subscription has been activated!",
-            });
-            router.push('/dashboard');
-          })
-          .catch((serverError) => {
-            const permissionError = new FirestorePermissionError({
-              path: userProfileRef.path,
-              operation: 'update',
-              requestResourceData: profileUpdateData,
-            });
-            errorEmitter.emit('permission-error', permissionError);
-            setIsPurchasing(null); // Re-enable button on failure
-          });
-
+        await setDoc(userProfileRef, profileUpdateData, { merge: true });
+        
+        toast({
+          title: "Purchase Successful",
+          description: "Your subscription has been activated!",
+        });
+        router.push('/dashboard');
       } else {
         throw new Error(result.error || 'An unexpected error occurred during entitlement grant.');
       }
       
     } catch (e: any) {
-        toast({
-            title: "Purchase Failed",
-            description: e.message || "An unexpected error occurred during purchase.",
-            variant: 'destructive',
-        });
+        if (e instanceof FirestorePermissionError) {
+             errorEmitter.emit('permission-error', e);
+        } else {
+             toast({
+                title: "Purchase Failed",
+                description: e.message || "An unexpected error occurred during purchase.",
+                variant: 'destructive',
+            });
+        }
         setIsPurchasing(null);
     }
   }
   
-  const isLoading = isUserLoading || !isReady;
+  const isLoading = isUserLoading || !isRevenueCatReady;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -357,10 +338,10 @@ export default function ComingSoonPage() {
                                 className="w-full rounded-full"
                                 variant={tier.highlighted ? 'default' : 'outline'}
                                 disabled={isLoading || isProcessing}
-                                onClick={() => handlePurchase(tier.identifier, (tier as any).offeringIdentifier)}
+                                onClick={() => handlePurchase(tier.identifier!, (tier as any).offeringIdentifier)}
                             >
                                 {(isLoading || isProcessing) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                {isProcessing ? 'Processing...' : (isLoading ? 'Loading...' : (user ? tier.cta : 'Sign Up to Subscribe'))}
+                                {isProcessing ? 'Processing...' : (isLoading ? 'Loading...' : (tier.cta))}
                             </Button>
                         )}
                     </CardFooter>

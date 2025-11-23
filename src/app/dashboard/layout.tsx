@@ -49,8 +49,8 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     
     // If the user has no active subscriptions, redirect them to the pricing page,
     // unless they are already on it.
-    if (!hasActiveSubscription && pathname !== '/coming-soon') {
-        router.push('/coming-soon');
+    if (!hasActiveSubscription && pathname !== '/offers') {
+        router.push('/offers');
     }
 
   }, [user, isUserLoading, customerInfo, isRevenueCatReady, router, pathname]);
@@ -68,9 +68,9 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   }
   
   // Also show loading if the user isn't authenticated yet or if there's no subscription info
-  // and they aren't on the coming-soon page, to prevent flicker before redirect.
+  // and they aren't on the offers page, to prevent flicker before redirect.
   const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
-  if (!user || (!hasActiveSubscription && pathname !== '/coming-soon')) {
+  if (!user || (!hasActiveSubscription && pathname !== '/offers')) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />

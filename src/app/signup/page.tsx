@@ -66,7 +66,7 @@ export default function SignupPage() {
       
       await setDoc(userProfileRef, profileData);
 
-      const redirectUrl = searchParams.get('redirect') || '/dashboard';
+      const redirectUrl = searchParams.get('redirect') || '/offers';
       router.push(redirectUrl);
 
     } catch (error) {

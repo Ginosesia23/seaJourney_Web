@@ -21,7 +21,7 @@ import { useUser } from '@/firebase';
 const navLinks = [
   { href: '/how-to-use', label: 'Guide' },
   { href: '/dashboard-offering', label: 'Dashboard' },
-  { href: '/offers', label: 'Join' },
+  { href: '/signup', label: 'Join' },
 ];
 
 const Header = () => {

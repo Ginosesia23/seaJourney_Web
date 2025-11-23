@@ -33,7 +33,7 @@ export default function LoginPage() {
   const auth = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  const { isReady: isRevenueCatReady } = useRevenueCat();
+  const { customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -41,25 +41,13 @@ export default function LoginPage() {
   });
   
   const checkSubscriptionAndRedirect = async (user: User) => {
-      try {
-        const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
-        if (!apiKey) {
-            throw new Error("RevenueCat API key not configured.");
-        }
-        
-        const purchases = new Purchases(apiKey, user.uid);
-        const customerInfo = await purchases.getCustomerInfo();
-        const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
+      // We use the customerInfo from the hook which is already initialized
+      const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
 
-        if (hasActiveSubscription) {
-            router.push('/dashboard');
-        } else {
-            router.push('/coming-soon');
-        }
-      } catch (error) {
-        console.error("Failed to check subscription status:", error);
-        // Default to dashboard on error, layout will handle redirect if needed
-        router.push('/dashboard');
+      if (hasActiveSubscription) {
+          router.push('/dashboard');
+      } else {
+          router.push('/offers');
       }
   };
 
@@ -68,7 +56,8 @@ export default function LoginPage() {
     setIsLoading(true);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, data.email, data.password);
-      await checkSubscriptionAndRedirect(userCredential.user);
+      // The useRevenueCat hook will automatically update its context on auth change.
+      // We wait for it to be ready before checking subscription.
     } catch (error) {
       const authError = error as AuthError;
       console.error('Login failed:', authError);
@@ -85,12 +74,19 @@ export default function LoginPage() {
     }
   };
 
+  useEffect(() => {
+    if (!isLoading && isRevenueCatReady && auth?.currentUser) {
+      checkSubscriptionAndRedirect(auth.currentUser);
+    }
+  }, [isLoading, isRevenueCatReady, auth?.currentUser]);
+
+
   const handleAnonymousLogin = async () => {
     if (!auth) return;
     setIsAnonymousLoading(true);
     try {
       const userCredential = await signInAnonymously(auth);
-      await checkSubscriptionAndRedirect(userCredential.user);
+      // Let the useEffect handle the redirect
     } catch (error) {
       const authError = error as AuthError;
       console.error('Anonymous login failed:', authError);
