@@ -32,7 +32,7 @@ const tiers = [
     href: 'https://apps.apple.com/gb/app/seajourney/id6751553072'
   },
   {
-    name: 'Premium',
+    name: 'Standard',
     identifier: 'standard',
     price: '£5.99',
     priceSuffix: '/ month',
@@ -50,7 +50,7 @@ const tiers = [
     type: 'crew',
   },
   {
-    name: 'Premium+',
+    name: 'Premium',
     identifier: 'premium',
     price: '£9.99',
     priceSuffix: '/ month',
@@ -241,8 +241,8 @@ export default function ComingSoonPage() {
                 const isProcessing = isPurchasing === tier.identifier;
                 
                 let price = tier.price;
-                if (tier.identifier === 'standard' && offerings && offerings.all) {
-                    const standardOffering = offerings.all['standard'];
+                if (tier.identifier === 'standard' && offerings && offerings.all && offerings.all[tier.identifier]) {
+                    const standardOffering = offerings.all[tier.identifier];
                     if (standardOffering) {
                         const monthlyPackage = standardOffering.availablePackages.find(p => p.packageType === 'MONTHLY');
                         if (monthlyPackage) {
