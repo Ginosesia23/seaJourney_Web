@@ -49,27 +49,7 @@ export async function purchaseSubscriptionPackage(
     const activeEntitlement = subscriber.entitlements[entitlementId];
 
     if (activeEntitlement && new Date(activeEntitlement.expires_date) > new Date()) {
-       // --- START: Update Firestore ---
-       // This part requires a server-side way to interact with Firestore.
-       // We'll use a simple admin-like initialization here.
-       // NOTE: For a real production app, you'd use the Firebase Admin SDK.
-       // For this prototype, we re-initialize a firestore instance on the server.
-       let app: App;
-       if (!getApps().length) {
-         app = initializeApp(firebaseConfig, 'server-action-app');
-       } else {
-         app = getApps()[0];
-       }
-       const firestore = getFirestore(app);
-
-       const userProfileRef = doc(firestore, 'users', appUserId, 'profile', appUserId);
-       await setDoc(userProfileRef, {
-           subscriptionTier: entitlementId, // e.g., 'sj_starter'
-           subscriptionStatus: 'active',
-       }, { merge: true });
-       // --- END: Update Firestore ---
-
-       return { success: true, customerInfo: subscriber };
+       return { success: true, customerInfo: subscriber, entitlementId };
     } else {
        throw new Error(`Entitlement '${entitlementId}' not found or expired after grant.`);
     }

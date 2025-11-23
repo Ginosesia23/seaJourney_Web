@@ -9,11 +9,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Check, Ship, User, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useUser } from '@/firebase';
+import { useUser, useFirestore } from '@/firebase';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 import { purchaseSubscriptionPackage } from '@/app/actions';
+import { doc, setDoc } from 'firebase/firestore';
 
 
 const tiers = [
@@ -153,6 +154,7 @@ export default function ComingSoonPage() {
   const [planType, setPlanType] = useState('crew');
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
   const { user, isUserLoading } = useUser();
+  const firestore = useFirestore();
   const { offerings, isReady } = useRevenueCat();
   const router = useRouter();
   const { toast } = useToast();
@@ -160,7 +162,7 @@ export default function ComingSoonPage() {
   const filteredTiers = tiers.filter(tier => tier.type === planType);
   
   const handlePurchase = async (tierIdentifier: string | undefined, offeringIdentifier: string | undefined) => {
-    if (!user) {
+    if (!user || !firestore) {
       router.push(`/signup?redirect=/coming-soon`);
       return;
     }
@@ -192,7 +194,15 @@ export default function ComingSoonPage() {
       // The entitlement identifier is the tier's main identifier
       const result = await purchaseSubscriptionPackage(tierIdentifier, user.uid);
       
-      if (result.success) {
+      if (result.success && result.entitlementId) {
+        
+        // Update user profile in Firestore on the client-side
+        const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
+        await setDoc(userProfileRef, {
+           subscriptionTier: result.entitlementId,
+           subscriptionStatus: 'active',
+        }, { merge: true });
+
         toast({
           title: "Purchase Successful",
           description: "Your subscription has been activated!",
@@ -272,7 +282,9 @@ export default function ComingSoonPage() {
                         if (monthlyPackage) {
                             price = monthlyPackage.product.priceString;
                         }
-                        tierDescription = tierOffering.serverDescription;
+                        if (tierOffering.serverDescription) {
+                            tierDescription = tierOffering.serverDescription;
+                        }
                         const metadataFeatures = (tierOffering.metadata as any)?.features;
                         if (metadataFeatures && Array.isArray(metadataFeatures)) {
                            features = metadataFeatures.map(String);
