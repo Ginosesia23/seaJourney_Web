@@ -150,7 +150,7 @@ export default function ComingSoonPage() {
   const [planType, setPlanType] = useState('crew');
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
   const { user, isUserLoading } = useUser();
-  const { offerings } = useRevenueCat();
+  const { offerings, isReady } = useRevenueCat();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -210,7 +210,7 @@ export default function ComingSoonPage() {
     }
   }
   
-  const isLoading = isUserLoading;
+  const isLoading = isUserLoading || !isReady;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -260,7 +260,7 @@ export default function ComingSoonPage() {
                 if (tier.identifier && offerings && offerings.all && offerings.all[tier.identifier]) {
                     const tierOffering = offerings.all[tier.identifier];
                     if (tierOffering) {
-                        const monthlyPackage = tierOffering.availablePackages.find(p => p.packageType === 'MONTHLY');
+                        const monthlyPackage = tierOffering.availablePackages.find(p => p.packageType === 'MONTHLY' || p.packageType === 'ANNUAL'); // Or other package types
                         if (monthlyPackage) {
                             price = monthlyPackage.product.priceString;
                         }
