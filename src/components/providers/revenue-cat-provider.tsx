@@ -67,6 +67,8 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         const customerInfo = await purchases.getCustomerInfo();
         const offerings = await purchases.getOfferings();
         
+        console.log('RevenueCat Offerings:', offerings);
+
         setRevenueCatState({
           customerInfo,
           offerings: offerings.current,
