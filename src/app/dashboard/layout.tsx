@@ -33,26 +33,32 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>(userProfileRef);
 
   useEffect(() => {
-    if (isUserLoading || !isRevenueCatReady) return;
+    // Wait until both Firebase Auth and RevenueCat have loaded.
+    if (isUserLoading || !isRevenueCatReady) {
+      return;
+    }
 
+    // If there is no authenticated user, redirect to the login page.
     if (!user) {
       router.push('/login');
       return;
     }
     
+    // Check for active subscriptions directly from RevenueCat.
     const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
     
-    if (userProfile?.subscriptionTier === 'free' && !hasActiveSubscription) {
-        if (pathname !== '/coming-soon') {
-            router.push('/coming-soon');
-        }
+    // If the user has no active subscriptions, redirect them to the pricing page,
+    // unless they are already on it.
+    if (!hasActiveSubscription && pathname !== '/coming-soon') {
+        router.push('/coming-soon');
     }
 
-  }, [user, isUserLoading, userProfile, isProfileLoading, router, customerInfo, isRevenueCatReady, pathname]);
+  }, [user, isUserLoading, customerInfo, isRevenueCatReady, router, pathname]);
 
   const isMapPage = pathname === '/dashboard/world-map';
   const isLoading = isUserLoading || !isRevenueCatReady || isProfileLoading;
-
+  
+  // Render a loading spinner while waiting for auth and subscription data.
   if (isLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
@@ -61,8 +67,10 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     );
   }
   
+  // Also show loading if the user isn't authenticated yet or if there's no subscription info
+  // and they aren't on the coming-soon page, to prevent flicker before redirect.
   const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
-  if (!user || (userProfile?.subscriptionTier === 'free' && !hasActiveSubscription && pathname !== '/coming-soon')) {
+  if (!user || (!hasActiveSubscription && pathname !== '/coming-soon')) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
