@@ -8,7 +8,7 @@ import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Users, Fingerprint, Bot, CheckCircle, ShieldCheck, AreaChart, ShipWheel, LayoutDashboard, Route, Anchor } from 'lucide-react';
+import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Users, Fingerprint, Bot, CheckCircle, ShieldCheck, AreaChart, ShipWheel, LayoutDashboard, Route, Anchor, QrCode, Share2, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MainChart from '@/components/dashboard/main-chart';
 import { Badge } from '@/components/ui/badge';
@@ -368,29 +368,34 @@ export default function DashboardOfferingPage() {
                     </div>
                 </div>
 
-                <div className="container mx-auto px-4 sm:px-6 lg:px-8 mt-20 sm:mt-28">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-                        <div className="text-center">
-                            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 mb-4">
-                                <ShieldCheck className="h-6 w-6 text-accent" />
-                            </div>
-                            <h3 className="font-headline text-xl font-bold text-white">Verifiable Records</h3>
-                            <p className="mt-2 text-header-foreground/80">Generate official, tamper-proof documents with unique QR codes for instant verification by authorities.</p>
-                        </div>
-                        <div className="text-center">
-                            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 mb-4">
-                                <AreaChart className="h-6 w-6 text-accent" />
-                            </div>
-                            <h3 className="font-headline text-xl font-bold text-white">Career Analytics</h3>
-                            <p className="mt-2 text-header-foreground/80">Visualize your sea time, track progress towards your next certificate, and gain insights into your career trajectory.</p>
-                        </div>
-                        <div className="text-center">
-                            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 mb-4">
-                                <ShipWheel className="h-6 w-6 text-accent" />
-                            </div>
-                            <h3 className="font-headline text-xl font-bold text-white">All-in-One Management</h3>
-                            <p className="mt-2 text-header-foreground/80">From single crew members to entire fleets, our dashboard provides the tools to manage everything in one place.</p>
-                        </div>
+                <div className="container mx-auto px-4 sm:px-6 lg:px-8 mt-20 sm:mt-28 text-center">
+                     <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                        A Secure &amp; Verifiable Digital Logbook
+                    </h2>
+                    <p className="mt-4 max-w-3xl mx-auto text-lg leading-8 text-header-foreground/80">
+                        Turn your sea time into tamper-proof evidence. Our QR code verification system allows authorities to instantly confirm the authenticity of your records.
+                    </p>
+                </div>
+
+                <div className="relative mt-16 max-w-5xl mx-auto">
+                    <div className="absolute top-1/2 left-0 w-full h-0.5 bg-primary/20"></div>
+                    <div className="relative flex justify-between">
+                        {[
+                            { icon: QrCode, title: "Generate", description: "Log time & generate a verifiable document with a unique QR code." },
+                            { icon: Share2, title: "Share", description: "Export as a professional PDF and share with officials." },
+                            { icon: Search, title: "Verify", description: "Officials scan the code to instantly verify the record's authenticity online." }
+                        ].map((step, index) => {
+                             const Icon = step.icon;
+                             return (
+                                <div key={index} className="relative z-10 flex flex-col items-center text-center w-1/3 px-4">
+                                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-accent/10 border-2 border-accent text-accent mb-4">
+                                        <Icon className="h-8 w-8" />
+                                    </div>
+                                    <h3 className="font-headline text-xl font-bold text-white">{step.title}</h3>
+                                    <p className="mt-2 text-sm text-header-foreground/80">{step.description}</p>
+                                </div>
+                            )
+                        })}
                     </div>
                 </div>
             </div>
@@ -446,3 +451,5 @@ export default function DashboardOfferingPage() {
     </div>
   );
 }
+
+    
