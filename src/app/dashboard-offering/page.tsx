@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -374,15 +373,31 @@ export default function DashboardOfferingPage() {
             </div>
         </section>
 
-        <section className="bg-header text-header-foreground py-16 sm:py-24 border-y border-primary/10">
-            <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="relative bg-header text-header-foreground py-16 sm:py-24 border-y border-primary/10 overflow-hidden">
+            <div className="absolute inset-0 opacity-10">
+                <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <pattern id="world-map-pattern" patternUnits="userSpaceOnUse" width="800" height="400">
+                            <g fill="hsl(var(--primary-foreground))" stroke="hsl(var(--primary-foreground))" strokeWidth="0.5">
+                                <path d="M400 200 L405 203 L408 208 L405 212 L400 215 L395 212 L392 208 L395 203 Z" />
+                                <path d="M110,50 C150,20 250,20 300,50 S400,80 450,50" strokeDasharray="5, 5" fill="none"/>
+                                <path d="M600 350 C550 380,450 380,400 350 S300 320,250 350" strokeDasharray="3, 3" fill="none"/>
+                                <path d="M750 150 C700 120,600 120,550 150" strokeDasharray="8, 4" fill="none"/>
+                            </g>
+                        </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#world-map-pattern)"/>
+                </svg>
+            </div>
+
+            <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="text-center">
-                <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                    Chart Your Global Experience
-                </h2>
-                <p className="mt-6 max-w-2xl mx-auto text-lg leading-8 text-header-foreground/80">
-                    Visualize your career voyages on a stunning, interactive world map. Log your passages and watch your personal map come to life, showcasing the breadth of your maritime experience.
-                </p>
+                    <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                        Chart Your Global Experience
+                    </h2>
+                    <p className="mt-6 max-w-2xl mx-auto text-lg leading-8 text-header-foreground/80">
+                        Visualize your career voyages on a stunning, interactive world map. Log your passages and watch your personal map come to life, showcasing the breadth of your maritime experience.
+                    </p>
                 </div>
 
                 <div className="relative mt-16 max-w-4xl mx-auto">
@@ -392,7 +407,7 @@ export default function DashboardOfferingPage() {
                         <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
                         <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
                         <div className="aspect-video w-full rounded-lg bg-primary/5 flex items-center justify-center overflow-hidden p-4">
-                            <svg viewBox="0 0 800 400" className="w-full h-full">
+                             <svg viewBox="0 0 800 400" className="w-full h-full">
                                 <defs>
                                 <pattern id="hex-bg-demo" patternUnits="userSpaceOnUse" width="14" height="24.25" patternTransform="scale(1) rotate(0)">
                                     <g>
