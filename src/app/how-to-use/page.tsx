@@ -4,91 +4,163 @@
 import { useState } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
-import { ListChecks, Ship, User, FileSignature, FileText, Smartphone } from 'lucide-react';
-import Image from 'next/image';
+import { ListChecks, Ship, User, FileSignature, FileText, Smartphone, CalendarDays, PlusCircle, ArrowRight, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { AppStoreIcon } from '@/components/sections/cta';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-const iosSteps = [
+const steps = [
   {
     icon: <User className="h-8 w-8 text-accent" />,
     title: '1. Set Up Your Profile',
     description: "Create your account and fill in your professional details to get started. This information will be used for your official documents.",
-    image: 'https://picsum.photos/seed/how-to-1/800/600',
-    imageHint: 'app profile setup iOS'
+    component: (
+        <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white">
+            <CardHeader>
+                <div className="flex items-center gap-4">
+                    <Avatar className="h-16 w-16">
+                        <AvatarFallback className="bg-primary/80 text-primary-foreground text-xl">JD</AvatarFallback>
+                    </Avatar>
+                    <div>
+                        <CardTitle className="text-white">Jane Doe</CardTitle>
+                        <CardDescription className="text-white/70">@janedoe</CardDescription>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+                <div className="flex justify-between items-center p-2 rounded-md bg-white/5">
+                    <span className="text-white/70">Email</span>
+                    <span className="font-medium">j.doe@sea.com</span>
+                </div>
+                <div className="flex justify-between items-center p-2 rounded-md bg-white/5">
+                    <span className="text-white/70">Subscription</span>
+                    <Badge variant="secondary" className="bg-accent/20 text-accent border-accent/30">Premium</Badge>
+                </div>
+            </CardContent>
+        </Card>
+    )
   },
   {
     icon: <Ship className="h-8 w-8 text-accent" />,
     title: '2. Add Your Vessels',
     description: "Easily add the vessels you've worked on. Include details like the vessel name, type, and official number for accurate record-keeping.",
-    image: 'https://picsum.photos/seed/how-to-2/800/600',
-    imageHint: 'app vessel list iOS'
+     component: (
+        <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white">
+            <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-white text-lg">Your Vessels</CardTitle>
+                <Button variant="ghost" size="icon" className="text-accent h-8 w-8"><PlusCircle className="h-5 w-5" /></Button>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                    <TableHeader>
+                        <TableRow className="border-white/10">
+                            <TableHead className="text-white/80">Vessel</TableHead>
+                            <TableHead className="text-white/80">Status</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        <TableRow className="border-white/10 hover:bg-white/5">
+                            <TableCell className="font-medium text-white">M/Y Odyssey</TableCell>
+                            <TableCell><Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">Current</Badge></TableCell>
+                        </TableRow>
+                        <TableRow className="border-white/10 hover:bg-white/5">
+                            <TableCell className="font-medium text-white">S/Y Wanderer</TableCell>
+                            <TableCell><Badge variant="outline" className="border-white/20 text-white/60">Past</Badge></TableCell>
+                        </TableRow>
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+    )
   },
   {
-    icon: <ListChecks className="h-8 w-8 text-accent" />,
+    icon: <CalendarDays className="h-8 w-8 text-accent" />,
     title: '3. Log Your Sea Time',
     description: "Log your sea days with our intuitive calendar. Just select the dates, and the app will calculate your time for you.",
-    image: '/hero-1.png',
-    imageHint: 'app calendar logging'
+    component: (
+        <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white p-4">
+            <div className="text-center font-bold mb-2">May 2024</div>
+            <div className="grid grid-cols-7 gap-1 text-xs text-center text-white/60 mb-2">
+                <div>Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center text-sm">
+                {Array.from({length: 31}).map((_, i) => {
+                    const day = i + 1;
+                    const isSeaDay = [3,4,5,10,11,12,13,14,18,19,25,26,27].includes(day);
+                    const isPortDay = [1,2,6,7,8,9,15,16,17,20,21,22,23,24,28,29,30,31].includes(day);
+                    return (
+                        <div key={i} className={cn(
+                            "h-8 w-8 flex items-center justify-center rounded-full",
+                            isSeaDay && "bg-accent text-accent-foreground",
+                            isPortDay && "bg-green-500/80 text-white",
+                            !isSeaDay && !isPortDay && "text-white/50"
+                        )}>
+                            {day}
+                        </div>
+                    )
+                })}
+            </div>
+        </Card>
+    )
   },
   {
     icon: <FileSignature className="h-8 w-8 text-accent" />,
     title: '4. Request Digital Testimonials',
     description: "Generate a sea time testimonial and send a secure link to your captain or superior to get it digitally signed.",
-    image: 'https://picsum.photos/seed/how-to-4/800/600',
-    imageHint: 'app digital signature iOS'
+    component: (
+       <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white">
+            <CardHeader className="text-center items-center">
+                <FileSignature className="h-10 w-10 text-accent mb-2" />
+                <CardTitle className="text-white">Request Signature</CardTitle>
+                <CardDescription className="text-white/70">Generate a secure link for Capt. Smith to sign off on your sea time for M/Y Odyssey.</CardDescription>
+            </CardHeader>
+            <CardContent className="text-center">
+                <Button variant="accent" className="w-full rounded-lg">Generate & Send Request</Button>
+            </CardContent>
+        </Card>
+    )
   },
   {
     icon: <FileText className="h-8 w-8 text-accent" />,
     title: '5. Export Your Documents',
     description: "When you're ready to apply for a new certificate, export all your logged sea time and signed testimonials into a single, professional PDF.",
-    image: 'https://picsum.photos/seed/how-to-5/800/600',
-    imageHint: 'app document export iOS'
-  },
-];
-
-const androidSteps = [
-  {
-    icon: <User className="h-8 w-8 text-accent" />,
-    title: '1. Set Up Your Profile',
-    description: "Create your account and fill in your professional details to get started. This information will be used for your official documents.",
-    image: 'https://picsum.photos/seed/how-to-android-1/800/600',
-    imageHint: 'app profile setup Android'
-  },
-  {
-    icon: <Ship className="h-8 w-8 text-accent" />,
-    title: '2. Add Your Vessels',
-    description: "Easily add the vessels you've worked on. Include details like the vessel name, type, and official number for accurate record-keeping.",
-    image: 'https://picsum.photos/seed/how-to-android-2/800/600',
-    imageHint: 'app vessel list Android'
-  },
-  {
-    icon: <ListChecks className="h-8 w-8 text-accent" />,
-    title: '3. Log Your Sea Time',
-    description: "Log your sea days with our intuitive calendar. Just select the dates, and the app will calculate your time for you.",
-    image: '/hero-1.png',
-    imageHint: 'app calendar logging'
-  },
-  {
-    icon: <FileSignature className="h-8 w-8 text-accent" />,
-    title: '4. Request Digital Testimonials',
-    description: "Generate a sea time testimonial and send a secure link to your captain or superior to get it digitally signed.",
-    image: 'https://picsum.photos/seed/how-to-android-4/800/600',
-    imageHint: 'app digital signature Android'
-  },
-  {
-    icon: <FileText className="h-8 w-8 text-accent" />,
-    title: '5. Export Your Documents',
-    description: "When you're ready to apply for a new certificate, export all your logged sea time and signed testimonials into a single, professional PDF.",
-    image: 'https://picsum.photos/seed/how-to-android-5/800/600',
-    imageHint: 'app document export Android'
+    component: (
+        <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white">
+             <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2 text-white/80">
+                    <FileText className="h-5 w-5" />
+                    Export Center
+                </CardTitle>
+                 <CardDescription className="text-white/50">One-click professional documents.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+                <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer transition-colors">
+                    <div className="flex items-center gap-3">
+                        <FileText className="h-4 w-4 text-white/70" />
+                        <span className="text-white">Full Sea Time Report.pdf</span>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-white/50" />
+                </div>
+                 <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer transition-colors">
+                     <div className="flex items-center gap-3">
+                        <Star className="h-4 w-4 text-white/70" />
+                        <span className="text-white">Testimonial_Capt_Smith.pdf</span>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-white/50" />
+                </div>
+            </CardContent>
+        </Card>
+    )
   },
 ];
 
 type Platform = 'ios' | 'android';
 
-const StepSection = ({ step, index, platform }: { step: (typeof iosSteps)[0], index: number, platform: Platform }) => {
+const StepSection = ({ step, index, platform }: { step: (typeof steps)[0], index: number, platform: Platform }) => {
   const isOdd = index % 2 === 1;
   const isTextFirst = platform === 'ios' ? !isOdd : isOdd;
   
@@ -97,7 +169,7 @@ const StepSection = ({ step, index, platform }: { step: (typeof iosSteps)[0], in
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
           <div className={cn(
-            "text-center lg:text-left transition-transform duration-700 ease-in-out",
+            "text-center lg:text-left",
             isTextFirst ? 'lg:order-1' : 'lg:order-2',
           )}>
             <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 mb-4">
@@ -107,18 +179,14 @@ const StepSection = ({ step, index, platform }: { step: (typeof iosSteps)[0], in
             <p className="mt-6 text-lg leading-8 text-header-foreground/80">{step.description}</p>
           </div>
           <div className={cn(
-            "flex justify-center transition-transform duration-700 ease-in-out",
+            "flex justify-center",
             isTextFirst ? 'lg:order-2' : 'lg:order-1',
           )}>
-            <Image
-              src={step.image}
-              alt={step.title}
-              width={800}
-              height={600}
-              className="rounded-xl shadow-2xl"
-              data-ai-hint={step.imageHint}
-              key={step.image}
-            />
+            <div className="w-full max-w-md p-2 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
+                 <div className="relative aspect-[4/3] w-full rounded-lg bg-primary/5 flex items-center justify-center p-4">
+                    {step.component}
+                 </div>
+            </div>
           </div>
         </div>
       </div>
@@ -128,7 +196,6 @@ const StepSection = ({ step, index, platform }: { step: (typeof iosSteps)[0], in
 
 export default function HowToUsePage() {
   const [platform, setPlatform] = useState<Platform>('ios');
-  const steps = platform === 'ios' ? iosSteps : androidSteps;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -172,14 +239,15 @@ export default function HowToUsePage() {
         </section>
 
         <section className="bg-header text-header-foreground overflow-hidden">
-          <div className={cn("transition-opacity duration-500", platform === 'ios' ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden')}>
-             {iosSteps.map((step, index) => (
-               <StepSection key={step.title} step={step} index={index} platform="ios" />
+          {/* This is a trick to render both but only show one, to keep components mounted for smoother transitions */}
+          <div className={cn("transition-opacity duration-500", platform === 'ios' ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden pointer-events-none')}>
+             {steps.map((step, index) => (
+               <StepSection key={`ios-${index}`} step={step} index={index} platform="ios" />
              ))}
           </div>
-           <div className={cn("transition-opacity duration-500", platform === 'android' ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden')}>
-             {androidSteps.map((step, index) => (
-                <StepSection key={step.title} step={step} index={index} platform="android" />
+           <div className={cn("transition-opacity duration-500", platform === 'android' ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden pointer-events-none')}>
+             {steps.map((step, index) => (
+                <StepSection key={`android-${index}`} step={step} index={index} platform="android" />
              ))}
            </div>
         </section>
@@ -189,3 +257,5 @@ export default function HowToUsePage() {
     </div>
   );
 }
+
+    
