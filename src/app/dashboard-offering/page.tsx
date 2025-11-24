@@ -12,6 +12,9 @@ import { cn } from '@/lib/utils';
 import MainChart from '@/components/dashboard/main-chart';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ComposableMap, Geographies, Geography, Line, Marker } from 'react-simple-maps';
+import worldAtlas from 'world-atlas/countries-110m.json';
+
 
 const chartData = [
     { month: "Jan", underway: 10, inPort: 5, atAnchor: 2 }, { month: "Feb", underway: 12, inPort: 8, atAnchor: 0 }, 
@@ -374,23 +377,7 @@ export default function DashboardOfferingPage() {
         </section>
 
         <section className="relative bg-header text-header-foreground py-16 sm:py-24 border-y border-primary/10 overflow-hidden">
-            <div className="absolute inset-0 opacity-10">
-                <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-                    <defs>
-                        <pattern id="world-map-pattern" patternUnits="userSpaceOnUse" width="800" height="400">
-                            <g fill="hsl(var(--primary-foreground))" stroke="hsl(var(--primary-foreground))" strokeWidth="0.5">
-                                <path d="M400 200 L405 203 L408 208 L405 212 L400 215 L395 212 L392 208 L395 203 Z" />
-                                <path d="M110,50 C150,20 250,20 300,50 S400,80 450,50" strokeDasharray="5, 5" fill="none"/>
-                                <path d="M600 350 C550 380,450 380,400 350 S300 320,250 350" strokeDasharray="3, 3" fill="none"/>
-                                <path d="M750 150 C700 120,600 120,550 150" strokeDasharray="8, 4" fill="none"/>
-                            </g>
-                        </pattern>
-                    </defs>
-                    <rect width="100%" height="100%" fill="url(#world-map-pattern)"/>
-                </svg>
-            </div>
-
-            <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
+             <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="text-center">
                     <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
                         Chart Your Global Experience
@@ -407,20 +394,41 @@ export default function DashboardOfferingPage() {
                         <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
                         <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
                         <div className="aspect-video w-full rounded-lg bg-primary/5 flex items-center justify-center overflow-hidden p-4">
-                             <svg viewBox="0 0 800 400" className="w-full h-full">
-                                <defs>
-                                <pattern id="hex-bg-demo" patternUnits="userSpaceOnUse" width="14" height="24.25" patternTransform="scale(1) rotate(0)">
-                                    <g>
-                                    <polygon points="7,0 0,4.04 0,12.12 7,16.16 14,12.12 14,4.04" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
-                                    <polygon points="7,16.16 0,20.2 0,28.28 7,32.32 14,28.28 14,20.2" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
-                                    </g>
-                                </pattern>
-                                </defs>
-                                <rect width="800" height="400" fill="url(#hex-bg-demo)"></rect>
-                                <path d="M 140 200 C 250 130, 450 130, 580 230" stroke="hsl(var(--accent))" strokeWidth="2" fill="none" strokeDasharray="4 6" className="animate-dash opacity-70" />
-                                <path d="M 220 280 C 340 350, 540 350, 690 260" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="animate-dash-reverse opacity-50" />
-                                <path d="M 180 150 C 300 220, 500 220, 650 130" stroke="hsl(var(--accent))" strokeWidth="1" fill="none" strokeDasharray="5 5" className="animate-dash opacity-60" />
-                            </svg>
+                           <ComposableMap
+                                projection="geoMercator"
+                                projectionConfig={{
+                                    rotate: [-10, 0, 0],
+                                    scale: 140,
+                                }}
+                                className="w-full h-full"
+                            >
+                                <Geographies geography={worldAtlas}>
+                                    {({ geographies }) =>
+                                        geographies.map(geo => (
+                                            <Geography
+                                                key={geo.rsmKey}
+                                                geography={geo}
+                                                fill="hsl(var(--primary-foreground) / 0.1)"
+                                                stroke="hsl(var(--header))"
+                                                strokeWidth={0.5}
+                                            />
+                                        ))
+                                    }
+                                </Geographies>
+                                <Line
+                                    from={[12.4964, 41.9028]} 
+                                    to={[-80.1918, 25.7617]}
+                                    stroke="hsl(var(--accent))"
+                                    strokeWidth={2}
+                                    strokeDasharray="4 4"
+                                />
+                                 <Marker coordinates={[12.4964, 41.9028]}>
+                                    <circle r={4} fill="hsl(var(--accent))" />
+                                </Marker>
+                                <Marker coordinates={[-80.1918, 25.7617]}>
+                                    <circle r={4} fill="hsl(var(--accent))" />
+                                </Marker>
+                            </ComposableMap>
                         </div>
                     </div>
                 </div>
