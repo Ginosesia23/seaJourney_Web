@@ -377,7 +377,46 @@ export default function DashboardOfferingPage() {
         </section>
 
         <section className="relative bg-header text-header-foreground py-16 sm:py-24 border-y border-primary/10 overflow-hidden">
-             <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="absolute inset-0 z-0">
+                 <ComposableMap
+                    projection="geoMercator"
+                    projectionConfig={{
+                        rotate: [-10, 0, 0],
+                        scale: 180,
+                        center: [0, 20]
+                    }}
+                    className="w-full h-full opacity-20"
+                >
+                    <Geographies geography={worldAtlas}>
+                        {({ geographies }) =>
+                            geographies.map(geo => (
+                                <Geography
+                                    key={geo.rsmKey}
+                                    geography={geo}
+                                    fill="hsl(var(--primary-foreground) / 0.1)"
+                                    stroke="hsl(var(--header))"
+                                    strokeWidth={0.5}
+                                />
+                            ))
+                        }
+                    </Geographies>
+                    <Line
+                        from={[12.4964, 41.9028]} 
+                        to={[-80.1918, 25.7617]}
+                        stroke="hsl(var(--accent))"
+                        strokeWidth={2}
+                        strokeDasharray="6 6"
+                    />
+                     <Marker coordinates={[12.4964, 41.9028]}>
+                        <circle r={4} fill="hsl(var(--accent))" />
+                    </Marker>
+                    <Marker coordinates={[-80.1918, 25.7617]}>
+                        <circle r={4} fill="hsl(var(--accent))" />
+                    </Marker>
+                </ComposableMap>
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-t from-header via-header/80 to-header"></div>
+            <div className="container relative z-10 mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="text-center">
                     <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
                         Chart Your Global Experience
@@ -385,52 +424,6 @@ export default function DashboardOfferingPage() {
                     <p className="mt-6 max-w-2xl mx-auto text-lg leading-8 text-header-foreground/80">
                         Visualize your career voyages on a stunning, interactive world map. Log your passages and watch your personal map come to life, showcasing the breadth of your maritime experience.
                     </p>
-                </div>
-
-                <div className="relative mt-16 max-w-4xl mx-auto">
-                    <div className="relative rounded-xl p-2 border border-primary/20 bg-black/20 backdrop-blur-sm">
-                        <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
-                        <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
-                        <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
-                        <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
-                        <div className="aspect-video w-full rounded-lg bg-primary/5 flex items-center justify-center overflow-hidden p-4">
-                           <ComposableMap
-                                projection="geoMercator"
-                                projectionConfig={{
-                                    rotate: [-10, 0, 0],
-                                    scale: 140,
-                                }}
-                                className="w-full h-full"
-                            >
-                                <Geographies geography={worldAtlas}>
-                                    {({ geographies }) =>
-                                        geographies.map(geo => (
-                                            <Geography
-                                                key={geo.rsmKey}
-                                                geography={geo}
-                                                fill="hsl(var(--primary-foreground) / 0.1)"
-                                                stroke="hsl(var(--header))"
-                                                strokeWidth={0.5}
-                                            />
-                                        ))
-                                    }
-                                </Geographies>
-                                <Line
-                                    from={[12.4964, 41.9028]} 
-                                    to={[-80.1918, 25.7617]}
-                                    stroke="hsl(var(--accent))"
-                                    strokeWidth={2}
-                                    strokeDasharray="4 4"
-                                />
-                                 <Marker coordinates={[12.4964, 41.9028]}>
-                                    <circle r={4} fill="hsl(var(--accent))" />
-                                </Marker>
-                                <Marker coordinates={[-80.1918, 25.7617]}>
-                                    <circle r={4} fill="hsl(var(--accent))" />
-                                </Marker>
-                            </ComposableMap>
-                        </div>
-                    </div>
                 </div>
             </div>
         </section>
