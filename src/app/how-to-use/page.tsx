@@ -1,16 +1,14 @@
 
 'use client';
 
-import { useState } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
-import { ListChecks, Ship, User, FileSignature, FileText, Smartphone, CalendarDays, PlusCircle, ArrowRight, Star } from 'lucide-react';
+import { User, Ship, CalendarDays, FileSignature, FileText, PlusCircle, ArrowRight, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { AppStoreIcon } from '@/components/sections/cta';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const steps = [
@@ -158,11 +156,8 @@ const steps = [
   },
 ];
 
-type Platform = 'ios' | 'android';
-
-const StepSection = ({ step, index, platform }: { step: (typeof steps)[0], index: number, platform: Platform }) => {
+const StepSection = ({ step, index }: { step: (typeof steps)[0], index: number }) => {
   const isOdd = index % 2 === 1;
-  const isTextFirst = platform === 'ios' ? !isOdd : isOdd;
   
   return (
     <div className="py-12">
@@ -170,7 +165,7 @@ const StepSection = ({ step, index, platform }: { step: (typeof steps)[0], index
         <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
           <div className={cn(
             "text-center lg:text-left",
-            isTextFirst ? 'lg:order-1' : 'lg:order-2',
+            isOdd ? 'lg:order-2' : 'lg:order-1'
           )}>
             <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 mb-4">
               {step.icon}
@@ -180,7 +175,7 @@ const StepSection = ({ step, index, platform }: { step: (typeof steps)[0], index
           </div>
           <div className={cn(
             "flex justify-center",
-            isTextFirst ? 'lg:order-2' : 'lg:order-1',
+            isOdd ? 'lg:order-1' : 'lg:order-2'
           )}>
             <div className="w-full max-w-md p-2 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
                  <div className="relative aspect-[4/3] w-full rounded-lg bg-primary/5 flex items-center justify-center p-4">
@@ -195,7 +190,6 @@ const StepSection = ({ step, index, platform }: { step: (typeof steps)[0], index
 }
 
 export default function HowToUsePage() {
-  const [platform, setPlatform] = useState<Platform>('ios');
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -210,46 +204,14 @@ export default function HowToUsePage() {
               <p className="mt-4 text-lg leading-8 text-header-foreground/80">
                 Follow these simple steps to start tracking your sea time like a pro and accelerate your career.
               </p>
-              <div className="mt-8 flex justify-center gap-2 rounded-lg bg-black/20 p-1.5">
-                <Button
-                  onClick={() => setPlatform('ios')}
-                  variant={platform === 'ios' ? 'secondary' : 'ghost'}
-                  className={cn(
-                    "w-full text-white hover:bg-white/20 hover:text-white rounded-md", 
-                    platform === 'ios' && 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
-                  )}
-                >
-                  <AppStoreIcon className="mr-2 h-5 w-5" />
-                  iOS
-                </Button>
-                <Button
-                  onClick={() => setPlatform('android')}
-                  variant={platform === 'android' ? 'secondary' : 'ghost'}
-                  className={cn(
-                    "w-full text-white hover:bg-white/20 hover:text-white rounded-md", 
-                    platform === 'android' && 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
-                  )}
-                >
-                  <Smartphone className="mr-2 h-5 w-5" />
-                  Android
-                </Button>
-              </div>
             </div>
           </div>
         </section>
 
         <section className="bg-header text-header-foreground overflow-hidden">
-          {/* This is a trick to render both but only show one, to keep components mounted for smoother transitions */}
-          <div className={cn("transition-opacity duration-500", platform === 'ios' ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden pointer-events-none')}>
              {steps.map((step, index) => (
-               <StepSection key={`ios-${index}`} step={step} index={index} platform="ios" />
+               <StepSection key={index} step={step} index={index} />
              ))}
-          </div>
-           <div className={cn("transition-opacity duration-500", platform === 'android' ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden pointer-events-none')}>
-             {steps.map((step, index) => (
-                <StepSection key={`android-${index}`} step={step} index={index} platform="android" />
-             ))}
-           </div>
         </section>
 
       </main>
@@ -257,5 +219,3 @@ export default function HowToUsePage() {
     </div>
   );
 }
-
-    
