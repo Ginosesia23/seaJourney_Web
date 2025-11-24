@@ -131,33 +131,6 @@ const features = [
     )
   },
   {
-    id: 'map',
-    icon: Globe,
-    title: 'World Map',
-    description: 'Chart your global experience.',
-    component: (
-      <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
-        <div className="w-full max-w-lg aspect-video rounded-lg bg-primary/5 flex items-center justify-center relative overflow-hidden p-4">
-          <svg viewBox="0 0 800 400" className="w-full h-full">
-            <defs>
-              <pattern id="hex-bg" patternUnits="userSpaceOnUse" width="14" height="24.25" patternTransform="scale(1) rotate(0)">
-                <g>
-                <polygon points="7,0 0,4.04 0,12.12 7,16.16 14,12.12 14,4.04" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
-                <polygon points="7,16.16 0,20.2 0,28.28 7,32.32 14,28.28 14,20.2" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
-                </g>
-              </pattern>
-            </defs>
-            <rect width="800" height="400" fill="url(#hex-bg)"></rect>
-            <path d="M 240 250 C 350 180, 550 180, 680 280" stroke="hsl(var(--accent))" strokeWidth="2" fill="none" strokeDasharray="4 6" className="opacity-70 animate-dash" />
-            <path d="M 280 310 C 400 380, 600 380, 750 290" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="opacity-50 animate-dash-reverse" />
-          </svg>
-        </div>
-        <CardTitle className="text-lg flex items-center gap-2 text-white/80 mt-6">World Map</CardTitle>
-        <CardDescription className="text-white/50">Visualize Your Global Journeys</CardDescription>
-      </Card>
-    )
-  },
-  {
     id: 'docs',
     icon: FileText,
     title: 'Documents',
@@ -401,6 +374,45 @@ export default function DashboardOfferingPage() {
             </div>
         </section>
 
+        <section className="bg-header text-header-foreground py-16 sm:py-24 border-y border-primary/10">
+            <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="text-center">
+                <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                    Chart Your Global Experience
+                </h2>
+                <p className="mt-6 max-w-2xl mx-auto text-lg leading-8 text-header-foreground/80">
+                    Visualize your career voyages on a stunning, interactive world map. Log your passages and watch your personal map come to life, showcasing the breadth of your maritime experience.
+                </p>
+                </div>
+
+                <div className="relative mt-16 max-w-4xl mx-auto">
+                    <div className="relative rounded-xl p-2 border border-primary/20 bg-black/20 backdrop-blur-sm">
+                        <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
+                        <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
+                        <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
+                        <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
+                        <div className="aspect-video w-full rounded-lg bg-primary/5 flex items-center justify-center overflow-hidden p-4">
+                            <svg viewBox="0 0 800 400" className="w-full h-full">
+                                <defs>
+                                <pattern id="hex-bg-demo" patternUnits="userSpaceOnUse" width="14" height="24.25" patternTransform="scale(1) rotate(0)">
+                                    <g>
+                                    <polygon points="7,0 0,4.04 0,12.12 7,16.16 14,12.12 14,4.04" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
+                                    <polygon points="7,16.16 0,20.2 0,28.28 7,32.32 14,28.28 14,20.2" fill="hsl(var(--primary-foreground) / 0.05)" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="0.5"></polygon>
+                                    </g>
+                                </pattern>
+                                </defs>
+                                <rect width="800" height="400" fill="url(#hex-bg-demo)"></rect>
+                                <path d="M 140 200 C 250 130, 450 130, 580 230" stroke="hsl(var(--accent))" strokeWidth="2" fill="none" strokeDasharray="4 6" className="animate-dash opacity-70" />
+                                <path d="M 220 280 C 340 350, 540 350, 690 260" stroke="hsl(var(--accent))" strokeWidth="1.5" fill="none" strokeDasharray="3 4" className="animate-dash-reverse opacity-50" />
+                                <path d="M 180 150 C 300 220, 500 220, 650 130" stroke="hsl(var(--accent))" strokeWidth="1" fill="none" strokeDasharray="5 5" className="animate-dash opacity-60" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+
         <section id="cta" className="bg-header text-header-foreground border-t border-white/10">
             <div className="container mx-auto px-4 py-16 sm:px-6 lg:px-8">
                 <div className="mx-auto max-w-2xl text-center">
@@ -451,6 +463,3 @@ export default function DashboardOfferingPage() {
     </div>
   );
 }
-
-    
-
