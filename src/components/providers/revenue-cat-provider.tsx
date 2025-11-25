@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
@@ -58,19 +59,13 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       try {
         // Always set log level
         Purchases.setLogLevel(LogLevel.DEBUG);
-
-        // --- 1) FORCE CLEAR ANY INVALID CACHED USER BEFORE FIRST CONFIGURE ---
+        
+        // Configure once
         if (!Purchases.isConfigured()) {
-          console.log("RC: Pre-configure cache cleanup (logOut)");
-          await Purchases.logOut().catch(() => {});
+            console.log("RC: Configuring RevenueCat…");
+            Purchases.configure({ apiKey });
         }
-
-        // --- 2) CONFIGURE (ONLY ONCE) ---
-        if (!Purchases.isConfigured()) {
-          console.log("RC: Configuring RevenueCat…");
-          Purchases.configure({ apiKey });
-        }
-
+        
         // Get instance for web SDK
         const purchases = Purchases.getSharedInstance();
 
@@ -99,6 +94,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         else {
           console.log("RC: Anonymous user (not logged in)");
           if (!purchases.isAnonymous()) {
+            console.log("RC: Pre-configure cache cleanup (logOut)");
             await purchases.logOut().catch(() => {});
           }
           customerInfo = await purchases.getCustomerInfo();
