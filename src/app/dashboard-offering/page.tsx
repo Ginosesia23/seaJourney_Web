@@ -17,6 +17,7 @@ import * as d3 from 'd3';
 import * as topojson from 'topojson-client';
 import world from 'world-atlas/countries-110m.json';
 import { geoMercator } from 'd3-geo';
+import { hexbin as d3Hexbin } from 'd3-hexbin';
 
 type Passage = [number, number][]; // Array of [lon, lat] coordinates
 
@@ -64,7 +65,7 @@ function StaticHexMap({ baseHexRadius = 2, passageData }: { baseHexRadius?: numb
 
     const projection = geoMercator().fitSize([width, height], geoData);
     
-    const hexbin = d3.hexbin()
+    const hexbin = d3Hexbin()
         .radius(baseHexRadius)
         .extent([[0, 0], [width, height]]);
 
@@ -260,26 +261,6 @@ const features = [
                 </Table>
             </CardContent>
         </Card>
-    )
-  },
-   {
-    id: 'map',
-    icon: Globe,
-    title: 'World Map',
-    description: 'Chart your global passages.',
-    component: (
-      <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2 text-white/80">
-            <Globe className="h-5 w-5" />
-            Global Passage Map
-          </CardTitle>
-          <CardDescription className="text-white/50">Visualize your career voyages.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex-grow flex items-center justify-center">
-          <p className="text-white/30 text-sm">Interactive Map Preview</p>
-        </CardContent>
-      </Card>
     )
   },
   {
@@ -502,20 +483,7 @@ export default function DashboardOfferingPage() {
                                         "absolute inset-0 transition-opacity duration-500",
                                         activeFeature === feature.id ? 'opacity-100' : 'opacity-0 pointer-events-none'
                                     )}>
-                                        {feature.id === 'map' ? (
-                                            <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
-                                                <CardHeader>
-                                                    <CardTitle className="text-lg flex items-center gap-2 text-white/80">
-                                                        <Globe className="h-5 w-5" />
-                                                        Global Passage Map
-                                                    </CardTitle>
-                                                    <CardDescription className="text-white/50">Visualize your career voyages.</CardDescription>
-                                                </CardHeader>
-                                                <CardContent className="flex-grow flex items-center justify-center relative overflow-hidden rounded-lg border border-primary/10 bg-header">
-                                                    {isClient && <StaticHexMap baseHexRadius={3} passageData={[passage1]} />}
-                                                </CardContent>
-                                            </Card>
-                                        ) : feature.component}
+                                        {feature.component}
                                     </div>
                                 ))}
                             </div>
@@ -552,6 +520,24 @@ export default function DashboardOfferingPage() {
                             )
                         })}
                     </div>
+                </div>
+            </div>
+        </section>
+
+        <section className="relative py-20 sm:py-28 bg-header text-header-foreground overflow-hidden">
+            {isClient && <StaticHexMap baseHexRadius={3} passageData={[passage1]} />}
+            <div className="absolute inset-0 bg-gradient-to-t from-header via-header/80 to-transparent"></div>
+            <div className="container relative z-10 mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                    Chart Your Global Experience
+                </h2>
+                <p className="mt-6 max-w-2xl mx-auto text-lg leading-8 text-header-foreground/80">
+                    Visualize your career voyages on a stunning, interactive world map. Log your passages and watch your personal map come to life, showcasing the breadth of your maritime experience.
+                </p>
+                <div className="mt-10">
+                    <Button asChild size="lg" className="rounded-full bg-accent hover:bg-accent/90 text-white">
+                        <Link href="/offers">Unlock the Dashboard</Link>
+                    </Button>
                 </div>
             </div>
         </section>
