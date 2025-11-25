@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
@@ -162,6 +162,12 @@ export default function ComingSoonPage() {
   const { offerings, isReady: isRevenueCatReady } = useRevenueCat();
   const router = useRouter();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (user) {
+      console.log('User on offers page:', user.uid);
+    }
+  }, [user]);
 
   const filteredTiers = tiers.filter(tier => tier.type === planType);
   
