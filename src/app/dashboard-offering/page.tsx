@@ -263,6 +263,35 @@ const features = [
         </Card>
     )
   },
+    {
+    id: 'world-map',
+    icon: Globe,
+    title: 'World Map',
+    description: 'Chart your global passages.',
+    component: (
+      <Card className="h-full bg-transparent border-none shadow-none flex flex-col items-center justify-center">
+        <CardHeader className="text-center">
+            <CardTitle className="text-lg flex items-center justify-center gap-2 text-white/80">
+                <Globe className="h-5 w-5" />
+                Global Passage Map
+            </CardTitle>
+            <CardDescription className="text-white/50">Visualize your voyages across the globe.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex-grow w-full h-full relative">
+            <div className="absolute inset-0 z-0">
+                <svg viewBox="0 0 800 450" className="w-full h-full">
+                  {/* Dashed line for passage */}
+                  <path d="M 200 250 Q 400 100 600 200" stroke="hsl(var(--accent))" strokeWidth="2" fill="none" strokeDasharray="5 5" className="animate-dash" />
+                  {/* Circles for ports */}
+                  <circle cx="200" cy="250" r="5" fill="hsl(var(--accent))" className="animate-pulse" />
+                  <circle cx="600" cy="200" r="5" fill="hsl(var(--accent))" className="animate-pulse" style={{animationDelay: '1s'}}/>
+                </svg>
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-t from-transparent via-transparent to-black/30"></div>
+        </CardContent>
+      </Card>
+    )
+  },
   {
     id: 'docs',
     icon: FileText,
@@ -524,8 +553,8 @@ export default function DashboardOfferingPage() {
             </div>
         </section>
 
-        <section className="relative py-20 sm:py-28 bg-header text-header-foreground overflow-hidden">
-            {isClient && <StaticHexMap baseHexRadius={3} passageData={[passage1]} />}
+        <section className="relative py-28 sm:py-40 bg-header text-header-foreground overflow-hidden">
+            {isClient && <StaticHexMap baseHexRadius={2} passageData={[passage1]} />}
             <div className="absolute inset-0 bg-gradient-to-t from-header via-header/80 to-transparent"></div>
             <div className="container relative z-10 mx-auto px-4 sm:px-6 lg:px-8 text-center">
                 <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
