@@ -1,7 +1,7 @@
 
 'use client';
 
-import { Ship, LifeBuoy, Route, Anchor, Loader2, Award, Star } from 'lucide-react';
+import { Ship, LifeBuoy, Route, Anchor, Loader2, Award, Star, Globe } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import MainChart from '@/components/dashboard/main-chart';
 import {
@@ -19,6 +19,10 @@ import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebas
 import { collection, Timestamp } from 'firebase/firestore';
 import { useMemo, useState } from 'react';
 import { differenceInDays, fromUnixTime } from 'date-fns';
+import { ComposableMap, Geographies, Geography, Line, Marker } from "react-simple-maps"
+import worldAtlas from "world-atlas/countries-110m.json"
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
 
 type Vessel = {
   id: string;
@@ -318,6 +322,59 @@ export default function DashboardPage() {
             </CardContent>
         </Card>
       </div>
+      <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg overflow-hidden">
+        <CardHeader>
+          <div className="flex justify-between items-start">
+            <div>
+              <CardTitle className="flex items-center gap-2"><Globe className="h-5 w-5" /> World Map Preview</CardTitle>
+              <CardDescription>A snapshot of your global passages.</CardDescription>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/dashboard/world-map">View Interactive Map</Link>
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0 relative h-80">
+          <div className="absolute inset-0 bg-map-ocean">
+            <ComposableMap
+              projection="geoMercator"
+              projectionConfig={{
+                rotate: [-10, 0, 0],
+                scale: 120,
+                center: [0, 20]
+              }}
+              style={{ width: "100%", height: "100%" }}
+            >
+              <Geographies geography={worldAtlas}>
+                {({ geographies }) =>
+                  geographies.map(geo => (
+                    <Geography
+                      key={geo.rsmKey}
+                      geography={geo}
+                      fill="hsl(var(--map-land))"
+                      stroke="hsl(var(--map-ocean))"
+                      strokeWidth={0.5}
+                    />
+                  ))
+                }
+              </Geographies>
+              <Line
+                from={[12.4964, 41.9028]}
+                to={[-80.1918, 25.7617]}
+                stroke="hsl(var(--accent))"
+                strokeWidth={2}
+                strokeDasharray="6 6"
+              />
+              <Marker coordinates={[12.4964, 41.9028]}>
+                <circle r={4} fill="hsl(var(--accent))" className="animate-pulse" />
+              </Marker>
+              <Marker coordinates={[-80.1918, 25.7617]}>
+                <circle r={4} fill="hsl(var(--accent))" className="animate-pulse" />
+              </Marker>
+            </ComposableMap>
+          </div>
+        </CardContent>
+      </Card>
 
        <div className="grid gap-4 md:grid-cols-2 md:gap-8">
         {longestPassage && (
