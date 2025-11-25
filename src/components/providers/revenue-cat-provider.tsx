@@ -1,8 +1,12 @@
-
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { Purchases, type PurchasesOffering, type CustomerInfo, LogLevel, type Offerings } from '@revenuecat/purchases-js';
+import {
+  Purchases,
+  type CustomerInfo,
+  LogLevel,
+  type Offerings,
+} from '@revenuecat/purchases-js';
 import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 
@@ -41,37 +45,57 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
     const initRevenueCat = async () => {
       const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
       if (!apiKey) {
-        console.error("RevenueCat API key not found. Purchases will be disabled.");
-        setRevenueCatState(s => ({ ...s, isReady: true }));
+        console.error('RevenueCat API key not found. Purchases will be disabled.');
+        setRevenueCatState((s) => ({ ...s, isReady: true }));
         return;
       }
-      
-      // Don't initialize until Firebase has determined the auth state.
+
+      // Don’t do anything until Firebase has determined auth state
       if (isUserLoading) {
         return;
       }
 
-      // Configure the SDK
       Purchases.setLogLevel(LogLevel.DEBUG);
-      Purchases.configure({ apiKey });
 
+      // Configure once per page load
+      try {
+        if (Purchases.isConfigured()) {
+          await Purchases.logOut();
+        } else {
+          // Force-clear cached identity before first configure
+          await Purchases.logOut().catch(() => {});
+        }
+      } catch (e) {
+        console.warn("RC: pre-clean logout failed (safe to ignore)", e);
+      }
+      
+      Purchases.configure({ apiKey });
+      
       try {
         let customerInfo: CustomerInfo;
-        
-        if (user) {
-          console.log(`RC: Logging in user: ${user.uid}`);
+
+        if (user && user.uid) {
+          console.log('RC: Logging in user:', user.uid);
+
+          // 🔒 Safety guard against bad IDs
+          if (user.uid === '[Not provided]') {
+            console.warn('RC: user.uid is [Not provided], skipping RC login.');
+            setRevenueCatState((s) => ({ ...s, isReady: true }));
+            return;
+          }
+
           const loginResult = await Purchases.logIn(user.uid);
           customerInfo = loginResult.customerInfo;
         } else {
-          console.log("RC: User is anonymous or logged out.");
-           if (!Purchases.isAnonymous()) {
+          console.log('RC: User is anonymous or logged out.');
+          if (!Purchases.isAnonymous()) {
             await Purchases.logOut();
           }
           customerInfo = await Purchases.getCustomerInfo();
         }
 
         const offerings = await Purchases.getOfferings();
-        
+
         console.log('RevenueCat Offerings:', offerings);
         console.log('RevenueCat CustomerInfo:', customerInfo);
 
@@ -80,15 +104,19 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
           offerings,
           isReady: true,
         });
-
       } catch (error: any) {
-        console.error("RevenueCat initialization or login failed:", error);
+        console.error('RevenueCat initialization or login failed:', error);
         toast({
-          title: "Subscription Error",
-          description: error.message || "Could not connect to the subscription service.",
-          variant: "destructive",
+          title: 'Subscription Error',
+          description: error.message || 'Could not connect to the subscription service.',
+          variant: 'destructive',
         });
-        setRevenueCatState((s) => ({ ...s, isReady: true, customerInfo: null, offerings: null }));
+        setRevenueCatState((s) => ({
+          ...s,
+          isReady: true,
+          customerInfo: null,
+          offerings: null,
+        }));
       }
     };
 
@@ -97,32 +125,37 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
   const restorePurchases = async () => {
     if (!Purchases.isConfigured()) {
-        toast({
-            title: "Restore Inactive",
-            description: "Payment system is not yet ready.",
-            variant: "destructive",
-        });
-        return;
+      toast({
+        title: 'Restore Inactive',
+        description: 'Payment system is not yet ready.',
+        variant: 'destructive',
+      });
+      return;
     }
     try {
-        const restoredCustomerInfo = await Purchases.restorePurchases();
-        setRevenueCatState(prevState => ({ ...prevState, customerInfo: restoredCustomerInfo }));
-        toast({
-            title: "Purchases Restored",
-            description: "Your purchases have been successfully restored.",
-        });
+      const restoredCustomerInfo = await Purchases.restorePurchases();
+      setRevenueCatState((prevState) => ({
+        ...prevState,
+        customerInfo: restoredCustomerInfo,
+      }));
+      toast({
+        title: 'Purchases Restored',
+        description: 'Your purchases have been successfully restored.',
+      });
     } catch (e: any) {
-        console.error("RevenueCat: Restore failed.", e);
-        toast({
-            title: "Restore Failed",
-            description: e.message || "We couldn't find any purchases to restore.",
-            variant: "destructive",
-        });
+      console.error('RevenueCat: Restore failed.', e);
+      toast({
+        title: 'Restore Failed',
+        description: e.message || "We couldn't find any purchases to restore.",
+        variant: 'destructive',
+      });
     }
   };
 
   return (
-    <RevenueCatContext.Provider value={{ ...revenueCatState, restorePurchases }}>
+    <RevenueCatContext.Provider
+      value={{ ...revenueCatState, restorePurchases }}
+    >
       {children}
     </RevenueCatContext.Provider>
   );

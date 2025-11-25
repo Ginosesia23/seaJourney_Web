@@ -3,8 +3,16 @@
 
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { useState, useEffect } from 'react';
 
 export default function DashboardPreview() {
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+
   return (
     <section className="bg-header text-header-foreground py-16 sm:py-24 border-y border-primary/10">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
@@ -26,7 +34,8 @@ export default function DashboardPreview() {
             <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
             <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
             <div className="aspect-video w-full rounded-lg bg-primary/5 flex items-center justify-center p-4">
-               <svg viewBox="0 0 800 450" className="w-full h-full">
+               {isClient && (
+                <svg viewBox="0 0 800 450" className="w-full h-full">
                   {/* Background Grid */}
                   <defs>
                     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -51,6 +60,7 @@ export default function DashboardPreview() {
                      <line x1="0" y1="350" x2="700" y2="350" stroke="hsl(var(--primary-foreground) / 0.1)" strokeWidth="1"/>
                   </g>
                 </svg>
+               )}
             </div>
           </div>
         </div>
