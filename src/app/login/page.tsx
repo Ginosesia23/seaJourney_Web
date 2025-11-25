@@ -56,6 +56,7 @@ export default function LoginPage() {
     setIsLoading(true);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, data.email, data.password);
+      console.log('User logged in with ID:', userCredential.user.uid);
       // The useRevenueCat hook will automatically update its context on auth change.
       // We wait for it to be ready before checking subscription.
     } catch (error) {
@@ -86,6 +87,7 @@ export default function LoginPage() {
     setIsAnonymousLoading(true);
     try {
       const userCredential = await signInAnonymously(auth);
+      console.log('Anonymous user logged in with ID:', userCredential.user.uid);
       // Let the useEffect handle the redirect
     } catch (error) {
       const authError = error as AuthError;
