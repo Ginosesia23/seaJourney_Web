@@ -78,6 +78,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
           console.log("RC: LogIn successful. CustomerInfo retrieved:", customerInfo);
         } else {
           console.log("RC: User is anonymous. Checking for previous user.");
+          // isAnonymous is a method on the instance
           if (!purchases.isAnonymous()) {
             console.log("RC: Previous non-anonymous user existed, logging out.");
             await purchases.logOut();
