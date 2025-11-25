@@ -16,11 +16,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import * as d3 from 'd3';
 import * as topojson from 'topojson-client';
 import world from 'world-atlas/countries-110m.json';
-import { geoMercator } from 'd3-geo';
+import { geoMercator, geoPath } from 'd3-geo';
 
 type Passage = [number, number][]; // Array of [lon, lat] coordinates
 
-function StaticHexMap({ baseHexRadius = 2, passageData }: { baseHexRadius?: number; passageData?: Passage[] }) {
+function StaticHexMap({ passageData }: { passageData?: Passage[] }) {
   const [geoData, setGeoData] = useState<any>(null);
   const [paths, setPaths] = useState<(string | null)[]>([]);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -86,16 +86,9 @@ function StaticHexMap({ baseHexRadius = 2, passageData }: { baseHexRadius?: numb
             style={{width:'100%', height:'100%', background: 'hsl(var(--header))'}}
             className={cn("transition-opacity duration-500", isLoading ? "opacity-0" : "opacity-100")}
         >
-            <defs>
-                <pattern id="hexGrid" patternUnits="userSpaceOnUse" width="14" height="24.25" patternTransform="scale(0.5) rotate(30)">
-                  <path d="M8.66 0L17.32 5v10L8.66 20 0 15V5z" fill="hsl(var(--primary-foreground) / 0.1)" stroke="hsl(var(--header))" strokeWidth="1"></path>
-                </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#hexGrid)" />
-
             {geoData && (
                  <path 
-                    d={d3.geoPath().projection(geoMercator().fitSize([dimensions.width, dimensions.height], geoData))(geoData) || ""}
+                    d={geoPath().projection(geoMercator().fitSize([dimensions.width, dimensions.height], geoData))(geoData) || ""}
                     fill="hsl(var(--primary-foreground) / 0.1)"
                     stroke="hsl(var(--header))"
                     strokeWidth={0.5}
@@ -525,7 +518,7 @@ export default function DashboardOfferingPage() {
         </section>
 
         <section className="relative py-28 sm:py-40 bg-header text-header-foreground overflow-hidden">
-            {isClient && <StaticHexMap baseHexRadius={2} passageData={[passage1]} />}
+            {isClient && <StaticHexMap passageData={[passage1]} />}
             <div className="absolute inset-0 bg-gradient-to-t from-header via-header/80 to-transparent"></div>
             <div className="container relative z-10 mx-auto px-4 sm:px-6 lg:px-8 text-center">
                 <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
