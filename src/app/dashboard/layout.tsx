@@ -23,7 +23,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { theme } = useTheme();
   const firestore = useFirestore();
-  const { customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
+  const { customerInfo, isReady: isRevenueCatReady, offerings } = useRevenueCat();
 
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
@@ -33,32 +33,34 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>(userProfileRef);
 
   useEffect(() => {
-    // Wait until both Firebase Auth and RevenueCat have loaded.
     if (isUserLoading || !isRevenueCatReady) {
       return;
     }
 
-    // If there is no authenticated user, redirect to the login page.
     if (!user) {
       router.push('/login');
       return;
     }
     
-    // Check for active subscriptions directly from RevenueCat.
-    const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
-    
-    // If the user has no active subscriptions, redirect them to the pricing page,
-    // unless they are already on it.
-    if (!hasActiveSubscription && pathname !== '/offers') {
+    // Get a list of all entitlement identifiers from all available packages
+    const allEntitlementIds = offerings ? Object.values(offerings.all).flatMap(o => 
+        o.availablePackages.map(p => p.product.identifier)
+    ) : [];
+
+    // Check if the user has any active entitlement that we offer
+    const hasActiveOfferedEntitlement = allEntitlementIds.some(id => 
+        customerInfo?.entitlements.active[id]
+    );
+
+    if (!hasActiveOfferedEntitlement && pathname !== '/offers') {
         router.push('/offers');
     }
 
-  }, [user, isUserLoading, customerInfo, isRevenueCatReady, router, pathname]);
+  }, [user, isUserLoading, customerInfo, isRevenueCatReady, offerings, router, pathname]);
 
   const isMapPage = pathname === '/dashboard/world-map';
   const isLoading = isUserLoading || !isRevenueCatReady || isProfileLoading;
   
-  // Render a loading spinner while waiting for auth and subscription data.
   if (isLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
@@ -67,10 +69,10 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     );
   }
   
-  // Also show loading if the user isn't authenticated yet or if there's no subscription info
-  // and they aren't on the offers page, to prevent flicker before redirect.
-  const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
-  if (!user || (!hasActiveSubscription && pathname !== '/offers')) {
+  const allEntitlementIds = offerings ? Object.values(offerings.all).flatMap(o => o.availablePackages.map(p => p.product.identifier)) : [];
+  const hasActiveOfferedEntitlement = allEntitlementIds.some(id => customerInfo?.entitlements.active[id]);
+
+  if (!user || (!hasActiveOfferedEntitlement && pathname !== '/offers')) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />

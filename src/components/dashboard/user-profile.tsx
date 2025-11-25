@@ -19,6 +19,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format } from 'date-fns';
 import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
+import { useRevenueCat } from '../providers/revenue-cat-provider';
 
 
 const profileSchema = z.object({
@@ -70,6 +71,7 @@ export function UserProfileCard() {
   const firestore = useFirestore();
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
+  const { customerInfo } = useRevenueCat();
 
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
@@ -120,8 +122,11 @@ export function UserProfileCard() {
   const registrationDate = userProfile?.registrationDate ? new Date(userProfile.registrationDate) : null;
   const getInitials = (name: string) => name.split(' ').map((n) => n[0]).join('');
 
-  const subscriptionStatus = userProfile?.subscriptionStatus;
-  const subscriptionTier = userProfile?.subscriptionTier;
+  const activeEntitlements = customerInfo?.entitlements.active || {};
+  const activeEntitlementId = Object.keys(activeEntitlements)[0];
+  const subscriptionStatus = activeEntitlementId ? 'active' : 'inactive';
+  const subscriptionTier = activeEntitlementId || userProfile?.subscriptionTier || 'free';
+
 
   return (
     <Card className="rounded-xl border bg-card dark:shadow-md transition-shadow dark:hover:shadow-lg">
@@ -140,7 +145,7 @@ export function UserProfileCard() {
                     >
                         {subscriptionStatus}
                     </Badge>
-                    <p className="text-sm text-muted-foreground mt-1 capitalize">{subscriptionTier.replace('sj_', '')}</p>
+                    <p className="text-sm text-muted-foreground mt-1 capitalize">{subscriptionTier.replace(/^(sj_)/, '')}</p>
                 </div>
             )}
         </div>

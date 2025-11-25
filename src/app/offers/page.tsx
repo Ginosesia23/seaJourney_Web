@@ -13,15 +13,14 @@ import { useUser, useFirestore, errorEmitter, FirestorePermissionError } from '@
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
-import { purchaseSubscriptionPackage } from '@/app/actions';
 import { doc, setDoc } from 'firebase/firestore';
+import type { Package } from '@revenuecat/purchases-js';
+import { Purchases } from '@revenuecat/purchases-js';
 
 
-const tiers = [
-  {
+const staticTierInfo: Record<string, {name: string, description: string, features: string[], type: 'crew' | 'vessel', highlighted?: boolean, cta: string, href?: string }> = {
+  'default': {
     name: 'Mobile App',
-    price: '£0',
-    priceSuffix: '',
     description: 'Get started with the essential tools to track your sea time on the free version of the app.',
     features: [
       'Sea time logging',
@@ -32,12 +31,8 @@ const tiers = [
     type: 'crew',
     href: 'https://apps.apple.com/gb/app/seajourney/id6751553072'
   },
-  {
+  'sj_starter': {
     name: 'Standard',
-    identifier: 'sj_starter', // This is the entitlement ID
-    offeringIdentifier: 'default', // This is the offering ID
-    price: '£5.99',
-    priceSuffix: '/ month',
     description: 'For dedicated professionals who need advanced tracking.',
     features: [
       'Unlimited sea time logging',
@@ -50,12 +45,8 @@ const tiers = [
     cta: 'Choose Plan',
     type: 'crew',
   },
-  {
+  'premium': {
     name: 'Premium',
-    identifier: 'premium',
-    offeringIdentifier: 'premium',
-    price: '£9.99',
-    priceSuffix: '/ month',
     description: 'For career-focused seafarers needing detailed analytics.',
     features: [
       'All Standard features',
@@ -69,12 +60,8 @@ const tiers = [
     highlighted: true,
     type: 'crew',
   },
-  {
+  'pro': {
     name: 'Pro',
-    identifier: 'pro',
-    offeringIdentifier: 'pro',
-    price: '£14.99',
-    priceSuffix: '/ month',
     description: 'The ultimate toolkit for maritime professionals.',
     features: [
       'All Premium features',
@@ -86,12 +73,8 @@ const tiers = [
     cta: 'Choose Plan',
     type: 'crew',
   },
-  {
+  'vessel_basic': {
     name: 'Vessel Basic',
-    identifier: 'vessel_basic',
-    offeringIdentifier: 'vessel_basic',
-    price: '£299.99',
-    priceSuffix: '/ month',
     description: 'Essential tracking for a single vessel and its crew.',
     features: [
       'Track up to 5 crew members',
@@ -102,12 +85,8 @@ const tiers = [
     cta: 'Choose Plan',
     type: 'vessel',
   },
-  {
+  'vessel_pro': {
     name: 'Vessel Pro',
-    identifier: 'vessel_pro',
-    offeringIdentifier: 'vessel_pro',
-    price: '£599.99',
-    priceSuffix: '/ month',
     description: 'Comprehensive management for a professional yacht.',
     features: [
       'Track up to 20 crew members',
@@ -119,12 +98,8 @@ const tiers = [
     highlighted: true,
     type: 'vessel',
   },
-  {
+  'vessel_fleet': {
     name: 'Vessel Fleet',
-    identifier: 'vessel_fleet',
-    offeringIdentifier: 'vessel_fleet',
-    price: '£1199.99',
-    priceSuffix: '/ month',
     description: 'Ideal for managing multiple vessels and larger crews.',
     features: [
       'Track up to 50 crew members',
@@ -135,12 +110,9 @@ const tiers = [
     cta: 'Choose Plan',
     type: 'vessel',
   },
-  {
+  'vessel_enterprise': {
     name: 'Vessel Enterprise',
-    identifier: 'vessel_enterprise',
-    offeringIdentifier: 'vessel_enterprise',
     price: 'Custom',
-    priceSuffix: '',
     description: 'Scalable solution for large fleets and management companies.',
     features: [
       'Track unlimited crew members',
@@ -151,7 +123,7 @@ const tiers = [
     cta: 'Contact Us',
     type: 'vessel',
   },
-];
+};
 
 
 export default function ComingSoonPage() {
@@ -159,7 +131,7 @@ export default function ComingSoonPage() {
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
-  const { offerings, isReady: isRevenueCatReady } = useRevenueCat();
+  const { offerings, customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -169,32 +141,23 @@ export default function ComingSoonPage() {
     }
   }, [user]);
 
-  const filteredTiers = tiers.filter(tier => tier.type === planType);
-  
-  const handlePurchase = async (tierIdentifier: string, offeringIdentifier: string) => {
-    if (!user || !firestore) {
+  const handlePurchase = async (pkg: Package) => {
+     if (!user || !firestore) {
       router.push(`/signup?redirect=/offers`);
       return;
     }
-    
-    if (!offerings || !offerings.all[offeringIdentifier]) {
-        toast({
-            title: "Error",
-            description: "Subscription package not found.",
-            variant: "destructive",
-        });
-        return;
-    };
-
-    setIsPurchasing(tierIdentifier);
-    
+    setIsPurchasing(pkg.identifier);
     try {
-      const result = await purchaseSubscriptionPackage(tierIdentifier, user.uid);
+      const purchases = Purchases.getSharedInstance();
+      const { customerInfo } = await purchases.purchasePackage(pkg);
       
-      if (result.success && result.customerInfo?.entitlements.active[tierIdentifier]) {
+      const entitlementId = pkg.product.identifier;
+      const hasEntitlement = customerInfo.entitlements.active[entitlementId];
+
+      if (hasEntitlement) {
         const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
         const profileUpdateData = {
-          subscriptionTier: tierIdentifier,
+          subscriptionTier: entitlementId,
           subscriptionStatus: 'active',
         };
 
@@ -206,24 +169,43 @@ export default function ComingSoonPage() {
         });
         router.push('/dashboard');
       } else {
-        throw new Error(result.error || 'An unexpected error occurred during entitlement grant.');
+         throw new Error('Purchase completed, but entitlement not found.');
       }
-      
     } catch (e: any) {
-        if (e instanceof FirestorePermissionError) {
+        if (e.code === Purchases.PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR) {
+            toast({
+                title: "Purchase Cancelled",
+                description: "You have cancelled the purchase.",
+            });
+        } else if (e instanceof FirestorePermissionError) {
              errorEmitter.emit('permission-error', e);
         } else {
              toast({
                 title: "Purchase Failed",
-                description: e.message || "An unexpected error occurred during purchase.",
+                description: e.message || "An unexpected error occurred.",
                 variant: 'destructive',
             });
         }
+    } finally {
         setIsPurchasing(null);
     }
   }
   
-  const isLoading = isUserLoading;
+  const isLoading = isUserLoading || !isRevenueCatReady;
+  
+  const packagesToShow: Package[] = [];
+  if (offerings) {
+      Object.values(offerings.all).forEach(offering => {
+          const tierInfo = staticTierInfo[offering.identifier];
+          if (tierInfo && tierInfo.type === planType) {
+              packagesToShow.push(...offering.availablePackages);
+          }
+      });
+  }
+   // Add the free mobile app "tier" manually
+   const allTiers = planType === 'crew' 
+    ? [staticTierInfo['default'], ...packagesToShow]
+    : packagesToShow;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -266,94 +248,104 @@ export default function ComingSoonPage() {
               </div>
 
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
-              {filteredTiers.map((tier) => {
-                const isProcessing = isPurchasing === tier.identifier;
-                
-                let price = tier.price;
-                let tierDescription = tier.description;
-                let features = tier.features;
-                const offeringIdentifier = (tier as any).offeringIdentifier;
-
-                if (offeringIdentifier && offerings && offerings.all && offerings.all[offeringIdentifier]) {
-                    const tierOffering = offerings.all[offeringIdentifier];
-                    if (tierOffering) {
-                        const monthlyPackage = tierOffering.availablePackages.find(p => p.packageType === 'MONTHLY' || p.packageType === 'ANNUAL');
-                        if (monthlyPackage) {
-                            price = monthlyPackage.product.priceString;
-                        }
-                        if (tierOffering.serverDescription) {
-                            tierDescription = tierOffering.serverDescription;
-                        }
-                        const metadataFeatures = (tierOffering.metadata as any)?.features;
-                        if (metadataFeatures && Array.isArray(metadataFeatures)) {
-                           features = metadataFeatures.map(String);
-                        }
+              {isLoading ? (
+                  Array.from({length: 3}).map((_, i) => (
+                      <Card key={i} className="flex flex-col rounded-2xl animate-pulse">
+                          <CardHeader className="flex-grow">
+                              <div className="h-6 bg-muted rounded w-3/4"></div>
+                              <div className="h-10 bg-muted rounded w-1/2 mt-2"></div>
+                              <div className="h-4 bg-muted rounded w-full mt-4"></div>
+                          </CardHeader>
+                           <CardContent>
+                              <div className="space-y-4">
+                                  <div className="h-4 bg-muted rounded w-full"></div>
+                                  <div className="h-4 bg-muted rounded w-full"></div>
+                                  <div className="h-4 bg-muted rounded w-5/6"></div>
+                              </div>
+                           </CardContent>
+                           <CardFooter>
+                                <div className="h-12 bg-muted rounded-full w-full"></div>
+                           </CardFooter>
+                      </Card>
+                  ))
+              ) : (
+                allTiers.map((tier) => {
+                    if ('product' in tier) { // It's a RevenueCat Package
+                        const pkg = tier as Package;
+                        const tierInfo = staticTierInfo[pkg.product.identifier] || staticTierInfo[pkg.offeringIdentifier] || {};
+                        const isProcessing = isPurchasing === pkg.identifier;
+                        
+                        return (
+                            <Card key={pkg.identifier} className={cn(
+                                "flex flex-col rounded-2xl",
+                                tierInfo.highlighted ? 'border-primary ring-2 ring-primary' : ''
+                            )}>
+                                <CardHeader className="flex-grow">
+                                    <CardTitle className="font-headline text-2xl">{tierInfo.name || pkg.product.title}</CardTitle>
+                                    <div className="flex items-baseline gap-1">
+                                        <span className="text-4xl font-bold tracking-tight">{pkg.product.priceString}</span>
+                                        <span className="text-sm font-semibold text-muted-foreground">/ {pkg.packageType === 'MONTHLY' ? 'month' : pkg.packageType.toLowerCase()}</span>
+                                    </div>
+                                    <CardDescription>{tierInfo.description || pkg.product.description}</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <ul className="space-y-4">
+                                    {(tierInfo.features || []).map((feature) => (
+                                        <li key={feature} className="flex items-start">
+                                            <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
+                                            <span>{feature}</span>
+                                        </li>
+                                    ))}
+                                    </ul>
+                                </CardContent>
+                                <CardFooter>
+                                    <Button 
+                                        className="w-full rounded-full"
+                                        variant={tierInfo.highlighted ? 'default' : 'outline'}
+                                        disabled={isPurchasing !== null}
+                                        onClick={() => handlePurchase(pkg)}
+                                    >
+                                        {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                        {isProcessing ? 'Processing...' : (isPurchasing ? 'Please wait...' : 'Choose Plan')}
+                                    </Button>
+                                </CardFooter>
+                            </Card>
+                        )
+                    } else { // It's the static free tier
+                        const staticTier = tier as typeof staticTierInfo[string];
+                        return (
+                             <Card key={staticTier.name} className={cn(
+                                "flex flex-col rounded-2xl bg-primary/5 border-primary/20"
+                            )}>
+                                <CardHeader className="flex-grow">
+                                    <CardTitle className="font-headline text-2xl">{staticTier.name}</CardTitle>
+                                    <div className="flex items-baseline gap-1">
+                                        <span className="text-4xl font-bold tracking-tight">Free</span>
+                                    </div>
+                                    <CardDescription>{staticTier.description}</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <ul className="space-y-4">
+                                        {staticTier.features.map((feature) => (
+                                            <li key={feature} className="flex items-start">
+                                                <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
+                                                <span>{feature}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </CardContent>
+                                <CardFooter>
+                                     <Button asChild className="w-full rounded-full" variant={'default'}>
+                                        <Link href={staticTier.href!} target="_blank" rel="noopener noreferrer">
+                                            <Download className="mr-2 h-4 w-4" /> {staticTier.cta}
+                                        </Link>
+                                    </Button>
+                                </CardFooter>
+                            </Card>
+                        )
                     }
-                }
-
-                return (
-                    <Card key={tier.name} className={cn(
-                        "flex flex-col rounded-2xl",
-                        tier.name === 'Mobile App' ? 'bg-primary/5 border-primary/20' : '',
-                        tier.highlighted ? 'border-primary ring-2 ring-primary' : ''
-                    )}>
-                    <CardHeader className="flex-grow">
-                        {tier.name === 'Mobile App' ? (
-                            <>
-                               <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
-                                <div className="flex items-baseline gap-1">
-                                    <span className="text-4xl font-bold tracking-tight">Free</span>
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
-                                <div className="flex items-baseline gap-1">
-                                <span className="text-4xl font-bold tracking-tight">{price}</span>
-                                <span className="text-sm font-semibold text-muted-foreground">{tier.priceSuffix}</span>
-                                </div>
-                            </>
-                        )}
-                        <CardDescription>{tierDescription}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <ul className="space-y-4">
-                        {features.map((feature) => (
-                            <li key={feature} className="flex items-start">
-                            <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
-                            <span>{feature}</span>
-                            </li>
-                        ))}
-                        </ul>
-                    </CardContent>
-                    <CardFooter>
-                        {tier.href ? (
-                            <Button asChild className="w-full rounded-full" variant={tier.name === 'Mobile App' ? 'default' : (tier.highlighted ? 'default' : 'outline')}>
-                                <Link href={tier.href} target="_blank" rel="noopener noreferrer">
-                                    <Download className="mr-2 h-4 w-4" /> {tier.cta}
-                                </Link>
-                            </Button>
-                        ) : tier.identifier === 'vessel_enterprise' ? (
-                             <Button className="w-full rounded-full" variant={tier.highlighted ? 'default' : 'outline'}>
-                                <Link href="mailto:support@seajourney.com">
-                                    {tier.cta}
-                                </Link>
-                            </Button>
-                        ) : (
-                            <Button 
-                                className="w-full rounded-full"
-                                variant={tier.highlighted ? 'default' : 'outline'}
-                                disabled={isLoading || isProcessing}
-                                onClick={() => handlePurchase(tier.identifier!, (tier as any).offeringIdentifier)}
-                            >
-                                {(isLoading || isProcessing) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                {isProcessing ? 'Processing...' : (isLoading ? 'Loading...' : (tier.cta))}
-                            </Button>
-                        )}
-                    </CardFooter>
-                    </Card>
-                )
-              })}
+              })
+              )}
             </div>
           </div>
         </section>

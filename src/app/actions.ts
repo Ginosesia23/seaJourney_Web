@@ -6,12 +6,13 @@ import { getSdks } from '@/firebase'; // Assuming getSdks is available for serve
 import { initializeApp, getApps, App } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { firebaseConfig } from '@/firebase/config';
+import type { Purchases, CustomerInfo } from '@revenuecat/purchases-js';
 
 // This function will run on the server
 export async function purchaseSubscriptionPackage(
   entitlementId: string, // This is the entitlement identifier, e.g., "sj_starter"
   appUserId: string
-) {
+): Promise<{ success: boolean; customerInfo?: CustomerInfo, error?: string, entitlementId?: string }> {
   const secretApiKey = process.env.REVENUECAT_SECRET_API_KEY;
 
   if (!secretApiKey) {
@@ -45,10 +46,10 @@ export async function purchaseSubscriptionPackage(
     }
 
     const data = await response.json();
-    const subscriber = data.subscriber;
-    const activeEntitlement = subscriber.entitlements[entitlementId];
+    const subscriber = data.subscriber as CustomerInfo;
+    const activeEntitlement = subscriber.entitlements.active[entitlementId];
 
-    if (activeEntitlement && new Date(activeEntitlement.expires_date) > new Date()) {
+    if (activeEntitlement) {
        return { success: true, customerInfo: subscriber, entitlementId };
     } else {
        throw new Error(`Entitlement '${entitlementId}' not found or expired after grant.`);
