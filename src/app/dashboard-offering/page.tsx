@@ -17,13 +17,11 @@ import * as d3 from 'd3';
 import * as topojson from 'topojson-client';
 import world from 'world-atlas/countries-110m.json';
 import { geoMercator } from 'd3-geo';
-import { hexbin as d3Hexbin } from 'd3-hexbin';
 
 type Passage = [number, number][]; // Array of [lon, lat] coordinates
 
 function StaticHexMap({ baseHexRadius = 2, passageData }: { baseHexRadius?: number; passageData?: Passage[] }) {
   const [geoData, setGeoData] = useState<any>(null);
-  const [validHexes, setValidHexes] = useState<[number, number][]>([]);
   const [paths, setPaths] = useState<(string | null)[]>([]);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -62,32 +60,7 @@ function StaticHexMap({ baseHexRadius = 2, passageData }: { baseHexRadius?: numb
 
     setIsLoading(true);
     const { width, height } = dimensions;
-
     const projection = geoMercator().fitSize([width, height], geoData);
-    
-    const hexbin = d3Hexbin()
-        .radius(baseHexRadius)
-        .extent([[0, 0], [width, height]]);
-
-    const points: [number, number][] = [];
-    geoData.features.forEach((feature: any) => {
-        const centroid = d3.geoCentroid(feature);
-        if (d3.geoContains(feature, centroid)) {
-            const step = 0.5;
-            const bounds = d3.geoBounds(feature);
-            for (let lon = bounds[0][0]; lon < bounds[1][0]; lon += step) {
-                for (let lat = bounds[0][1]; lat < bounds[1][1]; lat += step) {
-                    if (d3.geoContains(feature, [lon, lat])) {
-                        const p = projection([lon, lat]);
-                        if (p) points.push(p);
-                    }
-                }
-            }
-        }
-    });
-
-    const hexes = hexbin(points);
-    setValidHexes(hexes.map(h => [h.x, h.y]));
 
     if (passageData) {
         const lineGenerator = d3.line().context(null);
@@ -100,16 +73,7 @@ function StaticHexMap({ baseHexRadius = 2, passageData }: { baseHexRadius?: numb
     
     setIsLoading(false);
 
-  }, [geoData, dimensions, baseHexRadius, passageData]);
-
-  const hexPoints = (cx: number, cy: number, r: number) => {
-    const pts = [];
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI / 180) * (60 * i - 30);
-      pts.push(`${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`);
-    }
-    return pts.join(' ');
-  };
+  }, [geoData, dimensions, passageData]);
   
   const passageColors = ["hsl(var(--accent))", "hsl(var(--primary))"];
 
@@ -122,15 +86,22 @@ function StaticHexMap({ baseHexRadius = 2, passageData }: { baseHexRadius?: numb
             style={{width:'100%', height:'100%', background: 'hsl(var(--header))'}}
             className={cn("transition-opacity duration-500", isLoading ? "opacity-0" : "opacity-100")}
         >
-            {validHexes.map(([x, y], i) => (
-            <polygon
-                key={i}
-                points={hexPoints(x, y, baseHexRadius)}
-                fill={'hsl(var(--primary-foreground) / 0.1)'}
-                stroke={'hsl(var(--header))'}
-                strokeWidth={0.4}
-            />
-            ))}
+            <defs>
+                <pattern id="hexGrid" patternUnits="userSpaceOnUse" width="14" height="24.25" patternTransform="scale(0.5) rotate(30)">
+                  <path d="M8.66 0L17.32 5v10L8.66 20 0 15V5z" fill="hsl(var(--primary-foreground) / 0.1)" stroke="hsl(var(--header))" strokeWidth="1"></path>
+                </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#hexGrid)" />
+
+            {geoData && (
+                 <path 
+                    d={d3.geoPath().projection(geoMercator().fitSize([dimensions.width, dimensions.height], geoData))(geoData) || ""}
+                    fill="hsl(var(--primary-foreground) / 0.1)"
+                    stroke="hsl(var(--header))"
+                    strokeWidth={0.5}
+                />
+            )}
+
             {paths.map((path, index) => path && (
                 <path
                 key={index}
