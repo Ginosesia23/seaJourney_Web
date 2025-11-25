@@ -64,7 +64,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         if (!Purchases.isConfigured()) {
             console.log("RC: Configuring RevenueCat SDK...");
             Purchases.setLogLevel(LogLevel.DEBUG);
-            Purchases.configure({ apiKey });
+            await Purchases.configure({ apiKey });
         }
         
         const purchases = Purchases.getSharedInstance();
@@ -77,9 +77,9 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
           customerInfo = loginResult.customerInfo;
           console.log("RC: LogIn successful. CustomerInfo retrieved:", customerInfo);
         } else {
-          console.log("RC: User is anonymous. Getting customer info.");
+          console.log("RC: User is anonymous. Checking for previous user.");
           if (!purchases.isAnonymous()) {
-            console.log("RC: Previous user existed, logging out.");
+            console.log("RC: Previous non-anonymous user existed, logging out.");
             await purchases.logOut();
             console.log("RC: Logout successful.");
           }
