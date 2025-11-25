@@ -48,63 +48,48 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
       const apiKey = process.env.NEXT_PUBLIC_REVENUECAT_PUBLIC_API_KEY;
 
       if (!apiKey) {
-        console.error('RevenueCat API key missing');
+        console.error('RC Error: RevenueCat API key missing');
         setRevenueCatState((s) => ({ ...s, isReady: true }));
         return;
       }
-
-      // Wait until Firebase auth resolves
-      if (isUserLoading) return;
+      
+      if (isUserLoading) {
+        console.log("RC: Waiting for Firebase user to load...");
+        return;
+      }
+      
+      console.log("RC: Firebase user loaded, proceeding with RevenueCat init.");
 
       try {
-        // Always set log level
-        Purchases.setLogLevel(LogLevel.DEBUG);
-        
-        // Configure once
         if (!Purchases.isConfigured()) {
-            console.log("RC: Configuring RevenueCat…");
+            console.log("RC: Configuring RevenueCat SDK...");
+            Purchases.setLogLevel(LogLevel.DEBUG);
             Purchases.configure({ apiKey });
         }
         
-        // Get instance for web SDK
         const purchases = Purchases.getSharedInstance();
+        let customerInfo: CustomerInfo | null = null;
+        let offerings: Offerings | null = null;
 
-        let customerInfo: CustomerInfo;
-
-        // --- 3) LOGGED IN USER ---
-        if (user && user.uid) {
-          console.log("RC: Logging in user:", user.uid);
-
-          // Guard against accidental bad uid
-          if (
-            user.uid === '[Not provided]' ||
-            user.uid === '' ||
-            typeof user.uid !== 'string'
-          ) {
-            console.warn("RC: Invalid UID detected, skipping RC login:", user.uid);
-            setRevenueCatState((s) => ({ ...s, isReady: true }));
-            return;
-          }
-
+        if (user) {
+          console.log("RC: User is logged in, calling logIn with UID:", user.uid);
           const loginResult = await purchases.logIn(user.uid);
           customerInfo = loginResult.customerInfo;
-        }
-
-        // --- 4) ANONYMOUS USER ---
-        else {
-          console.log("RC: Anonymous user (not logged in)");
+          console.log("RC: LogIn successful. CustomerInfo retrieved:", customerInfo);
+        } else {
+          console.log("RC: User is anonymous. Getting customer info.");
           if (!purchases.isAnonymous()) {
-            console.log("RC: Pre-configure cache cleanup (logOut)");
-            await purchases.logOut().catch(() => {});
+            console.log("RC: Previous user existed, logging out.");
+            await purchases.logOut();
+            console.log("RC: Logout successful.");
           }
           customerInfo = await purchases.getCustomerInfo();
+          console.log("RC: Anonymous CustomerInfo retrieved:", customerInfo);
         }
 
-        // --- 5) FETCH OFFERINGS ---
-        const offerings = await purchases.getOfferings();
-
-        console.log("RC: CustomerInfo:", customerInfo);
-        console.log("RC: Offerings:", offerings);
+        console.log("RC: Fetching offerings...");
+        offerings = await purchases.getOfferings();
+        console.log("RC: Offerings fetched:", offerings);
 
         setRevenueCatState({
           customerInfo,
@@ -113,18 +98,16 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         });
 
       } catch (err: any) {
-        console.error("RevenueCat initialization failed:", err);
-
+        console.error("RC Error: RevenueCat initialization failed:", err);
         toast({
           title: "Subscription Error",
-          description: err.message || "RevenueCat could not initialize.",
+          description: err.message || "Could not connect to subscription service.",
           variant: "destructive",
         });
-
         setRevenueCatState({
           customerInfo: null,
           offerings: null,
-          isReady: true,
+          isReady: true, // Set to ready even on error to unblock UI
         });
       }
     };
@@ -145,8 +128,8 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
 
     try {
       const purchases = Purchases.getSharedInstance();
-      const restored = await purchases.restorePurchases();
-      setRevenueCatState((s) => ({ ...s, customerInfo: restored }));
+      const { customerInfo: restoredInfo } = await purchases.restorePurchases();
+      setRevenueCatState((s) => ({ ...s, customerInfo: restoredInfo }));
       toast({
         title: "Restored",
         description: "Your purchases have been restored!",
