@@ -141,6 +141,12 @@ export default function ComingSoonPage() {
     }
   }, [user]);
 
+  useEffect(() => {
+    if (offerings) {
+      console.log('RevenueCat Offerings:', offerings);
+    }
+  }, [offerings]);
+
   const handlePurchase = async (pkg: Package) => {
      if (!user || !firestore) {
       router.push(`/signup?redirect=/offers`);
