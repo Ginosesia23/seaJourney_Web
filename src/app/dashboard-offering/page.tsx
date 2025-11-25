@@ -257,6 +257,11 @@ const features = [
 
 export default function DashboardOfferingPage() {
     const [activeFeature, setActiveFeature] = useState(features[0].id);
+    const [isClient, setIsClient] = useState(false);
+
+    useEffect(() => {
+        setIsClient(true);
+    }, []);
 
   return (
     <div className="flex min-h-screen flex-col bg-header">
@@ -378,42 +383,44 @@ export default function DashboardOfferingPage() {
 
         <section className="relative bg-header text-header-foreground py-16 sm:py-24 border-y border-primary/10 overflow-hidden">
             <div className="absolute inset-0 z-0">
-                 <ComposableMap
-                    projection="geoMercator"
-                    projectionConfig={{
-                        rotate: [-10, 0, 0],
-                        scale: 180,
-                        center: [0, 20]
-                    }}
-                    className="w-full h-full opacity-20"
-                >
-                    <Geographies geography={worldAtlas}>
-                        {({ geographies }) =>
-                            geographies.map(geo => (
-                                <Geography
-                                    key={geo.rsmKey}
-                                    geography={geo}
-                                    fill="hsl(var(--primary-foreground) / 0.1)"
-                                    stroke="hsl(var(--header))"
-                                    strokeWidth={0.5}
-                                />
-                            ))
-                        }
-                    </Geographies>
-                    <Line
-                        from={[12.4964, 41.9028]} 
-                        to={[-80.1918, 25.7617]}
-                        stroke="hsl(var(--accent))"
-                        strokeWidth={2}
-                        strokeDasharray="6 6"
-                    />
-                     <Marker coordinates={[12.4964, 41.9028]}>
-                        <circle r={4} fill="hsl(var(--accent))" />
-                    </Marker>
-                    <Marker coordinates={[-80.1918, 25.7617]}>
-                        <circle r={4} fill="hsl(var(--accent))" />
-                    </Marker>
-                </ComposableMap>
+                 {isClient && (
+                    <ComposableMap
+                        projection="geoMercator"
+                        projectionConfig={{
+                            rotate: [-10, 0, 0],
+                            scale: 180,
+                            center: [0, 20]
+                        }}
+                        className="w-full h-full opacity-20"
+                    >
+                        <Geographies geography={worldAtlas}>
+                            {({ geographies }) =>
+                                geographies.map(geo => (
+                                    <Geography
+                                        key={geo.rsmKey}
+                                        geography={geo}
+                                        fill="hsl(var(--primary-foreground) / 0.1)"
+                                        stroke="hsl(var(--header))"
+                                        strokeWidth={0.5}
+                                    />
+                                ))
+                            }
+                        </Geographies>
+                        <Line
+                            from={[12.4964, 41.9028]} 
+                            to={[-80.1918, 25.7617]}
+                            stroke="hsl(var(--accent))"
+                            strokeWidth={2}
+                            strokeDasharray="6 6"
+                        />
+                         <Marker coordinates={[12.4964, 41.9028]}>
+                            <circle r={4} fill="hsl(var(--accent))" />
+                        </Marker>
+                        <Marker coordinates={[-80.1918, 25.7617]}>
+                            <circle r={4} fill="hsl(var(--accent))" />
+                        </Marker>
+                    </ComposableMap>
+                 )}
             </div>
             <div className="absolute inset-0 bg-gradient-to-t from-header via-header/80 to-header"></div>
             <div className="container relative z-10 mx-auto px-4 sm:px-6 lg:px-8">
