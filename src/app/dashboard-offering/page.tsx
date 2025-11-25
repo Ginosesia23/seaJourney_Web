@@ -7,13 +7,143 @@ import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Users, Fingerprint, Bot, CheckCircle, ShieldCheck, AreaChart, ShipWheel, LayoutDashboard, Route, Anchor, QrCode, Share2, Search } from 'lucide-react';
+import { BarChart2, Ship, Globe, FileText, ArrowRight, LifeBuoy, Users, Fingerprint, Bot, CheckCircle, ShieldCheck, AreaChart, ShipWheel, LayoutDashboard, Route, Anchor, QrCode, Share2, Search, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MainChart from '@/components/dashboard/main-chart';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ComposableMap, Geographies, Geography, Line, Marker } from 'react-simple-maps';
-import worldAtlas from 'world-atlas/countries-110m.json';
+
+import * as d3 from 'd3';
+import * as topojson from 'topojson-client';
+import world from 'world-atlas/countries-110m.json';
+import { geoMercator } from 'd3-geo';
+
+type Passage = [number, number][]; // Array of [lon, lat] coordinates
+
+function StaticHexMap({ baseHexRadius = 2, passageData }: { baseHexRadius?: number; passageData?: Passage[] }) {
+  const [geoData, setGeoData] = useState<any>(null);
+  const [validHexes, setValidHexes] = useState<[number, number][]>([]);
+  const [paths, setPaths] = useState<(string | null)[]>([]);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const resizeObserver = new ResizeObserver(entries => {
+      if (entries[0]) {
+        const { width, height } = entries[0].contentRect;
+        setDimensions({ width, height });
+      }
+    });
+
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
+    return () => {
+      if (containerRef.current) {
+        resizeObserver.unobserve(containerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const countries = topojson.feature(world, world.objects.countries as any);
+      setGeoData(countries);
+    } catch (err) {
+      console.error('Failed to convert topojson to geojson', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!geoData || dimensions.width === 0 || dimensions.height === 0) return;
+
+    setIsLoading(true);
+    const { width, height } = dimensions;
+
+    const projection = geoMercator().fitSize([width, height], geoData);
+    
+    const hexbin = d3.hexbin()
+        .radius(baseHexRadius)
+        .extent([[0, 0], [width, height]]);
+
+    const points: [number, number][] = [];
+    geoData.features.forEach((feature: any) => {
+        const centroid = d3.geoCentroid(feature);
+        if (d3.geoContains(feature, centroid)) {
+            const step = 0.5;
+            const bounds = d3.geoBounds(feature);
+            for (let lon = bounds[0][0]; lon < bounds[1][0]; lon += step) {
+                for (let lat = bounds[0][1]; lat < bounds[1][1]; lat += step) {
+                    if (d3.geoContains(feature, [lon, lat])) {
+                        const p = projection([lon, lat]);
+                        if (p) points.push(p);
+                    }
+                }
+            }
+        }
+    });
+
+    const hexes = hexbin(points);
+    setValidHexes(hexes.map(h => [h.x, h.y]));
+
+    if (passageData) {
+        const lineGenerator = d3.line().context(null);
+        const svgPaths = passageData.map(passage => {
+          const projectedPoints = passage.map(d => projection(d) as [number, number]);
+          return lineGenerator(projectedPoints);
+        });
+        setPaths(svgPaths);
+    }
+    
+    setIsLoading(false);
+
+  }, [geoData, dimensions, baseHexRadius, passageData]);
+
+  const hexPoints = (cx: number, cy: number, r: number) => {
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 180) * (60 * i - 30);
+      pts.push(`${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`);
+    }
+    return pts.join(' ');
+  };
+  
+  const passageColors = ["hsl(var(--accent))", "hsl(var(--primary))"];
+
+  return (
+    <div ref={containerRef} className="absolute inset-0 z-0">
+        {isLoading && <div className="absolute inset-0 bg-header flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-white/50" /></div>}
+        <svg
+            viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
+            preserveAspectRatio="xMidYMid slice"
+            style={{width:'100%', height:'100%', background: 'hsl(var(--header))'}}
+            className={cn("transition-opacity duration-500", isLoading ? "opacity-0" : "opacity-100")}
+        >
+            {validHexes.map(([x, y], i) => (
+            <polygon
+                key={i}
+                points={hexPoints(x, y, baseHexRadius)}
+                fill={'hsl(var(--primary-foreground) / 0.1)'}
+                stroke={'hsl(var(--header))'}
+                strokeWidth={0.4}
+            />
+            ))}
+            {paths.map((path, index) => path && (
+                <path
+                key={index}
+                d={path}
+                stroke={passageColors[index % passageColors.length]}
+                strokeWidth="2"
+                fill="none"
+                strokeDasharray="6 6"
+                />
+            ))}
+        </svg>
+    </div>
+  );
+}
 
 
 const chartData = [
@@ -130,6 +260,26 @@ const features = [
                 </Table>
             </CardContent>
         </Card>
+    )
+  },
+   {
+    id: 'map',
+    icon: Globe,
+    title: 'World Map',
+    description: 'Chart your global passages.',
+    component: (
+      <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2 text-white/80">
+            <Globe className="h-5 w-5" />
+            Global Passage Map
+          </CardTitle>
+          <CardDescription className="text-white/50">Visualize your career voyages.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex-grow flex items-center justify-center">
+          <p className="text-white/30 text-sm">Interactive Map Preview</p>
+        </CardContent>
+      </Card>
     )
   },
   {
@@ -259,6 +409,18 @@ export default function DashboardOfferingPage() {
     const [activeFeature, setActiveFeature] = useState(features[0].id);
     const [isClient, setIsClient] = useState(false);
 
+    // Sample passage from Italy to Miami
+    const passage1: Passage = [
+        [12.8, 42.8],    // Italy
+        [5.3, 43.3],     // Marseille
+        [-5.3, 36.1],    // Strait of Gibraltar
+        [-15.0, 32.6],   // Madeira
+        [-25.0, 28.0],   // Mid-Atlantic
+        [-50.0, 25.0],   // Approaching Caribbean
+        [-70.0, 26.0],   // Bahamas
+        [-80.1, 25.7],   // Miami
+    ];
+
     useEffect(() => {
         setIsClient(true);
     }, []);
@@ -340,7 +502,20 @@ export default function DashboardOfferingPage() {
                                         "absolute inset-0 transition-opacity duration-500",
                                         activeFeature === feature.id ? 'opacity-100' : 'opacity-0 pointer-events-none'
                                     )}>
-                                        {feature.component}
+                                        {feature.id === 'map' ? (
+                                            <Card className="h-full bg-transparent border-none shadow-none flex flex-col">
+                                                <CardHeader>
+                                                    <CardTitle className="text-lg flex items-center gap-2 text-white/80">
+                                                        <Globe className="h-5 w-5" />
+                                                        Global Passage Map
+                                                    </CardTitle>
+                                                    <CardDescription className="text-white/50">Visualize your career voyages.</CardDescription>
+                                                </CardHeader>
+                                                <CardContent className="flex-grow flex items-center justify-center relative overflow-hidden rounded-lg border border-primary/10 bg-header">
+                                                    {isClient && <StaticHexMap baseHexRadius={3} passageData={[passage1]} />}
+                                                </CardContent>
+                                            </Card>
+                                        ) : feature.component}
                                     </div>
                                 ))}
                             </div>
@@ -380,61 +555,6 @@ export default function DashboardOfferingPage() {
                 </div>
             </div>
         </section>
-
-        <section className="relative bg-header text-header-foreground py-16 sm:py-24 border-y border-primary/10 overflow-hidden">
-            <div className="absolute inset-0 z-0">
-                 {isClient && (
-                    <ComposableMap
-                        projection="geoMercator"
-                        projectionConfig={{
-                            rotate: [-10, 0, 0],
-                            scale: 180,
-                            center: [0, 20]
-                        }}
-                        className="w-full h-full opacity-20"
-                    >
-                        <Geographies geography={worldAtlas}>
-                            {({ geographies }) =>
-                                geographies.map(geo => (
-                                    <Geography
-                                        key={geo.rsmKey}
-                                        geography={geo}
-                                        fill="hsl(var(--primary-foreground) / 0.1)"
-                                        stroke="hsl(var(--header))"
-                                        strokeWidth={0.5}
-                                    />
-                                ))
-                            }
-                        </Geographies>
-                        <Line
-                            from={[12.4964, 41.9028]} 
-                            to={[-80.1918, 25.7617]}
-                            stroke="hsl(var(--accent))"
-                            strokeWidth={2}
-                            strokeDasharray="6 6"
-                        />
-                         <Marker coordinates={[12.4964, 41.9028]}>
-                            <circle r={4} fill="hsl(var(--accent))" />
-                        </Marker>
-                        <Marker coordinates={[-80.1918, 25.7617]}>
-                            <circle r={4} fill="hsl(var(--accent))" />
-                        </Marker>
-                    </ComposableMap>
-                 )}
-            </div>
-            <div className="absolute inset-0 bg-gradient-to-t from-header via-header/80 to-header"></div>
-            <div className="container relative z-10 mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="text-center">
-                    <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                        Chart Your Global Experience
-                    </h2>
-                    <p className="mt-6 max-w-2xl mx-auto text-lg leading-8 text-header-foreground/80">
-                        Visualize your career voyages on a stunning, interactive world map. Log your passages and watch your personal map come to life, showcasing the breadth of your maritime experience.
-                    </p>
-                </div>
-            </div>
-        </section>
-
 
         <section id="cta" className="bg-header text-header-foreground border-t border-white/10">
             <div className="container mx-auto px-4 py-16 sm:px-6 lg:px-8">
