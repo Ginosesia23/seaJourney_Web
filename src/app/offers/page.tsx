@@ -202,10 +202,12 @@ export default function ComingSoonPage() {
   const packagesToShow: Package[] = [];
   if (offerings) {
       Object.values(offerings.all).forEach(offering => {
-          const tierInfo = staticTierInfo[offering.identifier];
+        offering.availablePackages.forEach(pkg => {
+          const tierInfo = staticTierInfo[pkg.product.identifier];
           if (tierInfo && tierInfo.type === planType) {
-              packagesToShow.push(...offering.availablePackages);
+            packagesToShow.push(pkg);
           }
+        })
       });
   }
    // Add the free mobile app "tier" manually
@@ -278,7 +280,7 @@ export default function ComingSoonPage() {
                 allTiers.map((tier) => {
                     if ('product' in tier) { // It's a RevenueCat Package
                         const pkg = tier as Package;
-                        const tierInfo = staticTierInfo[pkg.product.identifier] || staticTierInfo[pkg.offeringIdentifier] || {};
+                        const tierInfo = staticTierInfo[pkg.product.identifier] || {};
                         const isProcessing = isPurchasing === pkg.identifier;
                         
                         return (
