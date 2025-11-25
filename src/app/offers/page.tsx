@@ -217,7 +217,7 @@ export default function ComingSoonPage() {
     }
   }
   
-  const isLoading = isUserLoading || !isRevenueCatReady;
+  const isLoading = isUserLoading;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">

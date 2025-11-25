@@ -46,6 +46,7 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
       
+      // Don't initialize until Firebase has determined the auth state.
       if (isUserLoading) {
         return;
       }
