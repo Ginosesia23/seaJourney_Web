@@ -138,10 +138,7 @@ export default function ComingSoonPage() {
     if (user) {
       console.log('User on offers page:', user.uid);
     }
-     if (offerings) {
-      console.log('RevenueCat Offerings:', offerings);
-    }
-  }, [user, offerings]);
+  }, [user]);
 
   const handlePurchase = async (pkg: Package) => {
      if (!user || !firestore) {
@@ -195,21 +192,15 @@ export default function ComingSoonPage() {
   
   const isLoading = isUserLoading || !isRevenueCatReady;
   
-  const packagesToShow: Package[] = [];
-  if (offerings) {
-      Object.values(offerings.all).forEach(offering => {
-        if (offering) {
-            offering.availablePackages.forEach(pkg => {
-                if (pkg && pkg.product) {
-                    const tierInfo = staticTierInfo[pkg.product.identifier];
-                    if (tierInfo && tierInfo.type === planType) {
-                        packagesToShow.push(pkg);
-                    }
-                }
-            });
-        }
-      });
-  }
+  const packagesToShow = offerings
+    ? Object.values(offerings.all).flatMap(offering => 
+        offering.availablePackages.filter(pkg => {
+            const tierInfo = staticTierInfo[pkg.product.identifier];
+            return tierInfo && tierInfo.type === planType;
+        })
+      )
+    : [];
+
    // Add the free mobile app "tier" manually
    const allTiers = planType === 'crew' 
     ? [staticTierInfo['default'], ...packagesToShow]
