@@ -78,9 +78,6 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
           purchases.getOfferings(),
         ]);
 
-        console.log('RC: customerInfo:', info);
-        console.log('RC: offerings:', offs);
-
         setCustomerInfo(info);
         setOfferings(offs);
         setIsReady(true);
