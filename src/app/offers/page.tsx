@@ -200,9 +200,11 @@ export default function ComingSoonPage() {
       Object.values(offerings.all).forEach(offering => {
         if (offering) {
             offering.availablePackages.forEach(pkg => {
-                const tierInfo = staticTierInfo[pkg.product.identifier];
-                if (tierInfo && tierInfo.type === planType) {
-                    packagesToShow.push(pkg);
+                if (pkg && pkg.product) {
+                    const tierInfo = staticTierInfo[pkg.product.identifier];
+                    if (tierInfo && tierInfo.type === planType) {
+                        packagesToShow.push(pkg);
+                    }
                 }
             });
         }
