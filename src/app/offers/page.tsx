@@ -139,13 +139,10 @@ export default function ComingSoonPage() {
     if (user) {
       console.log('User on offers page:', user.uid);
     }
-  }, [user]);
-
-  useEffect(() => {
-    if (offerings) {
+     if (offerings) {
       console.log('RevenueCat Offerings:', offerings);
     }
-  }, [offerings]);
+  }, [user, offerings]);
 
   const handlePurchase = async (pkg: Package) => {
      if (!user || !firestore) {
@@ -203,7 +200,7 @@ export default function ComingSoonPage() {
   if (offerings) {
       Object.values(offerings.all).forEach(offering => {
         offering.availablePackages.forEach(pkg => {
-          const tierInfo = staticTierInfo[pkg.identifier];
+          const tierInfo = staticTierInfo[pkg.product.identifier];
           if (tierInfo && tierInfo.type === planType) {
             packagesToShow.push(pkg);
           }
@@ -226,6 +223,7 @@ export default function ComingSoonPage() {
                 Choose Your Voyage
               </h1>
               <p className="mt-4 text-lg leading-8 text-foreground/80">
+                {user?.displayName ? `Welcome, ${user.displayName}! ` : ''}
                 Find the perfect fit for your maritime career and get ready to set sail.
               </p>
             </div>
