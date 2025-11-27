@@ -125,7 +125,7 @@ const staticTierInfo: Record<string, {name: string, description: string, feature
 };
 
 
-export default function ComingSoonPage() {
+export default function OffersPage() {
   const [planType, setPlanType] = useState('crew');
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
   const { user, isUserLoading } = useUser();
@@ -195,6 +195,9 @@ export default function ComingSoonPage() {
   const packagesToShow = offerings
     ? Object.values(offerings.all).flatMap(offering => 
         offering.availablePackages.filter(pkg => {
+            if (!pkg || !pkg.product) {
+              return false; // Skip if pkg or product is missing
+            }
             const tierInfo = staticTierInfo[pkg.product.identifier];
             return tierInfo && tierInfo.type === planType;
         })
