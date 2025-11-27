@@ -112,7 +112,6 @@ const staticTierInfo: Record<string, {name: string, description: string, feature
   },
   'vessel_enterprise': {
     name: 'Vessel Enterprise',
-    price: 'Custom',
     description: 'Scalable solution for large fleets and management companies.',
     features: [
       'Track unlimited crew members',
@@ -199,12 +198,14 @@ export default function ComingSoonPage() {
   const packagesToShow: Package[] = [];
   if (offerings) {
       Object.values(offerings.all).forEach(offering => {
-        offering.availablePackages.forEach(pkg => {
-          const tierInfo = staticTierInfo[pkg.product.identifier];
-          if (tierInfo && tierInfo.type === planType) {
-            packagesToShow.push(pkg);
-          }
-        })
+        if (offering) {
+            offering.availablePackages.forEach(pkg => {
+                const tierInfo = staticTierInfo[pkg.product.identifier];
+                if (tierInfo && tierInfo.type === planType) {
+                    packagesToShow.push(pkg);
+                }
+            });
+        }
       });
   }
    // Add the free mobile app "tier" manually
