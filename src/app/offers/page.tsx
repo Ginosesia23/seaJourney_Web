@@ -26,7 +26,58 @@ import { useToast } from '@/hooks/use-toast';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 import { doc, setDoc } from 'firebase/firestore';
 import type { Package } from '@revenuecat/purchases-js';
-import { Purchases } from '@revenuecat/purchases-js';
+import { Purchases, PURCHASES_ERROR_CODE } from '@revenuecat/purchases-js';
+
+const staticTierInfo: Record<
+  string,
+  { name: string; description: string; features: string[]; type: 'crew' | 'vessel' }
+> = {
+  sj_starter: {
+    name: 'Starter',
+    description: 'For dedicated professionals getting started.',
+    features: [
+      'Unlimited sea time logging',
+      'Digital testimonials',
+      'Up to 2 vessels',
+      'Single date state tracking',
+    ],
+    type: 'crew',
+  },
+  sj_premium: {
+    name: 'Premium',
+    description: 'For career-focused seafarers needing detailed analytics.',
+    features: [
+      'All Starter features',
+      'Unlimited vessels',
+      'Advanced career analytics',
+      'Certification progress tracking',
+    ],
+    type: 'crew',
+  },
+  sj_pro: {
+    name: 'Professional',
+    description: 'The ultimate toolkit for maritime professionals.',
+    features: [
+      'All Premium features',
+      'AI Co-pilot for reports',
+      'Unlimited document exports',
+      'Priority support',
+    ],
+    type: 'crew',
+  },
+  sj_vessel_basic: {
+    name: 'Vessel Basic',
+    description: 'Manage sea time and documents for a small crew.',
+    features: ['Up to 5 crew members', 'Centralized sea time logs', 'Bulk testimonial sign-offs'],
+    type: 'vessel',
+  },
+  sj_vessel_fleet: {
+    name: 'Vessel Fleet',
+    description: 'Comprehensive management for multiple vessels.',
+    features: ['Unlimited crew members', 'Multi-vessel dashboard', 'Fleet-wide analytics'],
+    type: 'vessel',
+  },
+};
 
 const freeTier = {
   name: 'Mobile App',
@@ -60,7 +111,6 @@ function getBillingPeriod(pkg: Package): string {
 }
 
 export default function OffersPage() {
-  const [planType, setPlanType] = useState<'crew' | 'vessel'>('crew');
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
 
   const { user, isUserLoading } = useUser();
@@ -76,17 +126,11 @@ export default function OffersPage() {
   }, [user]);
 
   useEffect(() => {
-    console.log('Offerings in OffersPage:', offerings);
-    if (offerings?.current) {
-      console.log(
-        'Current offering in OffersPage:',
-        JSON.stringify(offerings.current, null, 2)
-      );
-    }
+    console.log('RC: offerings:', offerings);
   }, [offerings]);
 
   const handlePurchase = async (pkg: Package) => {
-    if (!user || !firestore) {
+    if (!user) {
       router.push(`/signup?redirect=/offers`);
       return;
     }
@@ -101,32 +145,34 @@ export default function OffersPage() {
       if (!product) {
         throw new Error('No product info found on package.');
       }
-
-      // ⚠️ This assumes entitlementId === product.identifier.
-      // If not, you’ll want a small mapping here.
+      
       const entitlementId = product.identifier;
       const hasEntitlement = customerInfo.entitlements.active[entitlementId];
-
+      
       if (hasEntitlement) {
+        if (!firestore) {
+            throw new Error("Firestore is not initialized.");
+        }
         const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
         const profileUpdateData = {
-          subscriptionTier: entitlementId,
-          subscriptionStatus: 'active',
+            subscriptionTier: entitlementId,
+            subscriptionStatus: 'active',
         };
-
+        
         await setDoc(userProfileRef, profileUpdateData, { merge: true });
 
         toast({
           title: 'Purchase Successful',
           description: 'Your subscription has been activated!',
         });
-
         router.push('/dashboard');
+
       } else {
         throw new Error('Purchase completed, but entitlement not found.');
       }
+
     } catch (e: any) {
-      if (e?.code === Purchases.PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR) {
+      if (e?.code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR) {
         toast({
           title: 'Purchase Cancelled',
           description: 'You have cancelled the purchase.',
@@ -148,14 +194,7 @@ export default function OffersPage() {
 
   const isLoading = isUserLoading || !isRevenueCatReady;
 
-  // 🔹 Just take ALL packages from current offering, no filtering logic for now
-  const rcPackages: Package[] =
-    offerings?.current?.availablePackages && offerings.current.availablePackages.length > 0
-      ? offerings.current.availablePackages
-      : [];
-
-  // 🔹 Always show the free tier for crew; vessels only see RC packages
-  const showFree = planType === 'crew';
+  const packagesToShow: Package[] = offerings?.current?.availablePackages || [];
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -171,34 +210,6 @@ export default function OffersPage() {
                 {user?.displayName ? `Welcome, ${user.displayName}! ` : ''}
                 Find the perfect fit for your maritime career and get ready to set sail.
               </p>
-            </div>
-
-            {/* Toggle between Crew / Vessel plans */}
-            <div className="mt-10 flex justify-center gap-2 rounded-full bg-muted p-1.5 max-w-sm mx-auto">
-              <Button
-                onClick={() => setPlanType('crew')}
-                variant={planType === 'crew' ? 'default' : 'ghost'}
-                className={cn(
-                  'w-full rounded-full',
-                  planType === 'crew' &&
-                    'bg-primary text-primary-foreground hover:bg-primary/90',
-                )}
-              >
-                <User className="mr-2 h-5 w-5" />
-                Crew Plans
-              </Button>
-              <Button
-                onClick={() => setPlanType('vessel')}
-                variant={planType === 'vessel' ? 'default' : 'ghost'}
-                className={cn(
-                  'w-full rounded-full',
-                  planType === 'vessel' &&
-                    'bg-primary text-primary-foreground hover:bg-primary/90',
-                )}
-              >
-                <Ship className="mr-2 h-5 w-5" />
-                Vessel Plans
-              </Button>
             </div>
 
             {/* Cards */}
@@ -226,76 +237,59 @@ export default function OffersPage() {
                 ))
               ) : (
                 <>
-                  {/* Free tier card (crew) */}
-                  {showFree && (
-                    <Card className="flex flex-col rounded-2xl bg-primary/5 border-primary/20">
-                      <CardHeader className="flex-grow">
-                        <CardTitle className="font-headline text-2xl">
-                          {freeTier.name}
-                        </CardTitle>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-4xl font-bold tracking-tight">Free</span>
-                        </div>
-                        <CardDescription>{freeTier.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <ul className="space-y-4">
-                          {freeTier.features.map((feature) => (
-                            <li key={feature} className="flex items-start">
-                              <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
-                              <span>{feature}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </CardContent>
-                      <CardFooter>
-                        <Button
-                          asChild
-                          className="w-full rounded-full"
-                          variant="default"
+                  <Card className="flex flex-col rounded-2xl bg-primary/5 border-primary/20">
+                    <CardHeader className="flex-grow">
+                      <CardTitle className="font-headline text-2xl">
+                        {freeTier.name}
+                      </CardTitle>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-4xl font-bold tracking-tight">Free</span>
+                      </div>
+                      <CardDescription>{freeTier.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ul className="space-y-4">
+                        {freeTier.features.map((feature) => (
+                          <li key={feature} className="flex items-start">
+                            <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
+                            <span>{feature}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                    <CardFooter>
+                      <Button
+                        asChild
+                        className="w-full rounded-full"
+                        variant="default"
+                      >
+                        <Link
+                          href={freeTier.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
                         >
-                          <Link
-                            href={freeTier.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <Download className="mr-2 h-4 w-4" /> {freeTier.cta}
-                          </Link>
-                        </Button>
-                      </CardFooter>
-                    </Card>
-                  )}
+                          <Download className="mr-2 h-4 w-4" /> {freeTier.cta}
+                        </Link>
+                      </Button>
+                    </CardFooter>
+                  </Card>
 
                   {/* RevenueCat packages */}
-                  {rcPackages.length === 0 ? (
+                  {packagesToShow.length === 0 ? (
                     <div className="col-span-full text-center text-muted-foreground">
                       No paid plans are configured in RevenueCat for the current offering.
                     </div>
                   ) : (
-                    rcPackages.map((pkg) => {
+                    packagesToShow.map((pkg) => {
                       const product = getPackageProduct(pkg);
-                      if (!product) {
-                        return (
-                          <Card key={pkg.identifier} className="flex flex-col rounded-2xl">
-                            <CardHeader className="flex-grow">
-                              <CardTitle className="font-headline text-2xl">
-                                Unknown product
-                              </CardTitle>
-                              <CardDescription className="text-xs text-muted-foreground">
-                                Could not read product info for package {pkg.identifier}.
-                              </CardDescription>
-                            </CardHeader>
-                          </Card>
-                        );
+                      
+                      if (!product || !staticTierInfo[product.identifier]) {
+                          return null;
                       }
 
+                      const tierInfo = staticTierInfo[product.identifier];
                       const isProcessing = isPurchasing === pkg.identifier;
                       const billingPeriod = getBillingPeriod(pkg);
-                      const priceString =
-                        product.priceString ||
-                        (product.price && product.currencyCode
-                          ? `${product.price} ${product.currencyCode}`
-                          : '');
 
                       return (
                         <Card
@@ -304,11 +298,11 @@ export default function OffersPage() {
                         >
                           <CardHeader className="flex-grow">
                             <CardTitle className="font-headline text-2xl">
-                              {product.localizedTitle || product.title || 'Premium Plan'}
+                              {tierInfo.name}
                             </CardTitle>
                             <div className="flex items-baseline gap-1">
                               <span className="text-4xl font-bold tracking-tight">
-                                {product.price.formattedPrice || '£?'}
+                                {product.priceString || '£?'}
                               </span>
                               {billingPeriod && (
                                 <span className="text-sm font-semibold text-muted-foreground">
@@ -317,25 +311,17 @@ export default function OffersPage() {
                               )}
                             </div>
                             <CardDescription>
-                              {product.localizedDescription ||
-                                product.description ||
-                                'Unlock SeaJourney premium features.'}
+                              {tierInfo.description}
                             </CardDescription>
                           </CardHeader>
                           <CardContent>
-                            <ul className="space-y-2 text-xs text-muted-foreground break-all">
-                              <li>
-                                <span className="font-semibold">Product ID:</span>{' '}
-                                {product.identifier}
-                              </li>
-                              <li>
-                                <span className="font-semibold">Package ID:</span>{' '}
-                                {pkg.identifier}
-                              </li>
-                              <li>
-                                <span className="font-semibold">Package type:</span>{' '}
-                                {pkg.packageType}
-                              </li>
+                            <ul className="space-y-4">
+                                {tierInfo.features.map((feature) => (
+                                <li key={feature} className="flex items-start">
+                                    <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
+                                    <span>{feature}</span>
+                                </li>
+                                ))}
                             </ul>
                           </CardContent>
                           <CardFooter>
