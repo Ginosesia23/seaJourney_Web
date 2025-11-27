@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -47,8 +48,9 @@ export default function DashboardHeader({ userProfile }: { userProfile: UserProf
 
   const handleSignOut = () => {
     if (auth) {
-      auth.signOut();
-      router.push('/');
+      auth.signOut().then(() => {
+        router.push('/');
+      });
     }
   };
 
@@ -112,7 +114,7 @@ export default function DashboardHeader({ userProfile }: { userProfile: UserProf
                 <User className="mr-2 h-4 w-4" />
                 Profile
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push('/offers')}>
                 <Sparkles className="mr-2 h-4 w-4" />
                 Subscription
             </DropdownMenuItem>

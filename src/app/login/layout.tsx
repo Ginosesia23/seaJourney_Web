@@ -1,19 +1,14 @@
 
 'use client';
 
-import { FirebaseClientProvider } from '@/firebase';
-import RevenueCatProvider from '@/components/providers/revenue-cat-provider';
+// FirebaseClientProvider is already in the root layout, as is RevenueCatProvider.
+// This layout is now only necessary if you want to add specific UI for this route.
+// For now, we can just render the children directly.
 
 export default function LoginLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <FirebaseClientProvider>
-      <RevenueCatProvider>
-        {children}
-      </RevenueCatProvider>
-    </FirebaseClientProvider>
-  );
+  return <>{children}</>;
 }

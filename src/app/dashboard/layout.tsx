@@ -10,7 +10,7 @@ import DashboardHeader from '@/components/layout/dashboard-header';
 import DashboardSidebar from '@/components/layout/dashboard-sidebar';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
-import RevenueCatProvider, { useRevenueCat } from '@/components/providers/revenue-cat-provider';
+import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 
 interface UserProfile {
   subscriptionTier: 'free' | 'premium' | 'premium-plus' | 'professional';
@@ -103,9 +103,6 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
 
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <RevenueCatProvider>
-      <DashboardContent>{children}</DashboardContent>
-    </RevenueCatProvider>
-  );
+  // RevenueCatProvider is now in the root layout, so it's not needed here.
+  return <DashboardContent>{children}</DashboardContent>;
 }

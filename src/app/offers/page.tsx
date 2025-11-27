@@ -203,7 +203,7 @@ export default function ComingSoonPage() {
   if (offerings) {
       Object.values(offerings.all).forEach(offering => {
         offering.availablePackages.forEach(pkg => {
-          const tierInfo = staticTierInfo[pkg.product.identifier];
+          const tierInfo = staticTierInfo[pkg.identifier];
           if (tierInfo && tierInfo.type === planType) {
             packagesToShow.push(pkg);
           }

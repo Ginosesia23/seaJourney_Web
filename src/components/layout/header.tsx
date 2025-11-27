@@ -3,8 +3,8 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { usePathname } from 'next/navigation';
-import { Menu, X } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Menu, X, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -16,7 +16,8 @@ import {
 } from '@/components/ui/sheet';
 import Logo from '@/components/logo';
 import { Cart } from '@/components/cart';
-import { useUser } from '@/firebase';
+import { useAuth, useUser } from '@/firebase';
+import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 
 const navLinks = [
   { href: '/how-to-use', label: 'Guide' },
@@ -27,8 +28,21 @@ const navLinks = [
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+  const auth = useAuth();
   const isShopPage = pathname.startsWith('/shop');
   const { user } = useUser();
+  const { customerInfo } = useRevenueCat();
+
+  const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
+
+  const handleSignOut = () => {
+    if (auth) {
+      auth.signOut();
+      router.push('/');
+    }
+  };
+
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-header bg-header text-header-foreground backdrop-blur-sm">
@@ -60,9 +74,16 @@ const Header = () => {
           
           <div className="hidden md:flex items-center gap-2">
             {user ? (
-                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
-                    <Link href="/dashboard">Go to Dashboard</Link>
-                </Button>
+                hasActiveSubscription ? (
+                    <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
+                        <Link href="/dashboard">Go to Dashboard</Link>
+                    </Button>
+                ) : (
+                    <Button variant="ghost" className="hover:bg-white/10 rounded-full" onClick={handleSignOut}>
+                        <LogOut className="mr-2 h-4 w-4" />
+                        Log Out
+                    </Button>
+                )
             ) : (
                 <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
                     <Link href="/login">Sign In</Link>
@@ -127,9 +148,15 @@ const Header = () => {
 
                 <div className="border-t border-primary/10 pt-6">
                   {user ? (
-                     <Link href="/dashboard" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
-                        Dashboard
-                    </Link>
+                    hasActiveSubscription ? (
+                        <Link href="/dashboard" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
+                            Dashboard
+                        </Link>
+                    ) : (
+                         <button onClick={() => { handleSignOut(); setIsOpen(false); }} className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground flex items-center gap-2">
+                           <LogOut className="h-5 w-5" /> Log Out
+                        </button>
+                    )
                   ) : (
                     <Link href="/login" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
                         Sign In
