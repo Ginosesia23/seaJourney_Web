@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -29,139 +28,39 @@ import { doc, setDoc } from 'firebase/firestore';
 import type { Package } from '@revenuecat/purchases-js';
 import { Purchases } from '@revenuecat/purchases-js';
 
-const staticTierInfo: Record<
-  string,
-  {
-    name: string;
-    description: string;
-    features: string[];
-    type: 'crew' | 'vessel';
-    highlighted?: boolean;
-    cta: string;
-    href?: string;
-  }
-> = {
-  default: {
-    name: 'Mobile App',
-    description:
-      'Get started with the essential tools to track your sea time on the free version of the app.',
-    features: ['Sea time logging', 'Basic PDF exports', 'Digital testimonial requests'],
-    cta: 'Download',
-    type: 'crew',
-    href: 'https://apps.apple.com/gb/app/seajourney/id6751553072',
-  },
-  sj_starter: {
-    name: 'Standard',
-    description: 'For dedicated professionals who need advanced tracking.',
-    features: [
-      'Unlimited sea time logging',
-      'Digital testimonials',
-      'Up to 2 vessels',
-      'Single date state tracking',
-      '4GB online storage',
-      '10 document export limit',
-    ],
-    cta: 'Choose Plan',
-    type: 'crew',
-  },
-  premium: {
-    name: 'Premium',
-    description: 'For career-focused seafarers needing detailed analytics.',
-    features: [
-      'All Standard features',
-      'Unlimited vessels',
-      'Advanced career analytics',
-      'Certification progress tracking',
-      '6GB online storage',
-      '20 document export limit',
-    ],
-    cta: 'Choose Plan',
-    highlighted: true,
-    type: 'crew',
-  },
-  pro: {
-    name: 'Pro',
-    description: 'The ultimate toolkit for maritime professionals.',
-    features: [
-      'All Premium features',
-      'AI Co-pilot for reports',
-      'Unlimited document exports',
-      '10GB online storage',
-      'Priority support',
-    ],
-    cta: 'Choose Plan',
-    type: 'crew',
-  },
-  vessel_basic: {
-    name: 'Vessel Basic',
-    description: 'Essential tracking for a single vessel and its crew.',
-    features: [
-      'Track up to 5 crew members',
-      'Centralized sea time log',
-      'Basic reporting',
-      'Email support',
-    ],
-    cta: 'Choose Plan',
-    type: 'vessel',
-  },
-  vessel_pro: {
-    name: 'Vessel Pro',
-    description: 'Comprehensive management for a professional yacht.',
-    features: [
-      'Track up to 20 crew members',
-      'Automated documentation',
-      'Advanced compliance reporting',
-      'Priority support',
-    ],
-    cta: 'Choose Plan',
-    highlighted: true,
-    type: 'vessel',
-  },
-  vessel_fleet: {
-    name: 'Vessel Fleet',
-    description: 'Ideal for managing multiple vessels and larger crews.',
-    features: [
-      'Track up to 50 crew members',
-      'All Vessel Pro features',
-      'Fleet-wide analytics',
-      'API access for integrations',
-    ],
-    cta: 'Choose Plan',
-    type: 'vessel',
-  },
-  vessel_enterprise: {
-    name: 'Vessel Enterprise',
-    description: 'Scalable solution for large fleets and management companies.',
-    features: [
-      'Track unlimited crew members',
-      'All Vessel Fleet features',
-      'Dedicated account manager',
-      'Custom onboarding & support',
-    ],
-    cta: 'Contact Us',
-    type: 'vessel',
-  },
+const freeTier = {
+  name: 'Mobile App',
+  description:
+    'Get started with the essential tools to track your sea time on the free version of the app.',
+  features: ['Sea time logging', 'Basic PDF exports', 'Digital testimonial requests'],
+  cta: 'Download',
+  href: 'https://apps.apple.com/gb/app/seajourney/id6751553072',
 };
 
-type TierConfig = (typeof staticTierInfo)[keyof typeof staticTierInfo];
-
-// 🔹 Helper: get the “product” object from a web Package (rcBillingProduct/webBillingProduct)
+// 🔹 Try to get a “product” object out of any web Package
 function getPackageProduct(pkg: Package): any | null {
   const anyPkg = pkg as any;
   return anyPkg.product ?? anyPkg.rcBillingProduct ?? anyPkg.webBillingProduct ?? null;
 }
 
-// 🔹 Helper: derive billing period from packageType
+// 🔹 Billing period for display
 function getBillingPeriod(pkg: Package): string {
   switch (pkg.packageType) {
-    case '$sj_premium_monthly':
+    case '$rc_monthly':
       return 'month';
+    case '$rc_annual':
+      return 'year';
+    case '$rc_six_month':
+      return '6 months';
+    case '$rc_weekly':
+      return 'week';
     default:
       return '';
   }
 }
 
 export default function OffersPage() {
+  const [planType, setPlanType] = useState<'crew' | 'vessel'>('crew');
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
 
   const { user, isUserLoading } = useUser();
@@ -171,8 +70,18 @@ export default function OffersPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    if (offerings) {
-      console.log('RC: offerings:', offerings);
+    if (user) {
+      console.log('User on offers page:', user.uid);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    console.log('Offerings in OffersPage:', offerings);
+    if (offerings?.current) {
+      console.log(
+        'Current offering in OffersPage:',
+        JSON.stringify(offerings.current, null, 2)
+      );
     }
   }, [offerings]);
 
@@ -193,8 +102,8 @@ export default function OffersPage() {
         throw new Error('No product info found on package.');
       }
 
-      // NOTE: this assumes entitlementId === product.identifier.
-      // If not, create a mapping table from productId → entitlementId.
+      // ⚠️ This assumes entitlementId === product.identifier.
+      // If not, you’ll want a small mapping here.
       const entitlementId = product.identifier;
       const hasEntitlement = customerInfo.entitlements.active[entitlementId];
 
@@ -239,17 +148,14 @@ export default function OffersPage() {
 
   const isLoading = isUserLoading || !isRevenueCatReady;
 
-  const packagesToShow: Package[] = offerings?.current?.availablePackages
-    ? offerings.current.availablePackages.filter(pkg => {
-        if (!pkg || !pkg.product) {
-          return false;
-        }
-        const tierInfo = staticTierInfo[pkg.product.identifier];
-        return tierInfo;
-      })
-    : [];
+  // 🔹 Just take ALL packages from current offering, no filtering logic for now
+  const rcPackages: Package[] =
+    offerings?.current?.availablePackages && offerings.current.availablePackages.length > 0
+      ? offerings.current.availablePackages
+      : [];
 
-  const allTiers: (TierConfig | Package)[] = [staticTierInfo['default'], ...packagesToShow];
+  // 🔹 Always show the free tier for crew; vessels only see RC packages
+  const showFree = planType === 'crew';
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -267,10 +173,38 @@ export default function OffersPage() {
               </p>
             </div>
 
+            {/* Toggle between Crew / Vessel plans */}
+            <div className="mt-10 flex justify-center gap-2 rounded-full bg-muted p-1.5 max-w-sm mx-auto">
+              <Button
+                onClick={() => setPlanType('crew')}
+                variant={planType === 'crew' ? 'default' : 'ghost'}
+                className={cn(
+                  'w-full rounded-full',
+                  planType === 'crew' &&
+                    'bg-primary text-primary-foreground hover:bg-primary/90',
+                )}
+              >
+                <User className="mr-2 h-5 w-5" />
+                Crew Plans
+              </Button>
+              <Button
+                onClick={() => setPlanType('vessel')}
+                variant={planType === 'vessel' ? 'default' : 'ghost'}
+                className={cn(
+                  'w-full rounded-full',
+                  planType === 'vessel' &&
+                    'bg-primary text-primary-foreground hover:bg-primary/90',
+                )}
+              >
+                <Ship className="mr-2 h-5 w-5" />
+                Vessel Plans
+              </Button>
+            </div>
+
             {/* Cards */}
             <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
               {isLoading ? (
-                // Skeleton loading cards
+                // Skeleton loading
                 Array.from({ length: 3 }).map((_, i) => (
                   <Card key={i} className="flex flex-col rounded-2xl animate-pulse">
                     <CardHeader className="flex-grow">
@@ -290,111 +224,23 @@ export default function OffersPage() {
                     </CardFooter>
                   </Card>
                 ))
-              ) : allTiers.length === 0 ? (
-                <div className="col-span-full text-center text-muted-foreground">
-                  No plans are available right now. Please check back later.
-                </div>
               ) : (
-                allTiers.map((tier) => {
-                  // 🔹 RevenueCat package card
-                  if ((tier as Package).identifier && (tier as Package).packageType) {
-                    const pkg = tier as Package;
-                    const product = getPackageProduct(pkg);
-                    if (!product) return null;
-
-                    const productId = product.identifier as string;
-                    const tierInfo = staticTierInfo[productId];
-                    const isProcessing = isPurchasing === pkg.identifier;
-                    const billingPeriod = getBillingPeriod(pkg);
-
-                    return (
-                      <Card
-                        key={pkg.identifier}
-                        className={cn(
-                          'flex flex-col rounded-2xl',
-                          tierInfo?.highlighted ? 'border-primary ring-2 ring-primary' : '',
-                        )}
-                      >
-                        <CardHeader className="flex-grow">
-                          <CardTitle className="font-headline text-2xl">
-                            {tierInfo?.name || product.localizedTitle || product.title || 'Premium'}
-                          </CardTitle>
-                          <div className="flex items-baseline gap-1">
-                            <span className="text-4xl font-bold tracking-tight">
-                              {product.priceString ||
-                                `${product.price} ${product.currencyCode || ''}`}
-                            </span>
-                            {billingPeriod && (
-                              <span className="text-sm font-semibold text-muted-foreground">
-                                / {billingPeriod}
-                              </span>
-                            )}
-                          </div>
-                          <CardDescription>
-                            {tierInfo?.description ||
-                              product.localizedDescription ||
-                              product.description ||
-                              'Unlock SeaJourney premium features.'}
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <ul className="space-y-4">
-                            {(tierInfo?.features || []).map((feature) => (
-                              <li key={feature} className="flex items-start">
-                                <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
-                                <span>{feature}</span>
-                              </li>
-                            ))}
-                            {!tierInfo && (
-                              <li className="text-sm text-muted-foreground break-all">
-                                <span className="font-semibold">Product ID:</span> {productId}
-                              </li>
-                            )}
-                          </ul>
-                        </CardContent>
-                        <CardFooter>
-                          <Button
-                            className="w-full rounded-full"
-                            variant={tierInfo?.highlighted ? 'default' : 'outline'}
-                            disabled={isPurchasing !== null}
-                            onClick={() => handlePurchase(pkg)}
-                          >
-                            {isProcessing && (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            )}
-                            {isProcessing
-                              ? 'Processing...'
-                              : isPurchasing
-                              ? 'Please wait...'
-                              : tierInfo?.cta || 'Choose Plan'}
-                          </Button>
-                        </CardFooter>
-                      </Card>
-                    );
-                  }
-
-                  // 🔹 Static free app tier card
-                  const staticTier = tier as TierConfig;
-
-                  return (
-                    <Card
-                      key={staticTier.name}
-                      className={cn(
-                        'flex flex-col rounded-2xl bg-primary/5 border-primary/20',
-                      )}
-                    >
+                <>
+                  {/* Free tier card (crew) */}
+                  {showFree && (
+                    <Card className="flex flex-col rounded-2xl bg-primary/5 border-primary/20">
                       <CardHeader className="flex-grow">
                         <CardTitle className="font-headline text-2xl">
-                          {staticTier.name}
+                          {freeTier.name}
                         </CardTitle>
                         <div className="flex items-baseline gap-1">
                           <span className="text-4xl font-bold tracking-tight">Free</span>
                         </div>
-                        <CardDescription>{staticTier.description}</CardDescription>
+                        <CardDescription>{freeTier.description}</CardDescription>
                       </CardHeader>
                       <CardContent>
                         <ul className="space-y-4">
-                          {staticTier.features.map((feature) => (
+                          {freeTier.features.map((feature) => (
                             <li key={feature} className="flex items-start">
                               <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
                               <span>{feature}</span>
@@ -406,20 +252,114 @@ export default function OffersPage() {
                         <Button
                           asChild
                           className="w-full rounded-full"
-                          variant={'default'}
+                          variant="default"
                         >
                           <Link
-                            href={staticTier.href!}
+                            href={freeTier.href}
                             target="_blank"
                             rel="noopener noreferrer"
                           >
-                            <Download className="mr-2 h-4 w-4" /> {staticTier.cta}
+                            <Download className="mr-2 h-4 w-4" /> {freeTier.cta}
                           </Link>
                         </Button>
                       </CardFooter>
                     </Card>
-                  );
-                })
+                  )}
+
+                  {/* RevenueCat packages */}
+                  {rcPackages.length === 0 ? (
+                    <div className="col-span-full text-center text-muted-foreground">
+                      No paid plans are configured in RevenueCat for the current offering.
+                    </div>
+                  ) : (
+                    rcPackages.map((pkg) => {
+                      const product = getPackageProduct(pkg);
+                      if (!product) {
+                        return (
+                          <Card key={pkg.identifier} className="flex flex-col rounded-2xl">
+                            <CardHeader className="flex-grow">
+                              <CardTitle className="font-headline text-2xl">
+                                Unknown product
+                              </CardTitle>
+                              <CardDescription className="text-xs text-muted-foreground">
+                                Could not read product info for package {pkg.identifier}.
+                              </CardDescription>
+                            </CardHeader>
+                          </Card>
+                        );
+                      }
+
+                      const isProcessing = isPurchasing === pkg.identifier;
+                      const billingPeriod = getBillingPeriod(pkg);
+                      const priceString =
+                        product.priceString ||
+                        (product.price && product.currencyCode
+                          ? `${product.price} ${product.currencyCode}`
+                          : '');
+
+                      return (
+                        <Card
+                          key={pkg.identifier}
+                          className="flex flex-col rounded-2xl"
+                        >
+                          <CardHeader className="flex-grow">
+                            <CardTitle className="font-headline text-2xl">
+                              {product.localizedTitle || product.title || 'Premium Plan'}
+                            </CardTitle>
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-4xl font-bold tracking-tight">
+                                {product.price.formattedPrice || '£?'}
+                              </span>
+                              {billingPeriod && (
+                                <span className="text-sm font-semibold text-muted-foreground">
+                                  / {billingPeriod}
+                                </span>
+                              )}
+                            </div>
+                            <CardDescription>
+                              {product.localizedDescription ||
+                                product.description ||
+                                'Unlock SeaJourney premium features.'}
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <ul className="space-y-2 text-xs text-muted-foreground break-all">
+                              <li>
+                                <span className="font-semibold">Product ID:</span>{' '}
+                                {product.identifier}
+                              </li>
+                              <li>
+                                <span className="font-semibold">Package ID:</span>{' '}
+                                {pkg.identifier}
+                              </li>
+                              <li>
+                                <span className="font-semibold">Package type:</span>{' '}
+                                {pkg.packageType}
+                              </li>
+                            </ul>
+                          </CardContent>
+                          <CardFooter>
+                            <Button
+                              className="w-full rounded-full"
+                              variant="outline"
+                              disabled={isPurchasing !== null}
+                              onClick={() => handlePurchase(pkg)}
+                            >
+                              {isProcessing && (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              )}
+                              {isProcessing
+                                ? 'Processing...'
+                                : isPurchasing
+                                ? 'Please wait...'
+                                : 'Choose Plan'}
+                            </Button>
+                          </CardFooter>
+                        </Card>
+                      );
+                    })
+                  )}
+                </>
               )}
             </div>
           </div>

@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -12,12 +12,13 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth, errorEmitter, FirestorePermissionError } from '@/firebase';
+import { useAuth, errorEmitter, FirestorePermissionError, useUser } from '@/firebase';
 import { createUserWithEmailAndPassword, updateProfile, AuthError } from 'firebase/auth';
 import { Loader2 } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 import LogoOnboarding from '@/components/logo-onboarding';
+import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 
 const signupSchema = z.object({
   username: z.string().min(3, { message: 'Username must be at least 3 characters long.' }),
@@ -29,16 +30,40 @@ type SignupFormValues = z.infer<typeof signupSchema>;
 
 export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isCheckingUser, setIsCheckingUser] = useState(true);
+
   const auth = useAuth();
   const firestore = useFirestore();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+  const { user, isUserLoading } = useUser();
+  const { customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
     defaultValues: { username: '', email: '', password: '' },
   });
+
+  useEffect(() => {
+    // Wait until both Firebase auth and RevenueCat are ready
+    if (isUserLoading || !isRevenueCatReady) {
+      return;
+    }
+
+    if (user) {
+      // User is logged in, decide where to redirect
+      const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
+      if (hasActiveSubscription) {
+        router.push('/dashboard');
+      } else {
+        router.push('/offers');
+      }
+    } else {
+      // User is not logged in, show the signup page
+      setIsCheckingUser(false);
+    }
+  }, [user, isUserLoading, customerInfo, isRevenueCatReady, router]);
 
   const handleSignup = async (data: SignupFormValues) => {
     if (!auth || !firestore) return;
@@ -99,6 +124,14 @@ export default function SignupPage() {
       setIsLoading(false);
     }
   };
+
+  if (isCheckingUser) {
+    return (
+      <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-white" />
+      </div>
+    );
+  }
 
   return (
     <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">

@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/firebase';
+import { useAuth, useUser } from '@/firebase';
 import { signInWithEmailAndPassword, signInAnonymously, AuthError, User } from 'firebase/auth';
 import { Loader2 } from 'lucide-react';
 import LogoOnboarding from '@/components/logo-onboarding';
@@ -30,9 +30,12 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isAnonymousLoading, setIsAnonymousLoading] = useState(false);
+  const [isCheckingUser, setIsCheckingUser] = useState(true);
+  
   const auth = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const { user, isUserLoading } = useUser();
   const { customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
 
   const form = useForm<LoginFormValues>({
@@ -40,6 +43,27 @@ export default function LoginPage() {
     defaultValues: { email: '', password: '' },
   });
   
+  useEffect(() => {
+    // Wait until both Firebase auth and RevenueCat are ready
+    if (isUserLoading || !isRevenueCatReady) {
+      return;
+    }
+
+    if (user) {
+      // User is logged in, decide where to redirect
+      const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
+      if (hasActiveSubscription) {
+        router.push('/dashboard');
+      } else {
+        router.push('/offers');
+      }
+    } else {
+      // User is not logged in, show the login page
+      setIsCheckingUser(false);
+    }
+  }, [user, isUserLoading, customerInfo, isRevenueCatReady, router]);
+
+
   const checkSubscriptionAndRedirect = async (user: User) => {
       // We use the customerInfo from the hook which is already initialized
       const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
@@ -56,9 +80,7 @@ export default function LoginPage() {
     setIsLoading(true);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, data.email, data.password);
-      console.log('User logged in with ID:', userCredential.user.uid);
-      // The useRevenueCat hook will automatically update its context on auth change.
-      // We wait for it to be ready before checking subscription.
+      // The useEffect will now handle the redirect after successful login.
     } catch (error) {
       const authError = error as AuthError;
       console.error('Login failed:', authError);
@@ -75,20 +97,12 @@ export default function LoginPage() {
     }
   };
 
-  useEffect(() => {
-    if (!isLoading && isRevenueCatReady && auth?.currentUser) {
-      checkSubscriptionAndRedirect(auth.currentUser);
-    }
-  }, [isLoading, isRevenueCatReady, auth?.currentUser]);
-
-
   const handleAnonymousLogin = async () => {
     if (!auth) return;
     setIsAnonymousLoading(true);
     try {
-      const userCredential = await signInAnonymously(auth);
-      console.log('Anonymous user logged in with ID:', userCredential.user.uid);
-      // Let the useEffect handle the redirect
+      await signInAnonymously(auth);
+      // The useEffect will handle the redirect
     } catch (error) {
       const authError = error as AuthError;
       console.error('Anonymous login failed:', authError);
@@ -100,6 +114,14 @@ export default function LoginPage() {
       setIsAnonymousLoading(false);
     }
   };
+
+  if (isCheckingUser) {
+    return (
+      <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-white" />
+      </div>
+    );
+  }
 
   return (
     <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
@@ -146,8 +168,8 @@ export default function LoginPage() {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full rounded-lg" disabled={isLoading || !isRevenueCatReady} variant="default">
-                  {(isLoading || !isRevenueCatReady) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <Button type="submit" className="w-full rounded-lg" disabled={isLoading} variant="default">
+                  {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Sign In
                 </Button>
               </form>
@@ -162,8 +184,8 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <Button variant="outline" className="w-full rounded-lg" onClick={handleAnonymousLogin} disabled={isAnonymousLoading || !isRevenueCatReady}>
-              {(isAnonymousLoading || !isRevenueCatReady) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Button variant="outline" className="w-full rounded-lg" onClick={handleAnonymousLogin} disabled={isAnonymousLoading}>
+              {isAnonymousLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Sign In Anonymously
             </Button>
             
