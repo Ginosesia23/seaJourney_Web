@@ -12,8 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Check, Ship, User, Download, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Check, Download, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import {
   useUser,
@@ -25,8 +24,12 @@ import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 import { doc, setDoc } from 'firebase/firestore';
-import type { Package } from '@revenuecat/purchases-js';
-import { Purchases, PURCHASES_ERROR_CODE } from '@revenuecat/purchases-js';
+import {
+  Purchases,
+  ErrorCode,
+  PurchasesError,
+  type Package,
+} from '@revenuecat/purchases-js';
 
 const staticTierInfo: Record<
   string,
@@ -88,13 +91,13 @@ const freeTier = {
   href: 'https://apps.apple.com/gb/app/seajourney/id6751553072',
 };
 
-// 🔹 Try to get a “product” object out of any web Package
+// 🔹 Get the billing product for a web Package (purchases-js)
 function getPackageProduct(pkg: Package): any | null {
   const anyPkg = pkg as any;
-  return anyPkg.product ?? anyPkg.rcBillingProduct ?? anyPkg.webBillingProduct ?? null;
+  return anyPkg.rcBillingProduct ?? null;
 }
 
-// 🔹 Billing period for display
+// 🔹 Billing period for display (use RC’s built-in packageType values)
 function getBillingPeriod(pkg: Package): string {
   switch (pkg.packageType) {
     case '$rc_monthly':
@@ -125,8 +128,27 @@ export default function OffersPage() {
     }
   }, [user]);
 
+  // Log offerings object
   useEffect(() => {
     console.log('RC: offerings:', offerings);
+  }, [offerings]);
+
+  // Log active entitlements = what plan the user is on
+  useEffect(() => {
+    if (!offerings) return;
+
+    const purchases = Purchases.getSharedInstance();
+    purchases.getCustomerInfo().then((info) => {
+      const active = Object.keys(info.entitlements.active);
+
+      console.log('Active Entitlements:', active);
+
+      if (active.length === 0) {
+        console.log('User is on FREE plan');
+      } else {
+        console.log('User is on plan:', active[0]); // e.g. "sj_premium"
+      }
+    });
   }, [offerings]);
 
   const handlePurchase = async (pkg: Package) => {
@@ -145,20 +167,21 @@ export default function OffersPage() {
       if (!product) {
         throw new Error('No product info found on package.');
       }
-      
+
       const entitlementId = product.identifier;
       const hasEntitlement = customerInfo.entitlements.active[entitlementId];
-      
+
       if (hasEntitlement) {
         if (!firestore) {
-            throw new Error("Firestore is not initialized.");
+          throw new Error('Firestore is not initialized.');
         }
+
         const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
         const profileUpdateData = {
-            subscriptionTier: entitlementId,
-            subscriptionStatus: 'active',
+          subscriptionTier: entitlementId,
+          subscriptionStatus: 'active',
         };
-        
+
         await setDoc(userProfileRef, profileUpdateData, { merge: true });
 
         toast({
@@ -166,27 +189,42 @@ export default function OffersPage() {
           description: 'Your subscription has been activated!',
         });
         router.push('/dashboard');
-
       } else {
         throw new Error('Purchase completed, but entitlement not found.');
       }
-
     } catch (e: any) {
-      if (e?.code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR) {
-        toast({
-          title: 'Purchase Cancelled',
-          description: 'You have cancelled the purchase.',
-        });
-      } else if (e instanceof FirestorePermissionError) {
+      // Firestore permission issue
+      if (e instanceof FirestorePermissionError) {
         errorEmitter.emit('permission-error', e);
-      } else {
-        console.error('Purchase error:', e);
+        return;
+      }
+
+      // RevenueCat / purchase errors
+      if (e instanceof PurchasesError) {
+        if (e.errorCode === ErrorCode.UserCancelledError) {
+          toast({
+            title: 'Purchase Cancelled',
+            description: 'You have cancelled the purchase.',
+          });
+          return;
+        }
+
+        console.error('RevenueCat purchase error:', e);
         toast({
           title: 'Purchase Failed',
-          description: e?.message || 'An unexpected error occurred.',
+          description: e.message ?? 'An unexpected error occurred.',
           variant: 'destructive',
         });
+        return;
       }
+
+      // Any other unexpected error
+      console.error('Purchase error:', e);
+      toast({
+        title: 'Purchase Failed',
+        description: e?.message || 'An unexpected error occurred.',
+        variant: 'destructive',
+      });
     } finally {
       setIsPurchasing(null);
     }
@@ -195,6 +233,21 @@ export default function OffersPage() {
   const isLoading = isUserLoading || !isRevenueCatReady;
 
   const packagesToShow: Package[] = offerings?.current?.availablePackages || [];
+
+  // Log what packages we actually got back from RC
+  useEffect(() => {
+    console.log('RC packagesToShow:', packagesToShow);
+
+    packagesToShow.forEach((pkg) => {
+      const product = getPackageProduct(pkg);
+      console.log('Package debug:', {
+        pkgIdentifier: pkg.identifier,
+        productIdentifier: product?.identifier,
+        title: product?.title,
+        price: product?.currentPrice?.formattedPrice,
+      });
+    });
+  }, [packagesToShow]);
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -237,6 +290,7 @@ export default function OffersPage() {
                 ))
               ) : (
                 <>
+                  {/* Free tier card */}
                   <Card className="flex flex-col rounded-2xl bg-primary/5 border-primary/20">
                     <CardHeader className="flex-grow">
                       <CardTitle className="font-headline text-2xl">
@@ -282,12 +336,23 @@ export default function OffersPage() {
                   ) : (
                     packagesToShow.map((pkg) => {
                       const product = getPackageProduct(pkg);
-                      
-                      if (!product || !staticTierInfo[product.identifier]) {
-                          return null;
-                      }
+                      if (!product) return null;
 
-                      const tierInfo = staticTierInfo[product.identifier];
+                      // Use staticTierInfo if available, otherwise fall back to product data
+                      const staticInfo = staticTierInfo[product.identifier];
+
+                      const displayName =
+                        staticInfo?.name ?? product.title ?? product.identifier;
+
+                      const description =
+                        staticInfo?.description ??
+                        product.description ??
+                        'Premium access to SeaJourney features.';
+
+                      const features = staticInfo?.features ?? [
+                        'Full access to premium features',
+                      ];
+
                       const isProcessing = isPurchasing === pkg.identifier;
                       const billingPeriod = getBillingPeriod(pkg);
 
@@ -298,11 +363,11 @@ export default function OffersPage() {
                         >
                           <CardHeader className="flex-grow">
                             <CardTitle className="font-headline text-2xl">
-                              {tierInfo.name}
+                              {displayName}
                             </CardTitle>
                             <div className="flex items-baseline gap-1">
                               <span className="text-4xl font-bold tracking-tight">
-                                {product.priceString || '£?'}
+                                {product.currentPrice?.formattedPrice ?? '£?'}
                               </span>
                               {billingPeriod && (
                                 <span className="text-sm font-semibold text-muted-foreground">
@@ -310,18 +375,16 @@ export default function OffersPage() {
                                 </span>
                               )}
                             </div>
-                            <CardDescription>
-                              {tierInfo.description}
-                            </CardDescription>
+                            <CardDescription>{description}</CardDescription>
                           </CardHeader>
                           <CardContent>
                             <ul className="space-y-4">
-                                {tierInfo.features.map((feature) => (
+                              {features.map((feature) => (
                                 <li key={feature} className="flex items-start">
-                                    <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
-                                    <span>{feature}</span>
+                                  <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
+                                  <span>{feature}</span>
                                 </li>
-                                ))}
+                              ))}
                             </ul>
                           </CardContent>
                           <CardFooter>

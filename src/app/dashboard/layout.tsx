@@ -33,7 +33,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>(userProfileRef);
 
   useEffect(() => {
-    if (isUserLoading || !isRevenueCatReady) {
+    if (isUserLoading || !isRevenueCatReady || isProfileLoading) {
       return;
     }
 
@@ -54,9 +54,15 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
 
     if (!hasActiveOfferedEntitlement && pathname !== '/offers') {
         router.push('/offers');
+        return;
+    }
+    
+    if (userProfile && (userProfile.role === 'vessel' || userProfile.role === 'admin') && pathname === '/dashboard') {
+        router.push('/dashboard/crew');
     }
 
-  }, [user, isUserLoading, customerInfo, isRevenueCatReady, offerings, router, pathname]);
+
+  }, [user, isUserLoading, customerInfo, isRevenueCatReady, offerings, router, pathname, userProfile, isProfileLoading]);
 
   const isMapPage = pathname === '/dashboard/world-map';
   const isLoading = isUserLoading || !isRevenueCatReady || isProfileLoading;

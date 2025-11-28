@@ -12,13 +12,12 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth, useUser } from '@/firebase';
+import { useAuth, useUser, useFirestore } from '@/firebase';
 import { signInWithEmailAndPassword, signInAnonymously, AuthError, User } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import { Loader2 } from 'lucide-react';
 import LogoOnboarding from '@/components/logo-onboarding';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
-import { Purchases } from '@revenuecat/purchases-js';
-
 
 const loginSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address.' }),
@@ -27,12 +26,17 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
+interface UserProfile {
+  role: 'crew' | 'vessel' | 'admin';
+}
+
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isAnonymousLoading, setIsAnonymousLoading] = useState(false);
   const [isCheckingUser, setIsCheckingUser] = useState(true);
   
   const auth = useAuth();
+  const firestore = useFirestore();
   const router = useRouter();
   const { toast } = useToast();
   const { user, isUserLoading } = useUser();
@@ -43,44 +47,50 @@ export default function LoginPage() {
     defaultValues: { email: '', password: '' },
   });
   
+  const checkUserAndRedirect = async (user: User) => {
+    if (!firestore) return;
+    const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
+    try {
+      const docSnap = await getDoc(userProfileRef);
+      if (docSnap.exists()) {
+        const userProfile = docSnap.data() as UserProfile;
+        if (userProfile.role === 'vessel' || userProfile.role === 'admin') {
+          router.push('/dashboard/crew');
+        } else {
+          router.push('/dashboard');
+        }
+      } else {
+        router.push('/dashboard'); // Default redirect if profile doesn't exist yet
+      }
+    } catch (error) {
+      console.error("Failed to fetch user profile for redirection:", error);
+      router.push('/dashboard'); // Fallback redirect
+    }
+  };
+
   useEffect(() => {
-    // Wait until both Firebase auth and RevenueCat are ready
     if (isUserLoading || !isRevenueCatReady) {
       return;
     }
 
     if (user) {
-      // User is logged in, decide where to redirect
-      const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
+      const hasActiveSubscription = Object.keys(customerInfo?.entitlements.active || {}).length > 0;
       if (hasActiveSubscription) {
-        router.push('/dashboard');
+        checkUserAndRedirect(user);
       } else {
         router.push('/offers');
       }
     } else {
-      // User is not logged in, show the login page
       setIsCheckingUser(false);
     }
-  }, [user, isUserLoading, customerInfo, isRevenueCatReady, router]);
-
-
-  const checkSubscriptionAndRedirect = async (user: User) => {
-      // We use the customerInfo from the hook which is already initialized
-      const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
-
-      if (hasActiveSubscription) {
-          router.push('/dashboard');
-      } else {
-          router.push('/offers');
-      }
-  };
+  }, [user, isUserLoading, customerInfo, isRevenueCatReady, router, firestore]);
 
   const handleLogin = async (data: LoginFormValues) => {
     if (!auth) return;
     setIsLoading(true);
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, data.email, data.password);
-      // The useEffect will now handle the redirect after successful login.
+      await signInWithEmailAndPassword(auth, data.email, data.password);
+      // The useEffect will handle the redirect after successful login.
     } catch (error) {
       const authError = error as AuthError;
       console.error('Login failed:', authError);
@@ -93,7 +103,8 @@ export default function LoginPage() {
         description: errorMessage,
         variant: 'destructive',
       });
-      setIsLoading(false);
+    } finally {
+        setIsLoading(false);
     }
   };
 
@@ -111,6 +122,7 @@ export default function LoginPage() {
         description: 'Could not sign in anonymously. Please try again later.',
         variant: 'destructive',
       });
+    } finally {
       setIsAnonymousLoading(false);
     }
   };
