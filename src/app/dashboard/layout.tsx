@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect } from 'react';
@@ -23,14 +22,23 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { theme } = useTheme();
   const firestore = useFirestore();
-  const { customerInfo, isReady: isRevenueCatReady, offerings } = useRevenueCat();
+  const { customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
 
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
     return doc(firestore, 'users', user.uid, 'profile', user.uid);
   }, [firestore, user?.uid]);
 
-  const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>(userProfileRef);
+  const { data: userProfile, isLoading: isProfileLoading } =
+    useDoc<UserProfile>(userProfileRef);
+
+  // 🔹 Helper: list of active entitlement IDs, e.g. ["premium"]
+  const activeEntitlementIds =
+    customerInfo?.entitlements?.active
+      ? Object.keys(customerInfo.entitlements.active)
+      : [];
+
+  const hasActiveEntitlement = activeEntitlementIds.length > 0;
 
   useEffect(() => {
     if (isUserLoading || !isRevenueCatReady || isProfileLoading) {
@@ -41,32 +49,38 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
       router.push('/login');
       return;
     }
-    
-    // Get a list of all entitlement identifiers from all available packages
-    const allEntitlementIds = offerings ? Object.values(offerings.all).flatMap(o => 
-        o.availablePackages.map(p => p.product.identifier)
-    ) : [];
 
-    // Check if the user has any active entitlement that we offer
-    const hasActiveOfferedEntitlement = allEntitlementIds.some(id => 
-        customerInfo?.entitlements.active[id]
-    );
+    console.log('Dashboard – active entitlements:', activeEntitlementIds);
 
-    if (!hasActiveOfferedEntitlement && pathname !== '/offers') {
-        router.push('/offers');
-        return;
-    }
-    
-    if (userProfile && (userProfile.role === 'vessel' || userProfile.role === 'admin') && pathname === '/dashboard') {
-        router.push('/dashboard/crew');
+    // If user has no active entitlements, force them to /offers (except when already there)
+    if (!hasActiveEntitlement && pathname !== '/offers') {
+      router.push('/offers');
+      return;
     }
 
-
-  }, [user, isUserLoading, customerInfo, isRevenueCatReady, offerings, router, pathname, userProfile, isProfileLoading]);
+    // Redirect vessel/admin to crew dashboard root
+    if (
+      userProfile &&
+      (userProfile.role === 'vessel' || userProfile.role === 'admin') &&
+      pathname === '/dashboard'
+    ) {
+      router.push('/dashboard/crew');
+    }
+  }, [
+    user,
+    isUserLoading,
+    isRevenueCatReady,
+    isProfileLoading,
+    hasActiveEntitlement,
+    activeEntitlementIds,
+    pathname,
+    userProfile,
+    router,
+  ]);
 
   const isMapPage = pathname === '/dashboard/world-map';
   const isLoading = isUserLoading || !isRevenueCatReady || isProfileLoading;
-  
+
   if (isLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
@@ -74,11 +88,9 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  
-  const allEntitlementIds = offerings ? Object.values(offerings.all).flatMap(o => o.availablePackages.map(p => p.product.identifier)) : [];
-  const hasActiveOfferedEntitlement = allEntitlementIds.some(id => customerInfo?.entitlements.active[id]);
 
-  if (!user || (!hasActiveOfferedEntitlement && pathname !== '/offers')) {
+  // Safety gate in render as well (in case redirect hasn't happened yet)
+  if (!user || (!hasActiveEntitlement && pathname !== '/offers')) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -87,26 +99,27 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className={cn("theme-dashboard", theme === "dark" ? "dark" : "")}>
+    <div className={cn('theme-dashboard', theme === 'dark' ? 'dark' : '')}>
       <DashboardHeader userProfile={userProfile} />
       <div
         className={cn(
-          "grid min-h-[calc(100vh-4rem)] flex-1 transition-[grid-template-columns] duration-300 ease-in-out",
-          isMapPage ? "lg:grid-cols-[80px_1fr]" : "lg:grid-cols-[240px_1fr]"
+          'grid min-h-[calc(100vh-4rem)] flex-1 transition-[grid-template-columns] duration-300 ease-in-out',
+          isMapPage ? 'lg:grid-cols-[80px_1fr]' : 'lg:grid-cols-[240px_1fr]'
         )}
       >
         <DashboardSidebar isCollapsed={isMapPage} userProfile={userProfile} />
-        <main className={cn(
-            "flex flex-1 flex-col", 
-            !isMapPage && "gap-4 bg-background p-4 md:gap-8 md:p-8"
-        )}>
+        <main
+          className={cn(
+            'flex flex-1 flex-col',
+            !isMapPage && 'gap-4 bg-background p-4 md:gap-8 md:p-8'
+          )}
+        >
           {children}
         </main>
       </div>
     </div>
   );
 }
-
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   // RevenueCatProvider is now in the root layout, so it's not needed here.

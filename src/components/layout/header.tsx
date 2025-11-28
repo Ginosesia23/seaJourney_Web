@@ -34,7 +34,8 @@ const Header = () => {
   const { user } = useUser();
   const { customerInfo } = useRevenueCat();
 
-  const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
+  const hasActiveSubscription = (customerInfo?.entitlements.active && Object.keys(customerInfo.entitlements.active).length > 0) || false;
+
 
   const handleSignOut = () => {
     if (auth) {

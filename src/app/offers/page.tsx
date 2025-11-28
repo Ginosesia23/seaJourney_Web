@@ -101,13 +101,13 @@ function getPackageProduct(pkg: Package): any | null {
 // 🔹 Billing period for display (use RC’s built-in packageType values)
 function getBillingPeriod(pkg: Package): string {
   switch (pkg.packageType) {
-    case '$rc_monthly':
+    case 'MONTHLY':
       return 'month';
-    case '$rc_annual':
+    case 'ANNUAL':
       return 'year';
-    case '$rc_six_month':
+    case 'SIX_MONTH':
       return '6 months';
-    case '$rc_weekly':
+    case 'WEEKLY':
       return 'week';
     default:
       return '';
@@ -124,10 +124,11 @@ export default function OffersPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    if (isRevenueCatReady && customerInfo?.activeSubscriptions.length > 0) {
+    if (isRevenueCatReady && customerInfo?.entitlements && Object.keys(customerInfo.entitlements.active).length > 0) {
       router.push('/dashboard');
     }
   }, [customerInfo, isRevenueCatReady, router]);
+
 
   // Log active entitlements = what plan the user is on
   useEffect(() => {
@@ -152,75 +153,75 @@ export default function OffersPage() {
       router.push(`/signup?redirect=/offers`);
       return;
     }
-
+  
     setIsPurchasing(pkg.identifier);
-
+  
     try {
       const purchases = Purchases.getSharedInstance();
       const { customerInfo } = await purchases.purchasePackage(pkg);
-
+  
       const product = getPackageProduct(pkg);
       if (!product) {
         throw new Error('No product info found on package.');
       }
-      
-      // Find the base identifier, e.g., 'sj_premium' from 'sj_premium:sj-premium-monthly'
-      const baseIdentifier = Object.keys(staticTierInfo).find(key => product.identifier.startsWith(key));
-      if (!baseIdentifier) {
-        throw new Error(`Could not find matching static info for product identifier: ${product.identifier}`);
+  
+      // 🔹 Look at entitlements actually activated by RevenueCat
+      const activeEntitlements = customerInfo.entitlements.active;
+      const activeEntitlementIds = Object.keys(activeEntitlements);
+  
+      console.log('Active entitlements after purchase:', activeEntitlements);
+  
+      if (activeEntitlementIds.length === 0) {
+        throw new Error('Purchase completed, but no active entitlements were found.');
       }
-
-      const hasEntitlement = customerInfo.entitlements.active[baseIdentifier];
-
-      if (hasEntitlement) {
-        if (!firestore) {
-          throw new Error('Firestore is not initialized.');
-        }
-
-        const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
-        const profileUpdateData = {
-          subscriptionTier: baseIdentifier,
-          subscriptionStatus: 'active',
-        };
-
-        await setDoc(userProfileRef, profileUpdateData, { merge: true });
-
-        toast({
-          title: 'Purchase Successful',
-          description: 'Your subscription has been activated!',
-        });
-        router.push('/dashboard');
-      } else {
-        throw new Error('Purchase completed, but entitlement not found.');
+  
+      // For now, just take the first active entitlement as the user’s plan
+      const entitlementId = activeEntitlementIds[0]; // e.g. "premium"
+  
+      if (!firestore) {
+        throw new Error('Firestore is not initialized.');
       }
+  
+      const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
+      const profileUpdateData = {
+        subscriptionTier: entitlementId,        // "premium"
+        subscriptionStatus: 'active',
+        lastProductId: product.identifier,      // e.g. "sj_premium_monthly"
+      };
+  
+      await setDoc(userProfileRef, profileUpdateData, { merge: true });
+  
+      toast({
+        title: 'Purchase Successful',
+        description: 'Your subscription has been activated!',
+      });
+      router.push('/dashboard');
     } catch (e: any) {
       // Firestore permission issue
       if (e instanceof FirestorePermissionError) {
         errorEmitter.emit('permission-error', e);
         return;
       }
-
+  
       // RevenueCat / purchase errors
       if (e instanceof PurchasesError) {
-        if (e.errorCode === ErrorCode.UserCancelledError) {
+        if (e.code === ErrorCode.purchaseCancelledError) {
           toast({
             title: 'Purchase Cancelled',
             description: 'You have cancelled the purchase.',
           });
-          setIsPurchasing(null);
           return;
         }
-
+  
         console.error('RevenueCat purchase error:', e);
         toast({
           title: 'Purchase Failed',
           description: e.message ?? 'An unexpected error occurred.',
           variant: 'destructive',
         });
-        setIsPurchasing(null);
         return;
       }
-
+  
       // Any other unexpected error
       console.error('Purchase error:', e);
       toast({
@@ -232,6 +233,7 @@ export default function OffersPage() {
       setIsPurchasing(null);
     }
   };
+  
 
   const isLoading = isUserLoading || !isRevenueCatReady;
 
@@ -254,7 +256,7 @@ export default function OffersPage() {
     });
   }, [packagesToShow]);
 
-  if (isLoading || (isRevenueCatReady && customerInfo?.activeSubscriptions.length > 0)) {
+  if (isLoading || (isRevenueCatReady && customerInfo?.entitlements && Object.keys(customerInfo.entitlements.active).length > 0)) {
      return (
         <div className="flex h-screen w-full items-center justify-center bg-background">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
