@@ -47,7 +47,7 @@ const navGroups = [
     items: [
         { href: '/dashboard/profile', label: 'Profile', icon: User, disabled: false },
         { href: '/dashboard/crew', label: 'Crew', icon: Users, disabled: false, requiredRole: 'vessel' },
-        { href: '/dashboard/testimonials', label: 'Testimonials', icon: LifeBuoy, disabled: true },
+        { href: '/dashboard/testimonials', label: 'Testimonials', icon: LifeBuoy, disabled: false },
         { href: '/dashboard/certificates', label: 'Certificates', icon: Award, disabled: true },
         { href: '/dashboard/export', label: 'Export', icon: Download, disabled: true },
     ]

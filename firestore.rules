@@ -8,7 +8,7 @@
  * Data Structure:
  * - User profiles are stored under `/users/{userId}/profile`.
  * - Vessels are stored under `/users/{userId}/vessels`.
- * - Testimonials are stored as subcollections under user profiles at `/users/{userId}/profile/testimonials/{testimonialId}`.
+ * - Testimonials are stored as subcollections under user profiles at `/users/{userId}/profile/{userId}/testimonials/{testimonialId}`.
  *
  * Key Security Decisions:
  * - User listing is allowed for 'vessel' and 'admin' roles via a collection group query on 'profile'.
@@ -76,15 +76,14 @@ service cloud.firestore {
 
     /**
      * @description Enforces user-ownership for testimonials. Only the authenticated user can access testimonials associated with their profile.
-     * @path /users/{userId}/profile/testimonials/{testimonialId}
-     * @allow (create) User with UID 'user123' creates a testimonial document under their profile at /users/user123/profile/testimonials/test456.
-     * @allow (get, update, delete) User with UID 'user123' reads, updates, or deletes their testimonial document at /users/user123/profile/testimonials/test456.
-     * @deny (create, get, update, delete) User with UID 'user456' attempts to access testimonial document at /users/user123/profile/testimonials/test456.
-     * @principle Enforces document ownership for all operations on testimonials.
+     * @path /users/{userId}/profile/{profileId}/testimonials/{testimonialId}
+     * @allow (create, list, get) User with UID 'user123' creates or reads testimonials under their profile at /users/user123/profile/user123/testimonials.
+     * @deny (create, list, get) User with UID 'user456' attempts to access testimonials at /users/user123/profile/user123/testimonials.
+     * @principle Enforces collection ownership for read and create, and document ownership for write operations.
      */
-    match /users/{userId}/profile/{testimonialId}/testimonials/{testimonialDocId} {
-      allow get, list, create: if isOwner(userId);
-      allow update, delete: if isOwner(userId) && resource.data.userProfileId == userId;
+    match /users/{userId}/profile/{profileId}/testimonials/{testimonialId} {
+      allow read, create, list: if isOwner(userId);
+      allow update, delete: if isOwner(userId);
     }
     
     /**
