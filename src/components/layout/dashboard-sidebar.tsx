@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -30,7 +31,6 @@ const navGroups = [
     title: 'General',
     items: [
       { href: '/dashboard', label: 'Home', icon: Home, disabled: false },
-      { href: '/dashboard/world-map', label: 'World Map', icon: Globe, disabled: false },
     ]
   },
   {
@@ -40,15 +40,6 @@ const navGroups = [
       { href: '/dashboard/history', label: 'History', icon: History, disabled: false },
       { href: '/dashboard/passages', label: 'Passages', icon: Map, disabled: true },
       { href: '/dashboard/vessels', label: 'Vessels', icon: Ship, disabled: false },
-    ]
-  },
-  {
-    title: 'Analytics',
-    items: [
-      { href: '/dashboard/distribution', label: 'Distribution', icon: PieChart, disabled: true },
-      { href: '/dashboard/insights', label: 'Insights', icon: BarChart2, disabled: true },
-      { href: '/dashboard/achievements', label: 'Achievements', icon: Trophy, disabled: true },
-      { href: '/dashboard/career', label: 'Career', icon: Briefcase, disabled: true },
     ]
   },
   {
