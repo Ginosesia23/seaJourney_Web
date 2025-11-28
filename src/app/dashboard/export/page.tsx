@@ -6,8 +6,10 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Download, Calendar as CalendarIcon, Ship, Loader2, FileText, LifeBuoy } from 'lucide-react';
-import { addDays, format } from 'date-fns';
+import { format } from 'date-fns';
 import { DateRange } from 'react-day-picker';
+import { generateSeaTimeTestimonial, SeaTimeReportData } from '@/lib/pdf-generator';
+import { generateSeaTimeReportData as fetchSeaTimeReportData } from '@/app/actions';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -18,6 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
+import { toast } from '@/hooks/use-toast';
 
 const exportSchema = z.object({
   exportType: z.enum(['seatime_report', 'testimonial']),
@@ -59,6 +62,8 @@ export default function ExportPage() {
         defaultValues: {
             exportType: 'seatime_report',
             filterType: 'vessel',
+            vesselId: undefined,
+            dateRange: { from: undefined, to: undefined }
         }
     });
 
@@ -71,17 +76,34 @@ export default function ExportPage() {
 
     const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
 
-    const onSubmit = (data: ExportFormValues) => {
+    const onSubmit = async (data: ExportFormValues) => {
+        if (!user) {
+            toast({ title: 'Error', description: 'You must be logged in to generate a report.', variant: 'destructive' });
+            return;
+        }
+
         setIsGenerating(true);
-        console.log("Generating export with data:", data);
-        
-        // This is where you would call your PDF generation logic
-        // For now, we'll just simulate it with a timeout
-        setTimeout(() => {
+        try {
+            const reportData = await fetchSeaTimeReportData(
+                user.uid,
+                data.filterType,
+                data.vesselId,
+                data.dateRange as { from: Date; to: Date } | undefined
+            );
+            
+            if (data.exportType === 'seatime_report') {
+                generateSeaTimeTestimonial(reportData);
+            } else {
+                // Future logic for other doc types
+                toast({ title: 'Not implemented', description: 'Testimonial exports are not yet available.' });
+            }
+
+        } catch (error: any) {
+            console.error("Failed to generate report:", error);
+            toast({ title: 'Error', description: error.message || 'Failed to generate PDF.', variant: 'destructive' });
+        } finally {
             setIsGenerating(false);
-            // Simulate opening a PDF
-            window.open('https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', '_blank');
-        }, 2000);
+        }
     }
 
   return (
@@ -113,13 +135,13 @@ export default function ExportPage() {
                                             <SelectItem value="seatime_report">
                                                 <div className="flex items-center gap-2">
                                                     <FileText className="h-4 w-4" />
-                                                    <span>Sea Time Report</span>
+                                                    <span>Sea Time Testimonial</span>
                                                 </div>
                                             </SelectItem>
-                                            <SelectItem value="testimonial">
+                                            <SelectItem value="testimonial" disabled>
                                                 <div className="flex items-center gap-2">
                                                     <LifeBuoy className="h-4 w-4" />
-                                                    <span>Testimonial</span>
+                                                    <span>Reference Letter</span>
                                                 </div>
                                             </SelectItem>
                                         </SelectContent>
@@ -135,7 +157,11 @@ export default function ExportPage() {
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Filter By</FormLabel>
-                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <Select onValueChange={(value) => {
+                                        field.onChange(value);
+                                        form.setValue('vesselId', undefined);
+                                        form.setValue('dateRange', { from: undefined, to: undefined });
+                                    }} defaultValue={field.value}>
                                         <FormControl>
                                             <SelectTrigger className="rounded-lg">
                                                 <SelectValue placeholder="Select a filter method..." />
@@ -168,7 +194,7 @@ export default function ExportPage() {
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Vessel</FormLabel>
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <Select onValueChange={field.onChange} value={field.value}>
                                             <FormControl>
                                                  <SelectTrigger className="rounded-lg">
                                                     <SelectValue placeholder={isLoadingVessels ? 'Loading vessels...' : 'Select a vessel'} />
