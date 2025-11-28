@@ -3,14 +3,14 @@
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Ship, Anchor, Calendar, Waves, MapPin, Briefcase } from 'lucide-react';
+import { Ship, Anchor, Calendar, Waves, Building, Briefcase } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const vesselStates: { value: string; label: string, color: string, icon: React.FC<any> }[] = [
     { value: 'underway', label: 'Underway', color: 'bg-blue-500', icon: Waves },
     { value: 'at-anchor', label: 'At Anchor', color: 'bg-orange-500', icon: Anchor },
-    { value: 'in-port', label: 'In Port', color: 'bg-green-500', icon: MapPin },
+    { value: 'in-port', label: 'In Port', color: 'bg-green-500', icon: Building },
     { value: 'on-leave', label: 'On Leave', color: 'bg-gray-500', icon: Briefcase },
     { value: 'in-yard', label: 'In Yard', color: 'bg-red-500', icon: Ship },
 ];

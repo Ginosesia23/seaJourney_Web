@@ -1,7 +1,7 @@
 
 'use client';
 
-import { Ship, LifeBuoy, Route, Anchor, Loader2, Award, Star, Globe } from 'lucide-react';
+import { Ship, LifeBuoy, Route, Anchor, Loader2, Award, Star, Globe, Waves, Building } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import MainChart from '@/components/dashboard/main-chart';
 import {
@@ -37,7 +37,7 @@ type Trip = {
     position: string;
     startDate: Timestamp;
     endDate: Timestamp;
-    dailyStates: Record<string, string>;
+    dailyStates: Record<string, 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard'>;
 };
 
 type CurrentStatus = {
@@ -45,7 +45,7 @@ type CurrentStatus = {
     vesselId: string;
     position: string;
     startDate: Timestamp;
-    dailyStates: Record<string, string>;
+    dailyStates: Record<string, 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard'>;
 };
 
 type Testimonial = {
@@ -95,12 +95,28 @@ export default function DashboardPage() {
     });
   }, [trips, selectedYear, selectedVessel]);
 
-  const totalSeaDays = useMemo(() => {
-    const pastTripDays = filteredTrips.reduce((acc, trip) => acc + Object.keys(trip.dailyStates).length, 0);
-    const currentTripDays = (selectedYear === 'all' && selectedVessel === 'all' && currentStatus)
-        ? Object.keys(currentStatus.dailyStates).length
-        : 0;
-    return pastTripDays + currentTripDays;
+   const { totalSeaDays, atSeaDays, standbyDays } = useMemo(() => {
+    let seaDays = 0;
+    let atSea = 0;
+    let standby = 0;
+
+    const allTrips = [...(filteredTrips || [])];
+    if (selectedYear === 'all' && selectedVessel === 'all' && currentStatus) {
+      allTrips.push(currentStatus);
+    }
+    
+    allTrips.forEach(trip => {
+        Object.values(trip.dailyStates).forEach(state => {
+            seaDays++;
+            if (state === 'underway') {
+                atSea++;
+            } else if (state === 'in-port' || state === 'at-anchor') {
+                standby++;
+            }
+        });
+    });
+
+    return { totalSeaDays: seaDays, atSeaDays: atSea, standbyDays: standby };
   }, [filteredTrips, currentStatus, selectedYear, selectedVessel]);
 
   const recentActivity = useMemo(() => {
@@ -248,28 +264,28 @@ export default function DashboardPage() {
         </Card>
         <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Testimonials</CardTitle>
-                <LifeBuoy className="h-4 w-4 text-muted-foreground"/>
+                <CardTitle className="text-sm font-medium">At Sea Days</CardTitle>
+                <Waves className="h-4 w-4 text-muted-foreground"/>
             </CardHeader>
             <CardContent>
-                <div className="text-2xl font-bold">{testimonials?.length || 0}</div>
-                <p className="text-xs text-muted-foreground">Total testimonials collected</p>
+                <div className="text-2xl font-bold">{atSeaDays}</div>
+                <p className="text-xs text-muted-foreground">Total days underway</p>
             </CardContent>
         </Card>
         <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Passages Logged</CardTitle>
-                <Route className="h-4 w-4 text-muted-foreground"/>
+                <CardTitle className="text-sm font-medium">Standby Days</CardTitle>
+                <Anchor className="h-4 w-4 text-muted-foreground"/>
             </CardHeader>
             <CardContent>
-                <div className="text-2xl font-bold">{trips?.length || 0}</div>
-                <p className="text-xs text-muted-foreground">Total completed trips</p>
+                <div className="text-2xl font-bold">{standbyDays}</div>
+                <p className="text-xs text-muted-foreground">Total days in port or at anchor</p>
             </CardContent>
         </Card>
         <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Vessels Logged</CardTitle>
-                <Anchor className="h-4 w-4 text-muted-foreground"/>
+                <Building className="h-4 w-4 text-muted-foreground"/>
             </CardHeader>
             <CardContent>
                 <div className="text-2xl font-bold">{vessels?.length || 0}</div>

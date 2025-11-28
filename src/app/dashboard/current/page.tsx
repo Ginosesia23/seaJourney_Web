@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInDays, eachDayOfInterval, fromUnixTime, isSameDay, startOfDay, endOfDay, parse } from 'date-fns';
-import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock, Waves, Anchor } from 'lucide-react';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock, Waves, Anchor, Building } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -62,7 +62,7 @@ type Vessel = {
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
     { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
     { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
-    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: MapPin },
+    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
     { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
     { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
 ];
@@ -350,20 +350,25 @@ export default function CurrentPage() {
   const selectedVessel = currentStatus ? vessels?.find(v => v.id === currentStatus.vesselId) : null;
   const daysOnboard = startDate ? differenceInDays(new Date(), startDate) + 1 : 0;
   
-  const totalDaysByState = useMemo(() => {
-    if (!currentStatus) return [];
+  const { totalDaysByState, atSeaDays, standbyDays } = useMemo(() => {
+    if (!currentStatus) return { totalDaysByState: [], atSeaDays: 0, standbyDays: 0 };
     
+    let atSea = 0;
+    let standby = 0;
     const stateCounts = Object.values(currentStatus.dailyStates).reduce((acc, state) => {
         acc[state] = (acc[state] || 0) + 1;
+        if (state === 'underway') atSea++;
+        if (state === 'in-port' || state === 'at-anchor') standby++;
         return acc;
     }, {} as Record<DailyStatus, number>);
 
-    return vesselStates.map(stateInfo => ({
+    const chartData = vesselStates.map(stateInfo => ({
         name: stateInfo.label,
         days: stateCounts[stateInfo.value] || 0,
         fill: stateInfo.color,
     })).filter(item => item.days > 0);
 
+    return { totalDaysByState: chartData, atSeaDays: atSea, standbyDays: standby };
   }, [currentStatus]);
 
   const todayKey = format(new Date(), 'yyyy-MM-dd');
@@ -394,8 +399,8 @@ export default function CurrentPage() {
         </div>
       {isDisplayingStatus ? (
         <div className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
+                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg lg:col-span-2">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium">Vessel</CardTitle>
                         <Ship className="h-4 w-4 text-muted-foreground" />
@@ -405,32 +410,33 @@ export default function CurrentPage() {
                         <p className="text-xs text-muted-foreground">{selectedVessel.type}</p>
                     </CardContent>
                 </Card>
-                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover-shadow-lg lg:col-span-2">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium">Position</CardTitle>
+                        <CardTitle className="text-sm font-medium">Position & Start Date</CardTitle>
                         <Briefcase className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-xl font-bold">{currentStatus.position}</div>
-                         <p className="text-xs text-muted-foreground">&nbsp;</p>
+                         <p className="text-xs text-muted-foreground">Since {format(startDate, 'PPP')}</p>
                     </CardContent>
                 </Card>
-                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+                 <Card className="rounded-xl bg-primary/10 border-primary/20">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium">Start Date</CardTitle>
-                        <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-xl font-bold">{format(startDate, 'PPP')}</div>
-                         <p className="text-xs text-muted-foreground">&nbsp;</p>
-                    </CardContent>
-                </Card>
-                <Card className="rounded-xl bg-primary/10 border-primary/20">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium">Total Time Onboard</CardTitle>
+                        <CardTitle className="text-sm font-medium">At Sea</CardTitle>
+                         <Waves className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent className="text-center">
-                        <p className="text-4xl font-bold text-primary">{daysOnboard}</p>
+                        <p className="text-4xl font-bold text-primary">{atSeaDays}</p>
+                        <p className="text-xs text-muted-foreground">days</p>
+                    </CardContent>
+                </Card>
+                 <Card className="rounded-xl bg-primary/10 border-primary/20">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-medium">Standby</CardTitle>
+                        <Anchor className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent className="text-center">
+                        <p className="text-4xl font-bold text-primary">{standbyDays}</p>
                         <p className="text-xs text-muted-foreground">days</p>
                     </CardContent>
                 </Card>
@@ -802,7 +808,3 @@ export default function CurrentPage() {
     </div>
   );
 }
-
-    
-
-    

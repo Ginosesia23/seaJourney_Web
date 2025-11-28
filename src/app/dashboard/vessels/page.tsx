@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { MoreHorizontal, PlusCircle, Loader2, Ship } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Loader2, Ship, Building } from 'lucide-react';
 import { format } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
@@ -160,7 +160,7 @@ export default function VesselsPage() {
             <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                     <div className="flex items-center gap-3">
-                        <Ship className="h-6 w-6" />
+                        <Building className="h-6 w-6" />
                         <CardTitle>Your Vessels</CardTitle>
                     </div>
                     <CardDescription>Manage the vessels you have worked on.</CardDescription>
@@ -306,5 +306,3 @@ export default function VesselsPage() {
     </div>
   );
 }
-
-    
