@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -162,9 +163,14 @@ export default function OffersPage() {
       if (!product) {
         throw new Error('No product info found on package.');
       }
+      
+      // Find the base identifier, e.g., 'sj_premium' from 'sj_premium:sj-premium-monthly'
+      const baseIdentifier = Object.keys(staticTierInfo).find(key => product.identifier.startsWith(key));
+      if (!baseIdentifier) {
+        throw new Error(`Could not find matching static info for product identifier: ${product.identifier}`);
+      }
 
-      const entitlementId = product.identifier;
-      const hasEntitlement = customerInfo.entitlements.active[entitlementId];
+      const hasEntitlement = customerInfo.entitlements.active[baseIdentifier];
 
       if (hasEntitlement) {
         if (!firestore) {
@@ -173,7 +179,7 @@ export default function OffersPage() {
 
         const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
         const profileUpdateData = {
-          subscriptionTier: entitlementId,
+          subscriptionTier: baseIdentifier,
           subscriptionStatus: 'active',
         };
 
@@ -344,10 +350,15 @@ export default function OffersPage() {
                     packagesToShow.map((pkg) => {
                       const product = getPackageProduct(pkg);
                       if (!product) return null;
+                      
+                      const baseIdentifier = Object.keys(staticTierInfo).find(key => product.identifier.startsWith(key));
+                      
+                      if (!baseIdentifier) {
+                        console.warn(`No static info found for product: ${product.identifier}`);
+                        return null;
+                      }
 
-                      // Use staticTierInfo if available, otherwise fall back to product data
-                      const staticInfo = staticTierInfo[product.identifier];
-                      if (!staticInfo) return null;
+                      const staticInfo = staticTierInfo[baseIdentifier];
 
                       const displayName =
                         staticInfo?.name ?? product.title ?? product.identifier;
