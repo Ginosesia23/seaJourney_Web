@@ -118,24 +118,19 @@ export default function OffersPage() {
 
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
-  const { offerings, isReady: isRevenueCatReady } = useRevenueCat();
+  const { offerings, customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
   const router = useRouter();
   const { toast } = useToast();
 
   useEffect(() => {
-    if (user) {
-      console.log('User on offers page:', user.uid);
+    if (isRevenueCatReady && customerInfo?.activeSubscriptions.length > 0) {
+      router.push('/dashboard');
     }
-  }, [user]);
-
-  // Log offerings object
-  useEffect(() => {
-    console.log('RC: offerings:', offerings);
-  }, [offerings]);
+  }, [customerInfo, isRevenueCatReady, router]);
 
   // Log active entitlements = what plan the user is on
   useEffect(() => {
-    if (!offerings) return;
+    if (!offerings || !isRevenueCatReady) return;
 
     const purchases = Purchases.getSharedInstance();
     purchases.getCustomerInfo().then((info) => {
@@ -149,7 +144,7 @@ export default function OffersPage() {
         console.log('User is on plan:', active[0]); // e.g. "sj_premium"
       }
     });
-  }, [offerings]);
+  }, [offerings, isRevenueCatReady]);
 
   const handlePurchase = async (pkg: Package) => {
     if (!user) {
@@ -206,6 +201,7 @@ export default function OffersPage() {
             title: 'Purchase Cancelled',
             description: 'You have cancelled the purchase.',
           });
+          setIsPurchasing(null);
           return;
         }
 
@@ -215,6 +211,7 @@ export default function OffersPage() {
           description: e.message ?? 'An unexpected error occurred.',
           variant: 'destructive',
         });
+        setIsPurchasing(null);
         return;
       }
 
@@ -240,14 +237,24 @@ export default function OffersPage() {
 
     packagesToShow.forEach((pkg) => {
       const product = getPackageProduct(pkg);
-      console.log('Package debug:', {
-        pkgIdentifier: pkg.identifier,
-        productIdentifier: product?.identifier,
-        title: product?.title,
-        price: product?.currentPrice?.formattedPrice,
-      });
+      if (product) {
+        console.log('Package debug:', {
+          pkgIdentifier: pkg.identifier,
+          productIdentifier: product.identifier,
+          title: product.title,
+          price: product.currentPrice?.formattedPrice,
+        });
+      }
     });
   }, [packagesToShow]);
+
+  if (isLoading || (isRevenueCatReady && customerInfo?.activeSubscriptions.length > 0)) {
+     return (
+        <div className="flex h-screen w-full items-center justify-center bg-background">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -340,6 +347,7 @@ export default function OffersPage() {
 
                       // Use staticTierInfo if available, otherwise fall back to product data
                       const staticInfo = staticTierInfo[product.identifier];
+                      if (!staticInfo) return null;
 
                       const displayName =
                         staticInfo?.name ?? product.title ?? product.identifier;
