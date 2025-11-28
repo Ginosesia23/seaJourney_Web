@@ -281,7 +281,7 @@ export default function OffersPage() {
             </div>
 
             {/* Cards */}
-            <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-4">
+            <div className="mx-auto mt-16 grid max-w-lg grid-cols-1 justify-center gap-8 lg:max-w-none lg:grid-cols-2 lg:w-fit">
               {isLoading ? (
                 // Skeleton loading
                 Array.from({ length: 3 }).map((_, i) => (
