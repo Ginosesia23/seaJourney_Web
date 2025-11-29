@@ -13,14 +13,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, User as UserIcon, Sparkles } from 'lucide-react';
+import { Loader2, User as UserIcon } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format } from 'date-fns';
-import { Badge } from '../ui/badge';
-import { cn } from '@/lib/utils';
-import { useRevenueCat } from '../providers/revenue-cat-provider';
-
 
 const profileSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters.'),
@@ -71,7 +67,6 @@ export function UserProfileCard() {
   const firestore = useFirestore();
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
-  const { customerInfo } = useRevenueCat();
 
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
@@ -122,15 +117,6 @@ export function UserProfileCard() {
   const registrationDate = userProfile?.registrationDate ? new Date(userProfile.registrationDate) : null;
   const getInitials = (name: string) => name.split(' ').map((n) => n[0]).join('');
 
-  const activeEntitlements = customerInfo?.entitlements.active || {};
-  const activeEntitlementId = Object.keys(activeEntitlements)[0];
-  const activeEntitlement = activeEntitlementId ? activeEntitlements[activeEntitlementId] : null;
-
-  const subscriptionStatus = activeEntitlement ? 'active' : 'inactive';
-  const subscriptionTier = activeEntitlementId || userProfile?.subscriptionTier || 'free';
-  const nextRenewalDate = activeEntitlement?.expirationDate ? new Date(activeEntitlement.expirationDate) : null;
-
-
   return (
     <Card className="rounded-xl border bg-card dark:shadow-md transition-shadow dark:hover:shadow-lg">
       <CardHeader>
@@ -140,44 +126,6 @@ export function UserProfileCard() {
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-             <Card className="rounded-lg bg-muted/30">
-                <CardHeader>
-                    <div className="flex justify-between items-center">
-                        <CardTitle className="text-lg flex items-center gap-2">
-                            <Sparkles className="h-5 w-5 text-accent" />
-                            Subscription
-                        </CardTitle>
-                        <Badge 
-                            className={cn(
-                                subscriptionStatus === 'active' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-destructive/20 text-destructive-foreground'
-                            )}
-                        >
-                            {subscriptionStatus}
-                        </Badge>
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
-                        <div>
-                            <p className="font-semibold text-foreground capitalize">{subscriptionTier.replace(/^(sj_)/, '')}</p>
-                            {nextRenewalDate && subscriptionStatus === 'active' && (
-                                <p className="text-sm text-muted-foreground">
-                                    Renews on {format(nextRenewalDate, 'PPP')}
-                                </p>
-                            )}
-                            {subscriptionStatus === 'inactive' && (
-                                 <p className="text-sm text-muted-foreground">
-                                    No active plan.
-                                </p>
-                            )}
-                        </div>
-                        <Button asChild variant="outline" size="sm" className="rounded-lg">
-                            <a href="/offers">Manage Subscription</a>
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
-
             <FormField
               control={form.control}
               name="profilePicture"
