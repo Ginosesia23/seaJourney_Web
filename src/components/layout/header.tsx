@@ -63,32 +63,17 @@ const Header = () => {
         </nav>
 
         <div className="flex items-center gap-2">
-          {!isShopPage && (
-            <Button asChild className="hidden rounded-full md:flex bg-accent hover:bg-accent/90 text-accent-foreground">
-              <Link href="/shop">
-                Shop
-              </Link>
-            </Button>
-          )}
-
           {isShopPage && <Cart />}
           
           <div className="hidden md:flex items-center gap-2">
             {user ? (
-                hasActiveSubscription ? (
-                    <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
-                        <Link href="/dashboard">Go to Dashboard</Link>
-                    </Button>
-                ) : (
-                    <Button variant="ghost" className="hover:bg-white/10 rounded-full" onClick={handleSignOut}>
-                        <LogOut className="mr-2 h-4 w-4" />
-                        Log Out
-                    </Button>
-                )
+              <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
+                <Link href="/dashboard">Dashboard</Link>
+              </Button>
             ) : (
-                <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
-                    <Link href="/login">Sign In</Link>
-                </Button>
+              <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
+                <Link href="/login">Sign In</Link>
+              </Button>
             )}
           </div>
 
