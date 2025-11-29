@@ -6,9 +6,13 @@ import { Button } from '@/components/ui/button';
 import Image from 'next/image';
 import { AppStoreIcon } from '@/components/sections/cta';
 import { useUser } from '@/firebase';
+import { useRevenueCat } from '../providers/revenue-cat-provider';
 
 const Hero = () => {
   const { user } = useUser();
+  const { customerInfo } = useRevenueCat();
+
+  const hasActiveSubscription = (customerInfo?.entitlements.active && Object.keys(customerInfo.entitlements.active).length > 0) || false;
 
   return (
     <section className="relative overflow-hidden bg-header text-header-foreground py-20 sm:py-28">
@@ -21,11 +25,16 @@ const Hero = () => {
                   Welcome back, {user.displayName || 'Seafarer'}!
                 </h1>
                 <p className="mt-6 text-lg leading-8 text-header-foreground/80">
-                  You're ready to continue your journey. Choose a plan to unlock your dashboard and start tracking your sea time.
+                  {hasActiveSubscription
+                    ? "You're all set. Head to your dashboard to continue tracking your sea time."
+                    : "You're ready to continue your journey. Choose a plan to unlock your dashboard."
+                  }
                 </p>
                  <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center lg:justify-start">
                   <Button asChild size="lg" className="rounded-full bg-accent hover:bg-accent/90 text-accent-foreground">
-                    <Link href="/offers">Choose Your Plan</Link>
+                    <Link href={hasActiveSubscription ? "/dashboard" : "/offers"}>
+                      {hasActiveSubscription ? 'Go to Dashboard' : 'Choose Your Plan'}
+                    </Link>
                   </Button>
                 </div>
               </>
@@ -69,5 +78,3 @@ const Hero = () => {
 };
 
 export default Hero;
-
-    
