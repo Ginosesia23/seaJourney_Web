@@ -3,7 +3,7 @@
 
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
-import { User, Ship, CalendarDays, FileSignature, FileText, PlusCircle, ArrowRight, Star } from 'lucide-react';
+import { User, Ship, CalendarDays, FileSignature, FileText, PlusCircle, ArrowRight, Star, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -152,6 +152,23 @@ const steps = [
                 </div>
             </CardContent>
         </Card>
+    )
+  },
+  {
+    icon: <ShieldCheck className="h-8 w-8 text-accent" />,
+    title: '6. Request Official Approval',
+    description: "Submit your digitally signed and verified documents to maritime authorities for official review and certificate issuance.",
+    component: (
+      <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white">
+        <CardHeader className="text-center items-center">
+            <ShieldCheck className="h-10 w-10 text-accent mb-2" />
+            <CardTitle className="text-white">Submit to MCA</CardTitle>
+            <CardDescription className="text-white/70">Send your verified documents for official review.</CardDescription>
+        </CardHeader>
+        <CardContent className="text-center">
+            <Button variant="accent" className="w-full rounded-lg">Submit for Approval</Button>
+        </CardContent>
+      </Card>
     )
   },
 ];
