@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Menu, X, LogOut } from 'lucide-react';
+import { Menu, X, LogOut, LayoutDashboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -18,6 +18,15 @@ import Logo from '@/components/logo';
 import { Cart } from '@/components/cart';
 import { useAuth, useUser } from '@/firebase';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 const navLinks = [
   { href: '/how-to-use', label: 'Guide' },
@@ -36,7 +45,6 @@ const Header = () => {
 
   const hasActiveSubscription = (customerInfo?.entitlements.active && Object.keys(customerInfo.entitlements.active).length > 0) || false;
 
-
   const handleSignOut = () => {
     if (auth) {
       auth.signOut();
@@ -44,6 +52,12 @@ const Header = () => {
     }
   };
 
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map((n) => n[0])
+      .join('');
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-header bg-header text-header-foreground backdrop-blur-sm">
@@ -67,9 +81,33 @@ const Header = () => {
           
           <div className="hidden md:flex items-center gap-2">
             {user ? (
-              <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
-                <Link href="/dashboard">Dashboard</Link>
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="rounded-full">
+                    <Avatar className="h-8 w-8">
+                      <AvatarFallback className="bg-primary/80 text-primary-foreground">
+                        {user?.displayName
+                          ? getInitials(user.displayName)
+                          : user?.email?.[0].toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="sr-only">Toggle user menu</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => router.push('/dashboard')}>
+                      <LayoutDashboard className="mr-2 h-4 w-4" />
+                      Dashboard
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleSignOut}>
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Sign Out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : (
               <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
                 <Link href="/login">Sign In</Link>
