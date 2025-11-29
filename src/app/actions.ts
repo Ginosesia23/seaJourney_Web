@@ -8,6 +8,7 @@ import { getFirestore } from 'firebase/firestore';
 import { firebaseConfig } from '@/firebase/config';
 import type { Purchases, CustomerInfo } from '@revenuecat/purchases-js';
 import type { Trip, UserProfile, Vessel } from '@/lib/types';
+import { isWithinInterval, fromUnixTime, startOfDay, endOfDay } from 'date-fns';
 
 
 // This function will run on the server
@@ -106,7 +107,14 @@ export async function generateSeaTimeReportData(
 
   let allTrips: Trip[] = [];
   pastTripsSnap.forEach(doc => allTrips.push({ id: doc.id, ...doc.data() } as Trip));
-  currentTripsSnap.forEach(doc => allTrips.push({ id: doc.id, ...doc.data() } as Trip));
+  currentTripsSnap.forEach(doc => {
+      const currentTrip = doc.data() as Omit<Trip, 'id'>;
+      allTrips.push({
+          id: doc.id,
+          ...currentTrip,
+          endDate: Timestamp.now() // Set endDate to now for current trips
+      })
+  });
 
   // 4. Filter trips based on criteria
   let filteredTrips: Trip[] = [];
@@ -116,40 +124,61 @@ export async function generateSeaTimeReportData(
   } else if (filterType === 'date_range') {
     if (!dateRange || !dateRange.from || !dateRange.to) throw new Error('Date range is required.');
     
-    const fromTimestamp = Timestamp.fromDate(dateRange.from);
-    const toTimestamp = Timestamp.fromDate(dateRange.to);
+    const fromDate = startOfDay(new Date(dateRange.from));
+    const toDate = endOfDay(new Date(dateRange.to));
 
     filteredTrips = allTrips.filter(trip => {
-      const tripStart = trip.startDate;
-      // If trip is current, endDate is now. Otherwise use stored endDate.
-      const tripEnd = trip.endDate || Timestamp.now(); 
-      // Check for overlap
-      return tripStart <= toTimestamp && tripEnd >= fromTimestamp;
+      const tripStart = fromUnixTime(trip.startDate.seconds);
+      const tripEnd = trip.endDate ? fromUnixTime(trip.endDate.seconds) : new Date();
+      // Check for overlap: trip starts before range ends AND trip ends after range starts
+      return tripStart <= toDate && tripEnd >= fromDate;
     });
+  } else {
+    // If no filter, use all trips. This case might not be used by the UI but is good for robustness.
+    filteredTrips = allTrips;
   }
 
   // 5. Process and enrich trips
   let totalDays = 0;
   let totalSeaDays = 0;
   let totalStandbyDays = 0;
+  
+  const dateRangeInterval = dateRange?.from && dateRange.to ? { start: startOfDay(new Date(dateRange.from)), end: endOfDay(new Date(dateRange.to)) } : null;
 
   const enrichedTrips = filteredTrips.map(trip => {
-    Object.values(trip.dailyStates).forEach(state => {
+    let tripTotalDays = 0;
+    Object.keys(trip.dailyStates).forEach(dateStr => {
+      const dayDate = new Date(dateStr);
+       // If filtering by date range, only count days within that range
+      if (dateRangeInterval && !isWithinInterval(dayDate, dateRangeInterval)) {
+          return;
+      }
+      
+      const state = trip.dailyStates[dateStr];
       totalDays++;
+      tripTotalDays++;
       if (state === 'underway') totalSeaDays++;
       if (state === 'in-port' || state === 'at-anchor') totalStandbyDays++;
     });
-
-    return {
+    
+    // Override dailyStates with only the count for the PDF
+    const processedTrip = {
       ...trip,
       vesselName: vesselsMap.get(trip.vesselId)?.name || 'Unknown Vessel',
+      dailyStates: { total: tripTotalDays } as any, // Simplify for report
     };
+
+    return processedTrip;
   });
+  
+  // For date range reports, we might not have a single vessel detail
+  const finalVesselDetails = filterType === 'vessel' && vesselId ? vesselsMap.get(vesselId) : undefined;
+
 
   return {
     userProfile,
-    trips: enrichedTrips,
-    vesselDetails: vesselId ? vesselsMap.get(vesselId) : undefined,
+    trips: enrichedTrips.filter(t => t.dailyStates.total > 0), // Only include trips with days in the range
+    vesselDetails: finalVesselDetails,
     totalDays,
     totalSeaDays,
     totalStandbyDays,
