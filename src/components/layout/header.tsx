@@ -30,7 +30,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 const navLinks = [
   { href: '/how-to-use', label: 'Guide' },
-  { href: '/dashboard-offering', label: 'Dashboard' },
+  { href: '/dashboard-offering', label: 'Features' },
   { href: '/signup', label: 'Join' },
 ];
 
