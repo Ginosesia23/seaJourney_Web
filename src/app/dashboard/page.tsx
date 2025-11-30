@@ -45,13 +45,7 @@ export default function DashboardPage() {
     [user, firestore]
   );
   
-  const testimonialsCollectionRef = useMemoFirebase(() => 
-    user ? collection(firestore, 'users', user.uid, 'profile', user.uid, 'testimonials') : null, 
-    [user, firestore]
-  );
-
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
-  const { data: testimonials, isLoading: isLoadingTestimonials } = useCollection<Testimonial>(testimonialsCollectionRef);
 
   useEffect(() => {
     if (vessels && firestore && user?.uid) {
@@ -213,7 +207,7 @@ export default function DashboardPage() {
   }, [vessels, allSeaService]);
 
 
-  const isLoading = isLoadingVessels || isLoadingTestimonials || (vessels && (allSeaService.length === 0 || allStateLogs.size === 0) && vessels.length > 0);
+  const isLoading = isLoadingVessels || (vessels && (allSeaService.length === 0 || allStateLogs.size === 0) && vessels.length > 0);
   
   if (isLoading) {
     return (
