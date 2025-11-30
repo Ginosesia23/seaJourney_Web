@@ -69,7 +69,7 @@ export default function DashboardSidebar({ isCollapsed, userProfile }: { isColla
   const pathname = usePathname();
 
   return (
-    <aside className="hidden border-r bg-card lg:block">
+    <aside className="border-r bg-card">
       <div className="flex h-full max-h-screen flex-col gap-2">
         <div className="flex h-16 items-center border-b px-6 lg:hidden">
            <Logo />
