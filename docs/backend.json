@@ -179,6 +179,20 @@
        },
        "required": ["date", "state"]
     },
+    "Testimonial": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Testimonial",
+        "type": "object",
+        "description": "Represents a testimonial or reference for a user.",
+        "properties": {
+            "id": { "type": "string" },
+            "userProfileId": { "type": "string" },
+            "content": { "type": "string" },
+            "rating": { "type": "number", "minimum": 1, "maximum": 5 },
+            "dateCreated": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "userProfileId", "content", "rating", "dateCreated"]
+    },
     "VerificationRecord": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "VerificationRecord",
@@ -295,6 +309,15 @@
           "params": [
             { "name": "userId" }, { "name": "vesselId" }, { "name": "dateKey" }
           ]
+        }
+      },
+       {
+        "path": "/users/{userId}/testimonials/{testimonialId}",
+        "definition": {
+          "entityName": "Testimonial",
+          "schema": { "$ref": "#/entities/Testimonial" },
+          "description": "Stores testimonials for a user.",
+          "params": [{ "name": "userId" }, { "name": "testimonialId" }]
         }
       },
       {

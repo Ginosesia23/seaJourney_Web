@@ -36,7 +36,7 @@ export default function TestimonialsPage() {
 
     const testimonialsCollectionRef = useMemoFirebase(() => {
         if (!user || !firestore) return null;
-        return collection(firestore, 'users', user.uid, 'profile', user.uid, 'testimonials');
+        return collection(firestore, 'users', user.uid, 'testimonials');
     }, [user, firestore]);
 
     const { data: testimonials, isLoading } = useCollection<Testimonial>(testimonialsCollectionRef);
