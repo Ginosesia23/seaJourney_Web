@@ -1,120 +1,39 @@
 
-/**
- * @fileoverview Firestore Security Rules for SeaJourney Landing Website.
- *
- * Core Philosophy:
- * This ruleset enforces a strict user-ownership model for user profiles, vessels, and their associated testimonials. Only the authenticated user can create, read, update, or delete their own data. Vessel managers have specific permissions to view crew data.
- *
- * Data Structure:
- * - User profiles are stored under `/users/{userId}/profile`.
- * - Vessels are stored under `/users/{userId}/vessels`.
- * - Testimonials are stored as subcollections under user profiles at `/users/{userId}/profile/{userId}/testimonials/{testimonialId}`.
- *
- * Key Security Decisions:
- * - User listing is allowed for 'vessel' and 'admin' roles via a collection group query on 'profile'.
- * - Read-only collections are not applicable in this data model.
- * - All write operations are strictly controlled by user ownership, enforced by matching the authenticated user's UID against the document path.
- *
- * Denormalization for Authorization:
- * - All user-owned data is secured by its path, which includes the userId. This avoids the need for extra `get()` calls to verify ownership.
- */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    /**
-     * @description Enforces user-ownership for all operations. A user can only access documents within their own `/users/{userId}` path.
-     */
     function isOwner(userId) {
       return request.auth.uid == userId;
     }
-
-    /**
-     * @description Checks if the requesting user has a 'vessel' or 'admin' role. This requires a read from the user's own profile.
-     */
-    function isVesselManagerOrAdmin() {
-      let userProfilePath = /databases/$(database)/documents/users/$(request.auth.uid)/profile/$(request.auth.uid);
+    
+    function isVesselManagerOrAdmin(userId) {
+      let userProfilePath = /databases/$(database)/documents/users/$(userId);
       return request.auth != null && get(userProfilePath).data.role in ['vessel', 'admin'];
     }
 
-    /**
-     * @description Enforces user-ownership for user profiles. A user profile is stored as a single document in a subcollection of the user's collection. The user profile is a single document with the same ID as the user's UID.
-     * @path /users/{userId}/profile/{profileId}
-     * @allow (create) User with UID 'user123' creates their profile document at /users/user123/profile/user123.
-     * @allow (get, update, delete) User with UID 'user123' reads, updates, or deletes their profile document at /users/user123/profile/user123.
-     * @deny (create, get, update, delete) User with UID 'user456' attempts to access profile document at /users/user123/profile.
-     * @principle Enforces document ownership for all operations.
-     */
-    match /users/{userId}/profile/{profileId} {
-      allow read: if isOwner(userId) && userId == profileId;
-      allow create: if isOwner(userId) && userId == profileId && request.resource.data.role == 'crew';
-      allow update: if isOwner(userId) && userId == profileId;
-      allow delete: if isOwner(userId) && userId == profileId;
+    match /users/{userId} {
+      allow read, update, delete: if isOwner(userId);
+      allow create: if request.auth.uid == userId;
     }
     
-    /**
-     * @description Allows vessel managers and admins to list all profiles using a collection group query.
-     * @path /profile/{profileId}
-     * @allow (list) An admin or vessel manager lists all documents in the 'profile' collection group.
-     * @deny (list) A regular 'crew' user attempts to list all profiles.
-     */
-    match /{path=**}/profile/{profileId} {
-        allow list: if isVesselManagerOrAdmin();
+    match /users/{userId} {
+      allow list: if isVesselManagerOrAdmin(request.auth.uid);
     }
-
-    /**
-     * @description Enforces user-ownership for vessels. Only the authenticated user can access vessels associated with their profile.
-     * @path /users/{userId}/vessels/{vesselId}
-     * @allow (create, list, get) User with UID 'user123' creates or reads vessels under /users/user123/vessels.
-     * @deny (create, list, get) User with UID 'user456' attempts to access vessels at /users/user123/vessels.
-     * @principle Enforces collection ownership for read and create, and document ownership for write operations.
-     */
+    
     match /users/{userId}/vessels/{vesselId} {
-        allow read, create: if isOwner(userId);
-        allow update, delete: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
-    }
-
-    /**
-     * @description Enforces user-ownership for testimonials. Only the authenticated user can access testimonials associated with their profile.
-     * @path /users/{userId}/profile/{profileId}/testimonials/{testimonialId}
-     * @allow (create, list, get) User with UID 'user123' creates or reads testimonials under their profile at /users/user123/profile/user123/testimonials.
-     * @deny (create, list, get) User with UID 'user456' attempts to access testimonials at /users/user123/profile/user123/testimonials.
-     * @principle Enforces collection ownership for read and create, and document ownership for write operations.
-     */
-    match /users/{userId}/profile/{profileId}/testimonials/{testimonialId} {
-      allow get, list, create: if isOwner(userId) && userId == profileId;
-      allow update, delete: if isOwner(userId) && userId == profileId;
+      allow read, create: if isOwner(userId);
+      allow update, delete: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
     }
     
-    /**
-     * @description Enforces user-ownership for the current status. A user can only read and write their own current status.
-     * @path /users/{userId}/currentStatus/{statusId}
-     * @allow (read, write) User with UID 'user123' can access their current status document at /users/user123/currentStatus/status123.
-     * @deny (read, write) User with UID 'user456' attempts to access current status document at /users/user123/currentStatus/status123.
-     * @principle Enforces collection ownership for read and write operations, as it is expected to be a single-document collection.
-     */
-    match /users/{userId}/currentStatus/{statusId} {
-        allow read, write, list: if isOwner(userId);
+    match /users/{userId}/vessels/{vesselId}/seaService/{serviceId} {
+      allow read, list, create, update, delete: if isOwner(userId);
     }
 
-    /**
-     * @description Enforces user-ownership for past trip records.
-     * @path /users/{userId}/trips/{tripId}
-     * @allow (read, create) User with UID 'user123' can read their past trips and create new ones.
-     * @deny (write, delete) No modifications to past trips are allowed to maintain data integrity.
-     * @principle Enforces collection ownership for read and create, while making past records immutable.
-     */
-    match /users/{userId}/trips/{tripId} {
-      allow read, create, list: if isOwner(userId);
+    match /users/{userId}/vessels/{vesselId}/stateLogs/{dateKey} {
+      allow read, list, create, update, delete: if isOwner(userId);
     }
 
-    /**
-     * @description Public-facing verification records.
-     * @path /verificationRecords/{recordId}
-     * @allow (get) Anyone can read a verification record to verify a document.
-     * @allow (create) Only authenticated users can create verification records for their own data (logic to be enforced in backend).
-     * @deny (update, delete, list) No one can modify, delete, or list all verification records.
-     */
     match /verificationRecords/{recordId} {
       allow get: if true;
       allow create: if request.auth != null;

@@ -56,6 +56,14 @@
             "type": "string",
             "description": "The status of the user's subscription.",
             "enum": ["active", "inactive", "past-due"]
+        },
+        "activeVesselId": {
+          "type": "string",
+          "description": "The ID of the vessel the user is currently on."
+        },
+        "activeSeaServiceId": {
+            "type": "string",
+            "description": "The ID of the current active sea service record."
         }
       },
       "required": [
@@ -66,42 +74,6 @@
         "role",
         "subscriptionTier",
         "subscriptionStatus"
-      ]
-    },
-    "Testimonial": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "Testimonial",
-      "type": "object",
-      "description": "Represents a user testimonial about the AI tour creator feature.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the Testimonial entity."
-        },
-        "userProfileId": {
-          "type": "string",
-          "description": "Reference to UserProfile. (Relationship: UserProfile 1:N Testimonial)"
-        },
-        "content": {
-          "type": "string",
-          "description": "The text content of the testimonial."
-        },
-        "rating": {
-          "type": "number",
-          "description": "The rating given in the testimonial (e.g., 1-5 stars)."
-        },
-        "dateCreated": {
-          "type": "string",
-          "description": "Date and time when the testimonial was created.",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "userProfileId",
-        "content",
-        "rating",
-        "dateCreated"
       ]
     },
     "Vessel": {
@@ -138,47 +110,16 @@
         "ownerId"
       ]
     },
-    "CurrentStatus": {
+    "SeaServiceRecord": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "CurrentStatus",
+      "title": "SeaServiceRecord",
       "type": "object",
-      "description": "Represents the user's current active trip.",
+      "description": "Represents a user's trip, either current or past.",
       "properties": {
-        "vesselId": {
+         "id": {
           "type": "string",
-          "description": "The ID of the vessel for the current trip."
+          "description": "Unique identifier for the SeaServiceRecord."
         },
-        "position": {
-          "type": "string",
-          "description": "The user's position or role on the vessel."
-        },
-        "startDate": {
-          "type": "string",
-          "format": "date-time",
-          "description": "The start date of the current trip."
-        },
-        "dailyStates": {
-          "type": "object",
-          "description": "A map of dates to vessel states (e.g., 'at-sea', 'in-port')."
-        },
-        "notes": {
-          "type": "string",
-          "description": "User-added notes for the current trip."
-        }
-      },
-      "required": [
-        "vesselId",
-        "position",
-        "startDate",
-        "dailyStates"
-      ]
-    },
-    "Trip": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "Trip",
-      "type": "object",
-      "description": "Represents a user's completed trip record.",
-      "properties": {
         "vesselId": {
           "type": "string",
           "description": "The ID of the vessel for the trip."
@@ -195,20 +136,48 @@
         "endDate": {
           "type": "string",
           "format": "date-time",
-          "description": "The end date of the trip."
+          "description": "The end date of the trip. Null if current."
         },
-        "dailyStates": {
-          "type": "object",
-          "description": "A map of dates to vessel states (e.g., 'at-sea', 'in-port') for the duration of the trip."
+        "isCurrent": {
+          "type": "boolean",
+          "description": "True if this is the currently active trip."
+        },
+        "notes": {
+          "type": "string",
+          "description": "User-added notes for the trip."
         }
       },
       "required": [
+        "id",
         "vesselId",
         "position",
         "startDate",
-        "endDate",
-        "dailyStates"
+        "isCurrent"
       ]
+    },
+    "StateLog": {
+       "$schema": "http://json-schema.org/draft-07/schema#",
+       "title": "StateLog",
+       "type": "object",
+       "description": "Represents the vessel's state for a specific day.",
+       "properties": {
+         "date": {
+           "type": "string",
+           "format": "date",
+           "description": "The date for this log entry (e.g., '2025-11-30')."
+         },
+         "state": {
+           "type": "string",
+           "enum": ["underway", "at-anchor", "in-port", "on-leave", "in-yard"],
+           "description": "The state of the vessel for the given day."
+         },
+          "migrated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp if the record was migrated."
+          }
+       },
+       "required": ["date", "state"]
     },
     "VerificationRecord": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -267,13 +236,13 @@
   "firestore": {
     "structure": [
       {
-        "path": "/users/{userId}/profile/{userId}",
+        "path": "/users/{userId}",
         "definition": {
           "entityName": "UserProfile",
           "schema": {
-            "$ref": "#/backend/entities/UserProfile"
+            "$ref": "#/entities/UserProfile"
           },
-          "description": "Stores user profile information. The profile is stored as a single document in a subcollection of the user's collection, with the document ID matching the user's UID to enforce ownership.",
+          "description": "Stores user profile information.",
           "params": [
             {
               "name": "userId",
@@ -287,9 +256,9 @@
         "definition": {
           "entityName": "Vessel",
           "schema": {
-            "$ref": "#/backend/entities/Vessel"
+            "$ref": "#/entities/Vessel"
           },
-          "description": "Stores vessels associated with a user. Path-based ownership enforces that a vessel is owned by the user.",
+          "description": "Stores vessels associated with a user.",
           "params": [
             {
               "name": "userId",
@@ -303,62 +272,28 @@
         }
       },
       {
-        "path": "/users/{userId}/profile/testimonials/{testimonialId}",
+        "path": "/users/{userId}/vessels/{vesselId}/seaService/{serviceId}",
         "definition": {
-          "entityName": "Testimonial",
+          "entityName": "SeaServiceRecord",
           "schema": {
-            "$ref": "#/backend/entities/Testimonial"
+            "$ref": "#/entities/SeaServiceRecord"
           },
-          "description": "Stores testimonials associated with a user profile. Path-based ownership enforces that a testimonial is owned by the user.",
+          "description": "Stores records of sea service (trips) for a specific vessel.",
           "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user."
-            },
-            {
-              "name": "testimonialId",
-              "description": "The unique identifier of the testimonial."
-            }
-          ]
-        }
-      },
-       {
-        "path": "/users/{userId}/currentStatus/{statusId}",
-        "definition": {
-          "entityName": "CurrentStatus",
-          "schema": {
-            "$ref": "#/backend/entities/CurrentStatus"
-          },
-          "description": "Stores the user's current active trip status. Should only contain one document.",
-          "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user."
-            },
-            {
-              "name": "statusId",
-              "description": "The unique identifier of the status document."
-            }
+            { "name": "userId" }, { "name": "vesselId" }, { "name": "serviceId" }
           ]
         }
       },
       {
-        "path": "/users/{userId}/trips/{tripId}",
+        "path": "/users/{userId}/vessels/{vesselId}/stateLogs/{dateKey}",
         "definition": {
-          "entityName": "Trip",
+          "entityName": "StateLog",
           "schema": {
-            "$ref": "#/backend/entities/Trip"
+            "$ref": "#/entities/StateLog"
           },
-          "description": "Stores a user's past trip records. Path-based ownership enforces that a trip is owned by the user.",
+          "description": "Stores the daily state log for a vessel. Document ID is the date string 'YYYY-MM-DD'.",
           "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user."
-            },
-            {
-              "name": "tripId",
-              "description": "The unique identifier of the trip."
-            }
+            { "name": "userId" }, { "name": "vesselId" }, { "name": "dateKey" }
           ]
         }
       },
@@ -367,9 +302,9 @@
         "definition": {
           "entityName": "VerificationRecord",
           "schema": {
-            "$ref": "#/backend/entities/VerificationRecord"
+            "$ref": "#/entities/VerificationRecord"
           },
-          "description": "Stores public, verifiable snapshots of sea time records. These are read-only for the public portal.",
+          "description": "Stores public, verifiable snapshots of sea time records.",
           "params": [
             {
               "name": "recordId",
@@ -379,6 +314,6 @@
         }
       }
     ],
-    "reasoning": "This Firestore data structure is designed to support the SeaJourney Landing website's user profiles and testimonials. The primary focus is on enabling secure and scalable data access while adhering to Authorization Independence and simplifying security rules. User profiles are stored under `/users/{userId}/profile/{userId}` following the Path-Based ownership access modeling strategy, where the profile document ID is the same as the user ID. This ensures a user can only access their own profile document. Testimonials are stored as subcollections of user profiles under `/users/{userId}/profile/testimonials/{testimonialId}`. By nesting the testimonials as a subcollection under each user profile, we establish clear ownership and enhance data organization. Vessels are stored in a top-level collection for each user `/users/{userId}/vessels/{vesselId}` which also enforces user ownership via the path. The addition of a public `verificationRecords` collection allows anonymous users (like the MCA) to read specific, non-sensitive records for verification purposes without compromising the security of user data."
+    "reasoning": "This Firestore data structure is designed to support the SeaJourney application. User data is stored under a top-level `users` collection. Each user document contains their profile. Subcollections for `vessels` are used to store vessel information. Nested further, each vessel has `seaService` (for trip records) and `stateLogs` (for daily status) subcollections. This structure enforces data ownership through path-based security rules and keeps related data organized hierarchically."
   }
 }

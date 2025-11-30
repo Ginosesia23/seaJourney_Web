@@ -2,8 +2,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useFirestore, useCollection, useMemoFirebase } from '@/firebase';
-import { collectionGroup, query } from 'firebase/firestore';
+import { useFirestore, useCollection, useMemoFirebase, useUser } from '@/firebase';
+import { collection, query } from 'firebase/firestore';
 import { MoreHorizontal, Loader2, Search, Users, User as UserIcon } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -14,31 +14,30 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import type { UserProfile } from '@/lib/types';
 
-interface UserProfile {
-    id: string;
-    username: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    profilePicture?: string;
-    registrationDate: string;
-    role: 'crew' | 'vessel' | 'admin';
-    subscriptionTier: string;
-}
 
 const getInitials = (name: string) => name ? name.split(' ').map((n) => n[0]).join('') : '';
 
 export default function CrewPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const firestore = useFirestore();
+    const { user } = useUser();
 
-    const profilesCollectionGroup = useMemoFirebase(() => {
-        if (!firestore) return null;
-        return query(collectionGroup(firestore, 'profile'));
-    }, [firestore]);
+    // The user's own profile is needed to check their role
+    const { data: userProfile, isLoading: isLoadingProfile } = useCollection<UserProfile>(
+        useMemoFirebase(() => user ? query(collection(firestore, `users`)) : null, [firestore, user])
+    );
+    const currentUserProfile = useMemo(() => userProfile?.find(p => p.id === user?.uid), [userProfile, user]);
 
-    const { data: profiles, isLoading: isLoadingProfiles } = useCollection<UserProfile>(profilesCollectionGroup);
+    const isAuthorized = currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'vessel';
+
+    const usersCollection = useMemoFirebase(() => {
+        if (!firestore || !isAuthorized) return null;
+        return query(collection(firestore, 'users'));
+    }, [firestore, isAuthorized]);
+
+    const { data: profiles, isLoading: isLoadingProfiles } = useCollection<UserProfile>(usersCollection);
     
     const filteredProfiles = useMemo(() => {
         if (!profiles) return [];
@@ -56,7 +55,23 @@ export default function CrewPage() {
         });
     }, [profiles, searchTerm]);
 
-    const isLoading = isLoadingProfiles;
+    const isLoading = isLoadingProfile || (isAuthorized && isLoadingProfiles);
+
+    if (!isLoading && !isAuthorized) {
+        return (
+            <div className="w-full max-w-7xl mx-auto text-center py-10">
+                <Card className="max-w-md mx-auto">
+                    <CardHeader>
+                        <CardTitle>Access Denied</CardTitle>
+                        <CardDescription>You do not have permission to view this page.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <p>Only users with the 'vessel' or 'admin' role can access the crew management dashboard.</p>
+                    </CardContent>
+                </Card>
+            </div>
+        )
+    }
 
     return (
         <div className="w-full max-w-7xl mx-auto">

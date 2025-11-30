@@ -18,31 +18,22 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { collection, addDoc, doc, setDoc, Timestamp, deleteDoc, writeBatch } from 'firebase/firestore';
+import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError, useDoc } from '@/firebase';
+import { collection, addDoc, doc, setDoc, Timestamp, writeBatch } from 'firebase/firestore';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { DateRange } from 'react-day-picker';
 import StateBreakdownChart from '@/components/dashboard/state-breakdown-chart';
+import type { UserProfile, Vessel, SeaServiceRecord, StateLog, DailyStatus } from '@/lib/types';
 
-const currentStatusSchema = z.object({
+const startServiceSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
   position: z.string().min(2, 'Position is required.'),
   startDate: z.date({ required_error: 'A start date is required.' }),
-  vesselState: z.enum(['underway', 'at-anchor', 'in-port', 'on-leave', 'in-yard']),
+  initialState: z.enum(['underway', 'at-anchor', 'in-port', 'on-leave', 'in-yard']),
 });
 
-type CurrentStatusFormValues = z.infer<typeof currentStatusSchema>;
-
-type DailyStatus = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';
-interface CurrentStatus {
-    id: string;
-    vesselId: string;
-    position: string;
-    startDate: Timestamp;
-    dailyStates: Record<string, DailyStatus>;
-    notes?: string;
-}
+type StartServiceFormValues = z.infer<typeof startServiceSchema>;
 
 const addVesselSchema = z.object({
   name: z.string().min(2, 'Vessel name is required.'),
@@ -50,14 +41,6 @@ const addVesselSchema = z.object({
   officialNumber: z.string().optional(),
 });
 type AddVesselFormValues = z.infer<typeof addVesselSchema>;
-
-type Vessel = {
-  id: string;
-  name: string;
-  type: string;
-  officialNumber?: string;
-  ownerId: string;
-};
 
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
     { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
@@ -80,93 +63,79 @@ export default function CurrentPage() {
   const firestore = useFirestore();
   const { toast } = useToast();
 
-  const vesselsCollectionRef = useMemoFirebase(() => {
-    if (!firestore || !user?.uid) return null;
-    return collection(firestore, 'users', user.uid, 'vessels');
-  }, [firestore, user?.uid]);
-
+  const userProfileRef = useMemoFirebase(() => user ? doc(firestore, 'users', user.uid) : null, [firestore, user?.uid]);
+  const { data: userProfile, isLoading: isLoadingProfile } = useDoc<UserProfile>(userProfileRef);
+  
+  const vesselsCollectionRef = useMemoFirebase(() => user ? collection(firestore, 'users', user.uid, 'vessels') : null, [firestore, user?.uid]);
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
 
-  const currentStatusCollectionRef = useMemoFirebase(() => {
-    if (!firestore || !user?.uid) return null;
-    return collection(firestore, 'users', user.uid, 'currentStatus');
-  }, [firestore, user?.uid]);
+  const currentVessel = useMemo(() => vessels?.find(v => v.id === userProfile?.activeVesselId), [vessels, userProfile]);
 
-  const { data: currentStatusData, isLoading: isLoadingStatus } = useCollection<CurrentStatus>(currentStatusCollectionRef);
+  const currentServiceRef = useMemoFirebase(() => {
+    if (!firestore || !user?.uid || !currentVessel || !userProfile?.activeSeaServiceId) return null;
+    return doc(firestore, 'users', user.uid, 'vessels', currentVessel.id, 'seaService', userProfile.activeSeaServiceId);
+  }, [firestore, user?.uid, currentVessel, userProfile?.activeSeaServiceId]);
 
-  const currentStatus = useMemo(() => currentStatusData?.[0] || null, [currentStatusData]);
+  const { data: currentService, isLoading: isLoadingService } = useDoc<SeaServiceRecord>(currentServiceRef);
 
-  const statusForm = useForm<CurrentStatusFormValues>({
-    resolver: zodResolver(currentStatusSchema),
-    defaultValues: {
-      vesselId: '',
-      position: '',
-      startDate: undefined,
-      vesselState: 'underway',
-    },
+  const stateLogsRef = useMemoFirebase(() => {
+    if (!firestore || !user?.uid || !currentVessel) return null;
+    return collection(firestore, 'users', user.uid, 'vessels', currentVessel.id, 'stateLogs');
+  }, [firestore, user?.uid, currentVessel]);
+
+  const { data: stateLogs, isLoading: isLoadingLogs } = useCollection<StateLog>(stateLogsRef);
+  
+  const startServiceForm = useForm<StartServiceFormValues>({
+    resolver: zodResolver(startServiceSchema),
+    defaultValues: { vesselId: '', position: '', startDate: undefined, initialState: 'underway' },
   });
 
   const addVesselForm = useForm<AddVesselFormValues>({
     resolver: zodResolver(addVesselSchema),
-    defaultValues: {
-      name: '',
-      type: '',
-      officialNumber: '',
-    },
+    defaultValues: { name: '', type: '', officialNumber: '' },
   });
 
    useEffect(() => {
-    if (currentStatus && firestore && user?.uid) {
-      statusForm.reset({
-        vesselId: currentStatus.vesselId,
-        position: currentStatus.position,
-        startDate: fromUnixTime(currentStatus.startDate.seconds),
-        vesselState: 'underway',
-      });
-      setNotes(currentStatus.notes || '');
+    if (currentService) {
+      setNotes(currentService.notes || '');
 
-      // Logic to backfill missing dates
-      const startDate = fromUnixTime(currentStatus.startDate.seconds);
+      const startDate = fromUnixTime(currentService.startDate.seconds);
       const today = endOfDay(new Date());
       if (startDate > today) return;
 
       const allDates = eachDayOfInterval({ start: startOfDay(startDate), end: today });
+      const existingLogsMap = new Map(stateLogs?.map(log => [log.id, log.state]));
       let lastKnownState: DailyStatus | null = null;
+      const batch = writeBatch(firestore);
       let needsUpdate = false;
-      const updatedDailyStates = { ...currentStatus.dailyStates };
 
+      // Find the last known state up to the first missing date
+      for (const date of allDates) {
+        const dateKey = format(date, 'yyyy-MM-dd');
+        if (existingLogsMap.has(dateKey)) {
+          lastKnownState = existingLogsMap.get(dateKey) as DailyStatus;
+        } else {
+            break; // Stop when we find the first gap
+        }
+      }
+      
+      // Backfill from the first gap
       allDates.forEach(date => {
         const dateKey = format(date, 'yyyy-MM-dd');
-        if (updatedDailyStates[dateKey]) {
-          lastKnownState = updatedDailyStates[dateKey];
-        } else if (lastKnownState) {
-          updatedDailyStates[dateKey] = lastKnownState;
+        if (!existingLogsMap.has(dateKey) && lastKnownState) {
+          const logRef = doc(stateLogsRef!, dateKey);
+          batch.set(logRef, { date: dateKey, state: lastKnownState });
           needsUpdate = true;
+        } else if (existingLogsMap.has(dateKey)) {
+            lastKnownState = existingLogsMap.get(dateKey) as DailyStatus;
         }
       });
 
       if (needsUpdate) {
-        const docRef = doc(firestore, 'users', user.uid, 'currentStatus', currentStatus.id);
-        setDoc(docRef, { dailyStates: updatedDailyStates }, { merge: true })
-          .catch((serverError) => {
-            const permissionError = new FirestorePermissionError({
-                path: docRef.path,
-                operation: 'update',
-                requestResourceData: { dailyStates: updatedDailyStates },
-            });
-            errorEmitter.emit('permission-error', permissionError);
-          });
+        batch.commit().catch(e => console.error("Error backfilling state logs:", e));
       }
-    } else {
-        statusForm.reset({
-            vesselId: '',
-            position: '',
-            startDate: undefined,
-            vesselState: 'underway',
-        })
-        setNotes('');
     }
-  }, [currentStatus, firestore, user?.uid, statusForm]);
+  }, [currentService, stateLogs, firestore, user?.uid]);
 
   useEffect(() => {
     if(dateRange?.from && dateRange?.to) {
@@ -174,44 +143,42 @@ export default function CurrentPage() {
     }
   }, [dateRange]);
 
-  async function onStatusSubmit(data: CurrentStatusFormValues) {
-    if (!currentStatusCollectionRef || !user) return;
+  async function onStartServiceSubmit(data: StartServiceFormValues) {
+    if (!firestore || !user) return;
     
     const today = new Date();
     if(data.startDate > today) {
-        console.error("Start date cannot be in the future.");
+        toast({title: "Invalid Date", description: "Start date cannot be in the future.", variant: "destructive"});
         return;
     }
 
-    if (currentStatusData && currentStatusData.length > 0) {
-        for (const status of currentStatusData) {
-            await deleteDoc(doc(currentStatusCollectionRef, status.id));
-        }
-    }
+    const batch = writeBatch(firestore);
     
-    const interval = eachDayOfInterval({ start: data.startDate, end: today });
-    const dailyStates: Record<string, DailyStatus> = {};
-    interval.forEach(day => {
-        dailyStates[format(day, 'yyyy-MM-dd')] = data.vesselState;
-    });
-
-    const newStatus = {
-      vesselId: data.vesselId,
-      position: data.position,
-      startDate: Timestamp.fromDate(data.startDate),
-      dailyStates,
-      notes: '',
+    // 1. Create SeaServiceRecord
+    const seaServiceColRef = collection(firestore, 'users', user.uid, 'vessels', data.vesselId, 'seaService');
+    const newServiceRef = doc(seaServiceColRef);
+    const newServiceData: Omit<SeaServiceRecord, 'id'> = {
+        vesselId: data.vesselId,
+        position: data.position,
+        startDate: Timestamp.fromDate(data.startDate),
+        isCurrent: true,
+        notes: '',
     };
+    batch.set(newServiceRef, newServiceData);
+
+    // 2. Update user profile
+    batch.update(userProfileRef!, { activeVesselId: data.vesselId, activeSeaServiceId: newServiceRef.id });
+
+    // 3. Create initial state logs
+    const logsColRef = collection(firestore, 'users', user.uid, 'vessels', data.vesselId, 'stateLogs');
+    const interval = eachDayOfInterval({ start: data.startDate, end: today });
+    interval.forEach(day => {
+        const dateKey = format(day, 'yyyy-MM-dd');
+        const logRef = doc(logsColRef, dateKey);
+        batch.set(logRef, { date: dateKey, state: data.initialState });
+    });
     
-    addDoc(currentStatusCollectionRef, newStatus)
-      .catch((serverError) => {
-        const permissionError = new FirestorePermissionError({
-          path: currentStatusCollectionRef.path,
-          operation: 'create',
-          requestResourceData: newStatus,
-        });
-        errorEmitter.emit('permission-error', permissionError);
-      });
+    await batch.commit();
   }
 
   async function onAddVesselSubmit(data: AddVesselFormValues) {
@@ -237,128 +204,64 @@ export default function CurrentPage() {
   }
 
   const handleRangeStateChange = async (state: DailyStatus) => {
-    if (!currentStatus || !currentStatusCollectionRef || !dateRange?.from || !dateRange?.to) return;
-
-    const docRef = doc(currentStatusCollectionRef, currentStatus.id);
+    if (!stateLogsRef || !dateRange?.from || !dateRange?.to) return;
+    
+    const batch = writeBatch(firestore);
     const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
 
-    const updatedDailyStates = { ...currentStatus.dailyStates };
     interval.forEach(day => {
         const dateKey = format(day, 'yyyy-MM-dd');
-        updatedDailyStates[dateKey] = state;
+        const docRef = doc(stateLogsRef, dateKey);
+        batch.set(docRef, { date: dateKey, state: state });
     });
     
-    const updatedStatus = { dailyStates: updatedDailyStates };
-
-    setDoc(docRef, updatedStatus, { merge: true })
-      .catch((serverError) => {
-        const permissionError = new FirestorePermissionError({
-            path: docRef.path,
-            operation: 'update',
-            requestResourceData: updatedStatus,
-        });
-        errorEmitter.emit('permission-error', permissionError);
-      }).finally(() => {
-        setIsStatusDialogOpen(false);
-        setDateRange(undefined);
-      });
+    await batch.commit();
+    setIsStatusDialogOpen(false);
+    setDateRange(undefined);
   }
 
   const handleTodayStateChange = async (state: DailyStatus) => {
-    if (!currentStatus || !currentStatusCollectionRef) return;
-
+    if (!stateLogsRef) return;
     const todayKey = format(new Date(), 'yyyy-MM-dd');
-    const docRef = doc(currentStatusCollectionRef, currentStatus.id);
-    const updatedStatus = {
-        dailyStates: {
-            ...currentStatus.dailyStates,
-            [todayKey]: state,
-        },
-    };
-    
-    setDoc(docRef, updatedStatus, { merge: true })
-      .catch((serverError) => {
-        const permissionError = new FirestorePermissionError({
-            path: docRef.path,
-            operation: 'update',
-            requestResourceData: updatedStatus,
-        });
-        errorEmitter.emit('permission-error', permissionError);
-      });
+    const docRef = doc(stateLogsRef, todayKey);
+    await setDoc(docRef, { date: todayKey, state: state });
   };
 
   const handleSaveNotes = async () => {
-    if (!currentStatus || !currentStatusCollectionRef) return;
+    if (!currentServiceRef) return;
     setIsSavingNotes(true);
-    const docRef = doc(currentStatusCollectionRef, currentStatus.id);
-    setDoc(docRef, { notes }, { merge: true })
-        .then(() => {
-            toast({ title: 'Notes Saved', description: 'Your trip notes have been updated.' });
-        })
-        .catch((serverError) => {
-            const permissionError = new FirestorePermissionError({
-                path: docRef.path,
-                operation: 'update',
-                requestResourceData: { notes },
-            });
-            errorEmitter.emit('permission-error', permissionError);
-        })
+    setDoc(currentServiceRef, { notes }, { merge: true })
+        .then(() => toast({ title: 'Notes Saved', description: 'Your trip notes have been updated.' }))
+        .catch((e) => console.error("Error saving notes", e))
         .finally(() => setIsSavingNotes(false));
   };
 
 
   const handleEndTrip = async () => {
-    if (!currentStatus || !firestore || !user?.uid) return;
+    if (!currentServiceRef || !userProfileRef) return;
     
-    const tripsCollectionRef = collection(firestore, 'users', user.uid, 'trips');
-    const currentStatusDocRef = doc(currentStatusCollectionRef, currentStatus.id);
-
-    const pastTripData = {
-        ...currentStatus,
-        endDate: Timestamp.now(),
-    };
-    delete (pastTripData as any).id; // Don't need to store the old doc id
-
     const batch = writeBatch(firestore);
+    
+    // 1. Update SeaServiceRecord
+    batch.update(currentServiceRef, { isCurrent: false, endDate: Timestamp.now() });
 
-    // 1. Create new trip in 'trips' collection
-    const newTripRef = doc(tripsCollectionRef);
-    batch.set(newTripRef, pastTripData);
+    // 2. Update user profile
+    batch.update(userProfileRef, { activeVesselId: null, activeSeaServiceId: null });
 
-    // 2. Delete the 'currentStatus' document
-    batch.delete(currentStatusDocRef);
-
-    try {
-        await batch.commit();
-    } catch (serverError) {
-        console.error("Failed to end trip:", serverError);
-        // Emitting a generic error as this is a multi-step operation
-        const permissionError = new FirestorePermissionError({
-            path: `/users/${user.uid}`,
-            operation: 'write',
-            requestResourceData: { 
-                note: "Batch write to archive trip failed",
-                tripData: pastTripData,
-                currentStatusPath: currentStatusDocRef.path
-            },
-        });
-        errorEmitter.emit('permission-error', permissionError);
-    }
+    await batch.commit();
   }
   
-  const startDate = currentStatus ? fromUnixTime(currentStatus.startDate.seconds) : null;
-  const selectedVessel = currentStatus ? vessels?.find(v => v.id === currentStatus.vesselId) : null;
-  const daysOnboard = startDate ? differenceInDays(new Date(), startDate) + 1 : 0;
+  const startDate = currentService ? fromUnixTime(currentService.startDate.seconds) : null;
   
   const { totalDaysByState, atSeaDays, standbyDays } = useMemo(() => {
-    if (!currentStatus) return { totalDaysByState: [], atSeaDays: 0, standbyDays: 0 };
+    if (!stateLogs) return { totalDaysByState: [], atSeaDays: 0, standbyDays: 0 };
     
     let atSea = 0;
     let standby = 0;
-    const stateCounts = Object.values(currentStatus.dailyStates).reduce((acc, state) => {
-        acc[state] = (acc[state] || 0) + 1;
-        if (state === 'underway') atSea++;
-        if (state === 'in-port' || state === 'at-anchor') standby++;
+    const stateCounts = stateLogs.reduce((acc, log) => {
+        acc[log.state] = (acc[log.state] || 0) + 1;
+        if (log.state === 'underway') atSea++;
+        if (log.state === 'in-port' || log.state === 'at-anchor') standby++;
         return acc;
     }, {} as Record<DailyStatus, number>);
 
@@ -369,14 +272,12 @@ export default function CurrentPage() {
     })).filter(item => item.days > 0);
 
     return { totalDaysByState: chartData, atSeaDays: atSea, standbyDays: standby };
-  }, [currentStatus]);
+  }, [stateLogs]);
 
   const todayKey = format(new Date(), 'yyyy-MM-dd');
-  const todayStatusValue = currentStatus?.dailyStates[todayKey];
-  const todayStatusInfo = todayStatusValue ? vesselStates.find(s => s.value === todayStatusValue) : null;
-  
+  const todayStatusValue = stateLogs?.find(log => log.id === todayKey)?.state;
 
-  if (isLoadingStatus || isLoadingVessels) {
+  if (isLoadingProfile || isLoadingVessels) {
     return (
         <div className="flex items-center justify-center h-full">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -384,7 +285,7 @@ export default function CurrentPage() {
     )
   }
   
-  const isDisplayingStatus = currentStatus && selectedVessel && startDate;
+  const isDisplayingStatus = currentService && currentVessel && startDate;
 
   return (
     <div className="w-full max-w-7xl mx-auto">
@@ -394,7 +295,7 @@ export default function CurrentPage() {
             <CardTitle>Current Status</CardTitle>
           </div>
           {isDisplayingStatus && (
-            <Button onClick={handleEndTrip} variant="destructive" className="rounded-full">End Current Trip</Button>
+            <Button onClick={handleEndTrip} variant="destructive" className="rounded-full">End Current Service</Button>
           )}
         </div>
       {isDisplayingStatus ? (
@@ -406,17 +307,17 @@ export default function CurrentPage() {
                         <Ship className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-xl font-bold">{selectedVessel.name}</div>
-                        <p className="text-xs text-muted-foreground">{selectedVessel.type}</p>
+                        <div className="text-xl font-bold">{currentVessel.name}</div>
+                        <p className="text-xs text-muted-foreground">{currentVessel.type}</p>
                     </CardContent>
                 </Card>
-                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover-shadow-lg lg:col-span-2">
+                <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg lg:col-span-2">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium">Position & Start Date</CardTitle>
                         <Briefcase className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-xl font-bold">{currentStatus.position}</div>
+                        <div className="text-xl font-bold">{currentService.position}</div>
                          <p className="text-xs text-muted-foreground">Since {format(startDate, 'PPP')}</p>
                     </CardContent>
                 </Card>
@@ -449,7 +350,7 @@ export default function CurrentPage() {
                         <CardDescription>{format(new Date(), 'PPP')}</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                        {vesselStates.map(state => {
+                        {isLoadingLogs ? <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /> : vesselStates.map(state => {
                             const isActive = todayStatusValue === state.value;
                             return (
                                 <button
@@ -493,9 +394,7 @@ export default function CurrentPage() {
                     </CardHeader>
                     <CardContent>
                         <Dialog open={isStatusDialogOpen} onOpenChange={(open) => {
-                            if (!open) {
-                                setDateRange(undefined);
-                            }
+                            if (!open) setDateRange(undefined);
                             setIsStatusDialogOpen(open);
                         }}>
                             <Calendar
@@ -514,14 +413,13 @@ export default function CurrentPage() {
                                     day_outside: 'text-muted-foreground opacity-50',
                                     cell: "w-10 h-10 text-sm p-0 relative focus-within:relative focus-within:z-20",
                                     day: "h-10 w-10 p-0 font-normal rounded-full",
-                                    
                                 }}
                                 disabled={[{ before: startOfDay(startDate) }, { after: endOfDay(new Date()) }]}
                                 components={{
                                 DayContent: ({ date }) => {
                                     const dateKey = format(date, 'yyyy-MM-dd');
-                                    const stateValue = currentStatus.dailyStates[dateKey];
-                                    const stateInfo = vesselStates.find(s => s.value === stateValue);
+                                    const log = stateLogs?.find(l => l.id === dateKey);
+                                    const stateInfo = log ? vesselStates.find(s => s.value === log.state) : null;
                                     const isDateInRange = startDate && date >= startOfDay(startDate) && date <= endOfDay(new Date());
 
                                     if (!isDateInRange || !stateInfo) {
@@ -529,13 +427,7 @@ export default function CurrentPage() {
                                     }
                                     
                                     const colorClass = stateInfo.color.replace('hsl(var(--chart-', '').replace('))', '');
-                                    const calendarStateColorMap: Record<string, string> = {
-                                        'blue': 'bg-blue-500',
-                                        'orange': 'bg-orange-500',
-                                        'green': 'bg-green-500',
-                                        'gray': 'bg-gray-500',
-                                        'red': 'bg-red-500',
-                                    }
+                                    const calendarStateColorMap: Record<string, string> = { 'blue': 'bg-blue-500', 'orange': 'bg-orange-500', 'green': 'bg-green-500', 'gray': 'bg-gray-500', 'red': 'bg-red-500' }
 
                                     return (
                                     <TooltipProvider>
@@ -543,12 +435,10 @@ export default function CurrentPage() {
                                         <TooltipTrigger asChild>
                                             <div className="relative h-full w-full flex items-center justify-center">
                                                 <div className={cn('absolute inset-1.5 rounded-full', calendarStateColorMap[colorClass])}></div>
-                                                <span className={cn("relative z-10 font-medium", stateValue ? 'text-white' : 'text-foreground')} style={{textShadow: stateValue ? '0 1px 2px rgba(0,0,0,0.5)' : 'none'}}>{format(date, 'd')}</span>
+                                                <span className={cn("relative z-10 font-medium", log ? 'text-white' : 'text-foreground')} style={{textShadow: log ? '0 1px 2px rgba(0,0,0,0.5)' : 'none'}}>{format(date, 'd')}</span>
                                             </div>
                                         </TooltipTrigger>
-                                        <TooltipContent>
-                                            <p>{stateInfo.label}</p>
-                                        </TooltipContent>
+                                        <TooltipContent><p>{stateInfo.label}</p></TooltipContent>
                                         </Tooltip>
                                     </TooltipProvider>
                                     );
@@ -566,20 +456,9 @@ export default function CurrentPage() {
                                 <div className="flex flex-col gap-4 py-4">
                                 {vesselStates.map((state) => {
                                     const colorClass = state.color.replace('hsl(var(--chart-', '').replace('))', '');
-                                     const calendarStateColorMap: Record<string, string> = {
-                                        'blue': 'bg-blue-500',
-                                        'orange': 'bg-orange-500',
-                                        'green': 'bg-green-500',
-                                        'gray': 'bg-gray-500',
-                                        'red': 'bg-red-500',
-                                    }
+                                    const calendarStateColorMap: Record<string, string> = { 'blue': 'bg-blue-500', 'orange': 'bg-orange-500', 'green': 'bg-green-500', 'gray': 'bg-gray-500', 'red': 'bg-red-500' };
                                     return (
-                                     <Button
-                                        key={state.value}
-                                        variant="outline"
-                                        className="justify-start gap-3 rounded-lg"
-                                        onClick={() => handleRangeStateChange(state.value)}
-                                        >
+                                     <Button key={state.value} variant="outline" className="justify-start gap-3 rounded-lg" onClick={() => handleRangeStateChange(state.value)}>
                                         <span className={cn('h-3 w-3 rounded-full', calendarStateColorMap[colorClass])}></span>
                                         {state.label}
                                      </Button>
@@ -592,26 +471,14 @@ export default function CurrentPage() {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
                 <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
-                    <CardHeader>
-                        <CardTitle>Day Breakdown</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <StateBreakdownChart data={totalDaysByState} />
-                    </CardContent>
+                    <CardHeader><CardTitle>Day Breakdown</CardTitle></CardHeader>
+                    <CardContent><StateBreakdownChart data={totalDaysByState} /></CardContent>
                 </Card>
                     
                 <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
-                    <CardHeader className="flex flex-row items-center gap-3">
-                            <BookText className="h-5 w-5" />
-                        <CardTitle>Trip Notes</CardTitle>
-                    </CardHeader>
+                    <CardHeader className="flex flex-row items-center gap-3"><BookText className="h-5 w-5" /><CardTitle>Trip Notes</CardTitle></CardHeader>
                     <CardContent>
-                        <Textarea 
-                            placeholder="Add notes about your trip..."
-                            value={notes}
-                            onChange={(e) => setNotes(e.target.value)}
-                            className="min-h-[100px]"
-                        />
+                        <Textarea placeholder="Add notes about your trip..." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[100px]" />
                     </CardContent>
                     <CardFooter>
                         <Button onClick={handleSaveNotes} disabled={isSavingNotes} className="rounded-lg">
@@ -625,14 +492,14 @@ export default function CurrentPage() {
       ) : (
         <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg max-w-lg mx-auto">
           <CardHeader>
-            <CardTitle>Set Your Current Vessel</CardTitle>
+            <CardTitle>Start a New Sea Service</CardTitle>
             <CardDescription>Log the vessel you are currently working on to start tracking your sea time.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Form {...statusForm}>
-              <form onSubmit={statusForm.handleSubmit(onStatusSubmit)} className="space-y-6">
+            <Form {...startServiceForm}>
+              <form onSubmit={startServiceForm.handleSubmit(onStartServiceSubmit)} className="space-y-6">
                 <FormField
-                  control={statusForm.control}
+                  control={startServiceForm.control}
                   name="vesselId"
                   render={({ field }) => (
                     <FormItem>
@@ -640,69 +507,24 @@ export default function CurrentPage() {
                       <div className="flex gap-2">
                         <Select onValueChange={field.onChange} value={field.value} disabled={isLoadingVessels}>
                           <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder={isLoadingVessels ? "Loading vessels..." : "Select the vessel you're on"} />
-                            </SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder={isLoadingVessels ? "Loading vessels..." : "Select the vessel you're on"} /></SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {vessels?.map(vessel => (
-                              <SelectItem key={vessel.id} value={vessel.id}>{vessel.name}</SelectItem>
-                            ))}
+                            {vessels?.map(vessel => (<SelectItem key={vessel.id} value={vessel.id}>{vessel.name}</SelectItem>))}
                           </SelectContent>
                         </Select>
                         <Dialog open={isAddVesselDialogOpen} onOpenChange={setIsAddVesselDialogOpen}>
-                            <DialogTrigger asChild>
-                                <Button variant="outline" size="icon" className="shrink-0 rounded-full">
-                                    <PlusCircle className="h-4 w-4" />
-                                </Button>
-                            </DialogTrigger>
+                            <DialogTrigger asChild><Button variant="outline" size="icon" className="shrink-0 rounded-full"><PlusCircle className="h-4 w-4" /></Button></DialogTrigger>
                             <DialogContent>
-                                <DialogHeader>
-                                    <DialogTitle>Add a New Vessel</DialogTitle>
-                                </DialogHeader>
+                                <DialogHeader><DialogTitle>Add a New Vessel</DialogTitle></DialogHeader>
                                 <Form {...addVesselForm}>
                                     <form onSubmit={addVesselForm.handleSubmit(onAddVesselSubmit)} className="space-y-4 py-4">
-                                        <FormField
-                                            control={addVesselForm.control}
-                                            name="name"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Vessel Name</FormLabel>
-                                                    <FormControl><Input placeholder="e.g., M/Y Odyssey" {...field} /></FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                        <FormField
-                                            control={addVesselForm.control}
-                                            name="type"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Vessel Type</FormLabel>
-                                                    <FormControl><Input placeholder="e.g., Motor Yacht" {...field} /></FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                        <FormField
-                                            control={addVesselForm.control}
-                                            name="officialNumber"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Official Number (Optional)</FormLabel>
-                                                    <FormControl><Input placeholder="e.g., IMO 1234567" {...field} /></FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
+                                        <FormField control={addVesselForm.control} name="name" render={({ field }) => (<FormItem><FormLabel>Vessel Name</FormLabel><FormControl><Input placeholder="e.g., M/Y Odyssey" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                        <FormField control={addVesselForm.control} name="type" render={({ field }) => (<FormItem><FormLabel>Vessel Type</FormLabel><FormControl><Input placeholder="e.g., Motor Yacht" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                        <FormField control={addVesselForm.control} name="officialNumber" render={({ field }) => (<FormItem><FormLabel>Official Number (Optional)</FormLabel><FormControl><Input placeholder="e.g., IMO 1234567" {...field} /></FormControl><FormMessage /></FormItem>)} />
                                         <DialogFooter className="pt-4">
-                                            <DialogClose asChild>
-                                                <Button type="button" variant="ghost">Cancel</Button>
-                                            </DialogClose>
-                                            <Button type="submit" disabled={isSavingVessel} className="rounded-lg">
-                                                {isSavingVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                                Save Vessel
-                                            </Button>
+                                            <DialogClose asChild><Button type="button" variant="ghost">Cancel</Button></DialogClose>
+                                            <Button type="submit" disabled={isSavingVessel} className="rounded-lg">{isSavingVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save Vessel</Button>
                                         </DialogFooter>
                                     </form>
                                 </Form>
@@ -713,92 +535,9 @@ export default function CurrentPage() {
                     </FormItem>
                   )}
                 />
-
-                <FormField
-                  control={statusForm.control}
-                  name="position"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Your Position/Role</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g., Deckhand, 2nd Engineer" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                <FormField
-                  control={statusForm.control}
-                  name="startDate"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Start Date</FormLabel>
-                       <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                variant={"outline"}
-                                className={cn(
-                                  "w-full pl-3 text-left font-normal rounded-lg",
-                                  !field.value && "text-muted-foreground"
-                                )}
-                              >
-                                {field.value ? (
-                                  format(field.value, "PPP")
-                                ) : (
-                                  <span>Pick a date</span>
-                                )}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={field.onChange}
-                              disabled={(date) =>
-                                date > new Date() || date < new Date("1990-01-01")
-                              }
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={statusForm.control}
-                  name="vesselState"
-                  render={({ field }) => (
-                    <FormItem className="space-y-3">
-                      <FormLabel>Initial Vessel State</FormLabel>
-                      <FormControl>
-                        <RadioGroup
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                          className="flex flex-col space-y-1"
-                        >
-                          {vesselStates.map((state) => (
-                             <FormItem key={state.value} className="flex items-center space-x-3 space-y-0">
-                                <FormControl>
-                                  <RadioGroupItem value={state.value} />
-                                </FormControl>
-                                <FormLabel className="font-normal">
-                                  {state.label}
-                                </FormLabel>
-                              </FormItem>
-                          ))}
-                        </RadioGroup>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
+                <FormField control={startServiceForm.control} name="position" render={({ field }) => (<FormItem><FormLabel>Your Position/Role</FormLabel><FormControl><Input placeholder="e.g., Deckhand, 2nd Engineer" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                <FormField control={startServiceForm.control} name="startDate" render={({ field }) => (<FormItem className="flex flex-col"><FormLabel>Start Date</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal rounded-lg",!field.value && "text-muted-foreground")}>{field.value ? format(field.value, "PPP") : (<span>Pick a date</span>)}<CalendarIcon className="ml-auto h-4 w-4 opacity-50" /></Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0" align="start"><Calendar mode="single" selected={field.value} onSelect={field.onChange} disabled={(date) =>date > new Date() || date < new Date("1990-01-01")} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
+                <FormField control={startServiceForm.control} name="initialState" render={({ field }) => (<FormItem className="space-y-3"><FormLabel>Initial Vessel State</FormLabel><FormControl><RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex flex-col space-y-1">{vesselStates.map((state) => (<FormItem key={state.value} className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value={state.value} /></FormControl><FormLabel className="font-normal">{state.label}</FormLabel></FormItem>))}</RadioGroup></FormControl><FormMessage /></FormItem>)} />
                 <Button type="submit" className="rounded-lg">Start Tracking</Button>
               </form>
             </Form>

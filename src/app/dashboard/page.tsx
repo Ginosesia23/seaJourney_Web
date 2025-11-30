@@ -16,43 +16,19 @@ import { Badge } from '@/components/ui/badge';
 import { format, getYear } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, Timestamp } from 'firebase/firestore';
-import { useMemo, useState } from 'react';
+import { collection, query, getDocs } from 'firebase/firestore';
+import { useMemo, useState, useEffect } from 'react';
 import { differenceInDays, fromUnixTime } from 'date-fns';
 import { ComposableMap, Geographies, Geography, Line, Marker } from "react-simple-maps"
 import worldAtlas from "world-atlas/countries-110m.json"
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-
-type Vessel = {
-  id: string;
-  name: string;
-  type: string;
-  ownerId: string;
-};
-
-type Trip = {
-    id: string;
-    vesselId: string;
-    position: string;
-    startDate: Timestamp;
-    endDate: Timestamp;
-    dailyStates: Record<string, 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard'>;
-};
-
-type CurrentStatus = {
-    id: string;
-    vesselId: string;
-    position: string;
-    startDate: Timestamp;
-    dailyStates: Record<string, 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard'>;
-};
+import type { Vessel, SeaServiceRecord, StateLog } from '@/lib/types';
 
 type Testimonial = {
     id: string;
     rating: number;
 }
-
 
 export default function DashboardPage() {
   const { user } = useUser();
@@ -60,85 +36,105 @@ export default function DashboardPage() {
 
   const [selectedYear, setSelectedYear] = useState('all');
   const [selectedVessel, setSelectedVessel] = useState('all');
+  
+  const [allSeaService, setAllSeaService] = useState<SeaServiceRecord[]>([]);
+  const [allStateLogs, setAllStateLogs] = useState<Map<string, StateLog[]>>(new Map());
 
   const vesselsCollectionRef = useMemoFirebase(() => 
     user ? collection(firestore, 'users', user.uid, 'vessels') : null, 
     [user, firestore]
   );
-  const tripsCollectionRef = useMemoFirebase(() => 
-    user ? collection(firestore, 'users', user.uid, 'trips') : null, 
-    [user, firestore]
-  );
-  const currentStatusCollectionRef = useMemoFirebase(() => 
-    user ? collection(firestore, 'users', user.uid, 'currentStatus') : null, 
-    [user, firestore]
-  );
+  
   const testimonialsCollectionRef = useMemoFirebase(() => 
     user ? collection(firestore, 'users', user.uid, 'profile', user.uid, 'testimonials') : null, 
     [user, firestore]
   );
 
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
-  const { data: trips, isLoading: isLoadingTrips } = useCollection<Trip>(tripsCollectionRef);
-  const { data: currentStatusData, isLoading: isLoadingStatus } = useCollection<CurrentStatus>(currentStatusCollectionRef);
   const { data: testimonials, isLoading: isLoadingTestimonials } = useCollection<Testimonial>(testimonialsCollectionRef);
-  
-  const currentStatus = useMemo(() => currentStatusData?.[0] || null, [currentStatusData]);
 
-  const filteredTrips = useMemo(() => {
-    if (!trips) return [];
-    return trips.filter(trip => {
-      const tripYear = getYear(fromUnixTime(trip.endDate.seconds));
-      const yearMatch = selectedYear === 'all' || tripYear === parseInt(selectedYear, 10);
-      const vesselMatch = selectedVessel === 'all' || trip.vesselId === selectedVessel;
+  useEffect(() => {
+    if (vessels && firestore && user?.uid) {
+        const fetchServiceAndLogs = async () => {
+            const serviceRecords: SeaServiceRecord[] = [];
+            const logsMap = new Map<string, StateLog[]>();
+
+            for (const vessel of vessels) {
+                const serviceRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'seaService');
+                const logsRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'stateLogs');
+
+                const [serviceSnap, logsSnap] = await Promise.all([getDocs(serviceRef), getDocs(logsRef)]);
+                
+                serviceSnap.forEach(doc => serviceRecords.push({ id: doc.id, ...doc.data() } as SeaServiceRecord));
+                const logs = logsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StateLog));
+                logsMap.set(vessel.id, logs);
+            }
+            setAllSeaService(serviceRecords);
+            setAllStateLogs(logsMap);
+        };
+        fetchServiceAndLogs();
+    }
+  }, [vessels, firestore, user?.uid]);
+
+
+  const filteredServiceRecords = useMemo(() => {
+    if (!allSeaService) return [];
+    return allSeaService.filter(service => {
+      const serviceYear = getYear(fromUnixTime(service.startDate.seconds));
+      const yearMatch = selectedYear === 'all' || serviceYear === parseInt(selectedYear, 10);
+      const vesselMatch = selectedVessel === 'all' || service.vesselId === selectedVessel;
       return yearMatch && vesselMatch;
     });
-  }, [trips, selectedYear, selectedVessel]);
+  }, [allSeaService, selectedYear, selectedVessel]);
 
-   const { totalSeaDays, atSeaDays, standbyDays } = useMemo(() => {
-    let seaDays = 0;
+   const { totalDays, atSeaDays, standbyDays } = useMemo(() => {
+    let days = 0;
     let atSea = 0;
     let standby = 0;
 
-    const allTrips = [...(filteredTrips || [])];
-    if (selectedYear === 'all' && selectedVessel === 'all' && currentStatus) {
-      allTrips.push(currentStatus);
-    }
-    
-    allTrips.forEach(trip => {
-        Object.values(trip.dailyStates).forEach(state => {
-            seaDays++;
-            if (state === 'underway') {
+    filteredServiceRecords.forEach(service => {
+        const logs = allStateLogs.get(service.vesselId) || [];
+        const serviceLogs = logs.filter(log => {
+            const logDate = new Date(log.date);
+            const startDate = fromUnixTime(service.startDate.seconds);
+            const endDate = service.endDate ? fromUnixTime(service.endDate.seconds) : new Date();
+            return logDate >= startDate && logDate <= endDate;
+        });
+
+        serviceLogs.forEach(log => {
+            days++;
+            if (log.state === 'underway') {
                 atSea++;
-            } else if (state === 'in-port' || state === 'at-anchor') {
+            } else if (log.state === 'in-port' || log.state === 'at-anchor') {
                 standby++;
             }
         });
     });
 
-    return { totalSeaDays: seaDays, atSeaDays: atSea, standbyDays: standby };
-  }, [filteredTrips, currentStatus, selectedYear, selectedVessel]);
+    return { totalDays: days, atSeaDays: atSea, standbyDays: standby };
+  }, [filteredServiceRecords, allStateLogs]);
 
   const recentActivity = useMemo(() => {
-    if (!trips || !vessels) return [];
-    return trips
-        .sort((a, b) => b.endDate.seconds - a.endDate.seconds)
+    if (!allSeaService || !vessels) return [];
+    return allSeaService
+        .filter(s => s.endDate)
+        .sort((a, b) => b.endDate!.seconds - a.endDate!.seconds)
         .slice(0, 5)
-        .map(trip => {
-            const vessel = vessels.find(v => v.id === trip.vesselId);
+        .map(service => {
+            const vessel = vessels.find(v => v.id === service.vesselId);
             return {
-                ...trip,
+                ...service,
                 vesselName: vessel?.name || 'Unknown Vessel',
-                days: differenceInDays(fromUnixTime(trip.endDate.seconds), fromUnixTime(trip.startDate.seconds)) + 1
+                days: differenceInDays(fromUnixTime(service.endDate!.seconds), fromUnixTime(service.startDate.seconds)) + 1
             }
         });
-  }, [trips, vessels]);
+  }, [allSeaService, vessels]);
   
   const availableYears = useMemo(() => {
-    if (!trips) return [];
-    const years = new Set(trips.map(trip => getYear(fromUnixTime(trip.endDate.seconds))));
+    if (!allSeaService) return [];
+    const years = new Set(allSeaService.map(service => getYear(fromUnixTime(service.startDate.seconds))));
     return ['all', ...Array.from(years).sort((a, b) => b - a).map(String)];
-  }, [trips]);
+  }, [allSeaService]);
 
   const availableVessels = useMemo(() => {
     if(!vessels) return [];
@@ -149,53 +145,61 @@ export default function DashboardPage() {
     const months = Array.from({length: 12}).map((_, i) => {
         const d = new Date();
         d.setMonth(d.getMonth() - i);
-        return { month: format(d, 'MMM'), seaDays: 0 };
+        return { month: format(d, 'MMM'), seaDays: 0, underway: 0, inPort: 0, atAnchor: 0 };
     }).reverse();
 
-    const allRecords = [...(trips || []), ...(currentStatus ? [currentStatus] : [])];
-    
-    allRecords.forEach(record => {
-      Object.keys(record.dailyStates).forEach(dateStr => {
-        const date = new Date(dateStr);
+    allStateLogs.forEach(logs => {
+      logs.forEach(log => {
+        const date = new Date(log.date);
         const monthStr = format(date, 'MMM');
-        const month = months.find(m => m.month === monthStr);
-        if(month) {
-            month.seaDays++;
+        const monthData = months.find(m => m.month === monthStr);
+        if(monthData) {
+            monthData.seaDays++;
+            if (log.state === 'underway') monthData.underway++;
+            if (log.state === 'in-port') monthData.inPort++;
+            if (log.state === 'at-anchor') monthData.atAnchor++;
         }
       });
     });
 
     return months;
-
-  }, [trips, currentStatus]);
+  }, [allStateLogs]);
 
   const longestPassage = useMemo(() => {
-    if (!trips || trips.length === 0 || !vessels) return null;
-    const longest = trips.reduce((max, trip) => {
-      const days = Object.keys(trip.dailyStates).length;
-      return days > (max ? Object.keys(max.dailyStates).length : 0) ? trip : max;
+    if (!allSeaService || allSeaService.length === 0 || !vessels) return null;
+    let longest: SeaServiceRecord | null = null;
+    let maxDays = 0;
+
+    allSeaService.forEach(service => {
+        const days = differenceInDays(
+            service.endDate ? fromUnixTime(service.endDate.seconds) : new Date(), 
+            fromUnixTime(service.startDate.seconds)
+        );
+        if (days > maxDays) {
+            maxDays = days;
+            longest = service;
+        }
     });
-    const vessel = vessels.find(v => v.id === longest.vesselId);
+
+    if (!longest) return null;
+    const vessel = vessels.find(v => v.id === longest!.vesselId);
     return {
       vesselName: vessel?.name || 'Unknown',
-      days: Object.keys(longest.dailyStates).length
+      days: maxDays
     }
-  }, [trips, vessels]);
+  }, [allSeaService, vessels]);
 
   const topVessel = useMemo(() => {
-    if(!vessels || !trips) return null;
+    if(!vessels || !allSeaService) return null;
 
     const daysByVessel: Record<string, number> = {};
-
-    trips.forEach(trip => {
-      const days = Object.keys(trip.dailyStates).length;
-      daysByVessel[trip.vesselId] = (daysByVessel[trip.vesselId] || 0) + days;
+    allSeaService.forEach(service => {
+        const days = differenceInDays(
+            service.endDate ? fromUnixTime(service.endDate.seconds) : new Date(),
+            fromUnixTime(service.startDate.seconds)
+        ) + 1;
+        daysByVessel[service.vesselId] = (daysByVessel[service.vesselId] || 0) + days;
     });
-    
-    if (currentStatus) {
-       const days = Object.keys(currentStatus.dailyStates).length;
-       daysByVessel[currentStatus.vesselId] = (daysByVessel[currentStatus.vesselId] || 0) + days;
-    }
 
     if (Object.keys(daysByVessel).length === 0) return null;
 
@@ -206,10 +210,10 @@ export default function DashboardPage() {
       vesselName: vessel?.name || 'Unknown',
       days: daysByVessel[topVesselId]
     }
-  }, [vessels, trips, currentStatus]);
+  }, [vessels, allSeaService]);
 
 
-  const isLoading = isLoadingVessels || isLoadingTrips || isLoadingStatus || isLoadingTestimonials;
+  const isLoading = isLoadingVessels || isLoadingTestimonials || (vessels && (allSeaService.length === 0 || allStateLogs.size === 0) && vessels.length > 0);
   
   if (isLoading) {
     return (
@@ -254,11 +258,11 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
          <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Sea Days</CardTitle>
+                <CardTitle className="text-sm font-medium">Total Days Logged</CardTitle>
                 <Ship className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-                <div className="text-2xl font-bold">{totalSeaDays}</div>
+                <div className="text-2xl font-bold">{totalDays}</div>
                 <p className="text-xs text-muted-foreground">{selectedYear === 'all' && selectedVessel === 'all' ? 'All time' : 'Based on filters'}</p>
             </CardContent>
         </Card>
@@ -324,7 +328,7 @@ export default function DashboardPage() {
                                 <div className="font-medium">{activity.vesselName}</div>
                                 <div className="text-sm text-muted-foreground">{activity.days} days</div>
                             </TableCell>
-                            <TableCell className="text-right">{format(fromUnixTime(activity.endDate.seconds), 'dd MMM, yyyy')}</TableCell>
+                            <TableCell className="text-right">{format(fromUnixTime(activity.endDate!.seconds), 'dd MMM, yyyy')}</TableCell>
                         </TableRow>
                         )) : (
                             <TableRow>
@@ -396,7 +400,7 @@ export default function DashboardPage() {
         {longestPassage && (
             <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Longest Passage</CardTitle>
+                    <CardTitle className="text-sm font-medium">Longest Service</CardTitle>
                     <Award className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>

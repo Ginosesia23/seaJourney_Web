@@ -70,7 +70,7 @@ export function UserProfileCard() {
 
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
-    return doc(firestore, 'users', user.uid, 'profile', user.uid);
+    return doc(firestore, 'users', user.uid);
   }, [firestore, user?.uid]);
 
   const { data: userProfile, isLoading } = useDoc(userProfileRef);

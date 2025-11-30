@@ -18,6 +18,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { Loader2 } from 'lucide-react';
 import LogoOnboarding from '@/components/logo-onboarding';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
+import type { UserProfile } from '@/lib/types';
 
 const loginSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address.' }),
@@ -25,10 +26,6 @@ const loginSchema = z.object({
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
-
-interface UserProfile {
-  role: 'crew' | 'vessel' | 'admin';
-}
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -49,7 +46,7 @@ export default function LoginPage() {
   
   const checkUserAndRedirect = async (user: User) => {
     if (!firestore) return;
-    const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
+    const userProfileRef = doc(firestore, 'users', user.uid);
     try {
       const docSnap = await getDoc(userProfileRef);
       if (docSnap.exists()) {

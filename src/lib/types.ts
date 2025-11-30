@@ -13,6 +13,8 @@ export interface UserProfile {
   role: 'crew' | 'vessel' | 'admin';
   subscriptionTier: string;
   subscriptionStatus: 'active' | 'inactive' | 'past-due';
+  activeVesselId?: string;
+  activeSeaServiceId?: string;
 }
 
 export interface Vessel {
@@ -25,12 +27,19 @@ export interface Vessel {
 
 export type DailyStatus = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';
 
-export interface Trip {
+export interface SeaServiceRecord {
     id: string;
     vesselId: string;
     position: string;
     startDate: Timestamp;
     endDate?: Timestamp;
-    dailyStates: Record<string, DailyStatus>; // "yyyy-MM-dd" -> DailyStatus
+    isCurrent: boolean;
     notes?: string;
+}
+
+export interface StateLog {
+    id: string; // "YYYY-MM-DD"
+    date: string; // "YYYY-MM-DD"
+    state: DailyStatus;
+    migrated_at?: string;
 }

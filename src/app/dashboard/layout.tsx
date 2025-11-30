@@ -11,11 +11,8 @@ import DashboardSidebar from '@/components/layout/dashboard-sidebar';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
 import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
+import type { UserProfile } from '@/lib/types';
 
-interface UserProfile {
-  subscriptionTier: 'free' | 'premium' | 'premium-plus' | 'professional';
-  role: 'crew' | 'vessel' | 'admin';
-}
 
 function DashboardContent({ children }: { children: React.ReactNode }) {
   const { user, isUserLoading } = useUser();
@@ -27,7 +24,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
 
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
-    return doc(firestore, 'users', user.uid, 'profile', user.uid);
+    return doc(firestore, 'users', user.uid);
   }, [firestore, user?.uid]);
 
   const { data: userProfile, isLoading: isProfileLoading } =
@@ -103,7 +100,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     <div className={cn('theme-dashboard flex h-screen w-full flex-col', theme === 'dark' ? 'dark' : '')}>
       <DashboardHeader userProfile={userProfile} />
       <div className="flex flex-1 overflow-hidden">
-        <DashboardSidebar isCollapsed={isMapPage} userProfile={userProfile} />
+        <DashboardSidebar userProfile={userProfile} />
         <main
           className={cn(
             'flex-1 overflow-y-auto',

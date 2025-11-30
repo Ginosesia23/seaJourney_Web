@@ -76,7 +76,7 @@ export default function SignupPage() {
       await updateProfile(user, { displayName: data.username });
 
       // Create user profile in Firestore
-      const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
+      const userProfileRef = doc(firestore, 'users', user.uid);
       const profileData = {
         id: user.uid,
         email: user.email,
@@ -105,7 +105,7 @@ export default function SignupPage() {
           variant: 'destructive',
         });
       } else if (authError.code) {
-        const userProfileRef = doc(firestore, 'users', 'dummy-uid-for-error', 'profile', 'dummy-uid-for-error');
+        const userProfileRef = doc(firestore, 'users', 'dummy-uid-for-error');
         const permissionError = new FirestorePermissionError({
             path: userProfileRef.path,
             operation: 'create',

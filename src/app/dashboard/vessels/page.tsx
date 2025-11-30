@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -16,11 +16,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { collection, addDoc, doc, setDoc, deleteDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, deleteDoc, query, getDocs } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
-
+import type { Vessel, StateLog } from '@/lib/types';
 
 const vesselSchema = z.object({
   name: z.string().min(2, 'Vessel name is required.'),
@@ -29,35 +28,19 @@ const vesselSchema = z.object({
 });
 type VesselFormValues = z.infer<typeof vesselSchema>;
 
-type Vessel = {
-  id: string;
-  name: string;
-  type: string;
-  officialNumber?: string;
-  ownerId: string;
-};
-
-type DailyStatus = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';
-interface CurrentStatus {
-    id: string;
-    vesselId: string;
-    position: string;
-    startDate: Timestamp;
-    dailyStates: Record<string, DailyStatus>;
-}
-
-const vesselStates: { value: DailyStatus; label: string, color: string }[] = [
-    { value: 'underway', label: 'Underway', color: 'bg-blue-500' },
-    { value: 'at-anchor', label: 'At Anchor', color: 'bg-orange-500' },
-    { value: 'in-port', label: 'In Port', color: 'bg-green-500' },
-    { value: 'on-leave', label: 'On Leave', color: 'bg-gray-500' },
-    { value: 'in-yard', label: 'In Yard / Maintenance', color: 'bg-red-500' },
+const vesselStates: { value: string; label: string }[] = [
+    { value: 'underway', label: 'Underway' },
+    { value: 'at-anchor', label: 'At Anchor' },
+    { value: 'in-port', label: 'In Port' },
+    { value: 'on-leave', label: 'On Leave' },
+    { value: 'in-yard', label: 'In Yard / Maintenance' },
 ];
 
 export default function VesselsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingVessel, setEditingVessel] = useState<Vessel | null>(null);
+  const [vesselStateLogs, setVesselStateLogs] = useState<Map<string, StateLog[]>>(new Map());
 
   const { user } = useUser();
   const firestore = useFirestore();
@@ -78,16 +61,30 @@ export default function VesselsPage() {
   }, [firestore, user?.uid]);
 
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
+  
+  // Fetch stateLogs for each vessel
+  useEffect(() => {
+    if (vessels && firestore && user?.uid) {
+      const newLogs = new Map<string, StateLog[]>();
+      vessels.forEach(vessel => {
+        const logsRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'stateLogs');
+        getDocs(logsRef).then(logsSnap => {
+          const logs = logsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StateLog));
+          newLogs.set(vessel.id, logs);
+          // This might cause multiple re-renders, but it's okay for this use case
+          setVesselStateLogs(new Map(newLogs));
+        });
+      });
+    }
+  }, [vessels, firestore, user?.uid]);
 
-  const currentStatusCollectionRef = useMemoFirebase(() => {
-    if (!firestore || !user?.uid) return null;
-    return collection(firestore, 'users', user.uid, 'currentStatus');
-  }, [firestore, user?.uid]);
 
-  const { data: currentStatusData, isLoading: isLoadingStatus } = useCollection<CurrentStatus>(currentStatusCollectionRef);
-  const currentStatus = useMemo(() => currentStatusData?.[0] || null, [currentStatusData]);
+  const { data: userProfile, isLoading: isLoadingProfile } = useCollection<any>(
+    useMemoFirebase(() => user ? query(collection(firestore, `users`)) : null, [firestore, user])
+  );
+  const currentUserProfile = useMemo(() => userProfile?.find(p => p.id === user?.uid), [userProfile, user]);
 
-  const isLoading = isLoadingVessels || isLoadingStatus;
+  const isLoading = isLoadingVessels || isLoadingProfile;
 
   const handleEdit = (vessel: Vessel) => {
     setEditingVessel(vessel);
@@ -128,12 +125,10 @@ export default function VesselsPage() {
     
     try {
         if (editingVessel) {
-            // Update existing vessel
             const docRef = doc(vesselsCollectionRef, editingVessel.id);
             await setDoc(docRef, { ...data, ownerId: user.uid }, { merge: true });
             toast({ title: 'Vessel Updated', description: `${data.name} has been updated.` });
         } else {
-            // Add new vessel
             const newVessel = { ...data, ownerId: user.uid };
             await addDoc(vesselsCollectionRef, newVessel);
             toast({ title: 'Vessel Added', description: `${data.name} has been added to your fleet.` });
@@ -245,12 +240,13 @@ export default function VesselsPage() {
                             </TableRow>
                         ) : vessels && vessels.length > 0 ? (
                         vessels.map((vessel) => {
-                            const isCurrent = currentStatus && currentStatus.vesselId === vessel.id;
+                            const isCurrent = currentUserProfile?.activeVesselId === vessel.id;
                             let currentDayStatusLabel = 'N/A';
                             if (isCurrent) {
                                 const todayKey = format(new Date(), 'yyyy-MM-dd');
-                                const statusValue = currentStatus.dailyStates[todayKey];
-                                const stateInfo = vesselStates.find(s => s.value === statusValue);
+                                const logs = vesselStateLogs.get(vessel.id) || [];
+                                const todayLog = logs.find(log => log.id === todayKey);
+                                const stateInfo = todayLog ? vesselStates.find(s => s.value === todayLog.state) : null;
                                 if (stateInfo) {
                                     currentDayStatusLabel = stateInfo.label;
                                 }

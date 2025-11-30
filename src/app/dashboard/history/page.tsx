@@ -1,9 +1,9 @@
 
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, Timestamp } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { History, Loader2, Search, LayoutGrid, List } from 'lucide-react';
 import { CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -11,31 +11,8 @@ import { VesselSummaryCard, VesselSummarySkeleton } from '@/components/dashboard
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
-
-type Vessel = {
-  id: string;
-  name: string;
-  type: string;
-  ownerId: string;
-};
-
-type Trip = {
-    id: string;
-    vesselId: string;
-    position: string;
-    startDate: Timestamp;
-    endDate: Timestamp;
-    dailyStates: Record<string, string>;
-};
-
-type CurrentStatus = {
-    id: string;
-    vesselId: string;
-    position: string;
-    startDate: Timestamp;
-    dailyStates: Record<string, string>;
-};
+import type { Vessel, SeaServiceRecord, StateLog } from '@/lib/types';
+import { fromUnixTime, differenceInDays } from 'date-fns';
 
 export default function HistoryPage() {
   const { user } = useUser();
@@ -43,62 +20,67 @@ export default function HistoryPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [layout, setLayout] = useState<'card' | 'table'>('card');
 
+  const [allSeaService, setAllSeaService] = useState<SeaServiceRecord[]>([]);
+  const [allStateLogs, setAllStateLogs] = useState<Map<string, StateLog[]>>(new Map());
+
   const vesselsCollectionRef = useMemoFirebase(() => 
     user ? collection(firestore, 'users', user.uid, 'vessels') : null, 
     [user, firestore]
   );
-  const tripsCollectionRef = useMemoFirebase(() => 
-    user ? collection(firestore, 'users', user.uid, 'trips') : null, 
-    [user, firestore]
-  );
-  const currentStatusCollectionRef = useMemoFirebase(() => 
-    user ? collection(firestore, 'users', user.uid, 'currentStatus') : null, 
-    [user, firestore]
-  );
-
-  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
-  const { data: trips, isLoading: isLoadingTrips } = useCollection<Trip>(tripsCollectionRef);
-  const { data: currentStatusData, isLoading: isLoadingStatus } = useCollection<CurrentStatus>(currentStatusCollectionRef);
   
-  const currentStatus = useMemo(() => currentStatusData?.[0] || null, [currentStatusData]);
+  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
 
-  const isLoading = isLoadingVessels || isLoadingTrips || isLoadingStatus;
+  useEffect(() => {
+    if (vessels && firestore && user?.uid) {
+      const fetchServiceAndLogs = async () => {
+        const serviceRecords: SeaServiceRecord[] = [];
+        const logsMap = new Map<string, StateLog[]>();
+
+        await Promise.all(vessels.map(async (vessel) => {
+          const serviceRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'seaService');
+          const logsRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'stateLogs');
+
+          const [serviceSnap, logsSnap] = await Promise.all([getDocs(serviceRef), getDocs(logsRef)]);
+          
+          serviceSnap.forEach(doc => serviceRecords.push({ id: doc.id, ...doc.data() } as SeaServiceRecord));
+          const logs = logsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StateLog));
+          logsMap.set(vessel.id, logs);
+        }));
+
+        setAllSeaService(serviceRecords);
+        setAllStateLogs(logsMap);
+      };
+      fetchServiceAndLogs();
+    }
+  }, [vessels, firestore, user?.uid]);
+
+  const isLoading = isLoadingVessels || (vessels && vessels.length > 0 && (allSeaService.length === 0 || allStateLogs.size === 0));
 
   const vesselSummaries = useMemo(() => {
     if (!vessels) return [];
 
     return vessels.map(vessel => {
-      const vesselTrips = (trips || []).filter(trip => trip.vesselId === vessel.id);
+      const vesselServices = allSeaService.filter(s => s.vesselId === vessel.id);
+      const vesselLogs = allStateLogs.get(vessel.id) || [];
       
-      let totalDays = vesselTrips.reduce((acc, trip) => acc + Object.keys(trip.dailyStates).length, 0);
-      
-      const dayCountByState = vesselTrips.reduce((acc, trip) => {
-        Object.values(trip.dailyStates).forEach(state => {
-          acc[state] = (acc[state] || 0) + 1;
-        });
-        return acc;
+      const totalDays = vesselLogs.length;
+
+      const dayCountByState = vesselLogs.reduce((acc, log) => {
+          acc[log.state] = (acc[log.state] || 0) + 1;
+          return acc;
       }, {} as Record<string, number>);
 
-      let isCurrent = false;
-      if (currentStatus && currentStatus.vesselId === vessel.id) {
-        isCurrent = true;
-        const currentDays = Object.keys(currentStatus.dailyStates).length;
-        totalDays += currentDays;
-
-        Object.values(currentStatus.dailyStates).forEach(state => {
-          dayCountByState[state] = (dayCountByState[state] || 0) + 1;
-        });
-      }
+      const isCurrent = vesselServices.some(s => s.isCurrent);
 
       return {
         ...vessel,
         totalDays,
-        tripCount: vesselTrips.length + (isCurrent ? 1 : 0),
+        tripCount: vesselServices.length,
         dayCountByState,
         isCurrent
       };
     });
-  }, [vessels, trips, currentStatus]);
+  }, [vessels, allSeaService, allStateLogs]);
 
   const filteredVessels = useMemo(() => {
     if (!searchTerm) return vesselSummaries;

@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { Download, Calendar as CalendarIcon, Ship, Loader2, FileText, LifeBuoy } from 'lucide-react';
 import { format } from 'date-fns';
 import { DateRange } from 'react-day-picker';
-import { generateSeaTimeTestimonial, SeaTimeReportData } from '@/lib/pdf-generator';
+import { generateSeaTimeTestimonial } from '@/lib/pdf-generator';
 import { generateSeaTimeReportData as fetchSeaTimeReportData } from '@/app/actions';
 
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { toast } from '@/hooks/use-toast';
+import type { Vessel } from '@/lib/types';
+
 
 const exportSchema = z.object({
   exportType: z.enum(['seatime_report', 'testimonial']),
@@ -44,13 +46,6 @@ const exportSchema = z.object({
 });
 
 type ExportFormValues = z.infer<typeof exportSchema>;
-
-type Vessel = {
-  id: string;
-  name: string;
-  type: string;
-  ownerId: string;
-};
 
 export default function ExportPage() {
     const { user } = useUser();

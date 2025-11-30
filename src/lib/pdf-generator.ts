@@ -6,7 +6,7 @@ import { SeaTimeReportData } from '@/app/actions';
 
 export function generateSeaTimeTestimonial(data: SeaTimeReportData) {
   const doc = new jsPDF();
-  const { userProfile, trips, vesselDetails, totalDays, totalSeaDays, totalStandbyDays } = data;
+  const { userProfile, serviceRecords, vesselDetails, totalDays, totalSeaDays, totalStandbyDays } = data;
   const fullName = `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim() || userProfile.username;
 
   // Header
@@ -51,12 +51,12 @@ export function generateSeaTimeTestimonial(data: SeaTimeReportData) {
   doc.setFont('helvetica', 'bold');
   doc.text('Record of Sea Service', 14, serviceTableY);
 
-  const tableBody = trips.map(trip => [
-    trip.vesselName,
-    trip.position,
-    format(fromUnixTime(trip.startDate.seconds), 'dd-MMM-yyyy'),
-    trip.endDate ? format(fromUnixTime(trip.endDate.seconds), 'dd-MMM-yyyy') : 'Current',
-    Object.keys(trip.dailyStates).length.toString(),
+  const tableBody = serviceRecords.map(record => [
+    record.vesselName,
+    record.position,
+    format(fromUnixTime(record.startDate.seconds), 'dd-MMM-yyyy'),
+    record.endDate ? format(fromUnixTime(record.endDate.seconds), 'dd-MMM-yyyy') : 'Current',
+    record.totalDays.toString(),
   ]);
 
   autoTable(doc, {
