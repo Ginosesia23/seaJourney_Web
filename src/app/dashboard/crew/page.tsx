@@ -2,8 +2,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useFirestore, useCollection, useMemoFirebase, useUser } from '@/firebase';
-import { collection, query } from 'firebase/firestore';
+import { useFirestore, useCollection, useMemoFirebase, useUser, useDoc } from '@/firebase';
+import { collection, query, doc } from 'firebase/firestore';
 import { MoreHorizontal, Loader2, Search, Users, User as UserIcon } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -24,11 +24,9 @@ export default function CrewPage() {
     const firestore = useFirestore();
     const { user } = useUser();
 
-    // The user's own profile is needed to check their role
-    const { data: userProfile, isLoading: isLoadingProfile } = useCollection<UserProfile>(
-        useMemoFirebase(() => user ? query(collection(firestore, `users`)) : null, [firestore, user])
-    );
-    const currentUserProfile = useMemo(() => userProfile?.find(p => p.id === user?.uid), [userProfile, user]);
+    // The user's own profile is needed to check their role. Fetch only the current user's doc.
+    const currentUserProfileRef = useMemoFirebase(() => user ? doc(firestore, 'users', user.uid) : null, [firestore, user]);
+    const { data: currentUserProfile, isLoading: isLoadingProfile } = useDoc<UserProfile>(currentUserProfileRef);
 
     const isAuthorized = currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'vessel';
 
