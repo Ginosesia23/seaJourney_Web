@@ -15,11 +15,11 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { collection, addDoc, doc, setDoc, deleteDoc, query, getDocs } from 'firebase/firestore';
+import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError, useDoc } from '@/firebase';
+import { collection, addDoc, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
-import type { Vessel, StateLog } from '@/lib/types';
+import type { Vessel, StateLog, UserProfile } from '@/lib/types';
 
 const vesselSchema = z.object({
   name: z.string().min(2, 'Vessel name is required.'),
@@ -79,10 +79,8 @@ export default function VesselsPage() {
   }, [vessels, firestore, user?.uid]);
 
 
-  const { data: userProfile, isLoading: isLoadingProfile } = useCollection<any>(
-    useMemoFirebase(() => user ? query(collection(firestore, `users`)) : null, [firestore, user])
-  );
-  const currentUserProfile = useMemo(() => userProfile?.find(p => p.id === user?.uid), [userProfile, user]);
+  const userProfileRef = useMemoFirebase(() => user ? doc(firestore, 'users', user.uid) : null, [firestore, user]);
+  const { data: currentUserProfile, isLoading: isLoadingProfile } = useDoc<UserProfile>(userProfileRef);
 
   const isLoading = isLoadingVessels || isLoadingProfile;
 
@@ -302,3 +300,5 @@ export default function VesselsPage() {
     </div>
   );
 }
+
+    
