@@ -105,7 +105,7 @@ service cloud.firestore {
      * @principle Enforces collection ownership for read and create, while making past records immutable.
      */
     match /users/{userId}/trips/{tripId} {
-      allow read, create: if isOwner(userId);
+      allow read, create, list: if isOwner(userId);
     }
 
     /**
