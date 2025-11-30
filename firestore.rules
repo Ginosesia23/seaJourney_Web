@@ -94,7 +94,7 @@ service cloud.firestore {
      * @principle Enforces collection ownership for read and write operations, as it is expected to be a single-document collection.
      */
     match /users/{userId}/currentStatus/{statusId} {
-        allow read, write: if isOwner(userId);
+        allow read, write, list: if isOwner(userId);
     }
 
     /**
