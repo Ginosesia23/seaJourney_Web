@@ -31,7 +31,7 @@ import {
   DropdownMenuPortal
 } from '../ui/dropdown-menu';
 import { Input } from '../ui/input';
-import { Sheet, SheetContent, SheetTrigger } from '../ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet';
 import DashboardSidebar from './dashboard-sidebar';
 import { useTheme } from 'next-themes';
 
@@ -72,6 +72,9 @@ export default function DashboardHeader({ userProfile }: { userProfile: UserProf
                     </Button>
                 </SheetTrigger>
                 <SheetContent side="left" className="flex flex-col bg-card p-0">
+                    <SheetHeader className="sr-only">
+                      <SheetTitle>Navigation Menu</SheetTitle>
+                    </SheetHeader>
                    <DashboardSidebar userProfile={userProfile} />
                 </SheetContent>
             </Sheet>
