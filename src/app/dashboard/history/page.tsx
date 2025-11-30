@@ -54,7 +54,7 @@ export default function HistoryPage() {
     }
   }, [vessels, firestore, user?.uid]);
 
-  const isLoading = isLoadingVessels || (vessels && vessels.length > 0 && (allSeaService.length === 0 || allStateLogs.size === 0));
+  const isLoading = isLoadingVessels || (vessels && vessels.length > 0 && (allSeaService.length === 0 && allStateLogs.size === 0 && vessels.length > 0));
 
   const vesselSummaries = useMemo(() => {
     if (!vessels) return [];

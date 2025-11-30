@@ -53,7 +53,7 @@ export default function DashboardPage() {
             const serviceRecords: SeaServiceRecord[] = [];
             const logsMap = new Map<string, StateLog[]>();
 
-            for (const vessel of vessels) {
+            await Promise.all(vessels.map(async (vessel) => {
                 const serviceRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'seaService');
                 const logsRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'stateLogs');
 
@@ -62,7 +62,7 @@ export default function DashboardPage() {
                 serviceSnap.forEach(doc => serviceRecords.push({ id: doc.id, ...doc.data() } as SeaServiceRecord));
                 const logs = logsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StateLog));
                 logsMap.set(vessel.id, logs);
-            }
+            }));
             setAllSeaService(serviceRecords);
             setAllStateLogs(logsMap);
         };
@@ -207,7 +207,7 @@ export default function DashboardPage() {
   }, [vessels, allSeaService]);
 
 
-  const isLoading = isLoadingVessels || (vessels && (allSeaService.length === 0 || allStateLogs.size === 0) && vessels.length > 0);
+  const isLoading = isLoadingVessels || (vessels && (allSeaService.length === 0 && allStateLogs.size === 0 && vessels.length > 0));
   
   if (isLoading) {
     return (
