@@ -36,7 +36,12 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
 }
 
 export async function createCheckoutSession(priceId: string, userId: string, userEmail: string): Promise<{ sessionId: string; url: string | null; }> {
-    const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+    const isProduction = process.env.NODE_ENV === 'production';
+    const origin = isProduction ? process.env.NEXT_PUBLIC_APP_URL : 'http://localhost:9002';
+
+    if (!origin) {
+      throw new Error('NEXT_PUBLIC_APP_URL is not set in production environment.');
+    }
   
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
