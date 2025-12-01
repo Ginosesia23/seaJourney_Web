@@ -152,7 +152,7 @@ export async function verifyCheckoutSession(
       console.log(`[SERVER] Subscription details processed. Status: ${normalizedStatus}, Sub ID: ${stripeSubscriptionId}`);
     }
 
-    const userProfileRef = doc(db, 'users', userId);
+    const userProfileRef = doc(db, 'users', userId, 'profile', userId);
     console.log(`[SERVER] Preparing to update Firestore document at path: ${userProfileRef.path}`);
     
     const firestoreUpdatePayload = {
