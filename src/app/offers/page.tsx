@@ -15,10 +15,9 @@ import {
 } from '@/components/ui/card';
 import { Check, Download, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { useUser, useFirestore } from '@/firebase';
+import { useUser } from '@/supabase';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { doc, setDoc } from 'firebase/firestore';
 import { getStripeProducts, createCheckoutSession, type StripeProduct } from '@/app/actions';
 
 
@@ -71,7 +70,7 @@ export default function OffersPage() {
     setIsPurchasing(priceId);
   
     try {
-      const { sessionId, url } = await createCheckoutSession(priceId, user.uid, user.email!);
+      const { sessionId, url } = await createCheckoutSession(priceId, user.id, user.email!);
       if (url) {
         router.push(url);
       } else {
@@ -101,7 +100,7 @@ export default function OffersPage() {
                 Choose Your Voyage
               </h1>
               <p className="mt-4 text-lg leading-8 text-foreground/80">
-                {user?.displayName ? `Welcome, ${user.displayName}! ` : ''}
+                {user?.user_metadata?.username ? `Welcome, ${user.user_metadata.username}! ` : ''}
                 Find the perfect fit for your maritime career and get ready to set sail.
               </p>
             </div>

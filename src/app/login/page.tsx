@@ -12,11 +12,10 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth, useUser, useFirestore } from '@/firebase';
-import { signInWithEmailAndPassword, signInAnonymously, AuthError, User } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { useSupabase, useUser } from '@/supabase';
 import { Loader2 } from 'lucide-react';
 import LogoOnboarding from '@/components/logo-onboarding';
+import { getUserProfile } from '@/supabase/database/queries';
 import type { UserProfile } from '@/lib/types';
 
 const loginSchema = z.object({
@@ -28,11 +27,9 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
-  const [isAnonymousLoading, setIsAnonymousLoading] = useState(false);
   const [isCheckingUser, setIsCheckingUser] = useState(true);
   
-  const auth = useAuth();
-  const firestore = useFirestore();
+  const { supabase } = useSupabase();
   const router = useRouter();
   const { toast } = useToast();
   const { user, isUserLoading } = useUser();
@@ -42,35 +39,16 @@ export default function LoginPage() {
     defaultValues: { email: '', password: '' },
   });
   
-  const checkUserAndRedirect = async (user: User) => {
-    if (!firestore) return;
-    const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
+  const checkUserAndRedirect = async (userId: string) => {
     try {
-      const docSnap = await getDoc(userProfileRef);
-      if (docSnap.exists()) {
-        const userProfile = docSnap.data() as UserProfile;
-        if (userProfile.role === 'vessel' || userProfile.role === 'admin') {
-          router.push('/dashboard/crew');
-        } else {
-            if(userProfile.subscriptionStatus === 'active') {
-                router.push('/dashboard');
-            } else {
-                router.push('/offers');
-            }
-        }
+      const userProfile = await getUserProfile(supabase, userId);
+      if (userProfile.role === 'vessel' || userProfile.role === 'admin') {
+        router.push('/dashboard/crew');
       } else {
-        // If the subcollection profile doc doesn't exist, check the parent.
-        const parentDocRef = doc(firestore, 'users', user.uid);
-        const parentDocSnap = await getDoc(parentDocRef);
-        if (parentDocSnap.exists()) {
-           const parentProfile = parentDocSnap.data() as UserProfile;
-            if(parentProfile.subscriptionStatus === 'active') {
-                router.push('/dashboard');
-            } else {
-                router.push('/offers');
-            }
+        if (userProfile.subscriptionStatus === 'active') {
+          router.push('/dashboard');
         } else {
-           router.push('/offers'); // Default redirect if profile doesn't exist yet
+          router.push('/offers');
         }
       }
     } catch (error) {
@@ -81,51 +59,67 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!isUserLoading && user) {
-        checkUserAndRedirect(user);
+      checkUserAndRedirect(user.id);
     } else if (!isUserLoading && !user) {
       setIsCheckingUser(false);
     }
-  }, [user, isUserLoading, router, firestore]);
+  }, [user, isUserLoading, router, supabase]);
 
   const handleLogin = async (data: LoginFormValues) => {
-    if (!auth) return;
     setIsLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, data.email, data.password);
-      // The useEffect will handle the redirect after successful login.
-    } catch (error) {
-      const authError = error as AuthError;
-      console.error('Login failed:', authError);
-      let errorMessage = 'An unknown error occurred.';
-      if (authError.code === 'auth/user-not-found' || authError.code === 'auth/wrong-password' || authError.code === 'auth/invalid-credential') {
-        errorMessage = 'Invalid email or password. Please try again.';
-      }
-      toast({
-        title: 'Login Failed',
-        description: errorMessage,
-        variant: 'destructive',
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: data.password,
       });
-    } finally {
-        setIsLoading(false);
-    }
-  };
 
-  const handleAnonymousLogin = async () => {
-    if (!auth) return;
-    setIsAnonymousLoading(true);
-    try {
-      await signInAnonymously(auth);
-      // The useEffect will handle the redirect
-    } catch (error) {
-      const authError = error as AuthError;
-      console.error('Anonymous login failed:', authError);
+      if (error) {
+        // Handle specific error cases
+        if (error.message.includes('Invalid login credentials')) {
+          toast({
+            title: 'Login Failed',
+            description: 'Invalid email or password. Please check your credentials and try again.',
+            variant: 'destructive',
+          });
+        } else if (error.message.includes('Email not confirmed')) {
+          toast({
+            title: 'Email Not Verified',
+            description: 'Please check your email and verify your account before signing in.',
+            variant: 'destructive',
+          });
+        } else if (error.message.includes('Too many requests')) {
+          toast({
+            title: 'Too Many Attempts',
+            description: 'Please wait a moment before trying again.',
+            variant: 'destructive',
+          });
+        } else {
+          toast({
+            title: 'Login Failed',
+            description: error.message || 'An error occurred during login. Please try again.',
+            variant: 'destructive',
+          });
+        }
+        return;
+      }
+
+      // Success - user is now authenticated
+      // The useEffect will handle the redirect after successful login
+      if (authData.user) {
+        toast({
+          title: 'Welcome Back!',
+          description: 'You have been successfully logged in.',
+        });
+      }
+    } catch (error: any) {
+      console.error('Login failed:', error);
       toast({
         title: 'Login Failed',
-        description: 'Could not sign in anonymously. Please try again later.',
+        description: error.message || 'An unexpected error occurred. Please try again.',
         variant: 'destructive',
       });
     } finally {
-      setIsAnonymousLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -188,27 +182,20 @@ export default function LoginPage() {
                 </Button>
               </form>
             </Form>
-
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-header px-2 text-muted-foreground">Or continue with</span>
-              </div>
-            </div>
-
-            <Button variant="outline" className="w-full rounded-lg" onClick={handleAnonymousLogin} disabled={isAnonymousLoading}>
-              {isAnonymousLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Sign In Anonymously
-            </Button>
             
-            <p className="mt-6 text-center text-sm text-muted-foreground">
-              Don't have an account?{' '}
-              <Link href="/signup" className="font-medium text-primary hover:underline">
-                Sign up
-              </Link>
-            </p>
+            <div className="mt-6 space-y-2">
+              <p className="text-center text-sm text-muted-foreground">
+                Don't have an account?{' '}
+                <Link href="/signup" className="font-medium text-primary hover:underline">
+                  Sign up
+                </Link>
+              </p>
+              <p className="text-center text-sm">
+                <Link href="/forgot-password" className="text-muted-foreground hover:text-primary hover:underline">
+                  Forgot your password?
+                </Link>
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>

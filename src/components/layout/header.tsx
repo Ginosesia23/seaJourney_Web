@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/sheet';
 import Logo from '@/components/logo';
 import { Cart } from '@/components/cart';
-import { useAuth, useUser } from '@/firebase';
+import { useSupabase, useUser } from '@/supabase';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,15 +37,13 @@ const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const auth = useAuth();
+  const { supabase } = useSupabase();
   const isShopPage = pathname.startsWith('/shop');
   const { user } = useUser();
 
-  const handleSignOut = () => {
-    if (auth) {
-      auth.signOut();
-      router.push('/');
-    }
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/');
   };
 
   const getInitials = (name: string) => {
@@ -82,8 +80,8 @@ const Header = () => {
                   <Button variant="ghost" size="icon" className="rounded-full">
                     <Avatar className="h-8 w-8">
                       <AvatarFallback className="bg-primary/80 text-primary-foreground">
-                        {user?.displayName
-                          ? getInitials(user.displayName)
+                        {user?.user_metadata?.username
+                          ? getInitials(user.user_metadata.username)
                           : user?.email?.[0].toUpperCase()}
                       </AvatarFallback>
                     </Avatar>

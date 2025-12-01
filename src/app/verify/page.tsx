@@ -5,10 +5,9 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { doc, getDoc } from 'firebase/firestore';
-import { useFirestore } from '@/firebase';
+import { useSupabase } from '@/supabase';
 import { Loader2, Search, ShieldCheck, ShieldX } from 'lucide-react';
-import { format, fromUnixTime } from 'date-fns';
+import { format } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,16 +26,16 @@ type VerificationFormValues = z.infer<typeof verificationSchema>;
 
 interface VerificationRecord {
   id: string;
-  userId: string;
-  recordType: 'testimonial' | 'seatime_report';
-  issuedAt: any; // Firestore Timestamp
-  expiresAt: any; // Firestore Timestamp
+  user_id: string;
+  record_type: 'testimonial' | 'seatime_report';
+  issued_at: string; // ISO string
+  expires_at: string; // ISO string
   data: {
     userName: string;
     vesselName: string;
     position: string;
-    startDate: any; // Firestore Timestamp
-    endDate: any; // Firestore Timestamp
+    startDate: string; // ISO string
+    endDate: string; // ISO string
     totalDays: number;
     seaDays: number;
     leaveDays: number;
@@ -47,7 +46,7 @@ export default function VerificationPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [record, setRecord] = useState<VerificationRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const firestore = useFirestore();
+  const { supabase } = useSupabase();
 
   const form = useForm<VerificationFormValues>({
     resolver: zodResolver(verificationSchema),
@@ -55,8 +54,6 @@ export default function VerificationPage() {
   });
 
   const handleVerification = async (data: VerificationFormValues) => {
-    if (!firestore) return;
-
     setIsLoading(true);
     setRecord(null);
     setError(null);
@@ -64,18 +61,22 @@ export default function VerificationPage() {
     try {
       // For now, we are only using the verification code to find the record.
       // The other IDs are collected for future use.
-      const docRef = doc(firestore, 'verificationRecords', data.verificationCode);
-      const docSnap = await getDoc(docRef);
+      const { data: recordData, error: fetchError } = await supabase
+        .from('verification_records')
+        .select('*')
+        .eq('id', data.verificationCode)
+        .single();
 
-      if (docSnap.exists()) {
-        const recordData = docSnap.data() as VerificationRecord;
-        if (recordData.expiresAt && fromUnixTime(recordData.expiresAt.seconds) < new Date()) {
-          setError('This verification code has expired.');
-        } else {
-          setRecord(recordData);
-        }
-      } else {
+      if (fetchError || !recordData) {
         setError('No record found for this verification code.');
+        return;
+      }
+
+      const record = recordData as VerificationRecord;
+      if (record.expires_at && new Date(record.expires_at) < new Date()) {
+        setError('This verification code has expired.');
+      } else {
+        setRecord(record);
       }
     } catch (e) {
       console.error('Verification failed:', e);
@@ -169,10 +170,10 @@ export default function VerificationPage() {
                           <p><strong>Crew Member:</strong> {record.data.userName}</p>
                           <p><strong>Vessel:</strong> {record.data.vesselName}</p>
                           <p><strong>Position:</strong> {record.data.position}</p>
-                          <p><strong>Period:</strong> {format(fromUnixTime(record.data.startDate.seconds), 'PPP')} - {format(fromUnixTime(record.data.endDate.seconds), 'PPP')}</p>
+                          <p><strong>Period:</strong> {format(new Date(record.data.startDate), 'PPP')} - {format(new Date(record.data.endDate), 'PPP')}</p>
                           <p><strong>Total Days Onboard:</strong> {record.data.totalDays}</p>
                           <p><strong>Sea Days:</strong> {record.data.seaDays}</p>
-                           <p className="pt-4 text-xs text-muted-foreground">Issued on: {format(fromUnixTime(record.issuedAt.seconds), 'PPP p')}</p>
+                           <p className="pt-4 text-xs text-muted-foreground">Issued on: {format(new Date(record.issued_at), 'PPP p')}</p>
                       </div>
                   </AlertDescription>
                 </Alert>

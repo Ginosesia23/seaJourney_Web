@@ -5,7 +5,7 @@ import './globals.css';
 import { cn } from '@/lib/utils';
 import { CartProvider } from '@/context/cart-context';
 import { ThemeProvider } from '@/context/theme-provider';
-import { FirebaseClientProvider } from '@/firebase';
+import { SupabaseProvider } from '@/supabase';
 
 export const metadata: Metadata = {
   title: 'SeaJourney - Seatime Tracker for Maritime Professionals',
@@ -35,11 +35,11 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <FirebaseClientProvider>
+          <SupabaseProvider>
               <CartProvider>
                 {children}
               </CartProvider>
-          </FirebaseClientProvider>
+          </SupabaseProvider>
         </ThemeProvider>
         <Toaster />
       </body>

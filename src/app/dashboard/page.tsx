@@ -15,10 +15,11 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { format, getYear } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, getDocs } from 'firebase/firestore';
+import { useUser, useSupabase } from '@/supabase';
+import { useCollection } from '@/supabase/database';
+import { getVesselSeaService, getVesselStateLogs } from '@/supabase/database/queries';
 import { useMemo, useState, useEffect } from 'react';
-import { differenceInDays, fromUnixTime } from 'date-fns';
+import { differenceInDays } from 'date-fns';
 import { ComposableMap, Geographies, Geography, Line, Marker } from "react-simple-maps"
 import worldAtlas from "world-atlas/countries-110m.json"
 import Link from 'next/link';
@@ -32,7 +33,7 @@ type Testimonial = {
 
 export default function DashboardPage() {
   const { user } = useUser();
-  const firestore = useFirestore();
+  const { supabase } = useSupabase();
 
   const [selectedYear, setSelectedYear] = useState('all');
   const [selectedVessel, setSelectedVessel] = useState('all');
@@ -40,41 +41,38 @@ export default function DashboardPage() {
   const [allSeaService, setAllSeaService] = useState<SeaServiceRecord[]>([]);
   const [allStateLogs, setAllStateLogs] = useState<Map<string, StateLog[]>>(new Map());
 
-  const vesselsCollectionRef = useMemoFirebase(() => 
-    user ? collection(firestore, 'users', user.uid, 'vessels') : null, 
-    [user, firestore]
+  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
+    'vessels',
+    { filter: 'owner_id', filterValue: user?.id, orderBy: 'created_at', ascending: false }
   );
-  
-  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
 
   useEffect(() => {
-    if (vessels && firestore && user?.uid) {
+    if (vessels && user?.id) {
         const fetchServiceAndLogs = async () => {
             const serviceRecords: SeaServiceRecord[] = [];
             const logsMap = new Map<string, StateLog[]>();
 
             await Promise.all(vessels.map(async (vessel) => {
-                const serviceRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'seaService');
-                const logsRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'stateLogs');
-
-                const [serviceSnap, logsSnap] = await Promise.all([getDocs(serviceRef), getDocs(logsRef)]);
+                const [seaService, stateLogs] = await Promise.all([
+                    getVesselSeaService(supabase, vessel.id),
+                    getVesselStateLogs(supabase, vessel.id)
+                ]);
                 
-                serviceSnap.forEach(doc => serviceRecords.push({ id: doc.id, ...doc.data() } as SeaServiceRecord));
-                const logs = logsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StateLog));
-                logsMap.set(vessel.id, logs);
+                serviceRecords.push(...seaService);
+                logsMap.set(vessel.id, stateLogs);
             }));
             setAllSeaService(serviceRecords);
             setAllStateLogs(logsMap);
         };
         fetchServiceAndLogs();
     }
-  }, [vessels, firestore, user?.uid]);
+  }, [vessels, user?.id, supabase]);
 
 
   const filteredServiceRecords = useMemo(() => {
     if (!allSeaService) return [];
     return allSeaService.filter(service => {
-      const serviceYear = getYear(fromUnixTime(service.startDate.seconds));
+      const serviceYear = getYear(new Date(service.startDate));
       const yearMatch = selectedYear === 'all' || serviceYear === parseInt(selectedYear, 10);
       const vesselMatch = selectedVessel === 'all' || service.vesselId === selectedVessel;
       return yearMatch && vesselMatch;
@@ -90,8 +88,8 @@ export default function DashboardPage() {
         const logs = allStateLogs.get(service.vesselId) || [];
         const serviceLogs = logs.filter(log => {
             const logDate = new Date(log.date);
-            const startDate = fromUnixTime(service.startDate.seconds);
-            const endDate = service.endDate ? fromUnixTime(service.endDate.seconds) : new Date();
+            const startDate = new Date(service.startDate);
+            const endDate = service.endDate ? new Date(service.endDate) : new Date();
             return logDate >= startDate && logDate <= endDate;
         });
 
@@ -112,21 +110,21 @@ export default function DashboardPage() {
     if (!allSeaService || !vessels) return [];
     return allSeaService
         .filter(s => s.endDate)
-        .sort((a, b) => b.endDate!.seconds - a.endDate!.seconds)
+        .sort((a, b) => new Date(b.endDate!).getTime() - new Date(a.endDate!).getTime())
         .slice(0, 5)
         .map(service => {
             const vessel = vessels.find(v => v.id === service.vesselId);
             return {
                 ...service,
                 vesselName: vessel?.name || 'Unknown Vessel',
-                days: differenceInDays(fromUnixTime(service.endDate!.seconds), fromUnixTime(service.startDate.seconds)) + 1
+                days: differenceInDays(new Date(service.endDate!), new Date(service.startDate)) + 1
             }
         });
   }, [allSeaService, vessels]);
   
   const availableYears = useMemo(() => {
     if (!allSeaService) return [];
-    const years = new Set(allSeaService.map(service => getYear(fromUnixTime(service.startDate.seconds))));
+    const years = new Set(allSeaService.map(service => getYear(new Date(service.startDate))));
     return ['all', ...Array.from(years).sort((a, b) => b - a).map(String)];
   }, [allSeaService]);
 
@@ -166,8 +164,8 @@ export default function DashboardPage() {
 
     allSeaService.forEach(service => {
         const days = differenceInDays(
-            service.endDate ? fromUnixTime(service.endDate.seconds) : new Date(), 
-            fromUnixTime(service.startDate.seconds)
+            service.endDate ? new Date(service.endDate) : new Date(), 
+            new Date(service.startDate)
         );
         if (days > maxDays) {
             maxDays = days;
@@ -189,8 +187,8 @@ export default function DashboardPage() {
     const daysByVessel: Record<string, number> = {};
     allSeaService.forEach(service => {
         const days = differenceInDays(
-            service.endDate ? fromUnixTime(service.endDate.seconds) : new Date(),
-            fromUnixTime(service.startDate.seconds)
+            service.endDate ? new Date(service.endDate) : new Date(),
+            new Date(service.startDate)
         ) + 1;
         daysByVessel[service.vesselId] = (daysByVessel[service.vesselId] || 0) + days;
     });
@@ -322,7 +320,7 @@ export default function DashboardPage() {
                                 <div className="font-medium">{activity.vesselName}</div>
                                 <div className="text-sm text-muted-foreground">{activity.days} days</div>
                             </TableCell>
-                            <TableCell className="text-right">{format(fromUnixTime(activity.endDate!.seconds), 'dd MMM, yyyy')}</TableCell>
+                            <TableCell className="text-right">{format(new Date(activity.endDate!), 'dd MMM, yyyy')}</TableCell>
                         </TableRow>
                         )) : (
                             <TableRow>

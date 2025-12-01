@@ -16,7 +16,7 @@ import {
   Laptop,
   User,
 } from 'lucide-react';
-import { useAuth, useUser as useFirebaseUser } from '@/firebase';
+import { useSupabase, useUser } from '@/supabase';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import {
   DropdownMenu,
@@ -41,17 +41,14 @@ interface UserProfile {
 
 
 export default function DashboardHeader({ userProfile }: { userProfile: UserProfile | null }) {
-  const auth = useAuth();
-  const { user } = useFirebaseUser();
+  const { supabase } = useSupabase();
+  const { user } = useUser();
   const router = useRouter();
   const { setTheme, theme } = useTheme();
 
-  const handleSignOut = () => {
-    if (auth) {
-      auth.signOut().then(() => {
-        router.push('/');
-      });
-    }
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/');
   };
 
   const getInitials = (name: string) => {
@@ -102,8 +99,8 @@ export default function DashboardHeader({ userProfile }: { userProfile: UserProf
             <Button variant="ghost" size="icon" className="rounded-full">
               <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-primary/80 text-primary-foreground">
-                  {user?.displayName
-                    ? getInitials(user.displayName)
+                  {user?.user_metadata?.username
+                    ? getInitials(user.user_metadata.username)
                     : user?.email?.[0].toUpperCase()}
                 </AvatarFallback>
               </Avatar>

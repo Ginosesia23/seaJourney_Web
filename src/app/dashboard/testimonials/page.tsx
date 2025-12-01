@@ -2,8 +2,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, Timestamp } from 'firebase/firestore';
+import { useUser } from '@/supabase';
+import { useCollection } from '@/supabase/database';
 import { LifeBuoy, Loader2, Star, Quote, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -11,10 +11,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 type Testimonial = {
   id: string;
-  userProfileId: string;
+  user_id: string;
   content: string;
   rating: number;
-  dateCreated: Timestamp;
+  created_at: string;
 };
 
 const StarRating = ({ rating }: { rating: number }) => {
@@ -32,18 +32,15 @@ const StarRating = ({ rating }: { rating: number }) => {
 
 export default function TestimonialsPage() {
     const { user } = useUser();
-    const firestore = useFirestore();
 
-    const testimonialsCollectionRef = useMemoFirebase(() => {
-        if (!user || !firestore) return null;
-        return collection(firestore, 'users', user.uid, 'testimonials');
-    }, [user, firestore]);
-
-    const { data: testimonials, isLoading } = useCollection<Testimonial>(testimonialsCollectionRef);
+    const { data: testimonials, isLoading } = useCollection<Testimonial>(
+        'testimonials',
+        { filter: 'user_id', filterValue: user?.id, orderBy: 'created_at', ascending: false }
+    );
 
     const sortedTestimonials = useMemo(() => {
         if (!testimonials) return [];
-        return [...testimonials].sort((a, b) => b.dateCreated.seconds - a.dateCreated.seconds);
+        return [...testimonials].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }, [testimonials]);
 
 
@@ -86,7 +83,7 @@ export default function TestimonialsPage() {
                                 </blockquote>
                                 <div className="flex items-center justify-end text-sm text-muted-foreground mt-4 gap-2">
                                     <Calendar className="h-4 w-4" />
-                                    <span>{format(new Date(testimonial.dateCreated.seconds * 1000), 'dd MMM, yyyy')}</span>
+                                    <span>{format(new Date(testimonial.created_at), 'dd MMM, yyyy')}</span>
                                 </div>
                             </CardContent>
                         </Card>

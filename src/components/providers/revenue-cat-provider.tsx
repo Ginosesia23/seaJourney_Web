@@ -9,7 +9,7 @@ import {
   LogLevel,
 } from '@revenuecat/purchases-js';
 
-import { useUser } from '@/firebase';
+import { useUser } from '@/supabase';
 import { useToast } from '@/hooks/use-toast';
 
 interface RevenueCatContextType {
@@ -47,19 +47,19 @@ const RevenueCatProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      // Wait for Firebase auth to resolve
+      // Wait for Supabase auth to resolve
       if (isUserLoading) {
-        console.log('RC: Waiting for Firebase user to load…');
+        console.log('RC: Waiting for Supabase user to load…');
         return;
       }
 
       try {
         Purchases.setLogLevel(LogLevel.DEBUG);
 
-        // Configure ONCE with an appUserId (either Firebase UID or anonymous)
+        // Configure ONCE with an appUserId (either Supabase UID or anonymous)
         if (!Purchases.isConfigured()) {
           const appUserId = user
-            ? user.uid
+            ? user.id
             : Purchases.generateRevenueCatAnonymousAppUserId();
 
           console.log('RC: Configuring SDK with appUserId:', appUserId);

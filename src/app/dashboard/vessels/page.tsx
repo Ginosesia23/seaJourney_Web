@@ -15,8 +15,9 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError, useDoc } from '@/firebase';
-import { collection, addDoc, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
+import { useUser, useSupabase } from '@/supabase';
+import { useCollection } from '@/supabase/database';
+import { createVessel, getVesselStateLogs } from '@/supabase/database/queries';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import type { Vessel, StateLog, UserProfile } from '@/lib/types';
@@ -43,7 +44,7 @@ export default function VesselsPage() {
   const [vesselStateLogs, setVesselStateLogs] = useState<Map<string, StateLog[]>>(new Map());
 
   const { user } = useUser();
-  const firestore = useFirestore();
+  const { supabase } = useSupabase();
   const { toast } = useToast();
 
   const form = useForm<VesselFormValues>({
@@ -55,32 +56,32 @@ export default function VesselsPage() {
     },
   });
 
-  const vesselsCollectionRef = useMemoFirebase(() => {
-    if (!firestore || !user?.uid) return null;
-    return collection(firestore, 'users', user.uid, 'vessels');
-  }, [firestore, user?.uid]);
-
-  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
+  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
+    'vessels',
+    { filter: 'owner_id', filterValue: user?.id, orderBy: 'created_at', ascending: false }
+  );
   
   // Fetch stateLogs for each vessel
   useEffect(() => {
-    if (vessels && firestore && user?.uid) {
-      const newLogs = new Map<string, StateLog[]>();
-      vessels.forEach(vessel => {
-        const logsRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'stateLogs');
-        getDocs(logsRef).then(logsSnap => {
-          const logs = logsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StateLog));
+    if (vessels && user?.id) {
+      const fetchLogs = async () => {
+        const newLogs = new Map<string, StateLog[]>();
+        await Promise.all(vessels.map(async (vessel) => {
+          const logs = await getVesselStateLogs(supabase, vessel.id);
           newLogs.set(vessel.id, logs);
-          // This might cause multiple re-renders, but it's okay for this use case
-          setVesselStateLogs(new Map(newLogs));
-        });
-      });
+        }));
+        setVesselStateLogs(newLogs);
+      };
+      fetchLogs();
     }
-  }, [vessels, firestore, user?.uid]);
+  }, [vessels, user?.id, supabase]);
 
 
-  const userProfileRef = useMemoFirebase(() => user ? doc(firestore, 'users', user.uid) : null, [firestore, user]);
-  const { data: currentUserProfile, isLoading: isLoadingProfile } = useDoc<UserProfile>(userProfileRef);
+  const { data: userProfiles, isLoading: isLoadingProfile } = useCollection<UserProfile>(
+    'users',
+    { filter: 'id', filterValue: user?.id }
+  );
+  const currentUserProfile = userProfiles?.[0];
 
   const isLoading = isLoadingVessels || isLoadingProfile;
 
@@ -94,19 +95,25 @@ export default function VesselsPage() {
     setIsFormOpen(true);
   }
 
-  const handleDelete = (vesselId: string) => {
-    if (!vesselsCollectionRef) return;
-    const docRef = doc(vesselsCollectionRef, vesselId);
+  const handleDelete = async (vesselId: string) => {
+    if (!user?.id) return;
     
-    deleteDoc(docRef).then(() => {
-        toast({ title: 'Vessel Deleted', description: 'The vessel has been removed from your list.' });
-    }).catch((serverError) => {
-        const permissionError = new FirestorePermissionError({
-            path: docRef.path,
-            operation: 'delete',
-        });
-        errorEmitter.emit('permission-error', permissionError);
-    })
+    const { error } = await supabase
+      .from('vessels')
+      .delete()
+      .eq('id', vesselId)
+      .eq('owner_id', user.id);
+    
+    if (error) {
+      console.error('Failed to delete vessel:', error);
+      toast({ 
+        title: 'Error', 
+        description: 'Failed to delete vessel. Please try again.',
+        variant: 'destructive'
+      });
+    } else {
+      toast({ title: 'Vessel Deleted', description: 'The vessel has been removed from your list.' });
+    }
   }
   
   const handleOpenChange = (open: boolean) => {
@@ -118,29 +125,41 @@ export default function VesselsPage() {
   }
 
   async function onSubmit(data: VesselFormValues) {
-    if (!vesselsCollectionRef || !user?.uid) return;
+    if (!user?.id) return;
     setIsSaving(true);
     
     try {
         if (editingVessel) {
-            const docRef = doc(vesselsCollectionRef, editingVessel.id);
-            await setDoc(docRef, { ...data, ownerId: user.uid }, { merge: true });
+            const { error } = await supabase
+              .from('vessels')
+              .update({
+                name: data.name,
+                type: data.type,
+                official_number: data.officialNumber || null,
+              })
+              .eq('id', editingVessel.id)
+              .eq('owner_id', user.id);
+            
+            if (error) throw error;
             toast({ title: 'Vessel Updated', description: `${data.name} has been updated.` });
         } else {
-            const newVessel = { ...data, ownerId: user.uid };
-            await addDoc(vesselsCollectionRef, newVessel);
+            await createVessel(supabase, {
+              ownerId: user.id,
+              name: data.name,
+              type: data.type,
+              officialNumber: data.officialNumber,
+            });
             toast({ title: 'Vessel Added', description: `${data.name} has been added to your fleet.` });
         }
         form.reset();
         handleOpenChange(false);
     } catch (serverError: any) {
         console.error("Failed to save vessel:", serverError);
-        const permissionError = new FirestorePermissionError({
-            path: editingVessel ? doc(vesselsCollectionRef, editingVessel.id).path : vesselsCollectionRef.path,
-            operation: editingVessel ? 'update' : 'create',
-            requestResourceData: { ...data, ownerId: user.uid },
-          });
-        errorEmitter.emit('permission-error', permissionError);
+        toast({
+          title: 'Error',
+          description: serverError.message || 'Failed to save vessel. Please try again.',
+          variant: 'destructive',
+        });
     } finally {
         setIsSaving(false);
     }

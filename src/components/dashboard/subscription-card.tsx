@@ -1,8 +1,8 @@
 
 'use client';
 
-import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
-import { doc } from 'firebase/firestore';
+import { useUser } from '@/supabase';
+import { useDoc } from '@/supabase/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Sparkles, Loader2 } from 'lucide-react';
@@ -37,14 +37,8 @@ function SubscriptionSkeleton() {
 
 export function SubscriptionCard() {
   const { user } = useUser();
-  const firestore = useFirestore();
 
-  const userProfileRef = useMemoFirebase(() => {
-    if (!firestore || !user?.uid) return null;
-    return doc(firestore, 'users', user.uid);
-  }, [firestore, user?.uid]);
-
-  const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>(userProfileRef);
+  const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>('users', user?.id);
 
   if (isProfileLoading) {
     return <SubscriptionSkeleton />;

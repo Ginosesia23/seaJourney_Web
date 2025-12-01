@@ -5,21 +5,15 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import Image from 'next/image';
 import { AppStoreIcon } from '@/components/sections/cta';
-import { useUser } from '@/firebase';
-import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
-import { doc } from 'firebase/firestore';
+import { useUser, useSupabase } from '@/supabase';
+import { useDoc } from '@/supabase/database';
 import type { UserProfile } from '@/lib/types';
 
 const Hero = () => {
   const { user } = useUser();
-  const firestore = useFirestore();
+  const { supabase } = useSupabase();
 
-  const userProfileRef = useMemoFirebase(() => {
-    if (!firestore || !user?.uid) return null;
-    return doc(firestore, 'users', user.uid);
-  }, [firestore, user?.uid]);
-
-  const { data: userProfile } = useDoc<UserProfile>(userProfileRef);
+  const { data: userProfile } = useDoc<UserProfile>('users', user?.id);
 
   const hasActiveSubscription = userProfile?.subscriptionStatus === 'active';
 
@@ -31,7 +25,7 @@ const Hero = () => {
             {user ? (
               <>
                 <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-5xl">
-                  Welcome back, {user.displayName || 'Seafarer'}!
+                  Welcome back, {user.user_metadata?.username || user.email?.split('@')[0] || 'Seafarer'}!
                 </h1>
                 <p className="mt-6 text-lg leading-8 text-header-foreground/80">
                   {hasActiveSubscription

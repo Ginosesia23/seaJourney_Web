@@ -5,8 +5,9 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useUser, useFirestore, useDoc, useMemoFirebase, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { useUser, useSupabase } from '@/supabase';
+import { useDoc } from '@/supabase/database';
+import { updateUserProfile } from '@/supabase/database/queries';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -64,21 +65,16 @@ function ProfileSkeleton() {
 
 export function UserProfileCard() {
   const { user } = useUser();
-  const firestore = useFirestore();
+  const { supabase } = useSupabase();
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
-  const userProfileRef = useMemoFirebase(() => {
-    if (!firestore || !user?.uid) return null;
-    return doc(firestore, 'users', user.uid);
-  }, [firestore, user?.uid]);
-
-  const { data: userProfile, isLoading } = useDoc(userProfileRef);
+  const { data: userProfile, isLoading } = useDoc('users', user?.id);
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
     values: {
-      username: userProfile?.username || user?.displayName || '',
+      username: userProfile?.username || user?.user_metadata?.username || '',
       firstName: userProfile?.firstName || '',
       lastName: userProfile?.lastName || '',
       bio: userProfile?.bio || '',
@@ -87,27 +83,31 @@ export function UserProfileCard() {
   });
 
   const onSubmit = async (data: ProfileFormValues) => {
-    if (!userProfileRef) return;
+    if (!user?.id) return;
     setIsSaving(true);
     
-    setDoc(userProfileRef, data, { merge: true })
-      .then(() => {
-        toast({
-          title: 'Profile Updated',
-          description: 'Your profile has been saved successfully.',
-        });
-      })
-      .catch((error) => {
-        const permissionError = new FirestorePermissionError({
-          path: userProfileRef.path,
-          operation: 'update',
-          requestResourceData: data,
-        });
-        errorEmitter.emit('permission-error', permissionError);
-      })
-      .finally(() => {
-        setIsSaving(false);
+    try {
+      await updateUserProfile(supabase, user.id, {
+        username: data.username,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        bio: data.bio,
       });
+      
+      toast({
+        title: 'Profile Updated',
+        description: 'Your profile has been saved successfully.',
+      });
+    } catch (error: any) {
+      console.error('Error updating profile:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update profile. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (isLoading) {

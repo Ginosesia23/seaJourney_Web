@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, differenceInDays, eachDayOfInterval, fromUnixTime, isSameDay, startOfDay, endOfDay, parse } from 'date-fns';
+import { format, differenceInDays, eachDayOfInterval, isSameDay, startOfDay, endOfDay, parse } from 'date-fns';
 import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock, Waves, Anchor, Building } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -18,8 +18,15 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useUser, useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError, useDoc } from '@/firebase';
-import { collection, addDoc, doc, setDoc, Timestamp, writeBatch } from 'firebase/firestore';
+import { useUser, useSupabase } from '@/supabase';
+import { useCollection, useDoc } from '@/supabase/database';
+import { 
+  createVessel, 
+  createSeaServiceRecord, 
+  updateStateLogsBatch, 
+  updateUserProfile,
+  getVesselStateLogs 
+} from '@/supabase/database/queries';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { DateRange } from 'react-day-picker';
@@ -60,30 +67,27 @@ export default function CurrentPage() {
   const [month, setMonth] = useState<Date>(new Date());
 
   const { user } = useUser();
-  const firestore = useFirestore();
+  const { supabase } = useSupabase();
   const { toast } = useToast();
 
-  const userProfileRef = useMemoFirebase(() => user ? doc(firestore, 'users', user.uid) : null, [firestore, user?.uid]);
-  const { data: userProfile, isLoading: isLoadingProfile } = useDoc<UserProfile>(userProfileRef);
+  const { data: userProfile, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
   
-  const vesselsCollectionRef = useMemoFirebase(() => user ? collection(firestore, 'users', user.uid, 'vessels') : null, [firestore, user?.uid]);
-  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
+  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
+    'vessels',
+    { filter: 'owner_id', filterValue: user?.id, orderBy: 'created_at', ascending: false }
+  );
 
   const currentVessel = useMemo(() => vessels?.find(v => v.id === userProfile?.activeVesselId), [vessels, userProfile]);
 
-  const currentServiceRef = useMemoFirebase(() => {
-    if (!firestore || !user?.uid || !currentVessel || !userProfile?.activeSeaServiceId) return null;
-    return doc(firestore, 'users', user.uid, 'vessels', currentVessel.id, 'seaService', userProfile.activeSeaServiceId);
-  }, [firestore, user?.uid, currentVessel, userProfile?.activeSeaServiceId]);
+  const { data: currentService, isLoading: isLoadingService } = useDoc<SeaServiceRecord>(
+    'sea_service_records',
+    userProfile?.activeSeaServiceId
+  );
 
-  const { data: currentService, isLoading: isLoadingService } = useDoc<SeaServiceRecord>(currentServiceRef);
-
-  const stateLogsRef = useMemoFirebase(() => {
-    if (!firestore || !user?.uid || !currentVessel) return null;
-    return collection(firestore, 'users', user.uid, 'vessels', currentVessel.id, 'stateLogs');
-  }, [firestore, user?.uid, currentVessel]);
-
-  const { data: stateLogs, isLoading: isLoadingLogs } = useCollection<StateLog>(stateLogsRef);
+  const { data: stateLogs, isLoading: isLoadingLogs } = useCollection<StateLog>(
+    currentVessel ? 'state_logs' : null,
+    { filter: 'vessel_id', filterValue: currentVessel?.id, orderBy: 'date', ascending: true }
+  );
   
   const startServiceForm = useForm<StartServiceFormValues>({
     resolver: zodResolver(startServiceSchema),
@@ -96,18 +100,17 @@ export default function CurrentPage() {
   });
 
    useEffect(() => {
-    if (currentService) {
+    if (currentService && currentVessel) {
       setNotes(currentService.notes || '');
 
-      const startDate = fromUnixTime(currentService.startDate.seconds);
+      const startDate = new Date(currentService.startDate);
       const today = endOfDay(new Date());
       if (startDate > today) return;
 
       const allDates = eachDayOfInterval({ start: startOfDay(startDate), end: today });
-      const existingLogsMap = new Map(stateLogs?.map(log => [log.id, log.state]));
+      const existingLogsMap = new Map(stateLogs?.map(log => [log.id, log.state]) || []);
       let lastKnownState: DailyStatus | null = null;
-      const batch = writeBatch(firestore);
-      let needsUpdate = false;
+      const logsToCreate: Array<{ date: string; state: DailyStatus }> = [];
 
       // Find the last known state up to the first missing date
       for (const date of allDates) {
@@ -123,19 +126,18 @@ export default function CurrentPage() {
       allDates.forEach(date => {
         const dateKey = format(date, 'yyyy-MM-dd');
         if (!existingLogsMap.has(dateKey) && lastKnownState) {
-          const logRef = doc(stateLogsRef!, dateKey);
-          batch.set(logRef, { date: dateKey, state: lastKnownState });
-          needsUpdate = true;
+          logsToCreate.push({ date: dateKey, state: lastKnownState });
         } else if (existingLogsMap.has(dateKey)) {
             lastKnownState = existingLogsMap.get(dateKey) as DailyStatus;
         }
       });
 
-      if (needsUpdate) {
-        batch.commit().catch(e => console.error("Error backfilling state logs:", e));
+      if (logsToCreate.length > 0) {
+        updateStateLogsBatch(supabase, currentVessel.id, logsToCreate)
+          .catch(e => console.error("Error backfilling state logs:", e));
       }
     }
-  }, [currentService, stateLogs, firestore, user?.uid]);
+  }, [currentService, stateLogs, currentVessel, supabase]);
 
   useEffect(() => {
     if(dateRange?.from && dateRange?.to) {
@@ -144,7 +146,7 @@ export default function CurrentPage() {
   }, [dateRange]);
 
   async function onStartServiceSubmit(data: StartServiceFormValues) {
-    if (!firestore || !user) return;
+    if (!user?.id) return;
     
     const today = new Date();
     if(data.startDate > today) {
@@ -152,106 +154,165 @@ export default function CurrentPage() {
         return;
     }
 
-    const batch = writeBatch(firestore);
-    
-    // 1. Create SeaServiceRecord
-    const seaServiceColRef = collection(firestore, 'users', user.uid, 'vessels', data.vesselId, 'seaService');
-    const newServiceRef = doc(seaServiceColRef);
-    const newServiceData: Omit<SeaServiceRecord, 'id'> = {
+    try {
+      // 1. Create SeaServiceRecord
+      const newService = await createSeaServiceRecord(supabase, {
         vesselId: data.vesselId,
         position: data.position,
-        startDate: Timestamp.fromDate(data.startDate),
+        startDate: data.startDate,
         isCurrent: true,
         notes: '',
-    };
-    batch.set(newServiceRef, newServiceData);
+      });
 
-    // 2. Update user profile
-    batch.update(userProfileRef!, { activeVesselId: data.vesselId, activeSeaServiceId: newServiceRef.id });
+      // 2. Update user profile
+      await updateUserProfile(supabase, user.id, {
+        activeVesselId: data.vesselId,
+        activeSeaServiceId: newService.id,
+      });
 
-    // 3. Create initial state logs
-    const logsColRef = collection(firestore, 'users', user.uid, 'vessels', data.vesselId, 'stateLogs');
-    const interval = eachDayOfInterval({ start: data.startDate, end: today });
-    interval.forEach(day => {
-        const dateKey = format(day, 'yyyy-MM-dd');
-        const logRef = doc(logsColRef, dateKey);
-        batch.set(logRef, { date: dateKey, state: data.initialState });
-    });
-    
-    await batch.commit();
+      // 3. Create initial state logs
+      const interval = eachDayOfInterval({ start: data.startDate, end: today });
+      const logs = interval.map(day => ({
+        date: format(day, 'yyyy-MM-dd'),
+        state: data.initialState,
+      }));
+      
+      await updateStateLogsBatch(supabase, data.vesselId, logs);
+      
+      toast({ title: 'Service Started', description: 'Your sea service has been started.' });
+    } catch (error: any) {
+      console.error('Error starting service:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to start service. Please try again.',
+        variant: 'destructive',
+      });
+    }
   }
 
   async function onAddVesselSubmit(data: AddVesselFormValues) {
-    if (!vesselsCollectionRef || !user?.uid) return;
+    if (!user?.id) return;
     setIsSavingVessel(true);
 
-    const newVessel = { ...data, ownerId: user.uid };
-    addDoc(vesselsCollectionRef, newVessel)
-        .then(() => {
-            addVesselForm.reset();
-            setIsAddVesselDialogOpen(false);
-        })
-        .catch((serverError) => {
-          const permissionError = new FirestorePermissionError({
-            path: vesselsCollectionRef.path,
-            operation: 'create',
-            requestResourceData: newVessel,
-          });
-          errorEmitter.emit('permission-error', permissionError);
-        }).finally(() => {
-            setIsSavingVessel(false);
-        });
+    try {
+      await createVessel(supabase, {
+        ownerId: user.id,
+        name: data.name,
+        type: data.type,
+        officialNumber: data.officialNumber,
+      });
+      addVesselForm.reset();
+      setIsAddVesselDialogOpen(false);
+      toast({ title: 'Vessel Added', description: `${data.name} has been added.` });
+    } catch (error: any) {
+      console.error('Error adding vessel:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to add vessel. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingVessel(false);
+    }
   }
 
   const handleRangeStateChange = async (state: DailyStatus) => {
-    if (!stateLogsRef || !dateRange?.from || !dateRange?.to) return;
+    if (!currentVessel || !dateRange?.from || !dateRange?.to) return;
     
-    const batch = writeBatch(firestore);
     const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
-
-    interval.forEach(day => {
-        const dateKey = format(day, 'yyyy-MM-dd');
-        const docRef = doc(stateLogsRef, dateKey);
-        batch.set(docRef, { date: dateKey, state: state });
-    });
+    const logs = interval.map(day => ({
+      date: format(day, 'yyyy-MM-dd'),
+      state: state,
+    }));
     
-    await batch.commit();
-    setIsStatusDialogOpen(false);
-    setDateRange(undefined);
+    try {
+      await updateStateLogsBatch(supabase, currentVessel.id, logs);
+      setIsStatusDialogOpen(false);
+      setDateRange(undefined);
+    } catch (error) {
+      console.error('Error updating state logs:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update state logs.',
+        variant: 'destructive',
+      });
+    }
   }
 
   const handleTodayStateChange = async (state: DailyStatus) => {
-    if (!stateLogsRef) return;
+    if (!currentVessel) return;
     const todayKey = format(new Date(), 'yyyy-MM-dd');
-    const docRef = doc(stateLogsRef, todayKey);
-    await setDoc(docRef, { date: todayKey, state: state });
+    
+    try {
+      await updateStateLogsBatch(supabase, currentVessel.id, [{ date: todayKey, state }]);
+    } catch (error) {
+      console.error('Error updating today state:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update state.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleSaveNotes = async () => {
-    if (!currentServiceRef) return;
+    if (!currentService?.id) return;
     setIsSavingNotes(true);
-    setDoc(currentServiceRef, { notes }, { merge: true })
-        .then(() => toast({ title: 'Notes Saved', description: 'Your trip notes have been updated.' }))
-        .catch((e) => console.error("Error saving notes", e))
-        .finally(() => setIsSavingNotes(false));
+    
+    try {
+      const { error } = await supabase
+        .from('sea_service_records')
+        .update({ notes })
+        .eq('id', currentService.id);
+      
+      if (error) throw error;
+      toast({ title: 'Notes Saved', description: 'Your trip notes have been updated.' });
+    } catch (e) {
+      console.error("Error saving notes", e);
+      toast({
+        title: 'Error',
+        description: 'Failed to save notes.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingNotes(false);
+    }
   };
 
 
   const handleEndTrip = async () => {
-    if (!currentServiceRef || !userProfileRef) return;
+    if (!currentService?.id || !user?.id) return;
     
-    const batch = writeBatch(firestore);
-    
-    // 1. Update SeaServiceRecord
-    batch.update(currentServiceRef, { isCurrent: false, endDate: Timestamp.now() });
+    try {
+      // 1. Update SeaServiceRecord
+      const { error: serviceError } = await supabase
+        .from('sea_service_records')
+        .update({ 
+          is_current: false, 
+          end_date: new Date().toISOString() 
+        })
+        .eq('id', currentService.id);
 
-    // 2. Update user profile
-    batch.update(userProfileRef, { activeVesselId: null, activeSeaServiceId: null });
+      if (serviceError) throw serviceError;
 
-    await batch.commit();
+      // 2. Update user profile
+      await updateUserProfile(supabase, user.id, {
+        activeVesselId: null,
+        activeSeaServiceId: null,
+      });
+
+      toast({ title: 'Trip Ended', description: 'Your current service has been ended.' });
+    } catch (error: any) {
+      console.error('Error ending trip:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to end trip. Please try again.',
+        variant: 'destructive',
+      });
+    }
   }
   
-  const startDate = currentService ? fromUnixTime(currentService.startDate.seconds) : null;
+  const startDate = currentService ? new Date(currentService.startDate) : null;
   
   const { totalDaysByState, atSeaDays, standbyDays } = useMemo(() => {
     if (!stateLogs) return { totalDaysByState: [], atSeaDays: 0, standbyDays: 0 };

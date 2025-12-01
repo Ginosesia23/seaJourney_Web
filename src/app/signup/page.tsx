@@ -12,11 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth, errorEmitter, FirestorePermissionError, useUser } from '@/firebase';
-import { createUserWithEmailAndPassword, updateProfile, AuthError } from 'firebase/auth';
+import { useSupabase, useUser } from '@/supabase';
 import { Loader2 } from 'lucide-react';
-import { doc, setDoc } from 'firebase/firestore';
-import { useFirestore } from '@/firebase';
 import LogoOnboarding from '@/components/logo-onboarding';
 
 const signupSchema = z.object({
@@ -31,8 +28,7 @@ export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingUser, setIsCheckingUser] = useState(true);
 
-  const auth = useAuth();
-  const firestore = useFirestore();
+  const { supabase } = useSupabase();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -54,60 +50,116 @@ export default function SignupPage() {
   }, [user, isUserLoading, router]);
 
   const handleSignup = async (data: SignupFormValues) => {
-    if (!auth || !firestore) return;
     setIsLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
-      const user = userCredential.user;
-
-      // Update Firebase Auth profile
-      await updateProfile(user, { displayName: data.username });
-
-      // Create user profile in Firestore
-      const userProfileRef = doc(firestore, 'users', user.uid);
-      const profileData = {
-        id: user.uid,
-        email: user.email,
-        username: data.username,
-        firstName: '',
-        lastName: '',
-        registrationDate: new Date().toISOString(),
-        role: 'crew', // Assign default role
-        subscriptionTier: 'free',
-        subscriptionStatus: 'inactive',
-      };
-      
-      await setDoc(userProfileRef, profileData);
-
-      const redirectUrl = searchParams.get('redirect') || '/offers';
-      router.push(redirectUrl);
-
-    } catch (error) {
-      const authError = error as AuthError;
-      console.error('Signup failed:', authError);
-      
-      if (authError.code === 'auth/email-already-in-use') {
+      // Validate password strength
+      if (data.password.length < 8) {
         toast({
-          title: 'Signup Failed',
-          description: 'This email is already in use. Please try another one or log in.',
+          title: 'Weak Password',
+          description: 'Password must be at least 8 characters long.',
           variant: 'destructive',
         });
-      } else if (authError.code) {
-        const userProfileRef = doc(firestore, 'users', 'dummy-uid-for-error');
-        const permissionError = new FirestorePermissionError({
-            path: userProfileRef.path,
-            operation: 'create',
-            requestResourceData: { email: data.email, username: data.username, role: 'crew' }
+        setIsLoading(false);
+        return;
+      }
+
+      // Create auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+        options: {
+          data: {
+            username: data.username,
+          },
+          emailRedirectTo: `${window.location.origin}/dashboard`,
+        },
+      });
+
+      if (authError) {
+        // Handle specific error cases
+        if (authError.message.includes('already registered') || authError.message.includes('already exists')) {
+          toast({
+            title: 'Email Already Registered',
+            description: 'This email is already in use. Please try logging in instead.',
+            variant: 'destructive',
           });
-        errorEmitter.emit('permission-error', permissionError);
+        } else if (authError.message.includes('Password')) {
+          toast({
+            title: 'Invalid Password',
+            description: 'Password does not meet requirements. Please use a stronger password.',
+            variant: 'destructive',
+          });
+        } else {
+          toast({
+            title: 'Signup Failed',
+            description: authError.message || 'An error occurred during sign-up. Please try again.',
+            variant: 'destructive',
+          });
+        }
+        setIsLoading(false);
+        return;
       }
-       else {
+
+      if (!authData.user) {
+        throw new Error('User creation failed');
+      }
+
+      // Create user profile in database (use upsert to handle duplicates gracefully)
+      const { error: profileError } = await supabase
+        .from('users')
+        .upsert(
+          {
+            id: authData.user.id,
+            email: data.email,
+            username: data.username,
+            first_name: '',
+            last_name: '',
+            registration_date: new Date().toISOString(),
+            role: 'crew',
+            subscription_tier: 'free',
+            subscription_status: 'inactive',
+          },
+          {
+            onConflict: 'id',
+          }
+        );
+
+      if (profileError) {
+        console.error('Profile creation error:', profileError);
+        // If profile creation fails but user was created, we should still show success
+        // The profile might be created via database trigger or can be retried
         toast({
-          title: 'Signup Failed',
-          description: 'An unknown error occurred during sign-up.',
-          variant: 'destructive',
+          title: 'Account Created',
+          description: 'Your account was created, but there was an issue with your profile. Please contact support if you experience any issues.',
+          variant: 'default',
         });
       }
+
+      // Check if email confirmation is required
+      if (authData.user && !authData.session) {
+        // Email confirmation required
+        toast({
+          title: 'Check Your Email',
+          description: 'We sent you a confirmation email. Please verify your email address to complete signup.',
+          variant: 'default',
+        });
+        router.push('/login');
+      } else {
+        // User is automatically signed in (if email confirmation is disabled)
+        toast({
+          title: 'Account Created!',
+          description: 'Welcome to SeaJourney! Your account has been successfully created.',
+        });
+        const redirectUrl = searchParams.get('redirect') || '/offers';
+        router.push(redirectUrl);
+      }
+    } catch (error: any) {
+      console.error('Signup failed:', error);
+      toast({
+        title: 'Signup Failed',
+        description: error.message || 'An unexpected error occurred during sign-up. Please try again.',
+        variant: 'destructive',
+      });
     } finally {
       setIsLoading(false);
     }

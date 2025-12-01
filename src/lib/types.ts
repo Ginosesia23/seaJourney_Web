@@ -1,6 +1,4 @@
 
-import { Timestamp } from "firebase/firestore";
-
 export interface UserProfile {
   id: string;
   email: string;
@@ -31,8 +29,8 @@ export interface SeaServiceRecord {
     id: string;
     vesselId: string;
     position: string;
-    startDate: Timestamp;
-    endDate?: Timestamp;
+    startDate: string; // ISO string or timestamp
+    endDate?: string; // ISO string or timestamp
     isCurrent: boolean;
     notes?: string;
 }

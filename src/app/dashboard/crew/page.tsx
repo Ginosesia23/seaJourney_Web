@@ -2,8 +2,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useFirestore, useCollection, useMemoFirebase, useUser, useDoc } from '@/firebase';
-import { collection, query, doc } from 'firebase/firestore';
+import { useUser, useSupabase } from '@/supabase';
+import { useCollection, useDoc } from '@/supabase/database';
 import { MoreHorizontal, Loader2, Search, Users, User as UserIcon } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -21,21 +21,17 @@ const getInitials = (name: string) => name ? name.split(' ').map((n) => n[0]).jo
 
 export default function CrewPage() {
     const [searchTerm, setSearchTerm] = useState('');
-    const firestore = useFirestore();
     const { user } = useUser();
+    const { supabase } = useSupabase();
 
-    // The user's own profile is needed to check their role. Fetch only the current user's doc.
-    const currentUserProfileRef = useMemoFirebase(() => user ? doc(firestore, 'users', user.uid) : null, [firestore, user]);
-    const { data: currentUserProfile, isLoading: isLoadingProfile } = useDoc<UserProfile>(currentUserProfileRef);
+    // The user's own profile is needed to check their role.
+    const { data: currentUserProfile, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
 
     const isAuthorized = currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'vessel';
 
-    const usersCollection = useMemoFirebase(() => {
-        if (!firestore || !isAuthorized) return null;
-        return query(collection(firestore, 'users'));
-    }, [firestore, isAuthorized]);
-
-    const { data: profiles, isLoading: isLoadingProfiles } = useCollection<UserProfile>(usersCollection);
+    const { data: profiles, isLoading: isLoadingProfiles } = useCollection<UserProfile>(
+        isAuthorized ? 'users' : null
+    );
     
     const filteredProfiles = useMemo(() => {
         if (!profiles) return [];

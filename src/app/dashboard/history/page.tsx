@@ -2,8 +2,9 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { useUser, useSupabase } from '@/supabase';
+import { useCollection } from '@/supabase/database';
+import { getVesselSeaService, getVesselStateLogs } from '@/supabase/database/queries';
 import { History, Loader2, Search, LayoutGrid, List } from 'lucide-react';
 import { CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,39 +13,36 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import type { Vessel, SeaServiceRecord, StateLog } from '@/lib/types';
-import { fromUnixTime, differenceInDays } from 'date-fns';
+import { differenceInDays } from 'date-fns';
 
 export default function HistoryPage() {
   const { user } = useUser();
-  const firestore = useFirestore();
+  const { supabase } = useSupabase();
   const [searchTerm, setSearchTerm] = useState('');
   const [layout, setLayout] = useState<'card' | 'table'>('card');
 
   const [allSeaService, setAllSeaService] = useState<SeaServiceRecord[]>([]);
   const [allStateLogs, setAllStateLogs] = useState<Map<string, StateLog[]>>(new Map());
 
-  const vesselsCollectionRef = useMemoFirebase(() => 
-    user ? collection(firestore, 'users', user.uid, 'vessels') : null, 
-    [user, firestore]
+  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
+    'vessels',
+    { filter: 'owner_id', filterValue: user?.id, orderBy: 'created_at', ascending: false }
   );
-  
-  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
 
   useEffect(() => {
-    if (vessels && firestore && user?.uid) {
+    if (vessels && user?.id) {
       const fetchServiceAndLogs = async () => {
         const serviceRecords: SeaServiceRecord[] = [];
         const logsMap = new Map<string, StateLog[]>();
 
         await Promise.all(vessels.map(async (vessel) => {
-          const serviceRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'seaService');
-          const logsRef = collection(firestore, 'users', user.uid, 'vessels', vessel.id, 'stateLogs');
-
-          const [serviceSnap, logsSnap] = await Promise.all([getDocs(serviceRef), getDocs(logsRef)]);
+          const [seaService, stateLogs] = await Promise.all([
+            getVesselSeaService(supabase, vessel.id),
+            getVesselStateLogs(supabase, vessel.id)
+          ]);
           
-          serviceSnap.forEach(doc => serviceRecords.push({ id: doc.id, ...doc.data() } as SeaServiceRecord));
-          const logs = logsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StateLog));
-          logsMap.set(vessel.id, logs);
+          serviceRecords.push(...seaService);
+          logsMap.set(vessel.id, stateLogs);
         }));
 
         setAllSeaService(serviceRecords);
@@ -52,7 +50,7 @@ export default function HistoryPage() {
       };
       fetchServiceAndLogs();
     }
-  }, [vessels, firestore, user?.uid]);
+  }, [vessels, user?.id, supabase]);
 
   const isLoading = isLoadingVessels || (vessels && vessels.length > 0 && (allSeaService.length === 0 && allStateLogs.size === 0 && vessels.length > 0));
 

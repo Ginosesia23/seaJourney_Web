@@ -18,9 +18,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
-import { collection } from 'firebase/firestore';
 import { toast } from '@/hooks/use-toast';
+import { useUser } from '@/supabase';
+import { useCollection } from '@/supabase/database';
 import type { Vessel } from '@/lib/types';
 
 
@@ -49,7 +49,6 @@ type ExportFormValues = z.infer<typeof exportSchema>;
 
 export default function ExportPage() {
     const { user } = useUser();
-    const firestore = useFirestore();
     const [isGenerating, setIsGenerating] = useState(false);
 
     const form = useForm<ExportFormValues>({
@@ -64,12 +63,10 @@ export default function ExportPage() {
 
     const filterType = form.watch('filterType');
 
-    const vesselsCollectionRef = useMemoFirebase(() => {
-        if (!user || !firestore) return null;
-        return collection(firestore, 'users', user.uid, 'vessels');
-    }, [user, firestore]);
-
-    const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(vesselsCollectionRef);
+    const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
+        'vessels',
+        { filter: 'owner_id', filterValue: user?.id, orderBy: 'created_at', ascending: false }
+    );
 
     const onSubmit = async (data: ExportFormValues) => {
         if (!user) {
@@ -80,7 +77,7 @@ export default function ExportPage() {
         setIsGenerating(true);
         try {
             const reportData = await fetchSeaTimeReportData(
-                user.uid,
+                user.id,
                 data.filterType,
                 data.vesselId,
                 data.dateRange as { from: Date; to: Date } | undefined
