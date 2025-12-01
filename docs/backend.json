@@ -50,7 +50,7 @@
         "subscriptionTier": {
           "type": "string",
           "description": "The user's subscription tier.",
-          "enum": ["free", "premium", "premium-plus", "professional"]
+          "enum": ["premium"]
         },
         "subscriptionStatus": {
             "type": "string",

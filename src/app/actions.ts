@@ -35,106 +35,144 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
     return products as StripeProduct[];
 }
 
-export async function createCheckoutSession(priceId: string, userId: string, userEmail: string): Promise<{ sessionId: string; url: string | null; }> {
-    const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+export async function createCheckoutSession(
+  priceId: string,
+  userId: string,
+  userEmail: string,
+  tier: 'premium' | 'signoff',
+): Promise<{ sessionId: string; url: string | null }> {
+  const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
 
-    if (!origin) {
-      throw new Error('App URL is not set in environment variables or as a fallback.');
-    }
-  
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [{ price: priceId, quantity: 1 }],
-      mode: 'subscription',
-      customer_email: userEmail,
-      client_reference_id: userId,
-      success_url: `${origin}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/offers`,
-      metadata: {
-        userId,
-        priceId,
-      }
-    });
-  
-    return {
-      sessionId: session.id,
-      url: session.url,
-    };
+  if (!origin) {
+    throw new Error('App URL is not set in environment variables or as a fallback.');
+  }
+
+  const session = await stripe.checkout.sessions.create({
+    payment_method_types: ['card'],
+    line_items: [{ price: priceId, quantity: 1 }],
+    mode: 'subscription',
+    customer_email: userEmail,
+    client_reference_id: userId,
+    success_url: `${origin}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/offers`,
+    metadata: {
+      userId,
+      priceId,
+      tier, // 👈 send the logical plan name
+    },
+  });
+
+  return {
+    sessionId: session.id,
+    url: session.url,
+  };
 }
 
 
 export async function verifyCheckoutSession(
-  sessionId: string
-): Promise<{ success: boolean; userId?: string; priceId?: string; tier?: string; }> {
+  sessionId: string,
+): Promise<{ success: boolean; userId?: string; tier?: string; errorMessage?: string }> {
   let app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
   const db = getFirestore(app);
 
   try {
     if (!sessionId) {
       console.error('verifyCheckoutSession called with empty sessionId');
-      return { success: false };
+      return { success: false, errorMessage: 'Missing sessionId' };
     }
 
-    console.log(`[Stripe Verify] Starting verification for session: ${sessionId}`);
+    console.log(`[VERIFY] Starting verification for session ID: ${sessionId}`);
 
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ['line_items.data.price.product'],
+      expand: ['subscription', 'line_items.data.price.product'],
     });
 
-    console.log('[Stripe Verify] Retrieved session from Stripe:', {
+    console.log('[VERIFY] Stripe session retrieved:', {
       id: session.id,
       status: session.status,
       payment_status: session.payment_status,
       client_reference_id: session.client_reference_id,
+      metadata: session.metadata,
+      line_items_count: session.line_items?.data.length,
     });
 
-    if (session.payment_status !== 'paid') {
-      console.warn(`[Stripe Verify] Payment not successful yet. Status: ${session.payment_status}`);
-      return { success: false };
+    if (session.status !== 'complete' || session.payment_status !== 'paid') {
+      const errorMessage = `Session not complete. status=${session.status}, payment_status=${session.payment_status}`;
+      console.error(`[VERIFY] FAILED: ${errorMessage}`);
+      return {
+        success: false,
+        errorMessage,
+      };
     }
 
     const userId = session.client_reference_id as string | undefined;
     if (!userId) {
-      console.error("[Stripe Verify] CRITICAL: No userId found in session's client_reference_id.");
-      return { success: false };
+      console.error('[VERIFY] FAILED: No userId (client_reference_id) on session');
+      return { success: false, errorMessage: 'Missing userId in session' };
     }
 
-    const priceId = session.metadata?.priceId;
-    const product = session.line_items?.data[0]?.price?.product as Stripe.Product | undefined;
-    
-    // Default to 'premium' if product name isn't available or is complex
-    const tier = product?.name.replace(/^(sj_)/, '').toLowerCase() || 'premium';
+    const product = session.line_items?.data[0].price?.product as Stripe.Product | undefined;
+    if (!product) {
+      console.error('[VERIFY] FAILED: No product found on session line items');
+      return { success: false, errorMessage: 'Missing product information from session' };
+    }
 
-    console.log('[Stripe Verify] User and subscription details determined:', {
-      userId,
-      priceId,
-      tier,
-      productName: product?.name,
-    });
+    const tier = product.name.toLowerCase().replace(/^sj_/, '').replace(' ', '_');
+    console.log(`[VERIFY] Determined tier: '${tier}' from product name: '${product.name}'`);
+
+
+    let normalizedStatus: 'active' | 'inactive' | 'past_due' = 'active';
+    let stripeSubscriptionId: string | undefined;
+    let stripeCustomerId: string | undefined;
+    let currentPeriodEnd: Date | null = null;
+
+    if (session.subscription && typeof session.subscription === 'object') {
+      const subscription = session.subscription;
+      stripeSubscriptionId = subscription.id;
+      stripeCustomerId = subscription.customer as string;
+
+      if (subscription.current_period_end) {
+        currentPeriodEnd = new Date(subscription.current_period_end * 1000);
+      }
+
+      switch (subscription.status) {
+        case 'active':
+        case 'trialing':
+          normalizedStatus = 'active';
+          break;
+        case 'past_due':
+          normalizedStatus = 'past_due';
+          break;
+        default:
+          normalizedStatus = 'inactive';
+      }
+      console.log(`[VERIFY] Subscription details processed. Status: ${normalizedStatus}`);
+    }
 
     const userProfileRef = doc(db, 'users', userId);
-    
-    const updateData = {
-      subscriptionStatus: 'active',
-      subscriptionTier: tier,
-    };
-
-    console.log(`[Stripe Verify] Attempting to update Firestore for user ${userId} with data:`, updateData);
+    console.log(`[VERIFY] Preparing to update Firestore document at path: ${userProfileRef.path}`);
 
     await setDoc(
       userProfileRef,
-      updateData,
-      { merge: true }
+      {
+        subscriptionStatus: normalizedStatus,
+        subscriptionTier: tier,
+        stripeCustomerId: stripeCustomerId ?? null,
+        stripeSubscriptionId: stripeSubscriptionId ?? null,
+        subscriptionCurrentPeriodEnd: currentPeriodEnd ?? null,
+      },
+      { merge: true },
     );
+    
+    console.log(`[VERIFY] SUCCESS: Firestore document updated for userId: ${userId}`);
 
-    console.log(`[Stripe Verify] Firestore update successful for user ${userId}.`);
-
-    return { success: true, userId, priceId, tier };
-  } catch (error) {
-    console.error('[Stripe Verify] An error occurred during verification:', error);
-    return { success: false };
+    return { success: true, userId, tier };
+  } catch (error: any) {
+    console.error('[VERIFY] FAILED: An exception occurred during verification:', error);
+    return { success: false, errorMessage: error?.message || 'Unknown error' };
   }
 }
+
 
 
 export type SeaTimeReportData = {
