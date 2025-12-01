@@ -17,7 +17,6 @@ import {
 import Logo from '@/components/logo';
 import { Cart } from '@/components/cart';
 import { useAuth, useUser } from '@/firebase';
-import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,9 +40,6 @@ const Header = () => {
   const auth = useAuth();
   const isShopPage = pathname.startsWith('/shop');
   const { user } = useUser();
-  const { customerInfo } = useRevenueCat();
-
-  const hasActiveSubscription = (customerInfo?.entitlements.active && Object.keys(customerInfo.entitlements.active).length > 0) || false;
 
   const handleSignOut = () => {
     if (auth) {
@@ -172,15 +168,14 @@ const Header = () => {
 
                 <div className="border-t border-primary/10 pt-6">
                   {user ? (
-                    hasActiveSubscription ? (
+                    <div className="space-y-4">
                         <Link href="/dashboard" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
                             Dashboard
                         </Link>
-                    ) : (
                          <button onClick={() => { handleSignOut(); setIsOpen(false); }} className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground flex items-center gap-2">
                            <LogOut className="h-5 w-5" /> Log Out
                         </button>
-                    )
+                    </div>
                   ) : (
                     <Link href="/login" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
                         Sign In

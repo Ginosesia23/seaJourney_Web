@@ -6,63 +6,56 @@ import { getSdks } from '@/firebase'; // Assuming getSdks is available for serve
 import { initializeApp, getApps, App } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { firebaseConfig } from '@/firebase/config';
-import type { Purchases, CustomerInfo } from '@revenuecat/purchases-js';
 import type { SeaServiceRecord, UserProfile, Vessel, StateLog } from '@/lib/types';
 import { isWithinInterval, fromUnixTime, startOfDay, endOfDay } from 'date-fns';
+import { stripe } from '@/lib/stripe';
+import type { Stripe } from 'stripe';
 
-
-// This function will run on the server
-export async function purchaseSubscriptionPackage(
-  entitlementId: string, // This is the entitlement identifier, e.g., "sj_starter"
-  appUserId: string
-): Promise<{ success: boolean; customerInfo?: CustomerInfo, error?: string, entitlementId?: string }> {
-  const secretApiKey = process.env.REVENUECAT_SECRET_API_KEY;
-
-  if (!secretApiKey) {
-    throw new Error('RevenueCat secret API key is not set in your .env file.');
-  }
-
-  if (!appUserId) {
-    throw new Error('User is not authenticated.');
-  }
-
-  try {
-    // Grant the promotional entitlement via RevenueCat API
-    const response = await fetch(
-      `https://api.revenuecat.com/v1/subscribers/${appUserId}/entitlements/${entitlementId}/promotional`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${secretApiKey}`,
-        },
-        body: JSON.stringify({
-          duration: 'monthly', // Grant a monthly promotional subscription
-        }),
-      }
-    );
-    
-    if (!response.ok) {
-        const errorBody = await response.json();
-        console.error('RevenueCat API Error:', errorBody);
-        throw new Error(`Failed to grant entitlement. Status: ${response.status} - ${errorBody.message || 'Unknown error'}`);
-    }
-
-    const data = await response.json();
-    const subscriber = data.subscriber as CustomerInfo;
-    const activeEntitlement = subscriber.entitlements.active[entitlementId];
-
-    if (activeEntitlement) {
-       return { success: true, customerInfo: subscriber, entitlementId };
-    } else {
-       throw new Error(`Entitlement '${entitlementId}' not found or expired after grant.`);
-    }
-
-  } catch (error: any) {
-    console.error('Server-side promotional grant failed:', error);
-    return { success: false, error: error.message };
-  }
+export interface StripeProduct extends Stripe.Product {
+  default_price: Stripe.Price;
 }
+
+export async function getStripeProducts(): Promise<StripeProduct[]> {
+    const prices = await stripe.prices.list({
+      active: true,
+      limit: 10,
+      expand: ['data.product'],
+    });
+  
+    const products = prices.data.map(price => {
+      const product = price.product as Stripe.Product;
+      return {
+        ...product,
+        default_price: price,
+      };
+    }).filter(p => p.active);
+  
+    // Filter out products that might not have a default price or are inactive
+    return products as StripeProduct[];
+}
+
+export async function createCheckoutSession(priceId: string, userId: string, userEmail: string): Promise<{ sessionId: string; url: string | null; }> {
+    const origin = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:9002';
+  
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{ price: priceId, quantity: 1 }],
+      mode: 'subscription',
+      customer_email: userEmail,
+      client_reference_id: userId,
+      success_url: `${origin}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/offers`,
+      metadata: {
+        userId,
+        priceId,
+      }
+    });
+  
+    return {
+      sessionId: session.id,
+      url: session.url,
+    };
+  }
 
 export type SeaTimeReportData = {
   userProfile: UserProfile;

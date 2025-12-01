@@ -10,7 +10,6 @@ import DashboardHeader from '@/components/layout/dashboard-header';
 import DashboardSidebar from '@/components/layout/dashboard-sidebar';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
-import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 import type { UserProfile } from '@/lib/types';
 
 
@@ -20,7 +19,6 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { theme } = useTheme();
   const firestore = useFirestore();
-  const { customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
 
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
@@ -30,16 +28,11 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const { data: userProfile, isLoading: isProfileLoading } =
     useDoc<UserProfile>(userProfileRef);
 
-  // 🔹 Helper: list of active entitlement IDs, e.g. ["premium"]
-  const activeEntitlementIds =
-    customerInfo?.entitlements?.active
-      ? Object.keys(customerInfo.entitlements.active)
-      : [];
 
-  const hasActiveEntitlement = activeEntitlementIds.length > 0;
+  const hasActiveSubscription = userProfile?.subscriptionStatus === 'active';
 
   useEffect(() => {
-    if (isUserLoading || !isRevenueCatReady || isProfileLoading) {
+    if (isUserLoading || isProfileLoading) {
       return;
     }
 
@@ -48,10 +41,8 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    console.log('Dashboard – active entitlements:', activeEntitlementIds);
-
     // If user has no active entitlements, force them to /offers (except when already there)
-    if (!hasActiveEntitlement && pathname !== '/offers') {
+    if (!hasActiveSubscription && pathname !== '/offers') {
       router.push('/offers');
       return;
     }
@@ -67,17 +58,15 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   }, [
     user,
     isUserLoading,
-    isRevenueCatReady,
     isProfileLoading,
-    hasActiveEntitlement,
-    activeEntitlementIds,
+    hasActiveSubscription,
     pathname,
     userProfile,
     router,
   ]);
 
   const isMapPage = pathname === '/dashboard/world-map';
-  const isLoading = isUserLoading || !isRevenueCatReady || isProfileLoading;
+  const isLoading = isUserLoading || isProfileLoading;
 
   if (isLoading) {
     return (
@@ -88,7 +77,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   }
 
   // Safety gate in render as well (in case redirect hasn't happened yet)
-  if (!user || (!hasActiveEntitlement && pathname !== '/offers')) {
+  if (!user || (!hasActiveSubscription && pathname !== '/offers')) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -115,6 +104,5 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  // RevenueCatProvider is now in the root layout, so it's not needed here.
   return <DashboardContent>{children}</DashboardContent>;
 }

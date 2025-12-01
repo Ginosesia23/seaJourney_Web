@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils';
 import { CartProvider } from '@/context/cart-context';
 import { ThemeProvider } from '@/context/theme-provider';
 import { FirebaseClientProvider } from '@/firebase';
-import RevenueCatProvider from '@/components/providers/revenue-cat-provider';
 
 export const metadata: Metadata = {
   title: 'SeaJourney - Seatime Tracker for Maritime Professionals',
@@ -37,11 +36,9 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <FirebaseClientProvider>
-            <RevenueCatProvider>
               <CartProvider>
                 {children}
               </CartProvider>
-            </RevenueCatProvider>
           </FirebaseClientProvider>
         </ThemeProvider>
         <Toaster />

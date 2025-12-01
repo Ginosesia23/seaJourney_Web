@@ -18,7 +18,6 @@ import { Loader2 } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 import LogoOnboarding from '@/components/logo-onboarding';
-import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 
 const signupSchema = z.object({
   username: z.string().min(3, { message: 'Username must be at least 3 characters long.' }),
@@ -38,7 +37,6 @@ export default function SignupPage() {
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const { user, isUserLoading } = useUser();
-  const { customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
@@ -46,24 +44,14 @@ export default function SignupPage() {
   });
 
   useEffect(() => {
-    // Wait until both Firebase auth and RevenueCat are ready
-    if (isUserLoading || !isRevenueCatReady) {
-      return;
-    }
-
-    if (user) {
-      // User is logged in, decide where to redirect
-      const hasActiveSubscription = customerInfo?.activeSubscriptions?.length > 0;
-      if (hasActiveSubscription) {
+    if (!isUserLoading) {
+      if (user) {
         router.push('/dashboard');
       } else {
-        router.push('/offers');
+        setIsCheckingUser(false);
       }
-    } else {
-      // User is not logged in, show the signup page
-      setIsCheckingUser(false);
     }
-  }, [user, isUserLoading, customerInfo, isRevenueCatReady, router]);
+  }, [user, isUserLoading, router]);
 
   const handleSignup = async (data: SignupFormValues) => {
     if (!auth || !firestore) return;

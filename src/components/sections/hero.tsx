@@ -6,13 +6,22 @@ import { Button } from '@/components/ui/button';
 import Image from 'next/image';
 import { AppStoreIcon } from '@/components/sections/cta';
 import { useUser } from '@/firebase';
-import { useRevenueCat } from '../providers/revenue-cat-provider';
+import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import { doc } from 'firebase/firestore';
+import type { UserProfile } from '@/lib/types';
 
 const Hero = () => {
   const { user } = useUser();
-  const { customerInfo } = useRevenueCat();
+  const firestore = useFirestore();
 
-  const hasActiveSubscription = (customerInfo?.entitlements.active && Object.keys(customerInfo.entitlements.active).length > 0) || false;
+  const userProfileRef = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    return doc(firestore, 'users', user.uid);
+  }, [firestore, user?.uid]);
+
+  const { data: userProfile } = useDoc<UserProfile>(userProfileRef);
+
+  const hasActiveSubscription = userProfile?.subscriptionStatus === 'active';
 
   return (
     <section className="relative overflow-hidden bg-header text-header-foreground py-20 sm:py-28">

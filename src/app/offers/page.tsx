@@ -15,73 +15,12 @@ import {
 } from '@/components/ui/card';
 import { Check, Download, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import {
-  useUser,
-  useFirestore,
-  errorEmitter,
-  FirestorePermissionError,
-} from '@/firebase';
+import { useUser, useFirestore } from '@/firebase';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 import { doc, setDoc } from 'firebase/firestore';
-import {
-  Purchases,
-  ErrorCode,
-  PurchasesError,
-  type Package,
-} from '@revenuecat/purchases-js';
+import { getStripeProducts, createCheckoutSession, type StripeProduct } from '@/app/actions';
 
-const staticTierInfo: Record<
-  string,
-  { name: string; description: string; features: string[]; type: 'crew' | 'vessel' }
-> = {
-  sj_starter: {
-    name: 'Starter',
-    description: 'For dedicated professionals getting started.',
-    features: [
-      'Unlimited sea time logging',
-      'Digital testimonials',
-      'Up to 2 vessels',
-      'Single date state tracking',
-    ],
-    type: 'crew',
-  },
-  sj_premium: {
-    name: 'Premium',
-    description: 'For career-focused seafarers needing detailed analytics.',
-    features: [
-      'All Starter features',
-      'Unlimited vessels',
-      'Advanced career analytics',
-      'Certification progress tracking',
-    ],
-    type: 'crew',
-  },
-  sj_pro: {
-    name: 'Professional',
-    description: 'The ultimate toolkit for maritime professionals.',
-    features: [
-      'All Premium features',
-      'AI Co-pilot for reports',
-      'Unlimited document exports',
-      'Priority support',
-    ],
-    type: 'crew',
-  },
-  sj_vessel_basic: {
-    name: 'Vessel Basic',
-    description: 'Manage sea time and documents for a small crew.',
-    features: ['Up to 5 crew members', 'Centralized sea time logs', 'Bulk testimonial sign-offs'],
-    type: 'vessel',
-  },
-  sj_vessel_fleet: {
-    name: 'Vessel Fleet',
-    description: 'Comprehensive management for multiple vessels.',
-    features: ['Unlimited crew members', 'Multi-vessel dashboard', 'Fleet-wide analytics'],
-    type: 'vessel',
-  },
-};
 
 const freeTier = {
   name: 'Mobile App',
@@ -92,178 +31,65 @@ const freeTier = {
   href: 'https://apps.apple.com/gb/app/seajourney/id6751553072',
 };
 
-// 🔹 Get the billing product for a web Package (purchases-js)
-function getPackageProduct(pkg: Package): any | null {
-  const anyPkg = pkg as any;
-  return anyPkg.rcBillingProduct ?? null;
-}
-
-// 🔹 Billing period for display (use RC’s built-in packageType values)
-function getBillingPeriod(pkg: Package): string {
-  switch (pkg.packageType) {
-    case 'MONTHLY':
-      return 'month';
-    case 'ANNUAL':
-      return 'year';
-    case 'SIX_MONTH':
-      return '6 months';
-    case 'WEEKLY':
-      return 'week';
-    default:
-      return '';
-  }
-}
 
 export default function OffersPage() {
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
+  const [products, setProducts] = useState<StripeProduct[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
 
-  const { user, isUserLoading } = useUser();
-  const firestore = useFirestore();
-  const { offerings, customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
+  const { user } = useUser();
   const router = useRouter();
   const { toast } = useToast();
 
   useEffect(() => {
-    if (isRevenueCatReady && customerInfo?.entitlements && Object.keys(customerInfo.entitlements.active).length > 0) {
-      router.push('/dashboard');
-    }
-  }, [customerInfo, isRevenueCatReady, router]);
-
-
-  // Log active entitlements = what plan the user is on
-  useEffect(() => {
-    if (!offerings || !isRevenueCatReady) return;
-
-    const purchases = Purchases.getSharedInstance();
-    purchases.getCustomerInfo().then((info) => {
-      const active = Object.keys(info.entitlements.active);
-
-      console.log('Active Entitlements:', active);
-
-      if (active.length === 0) {
-        console.log('User is on FREE plan');
-      } else {
-        console.log('User is on plan:', active[0]); // e.g. "sj_premium"
+    const fetchProducts = async () => {
+      setIsLoadingProducts(true);
+      try {
+        const stripeProducts = await getStripeProducts();
+        setProducts(stripeProducts);
+      } catch (error) {
+        console.error('Failed to fetch Stripe products:', error);
+        toast({
+          title: 'Error',
+          description: 'Could not load subscription plans. Please try again later.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoadingProducts(false);
       }
-    });
-  }, [offerings, isRevenueCatReady]);
+    };
+    fetchProducts();
+  }, [toast]);
 
-  const handlePurchase = async (pkg: Package) => {
+
+  const handlePurchase = async (priceId: string) => {
     if (!user) {
       router.push(`/signup?redirect=/offers`);
       return;
     }
   
-    setIsPurchasing(pkg.identifier);
+    setIsPurchasing(priceId);
   
     try {
-      const purchases = Purchases.getSharedInstance();
-      const { customerInfo } = await purchases.purchasePackage(pkg);
-  
-      const product = getPackageProduct(pkg);
-      if (!product) {
-        throw new Error('No product info found on package.');
+      const { sessionId, url } = await createCheckoutSession(priceId, user.uid, user.email!);
+      if (url) {
+        router.push(url);
+      } else {
+        throw new Error('Could not create a checkout session.');
       }
-  
-      // 🔹 Look at entitlements actually activated by RevenueCat
-      const activeEntitlements = customerInfo.entitlements.active;
-      const activeEntitlementIds = Object.keys(activeEntitlements);
-  
-      console.log('Active entitlements after purchase:', activeEntitlements);
-  
-      if (activeEntitlementIds.length === 0) {
-        throw new Error('Purchase completed, but no active entitlements were found.');
-      }
-  
-      // For now, just take the first active entitlement as the user’s plan
-      const entitlementId = activeEntitlementIds[0]; // e.g. "premium"
-  
-      if (!firestore) {
-        throw new Error('Firestore is not initialized.');
-      }
-  
-      const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
-      const profileUpdateData = {
-        subscriptionTier: entitlementId,        // "premium"
-        subscriptionStatus: 'active',
-        lastProductId: product.identifier,      // e.g. "sj_premium_monthly"
-      };
-  
-      await setDoc(userProfileRef, profileUpdateData, { merge: true });
-  
-      toast({
-        title: 'Purchase Successful',
-        description: 'Your subscription has been activated!',
-      });
-      router.push('/dashboard');
-    } catch (e: any) {
-      // Firestore permission issue
-      if (e instanceof FirestorePermissionError) {
-        errorEmitter.emit('permission-error', e);
-        return;
-      }
-  
-      // RevenueCat / purchase errors
-      if (e instanceof PurchasesError) {
-        if (e.code === ErrorCode.purchaseCancelledError) {
-          toast({
-            title: 'Purchase Cancelled',
-            description: 'You have cancelled the purchase.',
-          });
-          return;
-        }
-  
-        console.error('RevenueCat purchase error:', e);
-        toast({
-          title: 'Purchase Failed',
-          description: e.message ?? 'An unexpected error occurred.',
-          variant: 'destructive',
-        });
-        return;
-      }
-  
-      // Any other unexpected error
-      console.error('Purchase error:', e);
+    } catch (error: any) {
+      console.error('Stripe checkout error:', error);
       toast({
         title: 'Purchase Failed',
-        description: e?.message || 'An unexpected error occurred.',
+        description: error.message || 'An unexpected error occurred.',
         variant: 'destructive',
       });
-    } finally {
       setIsPurchasing(null);
     }
   };
+
+  const isLoading = isLoadingProducts;
   
-
-  const isLoading = isUserLoading || !isRevenueCatReady;
-
-  const packagesToShow: Package[] = offerings?.current?.availablePackages || [];
-
-  // Log what packages we actually got back from RC
-  useEffect(() => {
-    console.log('RC packagesToShow:', packagesToShow);
-
-    packagesToShow.forEach((pkg) => {
-      const product = getPackageProduct(pkg);
-      if (product) {
-        console.log('Package debug:', {
-          pkgIdentifier: pkg.identifier,
-          productIdentifier: product.identifier,
-          title: product.title,
-          price: product.currentPrice?.formattedPrice,
-        });
-      }
-    });
-  }, [packagesToShow]);
-
-  if (isLoading || (isRevenueCatReady && customerInfo?.entitlements && Object.keys(customerInfo.entitlements.active).length > 0)) {
-     return (
-        <div className="flex h-screen w-full items-center justify-center bg-background">
-          <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        </div>
-    );
-  }
-
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <Header />
@@ -343,69 +169,40 @@ export default function OffersPage() {
                     </CardFooter>
                   </Card>
 
-                  {/* RevenueCat packages */}
-                  {packagesToShow.length === 0 ? (
+                  {products.length === 0 ? (
                     <div className="col-span-full text-center text-muted-foreground">
-                      No paid plans are configured in RevenueCat for the current offering.
+                      No paid plans are configured in Stripe.
                     </div>
                   ) : (
-                    packagesToShow.map((pkg) => {
-                      const product = getPackageProduct(pkg);
-                      if (!product) return null;
-                      
-                      const baseIdentifier = Object.keys(staticTierInfo).find(key => product.identifier.startsWith(key));
-                      
-                      if (!baseIdentifier) {
-                        console.warn(`No static info found for product: ${product.identifier}`);
-                        return null;
-                      }
-
-                      const staticInfo = staticTierInfo[baseIdentifier];
-
-                      const displayName =
-                        staticInfo?.name ?? product.title ?? product.identifier;
-
-                      const description =
-                        staticInfo?.description ??
-                        product.description ??
-                        'Premium access to SeaJourney features.';
-
-                      const features = staticInfo?.features ?? [
-                        'Full access to premium features',
-                      ];
-
-                      const isProcessing = isPurchasing === pkg.identifier;
-                      const billingPeriod = getBillingPeriod(pkg);
-
+                    products.map((product) => {
+                      const isProcessing = isPurchasing === product.default_price.id;
                       return (
                         <Card
-                          key={pkg.identifier}
+                          key={product.id}
                           className="flex flex-col rounded-2xl"
                         >
                           <CardHeader className="flex-grow">
                             <CardTitle className="font-headline text-2xl">
-                              {displayName}
+                              {product.name}
                             </CardTitle>
                             <div className="flex items-baseline gap-1">
                               <span className="text-4xl font-bold tracking-tight">
-                                {product.currentPrice?.formattedPrice ?? '£?'}
+                                £{((product.default_price.unit_amount || 0) / 100).toFixed(2)}
                               </span>
-                              {billingPeriod && (
-                                <span className="text-sm font-semibold text-muted-foreground">
-                                  / {billingPeriod}
-                                </span>
-                              )}
+                              <span className="text-sm font-semibold text-muted-foreground">
+                                  / {product.default_price.recurring?.interval}
+                              </span>
                             </div>
-                            <CardDescription>{description}</CardDescription>
+                            <CardDescription>{product.description}</CardDescription>
                           </CardHeader>
                           <CardContent>
-                            <ul className="space-y-4">
-                              {features.map((feature) => (
-                                <li key={feature} className="flex items-start">
-                                  <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
-                                  <span>{feature}</span>
-                                </li>
-                              ))}
+                             <ul className="space-y-4">
+                                {product.features.map((feature) => (
+                                    <li key={feature.name} className="flex items-start">
+                                    <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
+                                    <span>{feature.name}</span>
+                                    </li>
+                                ))}
                             </ul>
                           </CardContent>
                           <CardFooter>
@@ -413,7 +210,7 @@ export default function OffersPage() {
                               className="w-full rounded-full"
                               variant="outline"
                               disabled={isPurchasing !== null}
-                              onClick={() => handlePurchase(pkg)}
+                              onClick={() => handlePurchase(product.default_price.id)}
                             >
                               {isProcessing && (
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

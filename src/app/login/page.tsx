@@ -17,7 +17,6 @@ import { signInWithEmailAndPassword, signInAnonymously, AuthError, User } from '
 import { doc, getDoc } from 'firebase/firestore';
 import { Loader2 } from 'lucide-react';
 import LogoOnboarding from '@/components/logo-onboarding';
-import { useRevenueCat } from '@/components/providers/revenue-cat-provider';
 import type { UserProfile } from '@/lib/types';
 
 const loginSchema = z.object({
@@ -37,7 +36,6 @@ export default function LoginPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { user, isUserLoading } = useUser();
-  const { customerInfo, isReady: isRevenueCatReady } = useRevenueCat();
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -54,10 +52,14 @@ export default function LoginPage() {
         if (userProfile.role === 'vessel' || userProfile.role === 'admin') {
           router.push('/dashboard/crew');
         } else {
-          router.push('/dashboard');
+            if(userProfile.subscriptionStatus === 'active') {
+                router.push('/dashboard');
+            } else {
+                router.push('/offers');
+            }
         }
       } else {
-        router.push('/dashboard'); // Default redirect if profile doesn't exist yet
+        router.push('/offers'); // Default redirect if profile doesn't exist yet
       }
     } catch (error) {
       console.error("Failed to fetch user profile for redirection:", error);
@@ -66,21 +68,12 @@ export default function LoginPage() {
   };
 
   useEffect(() => {
-    if (isUserLoading || !isRevenueCatReady) {
-      return;
-    }
-
-    if (user) {
-      const hasActiveSubscription = Object.keys(customerInfo?.entitlements.active || {}).length > 0;
-      if (hasActiveSubscription) {
+    if (!isUserLoading && user) {
         checkUserAndRedirect(user);
-      } else {
-        router.push('/offers');
-      }
-    } else {
+    } else if (!isUserLoading && !user) {
       setIsCheckingUser(false);
     }
-  }, [user, isUserLoading, customerInfo, isRevenueCatReady, router, firestore]);
+  }, [user, isUserLoading, router, firestore]);
 
   const handleLogin = async (data: LoginFormValues) => {
     if (!auth) return;
