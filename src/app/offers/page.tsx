@@ -197,7 +197,7 @@ export default function OffersPage() {
                           </CardHeader>
                           <CardContent>
                              <ul className="space-y-4">
-                                {product.features.map((feature) => (
+                                {product.features && product.features.map((feature) => (
                                     <li key={feature.name} className="flex items-start">
                                     <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
                                     <span>{feature.name}</span>
