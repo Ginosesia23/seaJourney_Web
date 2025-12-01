@@ -63,43 +63,77 @@ export async function createCheckoutSession(priceId: string, userId: string, use
 }
 
 
-export async function verifyCheckoutSession(sessionId: string): Promise<{ success: boolean; userId?: string; priceId?: string; tier?: string; }> {
+export async function verifyCheckoutSession(
+  sessionId: string
+): Promise<{ success: boolean; userId?: string; priceId?: string; tier?: string; }> {
   let app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
   const db = getFirestore(app);
 
   try {
+    if (!sessionId) {
+      console.error('verifyCheckoutSession called with empty sessionId');
+      return { success: false };
+    }
+
+    console.log(`[Stripe Verify] Starting verification for session: ${sessionId}`);
+
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
       expand: ['line_items.data.price.product'],
     });
 
-    if (session.payment_status === 'paid') {
-      const userId = session.client_reference_id;
-      const priceId = session.metadata?.priceId;
+    console.log('[Stripe Verify] Retrieved session from Stripe:', {
+      id: session.id,
+      status: session.status,
+      payment_status: session.payment_status,
+      client_reference_id: session.client_reference_id,
+    });
 
-      if (!userId) {
-        console.error("No userId found in session's client_reference_id");
-        return { success: false };
-      }
-
-      // Extract product tier from the line item
-      const lineItem = session.line_items?.data[0];
-      const product = lineItem?.price?.product as Stripe.Product | undefined;
-      const tier = product?.name.toLowerCase().replace('sj_', '') || 'premium';
-
-      // Update user document in Firestore
-      const userProfileRef = doc(db, 'users', userId);
-      await updateDoc(userProfileRef, {
-        subscriptionStatus: 'active',
-        subscriptionTier: tier,
-      });
-
-      return { success: true, userId, priceId, tier };
+    if (session.payment_status !== 'paid') {
+      console.warn(`[Stripe Verify] Payment not successful yet. Status: ${session.payment_status}`);
+      return { success: false };
     }
-  } catch (error) {
-    console.error('Error verifying checkout session:', error);
-  }
 
-  return { success: false };
+    const userId = session.client_reference_id as string | undefined;
+    if (!userId) {
+      console.error("[Stripe Verify] CRITICAL: No userId found in session's client_reference_id.");
+      return { success: false };
+    }
+
+    const priceId = session.metadata?.priceId;
+    const product = session.line_items?.data[0]?.price?.product as Stripe.Product | undefined;
+    
+    // Default to 'premium' if product name isn't available or is complex
+    const tier = product?.name.replace(/^(sj_)/, '').toLowerCase() || 'premium';
+
+    console.log('[Stripe Verify] User and subscription details determined:', {
+      userId,
+      priceId,
+      tier,
+      productName: product?.name,
+    });
+
+    const userProfileRef = doc(db, 'users', userId);
+    
+    const updateData = {
+      subscriptionStatus: 'active',
+      subscriptionTier: tier,
+    };
+
+    console.log(`[Stripe Verify] Attempting to update Firestore for user ${userId} with data:`, updateData);
+
+    await setDoc(
+      userProfileRef,
+      updateData,
+      { merge: true }
+    );
+
+    console.log(`[Stripe Verify] Firestore update successful for user ${userId}.`);
+
+    return { success: true, userId, priceId, tier };
+  } catch (error) {
+    console.error('[Stripe Verify] An error occurred during verification:', error);
+    return { success: false };
+  }
 }
 
 
