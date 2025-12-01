@@ -3,15 +3,15 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
-import { doc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { Loader2 } from 'lucide-react';
 import DashboardHeader from '@/components/layout/dashboard-header';
 import DashboardSidebar from '@/components/layout/dashboard-sidebar';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
 import type { UserProfile } from '@/lib/types';
-import { verifyCheckoutSession } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
+
 
 function DashboardContent({ children }: { children: React.ReactNode }) {
   const { user, isUserLoading } = useUser();
@@ -24,8 +24,8 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
 
   const sessionId = searchParams.get('session_id');
   const [isVerifying, setIsVerifying] = useState<boolean>(!!sessionId);
-
-  // 🔐 Read profile from: users/{uid}/profile/{uid}
+  
+  // Read from /users/{uid}/profile/{uid}
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
     return doc(firestore, 'users', user.uid, 'profile', user.uid);
@@ -37,77 +37,126 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     forceRefetch,
   } = useDoc<UserProfile>(userProfileRef);
 
-  // 🔄 Handle Stripe checkout verification when session_id is present
-  useEffect(() => {
+  // 🔄 Stripe checkout verification using the API route
+// inside DashboardContent
+
+
+// ...
+useEffect(() => {
+  const run = async () => {
     if (!sessionId) {
       setIsVerifying(false);
       return;
     }
 
-    setIsVerifying(true);
-    console.log('[CLIENT] Starting checkout verification for session ID:', sessionId);
+    // We need Firestore and the logged-in user to update their profile
+    if (!firestore || !user?.uid) {
+      console.warn('[CLIENT] Missing firestore or user, skipping subscription update');
+      setIsVerifying(false);
+      return;
+    }
 
-    verifyCheckoutSession(sessionId)
-      .then(result => {
-        console.log('[CLIENT] verifyCheckoutSession result:', result);
+    try {
+      setIsVerifying(true);
+      console.log('[CLIENT] Starting checkout verification for session ID:', sessionId);
 
-        if (result.success) {
+      const res = await fetch('/api/stripe/verify-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      const result = await res.json();
+      console.log('[CLIENT] verify-checkout-session result:', result);
+
+
+// ...
+
+      if (result.success) {
+        const tier = result.tier ?? 'premium';
+
+        try {
+          const profileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
+          console.log(
+            '[CLIENT] Writing subscription to Firestore at:',
+            profileRef.path,
+            {
+              subscriptionStatus: 'active',
+              subscriptionTier: tier,
+            },
+          );
+
+          await setDoc(
+            profileRef,
+            {
+              subscriptionStatus: 'active',
+              subscriptionTier: tier,
+            },
+            { merge: true },
+          );
+
+          console.log('[CLIENT] Firestore subscription update COMPLETE');
+
           toast({
             title: 'Purchase Successful!',
             description: 'Your subscription has been activated.',
           });
 
-          // Refetch profile so subscriptionStatus / subscriptionTier update
           forceRefetch?.();
-
-          // Clean the URL (remove ?session_id=...)
           router.replace('/dashboard', { scroll: false });
-        } else {
+        } catch (firestoreError: any) {
+          console.error('[CLIENT] Firestore write FAILED:', firestoreError);
           toast({
-            title: 'Verification Failed',
-            description:
-              result.errorMessage ||
-              'There was an issue verifying your payment. Please contact support.',
+            title: 'Subscription saved in Stripe, but Firestore update failed',
+            description: firestoreError?.message || 'Check Firestore rules and path.',
             variant: 'destructive',
           });
-
-          router.replace('/offers', { scroll: false });
         }
-      })
-      .catch(err => {
-        console.error('[CLIENT] Error in verifyCheckoutSession:', err);
+      }
+      else {
         toast({
           title: 'Verification Failed',
-          description: 'Unexpected error while verifying your payment. Please try again.',
+          description:
+            result.errorMessage ||
+            'There was an issue verifying your payment. Please contact support.',
           variant: 'destructive',
         });
         router.replace('/offers', { scroll: false });
-      })
-      .finally(() => {
-        setIsVerifying(false);
+      }
+    } catch (err: any) {
+      console.error('[CLIENT] Error calling verify-checkout-session API:', err);
+      toast({
+        title: 'Verification Failed',
+        description: 'Unexpected error while verifying your payment. Please try again.',
+        variant: 'destructive',
       });
-  }, [sessionId, toast, forceRefetch, router]);
+      router.replace('/offers', { scroll: false });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  run();
+}, [sessionId, firestore, user?.uid, toast, forceRefetch, router]);
+
 
   const hasActiveSubscription = userProfile?.subscriptionStatus === 'active';
   const isLoading = isUserLoading || isProfileLoading || isVerifying;
 
-  // 🔐 Access control + redirects
+  // Access control
   useEffect(() => {
     if (isLoading) return;
 
-    // Not logged in → go to login
     if (!user) {
       router.push('/login');
       return;
     }
 
-    // If no active sub and not currently on /offers, send to /offers
     if (!hasActiveSubscription && pathname !== '/offers') {
       router.push('/offers');
       return;
     }
 
-    // Redirect vessel/admin roles to crew dashboard root
     if (
       userProfile &&
       (userProfile.role === 'vessel' || userProfile.role === 'admin') &&
@@ -128,7 +177,6 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Safety gate in render as well (in case redirect hasn't happened yet)
   if (!user || (!hasActiveSubscription && pathname !== '/offers')) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">

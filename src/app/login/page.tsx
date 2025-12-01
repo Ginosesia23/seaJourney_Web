@@ -44,7 +44,7 @@ export default function LoginPage() {
   
   const checkUserAndRedirect = async (user: User) => {
     if (!firestore) return;
-    const userProfileRef = doc(firestore, 'users', user.uid);
+    const userProfileRef = doc(firestore, 'users', user.uid, 'profile', user.uid);
     try {
       const docSnap = await getDoc(userProfileRef);
       if (docSnap.exists()) {
@@ -59,7 +59,19 @@ export default function LoginPage() {
             }
         }
       } else {
-        router.push('/offers'); // Default redirect if profile doesn't exist yet
+        // If the subcollection profile doc doesn't exist, check the parent.
+        const parentDocRef = doc(firestore, 'users', user.uid);
+        const parentDocSnap = await getDoc(parentDocRef);
+        if (parentDocSnap.exists()) {
+           const parentProfile = parentDocSnap.data() as UserProfile;
+            if(parentProfile.subscriptionStatus === 'active') {
+                router.push('/dashboard');
+            } else {
+                router.push('/offers');
+            }
+        } else {
+           router.push('/offers'); // Default redirect if profile doesn't exist yet
+        }
       }
     } catch (error) {
       console.error("Failed to fetch user profile for redirection:", error);
