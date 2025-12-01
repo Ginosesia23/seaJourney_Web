@@ -52,13 +52,15 @@ export async function createCheckoutSession(
     mode: 'subscription',
     customer_email: userEmail,
     client_reference_id: userId,
-    success_url: `${origin}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
+    success_url: `${origin}/dashboard`,
     cancel_url: `${origin}/offers`,
     metadata: {
       userId,
       priceId,
     },
   });
+
+  console.log("Users id: " + userId);
 
   return {
     sessionId: session.id,
@@ -78,6 +80,7 @@ export async function verifyCheckoutSession(
     if (!sessionId) {
       const errorMessage = 'verifyCheckoutSession called with empty sessionId';
       console.error(`[SERVER] FAILED: ${errorMessage}`);
+      console.log("Session faild due to no sessionID");
       return { success: false, errorMessage };
     }
 

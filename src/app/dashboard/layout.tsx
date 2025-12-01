@@ -22,19 +22,18 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const { theme } = useTheme();
   const firestore = useFirestore();
   const { toast } = useToast();
-  const [isVerifying, setIsVerifying] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(searchParams.has('session_id'));
 
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
-    return doc(firestore, 'users', user.uid);
+    return doc(firestore, 'users', user.uid, 'profile', user.uid);
   }, [firestore, user?.uid]);
 
   const { data: userProfile, isLoading: isProfileLoading, forceRefetch } = useDoc<UserProfile>(userProfileRef);
 
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
-    if (sessionId && !isVerifying) {
-      setIsVerifying(true);
+    if (sessionId) {
       console.log(`[CLIENT] Starting checkout verification for session ID: ${sessionId}`); // Client-side log
       verifyCheckoutSession(sessionId)
         .then(result => {
@@ -45,7 +44,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
             });
             // Force a refetch of the user profile to get the new subscription status
             forceRefetch();
-            // Clean the URL and redirect to dashboard
+            // Clean the URL
             router.replace('/dashboard', { scroll: false });
           } else {
              toast({
@@ -60,7 +59,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
           setIsVerifying(false);
         });
     }
-  }, [searchParams, isVerifying, toast, forceRefetch, router]);
+  }, [searchParams, toast, forceRefetch, router]);
 
   const hasActiveSubscription = userProfile?.subscriptionStatus === 'active';
   const isLoading = isUserLoading || isProfileLoading || isVerifying;
@@ -75,9 +74,8 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
       return;
     }
     
-    // If user has no active entitlements, force them to /offers (except when already there or on dashboard verifying)
-    const isVerifyingUrl = pathname === '/dashboard' && searchParams.has('session_id');
-    if (!hasActiveSubscription && pathname !== '/offers' && !isVerifyingUrl) {
+    // If user has no active entitlements, force them to /offers
+    if (!hasActiveSubscription && pathname !== '/offers') {
       router.push('/offers');
       return;
     }
@@ -96,8 +94,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     hasActiveSubscription,
     pathname,
     userProfile,
-    router,
-    searchParams
+    router
   ]);
 
   const isMapPage = pathname === '/dashboard/world-map';
@@ -112,7 +109,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   }
 
   // Safety gate in render as well (in case redirect hasn't happened yet)
-  if (!user || (!hasActiveSubscription && pathname !== '/offers' && !(pathname === '/dashboard' && searchParams.has('session_id')))) {
+  if (!user || (!hasActiveSubscription && pathname !== '/offers')) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
