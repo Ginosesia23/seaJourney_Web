@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -22,65 +21,93 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const { theme } = useTheme();
   const firestore = useFirestore();
   const { toast } = useToast();
-  const [isVerifying, setIsVerifying] = useState(searchParams.has('session_id'));
 
+  const sessionId = searchParams.get('session_id');
+  const [isVerifying, setIsVerifying] = useState<boolean>(!!sessionId);
+
+  // 🔐 Read profile from: users/{uid}/profile/{uid}
   const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
     return doc(firestore, 'users', user.uid, 'profile', user.uid);
   }, [firestore, user?.uid]);
 
-  const { data: userProfile, isLoading: isProfileLoading, forceRefetch } = useDoc<UserProfile>(userProfileRef);
+  const {
+    data: userProfile,
+    isLoading: isProfileLoading,
+    forceRefetch,
+  } = useDoc<UserProfile>(userProfileRef);
 
+  // 🔄 Handle Stripe checkout verification when session_id is present
   useEffect(() => {
-    const sessionId = searchParams.get('session_id');
-    if (sessionId) {
-      console.log(`[CLIENT] Starting checkout verification for session ID: ${sessionId}`); // Client-side log
-      verifyCheckoutSession(sessionId)
-        .then(result => {
-          if (result.success) {
-            toast({
-              title: 'Purchase Successful!',
-              description: 'Your subscription has been activated.',
-            });
-            // Force a refetch of the user profile to get the new subscription status
-            forceRefetch();
-            // Clean the URL
-            router.replace('/dashboard', { scroll: false });
-          } else {
-             toast({
-              title: 'Verification Failed',
-              description: result.errorMessage || 'There was an issue verifying your payment. Please contact support.',
-              variant: 'destructive'
-            });
-             router.replace('/offers', { scroll: false });
-          }
-        })
-        .finally(() => {
-          setIsVerifying(false);
-        });
-    }
-  }, [searchParams, toast, forceRefetch, router]);
-
-  const hasActiveSubscription = userProfile?.subscriptionStatus === 'active';
-  const isLoading = isUserLoading || isProfileLoading || isVerifying;
-  
-  useEffect(() => {
-    if (isLoading) {
+    if (!sessionId) {
+      setIsVerifying(false);
       return;
     }
 
+    setIsVerifying(true);
+    console.log('[CLIENT] Starting checkout verification for session ID:', sessionId);
+
+    verifyCheckoutSession(sessionId)
+      .then(result => {
+        console.log('[CLIENT] verifyCheckoutSession result:', result);
+
+        if (result.success) {
+          toast({
+            title: 'Purchase Successful!',
+            description: 'Your subscription has been activated.',
+          });
+
+          // Refetch profile so subscriptionStatus / subscriptionTier update
+          forceRefetch?.();
+
+          // Clean the URL (remove ?session_id=...)
+          router.replace('/dashboard', { scroll: false });
+        } else {
+          toast({
+            title: 'Verification Failed',
+            description:
+              result.errorMessage ||
+              'There was an issue verifying your payment. Please contact support.',
+            variant: 'destructive',
+          });
+
+          router.replace('/offers', { scroll: false });
+        }
+      })
+      .catch(err => {
+        console.error('[CLIENT] Error in verifyCheckoutSession:', err);
+        toast({
+          title: 'Verification Failed',
+          description: 'Unexpected error while verifying your payment. Please try again.',
+          variant: 'destructive',
+        });
+        router.replace('/offers', { scroll: false });
+      })
+      .finally(() => {
+        setIsVerifying(false);
+      });
+  }, [sessionId, toast, forceRefetch, router]);
+
+  const hasActiveSubscription = userProfile?.subscriptionStatus === 'active';
+  const isLoading = isUserLoading || isProfileLoading || isVerifying;
+
+  // 🔐 Access control + redirects
+  useEffect(() => {
+    if (isLoading) return;
+
+    // Not logged in → go to login
     if (!user) {
       router.push('/login');
       return;
     }
-    
-    // If user has no active entitlements, force them to /offers
+
+    // If no active sub and not currently on /offers, send to /offers
     if (!hasActiveSubscription && pathname !== '/offers') {
       router.push('/offers');
       return;
     }
 
-    // Redirect vessel/admin to crew dashboard root
+    // Redirect vessel/admin roles to crew dashboard root
     if (
       userProfile &&
       (userProfile.role === 'vessel' || userProfile.role === 'admin') &&
@@ -88,22 +115,15 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     ) {
       router.push('/dashboard/crew');
     }
-  }, [
-    user,
-    isLoading,
-    hasActiveSubscription,
-    pathname,
-    userProfile,
-    router
-  ]);
+  }, [user, isLoading, hasActiveSubscription, pathname, userProfile, router]);
 
   const isMapPage = pathname === '/dashboard/world-map';
-  
+
   if (isLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-         {isVerifying && <p className="ml-4">Verifying your purchase...</p>}
+        {isVerifying && <p className="ml-4">Verifying your purchase...</p>}
       </div>
     );
   }
@@ -125,7 +145,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
         <main
           className={cn(
             'flex-1 overflow-y-auto',
-            !isMapPage && 'gap-4 bg-background p-4 md:gap-8 md:p-8'
+            !isMapPage && 'gap-4 bg-background p-4 md:gap-8 md:p-8',
           )}
         >
           {children}

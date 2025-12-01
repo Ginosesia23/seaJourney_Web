@@ -1,11 +1,7 @@
 
 'use server';
 
-import { doc, setDoc, getDoc, collection, getDocs, query, where, Timestamp, updateDoc } from 'firebase/firestore';
-import { getSdks } from '@/firebase'; // Assuming getSdks is available for server-side admin-like init
-import { initializeApp, getApps, App } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
-import { firebaseConfig } from '@/firebase/config';
+import { adminDb } from '@/firebase/admin';
 import type { SeaServiceRecord, UserProfile, Vessel, StateLog } from '@/lib/types';
 import { isWithinInterval, fromUnixTime, startOfDay, endOfDay } from 'date-fns';
 import { stripe } from '@/lib/stripe';
@@ -72,12 +68,9 @@ export async function createCheckoutSession(
 export async function verifyCheckoutSession(
   sessionId: string,
 ): Promise<{ success: boolean; userId?: string; tier?: string; errorMessage?: string }> {
-  console.log('[SERVER] Entered verifyCheckoutSession function.');
+  console.log('[CLIENT] Starting checkout verification for session ID:', sessionId);
 
   try {
-    let app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-    const db = getFirestore(app);
-
     if (!sessionId) {
       const errorMessage = 'verifyCheckoutSession called with empty sessionId';
       console.error(`[SERVER] FAILED: ${errorMessage}`);
@@ -129,19 +122,9 @@ export async function verifyCheckoutSession(
 
 
     let normalizedStatus: 'active' | 'inactive' | 'past_due' = 'active';
-    let stripeSubscriptionId: string | undefined;
-    let stripeCustomerId: string | undefined;
-    let currentPeriodEnd: Date | null = null;
+    const subscription = session.subscription as Stripe.Subscription | null;
 
-    if (session.subscription && typeof session.subscription === 'object') {
-      const subscription = session.subscription;
-      stripeSubscriptionId = subscription.id;
-      stripeCustomerId = subscription.customer as string;
-
-      if (subscription.current_period_end) {
-        currentPeriodEnd = new Date(subscription.current_period_end * 1000);
-      }
-
+    if (subscription) {
       switch (subscription.status) {
         case 'active':
         case 'trialing':
@@ -153,27 +136,19 @@ export async function verifyCheckoutSession(
         default:
           normalizedStatus = 'inactive';
       }
-      console.log(`[SERVER] Subscription details processed. Status: ${normalizedStatus}, Sub ID: ${stripeSubscriptionId}`);
+      console.log(`[SERVER] Subscription details processed. Status: ${normalizedStatus}, Sub ID: ${subscription.id}`);
     }
 
-    const userProfileRef = doc(db, 'users', userId, 'profile', userId);
-    console.log(`[SERVER] Preparing to update Firestore document at path: ${userProfileRef.path}`);
-    
+    const userProfileRef = adminDb.doc(`users/${userId}/profile/${userId}`);
     const firestoreUpdatePayload = {
-        subscriptionStatus: normalizedStatus,
-        subscriptionTier: tier,
-        stripeCustomerId: stripeCustomerId ?? null,
-        stripeSubscriptionId: stripeSubscriptionId ?? null,
-        subscriptionCurrentPeriodEnd: currentPeriodEnd ?? null,
-      };
-      
-    console.log('[SERVER] Payload for Firestore:', firestoreUpdatePayload);
-
-    await setDoc(
-      userProfileRef,
-      firestoreUpdatePayload,
-      { merge: true },
-    );
+      subscriptionStatus: normalizedStatus,
+      subscriptionTier: tier,
+    };
+    
+    console.log(`[SERVER] Preparing to update Firestore document at path: ${userProfileRef.path}`);
+    console.log('[SERVER] Payload to be written:', firestoreUpdatePayload);
+    
+    await userProfileRef.set(firestoreUpdatePayload, { merge: true });
     
     console.log(`[SERVER] SUCCESS: Firestore document updated for userId: ${userId}`);
 
@@ -201,20 +176,20 @@ export async function generateSeaTimeReportData(
   vesselId?: string,
   dateRange?: { from: Date; to: Date }
 ): Promise<SeaTimeReportData> {
-  let app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-  const db = getFirestore(app);
+  
+  const db = adminDb;
 
   // 1. Fetch user profile
-  const userProfileRef = doc(db, 'users', userId);
-  const userProfileSnap = await getDoc(userProfileRef);
-  if (!userProfileSnap.exists()) {
+  const userProfileRef = db.doc(`users/${userId}`);
+  const userProfileSnap = await userProfileRef.get();
+  if (!userProfileSnap.exists) {
     throw new Error('User profile not found.');
   }
   const userProfile = userProfileSnap.data() as UserProfile;
 
   // 2. Fetch all user's vessels to map names
-  const vesselsRef = collection(db, `users/${userId}/vessels`);
-  const vesselsSnap = await getDocs(vesselsRef);
+  const vesselsRef = db.collection(`users/${userId}/vessels`);
+  const vesselsSnap = await vesselsRef.get();
   const vesselsMap = new Map<string, Vessel>();
   vesselsSnap.forEach(doc => vesselsMap.set(doc.id, { id: doc.id, ...doc.data() } as Vessel));
 
@@ -223,10 +198,10 @@ export async function generateSeaTimeReportData(
   const allStateLogs = new Map<string, StateLog[]>(); // vesselId -> logs
 
   for (const vessel of vesselsSnap.docs) {
-    const serviceRef = collection(db, `users/${userId}/vessels/${vessel.id}/seaService`);
-    const logsRef = collection(db, `users/${userId}/vessels/${vessel.id}/stateLogs`);
+    const serviceRef = db.collection(`users/${userId}/vessels/${vessel.id}/seaService`);
+    const logsRef = db.collection(`users/${userId}/vessels/${vessel.id}/stateLogs`);
 
-    const [serviceSnap, logsSnap] = await Promise.all([getDocs(serviceRef), getDocs(logsRef)]);
+    const [serviceSnap, logsSnap] = await Promise.all([serviceRef.get(), logsRef.get()]);
     
     serviceSnap.forEach(doc => allServiceRecords.push({ id: doc.id, ...doc.data() } as SeaServiceRecord));
     const logs = logsSnap.docs.map(doc => doc.data() as StateLog);
@@ -245,8 +220,8 @@ export async function generateSeaTimeReportData(
     const toDate = endOfDay(new Date(dateRange.to));
 
     filteredServiceRecords = allServiceRecords.filter(service => {
-      const tripStart = fromUnixTime(service.startDate.seconds);
-      const tripEnd = service.endDate ? fromUnixTime(service.endDate.seconds) : new Date();
+      const tripStart = (service.startDate as any).toDate();
+      const tripEnd = service.endDate ? (service.endDate as any).toDate() : new Date();
       // Check for overlap: trip starts before range ends AND trip ends after range starts
       return tripStart <= toDate && tripEnd >= fromDate;
     });
@@ -268,8 +243,8 @@ export async function generateSeaTimeReportData(
 
     logs.forEach(log => {
       const dayDate = new Date(log.date);
-      const serviceStartDate = fromUnixTime(service.startDate.seconds);
-      const serviceEndDate = service.endDate ? fromUnixTime(service.endDate.seconds) : new Date();
+      const serviceStartDate = (service.startDate as any).toDate();
+      const serviceEndDate = service.endDate ? (service.endDate as any).toDate() : new Date();
 
       // Check if the log date is within the service period
       if (!isWithinInterval(dayDate, { start: startOfDay(serviceStartDate), end: endOfDay(serviceEndDate) })) {
