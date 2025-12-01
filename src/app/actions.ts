@@ -1,7 +1,7 @@
 
 'use server';
 
-import { doc, setDoc, getDoc, collection, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, getDocs, query, where, Timestamp, updateDoc } from 'firebase/firestore';
 import { getSdks } from '@/firebase'; // Assuming getSdks is available for server-side admin-like init
 import { initializeApp, getApps, App } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
@@ -48,7 +48,7 @@ export async function createCheckoutSession(priceId: string, userId: string, use
       mode: 'subscription',
       customer_email: userEmail,
       client_reference_id: userId,
-      success_url: `${origin}?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${origin}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/offers`,
       metadata: {
         userId,
@@ -60,7 +60,48 @@ export async function createCheckoutSession(priceId: string, userId: string, use
       sessionId: session.id,
       url: session.url,
     };
+}
+
+
+export async function verifyCheckoutSession(sessionId: string): Promise<{ success: boolean; userId?: string; priceId?: string; tier?: string; }> {
+  let app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+  const db = getFirestore(app);
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['line_items.data.price.product'],
+    });
+
+    if (session.payment_status === 'paid') {
+      const userId = session.client_reference_id;
+      const priceId = session.metadata?.priceId;
+
+      if (!userId) {
+        console.error("No userId found in session's client_reference_id");
+        return { success: false };
+      }
+
+      // Extract product tier from the line item
+      const lineItem = session.line_items?.data[0];
+      const product = lineItem?.price?.product as Stripe.Product | undefined;
+      const tier = product?.name.toLowerCase().replace('sj_', '') || 'premium';
+
+      // Update user document in Firestore
+      const userProfileRef = doc(db, 'users', userId);
+      await updateDoc(userProfileRef, {
+        subscriptionStatus: 'active',
+        subscriptionTier: tier,
+      });
+
+      return { success: true, userId, priceId, tier };
+    }
+  } catch (error) {
+    console.error('Error verifying checkout session:', error);
   }
+
+  return { success: false };
+}
+
 
 export type SeaTimeReportData = {
   userProfile: UserProfile;
