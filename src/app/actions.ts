@@ -73,15 +73,17 @@ export async function verifyCheckoutSession(
   sessionId: string,
 ): Promise<{ success: boolean; userId?: string; tier?: string; errorMessage?: string }> {
   console.log('[SERVER] Entered verifyCheckoutSession function.');
-  let app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-  const db = getFirestore(app);
 
   try {
+    let app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+    const db = getFirestore(app);
+
     if (!sessionId) {
       const errorMessage = 'verifyCheckoutSession called with empty sessionId';
       console.error(`[SERVER] FAILED: ${errorMessage}`);
       return { success: false, errorMessage };
     }
+    console.log("[SERVER] Verifying session for sessionId: " + sessionId);
 
     console.log(`[SERVER] Starting verification for session ID: ${sessionId}`);
 
