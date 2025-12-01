@@ -35,6 +35,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     const sessionId = searchParams.get('session_id');
     if (sessionId && !isVerifying) {
       setIsVerifying(true);
+      console.log(`[CLIENT] Starting checkout verification for session ID: ${sessionId}`); // Client-side log
       verifyCheckoutSession(sessionId)
         .then(result => {
           if (result.success) {
@@ -49,7 +50,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
           } else {
              toast({
               title: 'Verification Failed',
-              description: 'There was an issue verifying your payment. Please contact support.',
+              description: result.errorMessage || 'There was an issue verifying your payment. Please contact support.',
               variant: 'destructive'
             });
              router.replace('/offers', { scroll: false });

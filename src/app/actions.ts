@@ -39,7 +39,6 @@ export async function createCheckoutSession(
   priceId: string,
   userId: string,
   userEmail: string,
-  tier: 'premium' | 'signoff',
 ): Promise<{ sessionId: string; url: string | null }> {
   const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
 
@@ -58,7 +57,6 @@ export async function createCheckoutSession(
     metadata: {
       userId,
       priceId,
-      tier, // 👈 send the logical plan name
     },
   });
 
@@ -72,22 +70,24 @@ export async function createCheckoutSession(
 export async function verifyCheckoutSession(
   sessionId: string,
 ): Promise<{ success: boolean; userId?: string; tier?: string; errorMessage?: string }> {
+  console.log('[SERVER] Entered verifyCheckoutSession function.');
   let app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
   const db = getFirestore(app);
 
   try {
     if (!sessionId) {
-      console.error('verifyCheckoutSession called with empty sessionId');
-      return { success: false, errorMessage: 'Missing sessionId' };
+      const errorMessage = 'verifyCheckoutSession called with empty sessionId';
+      console.error(`[SERVER] FAILED: ${errorMessage}`);
+      return { success: false, errorMessage };
     }
 
-    console.log(`[VERIFY] Starting verification for session ID: ${sessionId}`);
+    console.log(`[SERVER] Starting verification for session ID: ${sessionId}`);
 
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
       expand: ['subscription', 'line_items.data.price.product'],
     });
 
-    console.log('[VERIFY] Stripe session retrieved:', {
+    console.log('[SERVER] Stripe session retrieved:', {
       id: session.id,
       status: session.status,
       payment_status: session.payment_status,
@@ -98,27 +98,30 @@ export async function verifyCheckoutSession(
 
     if (session.status !== 'complete' || session.payment_status !== 'paid') {
       const errorMessage = `Session not complete. status=${session.status}, payment_status=${session.payment_status}`;
-      console.error(`[VERIFY] FAILED: ${errorMessage}`);
+      console.error(`[SERVER] FAILED: ${errorMessage}`);
       return {
         success: false,
         errorMessage,
       };
     }
 
-    const userId = session.client_reference_id as string | undefined;
+    const userId = session.client_reference_id;
     if (!userId) {
-      console.error('[VERIFY] FAILED: No userId (client_reference_id) on session');
-      return { success: false, errorMessage: 'Missing userId in session' };
+      const errorMessage = 'No userId (client_reference_id) on session';
+      console.error(`[SERVER] FAILED: ${errorMessage}`);
+      return { success: false, errorMessage };
     }
+     console.log(`[SERVER] User ID found: ${userId}`);
 
-    const product = session.line_items?.data[0].price?.product as Stripe.Product | undefined;
+    const product = session.line_items?.data[0]?.price?.product as Stripe.Product | undefined;
     if (!product) {
-      console.error('[VERIFY] FAILED: No product found on session line items');
-      return { success: false, errorMessage: 'Missing product information from session' };
+      const errorMessage = 'No product found on session line items';
+      console.error(`[SERVER] FAILED: ${errorMessage}`);
+      return { success: false, errorMessage };
     }
 
     const tier = product.name.toLowerCase().replace(/^sj_/, '').replace(' ', '_');
-    console.log(`[VERIFY] Determined tier: '${tier}' from product name: '${product.name}'`);
+    console.log(`[SERVER] Determined tier: '${tier}' from product name: '${product.name}'`);
 
 
     let normalizedStatus: 'active' | 'inactive' | 'past_due' = 'active';
@@ -146,11 +149,11 @@ export async function verifyCheckoutSession(
         default:
           normalizedStatus = 'inactive';
       }
-      console.log(`[VERIFY] Subscription details processed. Status: ${normalizedStatus}, Sub ID: ${stripeSubscriptionId}`);
+      console.log(`[SERVER] Subscription details processed. Status: ${normalizedStatus}, Sub ID: ${stripeSubscriptionId}`);
     }
 
     const userProfileRef = doc(db, 'users', userId);
-    console.log(`[VERIFY] Preparing to update Firestore document at path: ${userProfileRef.path}`);
+    console.log(`[SERVER] Preparing to update Firestore document at path: ${userProfileRef.path}`);
     
     const firestoreUpdatePayload = {
         subscriptionStatus: normalizedStatus,
@@ -160,7 +163,7 @@ export async function verifyCheckoutSession(
         subscriptionCurrentPeriodEnd: currentPeriodEnd ?? null,
       };
       
-    console.log('[VERIFY] Payload for Firestore:', firestoreUpdatePayload);
+    console.log('[SERVER] Payload for Firestore:', firestoreUpdatePayload);
 
     await setDoc(
       userProfileRef,
@@ -168,11 +171,11 @@ export async function verifyCheckoutSession(
       { merge: true },
     );
     
-    console.log(`[VERIFY] SUCCESS: Firestore document updated for userId: ${userId}`);
+    console.log(`[SERVER] SUCCESS: Firestore document updated for userId: ${userId}`);
 
     return { success: true, userId, tier };
   } catch (error: any) {
-    console.error('[VERIFY] FAILED: An exception occurred during verification:', error);
+    console.error('[SERVER] FAILED: An exception occurred during verification:', error);
     return { success: false, errorMessage: error?.message || 'Unknown error' };
   }
 }
