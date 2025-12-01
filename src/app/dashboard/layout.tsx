@@ -44,7 +44,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
             });
             // Force a refetch of the user profile to get the new subscription status
             forceRefetch();
-            // Clean the URL
+            // Clean the URL and redirect to dashboard
             router.replace('/dashboard', { scroll: false });
           } else {
              toast({
@@ -52,6 +52,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
               description: 'There was an issue verifying your payment. Please contact support.',
               variant: 'destructive'
             });
+             router.replace('/offers', { scroll: false });
           }
         })
         .finally(() => {
@@ -73,8 +74,9 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
       return;
     }
     
-    // If user has no active entitlements, force them to /offers (except when already there)
-    if (!hasActiveSubscription && pathname !== '/offers') {
+    // If user has no active entitlements, force them to /offers (except when already there or on dashboard verifying)
+    const isVerifyingUrl = pathname === '/dashboard' && searchParams.has('session_id');
+    if (!hasActiveSubscription && pathname !== '/offers' && !isVerifyingUrl) {
       router.push('/offers');
       return;
     }
@@ -83,7 +85,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     if (
       userProfile &&
       (userProfile.role === 'vessel' || userProfile.role === 'admin') &&
-      pathname === '/dashboard'
+      (pathname === '/dashboard' || pathname === '/')
     ) {
       router.push('/dashboard/crew');
     }
@@ -94,6 +96,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     pathname,
     userProfile,
     router,
+    searchParams
   ]);
 
   const isMapPage = pathname === '/dashboard/world-map';
@@ -108,7 +111,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   }
 
   // Safety gate in render as well (in case redirect hasn't happened yet)
-  if (!user || (!hasActiveSubscription && pathname !== '/offers')) {
+  if (!user || (!hasActiveSubscription && pathname !== '/offers' && !(pathname === '/dashboard' && searchParams.has('session_id')))) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
