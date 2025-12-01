@@ -146,21 +146,25 @@ export async function verifyCheckoutSession(
         default:
           normalizedStatus = 'inactive';
       }
-      console.log(`[VERIFY] Subscription details processed. Status: ${normalizedStatus}`);
+      console.log(`[VERIFY] Subscription details processed. Status: ${normalizedStatus}, Sub ID: ${stripeSubscriptionId}`);
     }
 
     const userProfileRef = doc(db, 'users', userId);
     console.log(`[VERIFY] Preparing to update Firestore document at path: ${userProfileRef.path}`);
-
-    await setDoc(
-      userProfileRef,
-      {
+    
+    const firestoreUpdatePayload = {
         subscriptionStatus: normalizedStatus,
         subscriptionTier: tier,
         stripeCustomerId: stripeCustomerId ?? null,
         stripeSubscriptionId: stripeSubscriptionId ?? null,
         subscriptionCurrentPeriodEnd: currentPeriodEnd ?? null,
-      },
+      };
+      
+    console.log('[VERIFY] Payload for Firestore:', firestoreUpdatePayload);
+
+    await setDoc(
+      userProfileRef,
+      firestoreUpdatePayload,
       { merge: true },
     );
     
