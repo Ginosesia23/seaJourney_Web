@@ -129,7 +129,7 @@ export function VesselSummaryCard({
                                 size="sm"
                             >
                                 <Trash2 className="mr-2 h-4 w-4" />
-                                Delete Data
+                                Delete Vessel Data
                             </Button>
                         )}
                         {!showResumeButton && !showDeleteButton && (

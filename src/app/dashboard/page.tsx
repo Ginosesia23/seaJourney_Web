@@ -526,7 +526,7 @@ export default function DashboardPage() {
         <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-r from-primary/5 to-primary/10">
           <CardContent className="pt-6">
             <div className="flex items-start gap-4">
-              <div className="h-12 w-12 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+              <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
                 <CalendarDays className="h-6 w-6 text-primary" />
               </div>
               <div className="flex-1">
@@ -598,7 +598,7 @@ export default function DashboardPage() {
         <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Days Logged</CardTitle>
-            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+            <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
               <Ship className="h-4 w-4 text-primary" />
             </div>
             </CardHeader>
@@ -613,7 +613,7 @@ export default function DashboardPage() {
         <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">At Sea Days</CardTitle>
-            <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center">
+            <div className="h-8 w-8 rounded-xl bg-blue-500/10 flex items-center justify-center">
               <Waves className="h-4 w-4 text-blue-500" />
             </div>
             </CardHeader>
@@ -626,7 +626,7 @@ export default function DashboardPage() {
         <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Standby Days</CardTitle>
-            <div className="h-8 w-8 rounded-full bg-orange-500/10 flex items-center justify-center">
+            <div className="h-8 w-8 rounded-xl bg-orange-500/10 flex items-center justify-center">
               <Anchor className="h-4 w-4 text-orange-500" />
             </div>
             </CardHeader>
@@ -639,7 +639,7 @@ export default function DashboardPage() {
         <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Vessels Logged</CardTitle>
-            <div className="h-8 w-8 rounded-full bg-purple-500/10 flex items-center justify-center">
+            <div className="h-8 w-8 rounded-xl bg-purple-500/10 flex items-center justify-center">
               <Building className="h-4 w-4 text-purple-500" />
             </div>
             </CardHeader>
@@ -659,7 +659,7 @@ export default function DashboardPage() {
             <CardHeader className="relative">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
+                <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center">
                   <MapPin className="h-5 w-5 text-primary" />
                 </div>
                 <div>
@@ -714,7 +714,7 @@ export default function DashboardPage() {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2">Today's Status</p>
                   {todayStatus ? (
-                    <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50 border">
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-background/50 border">
                       {(() => {
                         const stateInfo = vesselStates.find(s => s.value === todayStatus);
                         const StateIcon = stateInfo?.icon || Ship;
@@ -739,7 +739,7 @@ export default function DashboardPage() {
                       })()}
                     </div>
                   ) : (
-                    <div className="p-3 rounded-lg bg-background/50 border border-dashed">
+                    <div className="p-3 rounded-xl bg-background/50 border border-dashed">
                       <p className="text-sm text-muted-foreground">No status logged for today</p>
                     </div>
                   )}
@@ -820,7 +820,7 @@ export default function DashboardPage() {
                     </Link>
                   </Button>
                   {todayStatus && (
-                    <Button asChild variant="outline" className="rounded-full" size="icon">
+                    <Button asChild variant="outline" className="rounded-xl" size="icon">
                       <Link href="/dashboard/current">
                         <TrendingUp className="h-4 w-4" />
                       </Link>
@@ -873,10 +873,10 @@ export default function DashboardPage() {
                   return (
                     <div 
                       key={activity.id || `${activity.date}-${activity.vesselId}-${index}`}
-                      className="flex items-center gap-3 p-3 rounded-lg border bg-background/50 hover:bg-background transition-colors"
+                      className="flex items-center gap-3 p-3 rounded-xl border bg-background/50 hover:bg-background transition-colors"
                     >
                       <div 
-                        className="h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                        className="h-10 w-10 flex items-center justify-center flex-shrink-0"
                         style={{ backgroundColor: `${stateInfo?.color || 'hsl(var(--muted-foreground))'}20` }}
                       >
                         <StateIcon 
@@ -950,7 +950,7 @@ export default function DashboardPage() {
               <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Total Days</CardTitle>
-                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
                     <Calendar className="h-4 w-4 text-primary" />
                   </div>
                 </CardHeader>
@@ -963,7 +963,7 @@ export default function DashboardPage() {
               <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">At Sea</CardTitle>
-                  <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center">
+                  <div className="h-8 w-8 rounded-xl bg-blue-500/10 flex items-center justify-center">
                     <Waves className="h-4 w-4 text-blue-500" />
           </div>
         </CardHeader>
@@ -976,7 +976,7 @@ export default function DashboardPage() {
               <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Standby</CardTitle>
-                  <div className="h-8 w-8 rounded-full bg-orange-500/10 flex items-center justify-center">
+                  <div className="h-8 w-8 rounded-xl bg-orange-500/10 flex items-center justify-center">
                     <Anchor className="h-4 w-4 text-orange-500" />
           </div>
                 </CardHeader>
@@ -989,7 +989,7 @@ export default function DashboardPage() {
               <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">On Leave</CardTitle>
-                  <div className="h-8 w-8 rounded-full bg-gray-500/10 flex items-center justify-center">
+                  <div className="h-8 w-8 rounded-xl bg-gray-500/10 flex items-center justify-center">
                     <LifeBuoy className="h-4 w-4 text-gray-500" />
                   </div>
                 </CardHeader>
@@ -1005,48 +1005,6 @@ export default function DashboardPage() {
 
       {/* Career Highlights Section */}
       <Separator />
-      <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
-            <Trophy className="h-5 w-5 text-accent " />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Career Highlights</h2>
-            <p className="text-sm text-muted-foreground">
-              Your achievements and milestones
-            </p>
-          </div>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {topVessel && (
-            <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Top Vessel</CardTitle>
-                <div className="h-8 w-8 rounded-full bg-amber-500/10 flex items-center justify-center">
-                  <Star className="h-4 w-4 text-amber-500" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{topVessel.vesselName}</div>
-                <p className="text-xs text-muted-foreground mt-1">{topVessel.days} total days logged</p>
-              </CardContent>
-            </Card>
-          )}
-          
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Career Sea Days</CardTitle>
-              <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center">
-                <Waves className="h-4 w-4 text-blue-500" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{atSeaDays}</div>
-              <p className="text-xs text-muted-foreground mt-1">Total days underway</p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
 
     </div>
   );

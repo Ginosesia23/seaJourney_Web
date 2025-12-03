@@ -578,7 +578,7 @@ export default function HistoryPage() {
                                             disabled={isDeleting}
                                             variant="destructive"
                                             size="sm"
-                                            className="rounded-lg"
+                                            className="rounded-xl"
                                         >
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
@@ -840,7 +840,7 @@ export default function HistoryPage() {
               </div>
               <DialogFooter className="pt-4 gap-2">
                 <DialogClose asChild>
-                  <Button type="button" variant="ghost" className="rounded-lg">Cancel</Button>
+                  <Button type="button" variant="ghost" className="rounded-xl">Cancel</Button>
                 </DialogClose>
                 <Button type="submit" disabled={isSavingPastVessel} className="rounded-lg">
                   {isSavingPastVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -867,7 +867,7 @@ export default function HistoryPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting} className="rounded-lg">Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting} className="rounded-xl">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => vesselToDelete && handleDeleteVessel(vesselToDelete.id, vesselToDelete.name)}
               disabled={isDeleting}

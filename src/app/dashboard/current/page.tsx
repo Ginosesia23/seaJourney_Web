@@ -539,7 +539,7 @@ export default function CurrentPage() {
                 <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
-                            <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center">
+                            <div className="h-16 w-16 rounded-xl bg-primary/20 flex items-center justify-center">
                                 <Ship className="h-8 w-8 text-primary" />
                             </div>
                             <div>
@@ -573,7 +573,7 @@ export default function CurrentPage() {
                 <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium text-muted-foreground">At Sea</CardTitle>
-                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
                             <Waves className="h-4 w-4 text-primary" />
                         </div>
                     </CardHeader>
@@ -585,7 +585,7 @@ export default function CurrentPage() {
                 <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium text-muted-foreground">Standby</CardTitle>
-                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
                             <Anchor className="h-4 w-4 text-primary" />
                         </div>
                     </CardHeader>
@@ -597,7 +597,7 @@ export default function CurrentPage() {
                 <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium text-muted-foreground">Total Days</CardTitle>
-                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
                             <CalendarDays className="h-4 w-4 text-primary" />
                         </div>
                     </CardHeader>
@@ -656,7 +656,7 @@ export default function CurrentPage() {
                                     >
                                         <span 
                                             className={cn(
-                                                "flex h-12 w-12 items-center justify-center rounded-full transition-colors",
+                                                "flex h-12 w-12 items-center justify-center rounded-xl transition-colors",
                                                 isActive ? 'ring-2 ring-primary ring-offset-2' : ''
                                             )} 
                                             style={{ backgroundColor: isActive ? state.color : 'hsl(var(--muted))' }}
@@ -853,7 +853,7 @@ export default function CurrentPage() {
                 <Card className="rounded-xl border shadow-sm">
                     <CardHeader>
                         <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
                                 <BookText className="h-5 w-5 text-primary" />
                             </div>
                             <div>
@@ -866,7 +866,7 @@ export default function CurrentPage() {
                         <Textarea placeholder="Add notes about your trip..." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[100px]" />
                     </CardContent>
                     <CardFooter>
-                        <Button onClick={handleSaveNotes} disabled={isSavingNotes} className="rounded-lg">
+                        <Button onClick={handleSaveNotes} disabled={isSavingNotes} className="rounded-xl">
                             {isSavingNotes && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             Save Notes
                         </Button>
