@@ -17,6 +17,7 @@ import {
   FileText,
   MapPin,
   ChevronRight,
+  Calendar,
 } from "lucide-react"
 
 import {
@@ -66,6 +67,7 @@ const navGroups = [
       { href: "/dashboard/current", label: "Current", icon: MapPin },
       { href: "/dashboard/history", label: "History", icon: History },
       { href: "/dashboard/vessels", label: "Vessels", icon: Ship },
+      { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
     ]
   },
   {

@@ -704,18 +704,18 @@ export default function CurrentPage() {
                     <CardContent>
                     <div className="space-y-6">
                         {/* State Legend */}
-                        <div className="flex flex-wrap items-center gap-4 p-4 bg-muted/30 rounded-lg border">
-                            <span className="text-sm font-medium text-muted-foreground">Status Legend:</span>
+                        <div className="flex flex-wrap items-center gap-4 p-4 bg-muted/30 rounded-xl border">
+                            <span className="text-sm font-medium text-muted-foreground rounded-full">Status Legend:</span>
                             {vesselStates.map((state) => {
                                 const StateIcon = state.icon;
                                 return (
-                                    <div key={state.value} className="flex items-center gap-2">
+                                    <div key={state.value} className="flex items-center gap-2 ">
                                         <div 
                                             className="h-3 w-3 rounded-full" 
                                             style={{ backgroundColor: state.color }}
                                         />
-                                        <span className="text-sm font-medium flex items-center gap-1">
-                                            <StateIcon className="h-3 w-3" />
+                                        <span className="text-sm font-medium flex items-center gap-1 ">
+                                            <StateIcon className="h-3 w-3 rounded-full" />
                                             {state.label}
                                         </span>
                                     </div>
