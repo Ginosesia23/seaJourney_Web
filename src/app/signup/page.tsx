@@ -158,8 +158,8 @@ export default function SignupPage() {
       toast({
         title: 'Signup Failed',
         description: error.message || 'An unexpected error occurred during sign-up. Please try again.',
-        variant: 'destructive',
-      });
+          variant: 'destructive',
+        });
     } finally {
       setIsLoading(false);
     }

@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -24,39 +24,59 @@ const profileSchema = z.object({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   bio: z.string().optional(),
-  profilePicture: z.string().url().optional().or(z.literal('')),
+  profilePicture: z.string().refine((val) => {
+    if (!val || val === '') return true;
+    try {
+      new URL(val);
+      return true;
+    } catch {
+      return false;
+    }
+  }, { message: 'Please enter a valid URL or leave empty' }).optional(),
 });
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
 function ProfileSkeleton() {
     return (
-        <Card className="rounded-xl border bg-card dark:shadow-md transition-shadow dark:hover:shadow-lg">
+        <Card className="rounded-xl border shadow-sm">
             <CardHeader>
-                <Skeleton className="h-7 w-48" />
-                <Skeleton className="h-4 w-64 mt-1" />
-            </CardHeader>
-            <CardContent className="space-y-4">
-                 <div className="flex items-center space-x-4">
-                    <Skeleton className="h-20 w-20 rounded-full" />
                     <div className="space-y-2">
-                        <Skeleton className="h-4 w-24" />
-                        <Skeleton className="h-10 w-24" />
+                        <Skeleton className="h-6 w-32" />
+                        <Skeleton className="h-4 w-64" />
+                    </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+                 <div className="flex items-center gap-4">
+                    <Skeleton className="h-20 w-20 rounded-xl" />
+                    <Skeleton className="h-10 flex-1 rounded-xl" />
+                </div>
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                    <div className="space-y-2">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-10 w-full rounded-xl" />
+                    </div>
+                    <div className="space-y-2">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-10 w-full rounded-xl" />
+                    </div>
+                    <div className="space-y-2">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-10 w-full rounded-xl" />
+                    </div>
+                    <div className="space-y-2">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-10 w-full rounded-xl" />
                     </div>
                 </div>
                 <div className="space-y-2">
                     <Skeleton className="h-4 w-20" />
-                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-24 w-full rounded-xl" />
                 </div>
-                 <div className="space-y-2">
-                    <Skeleton className="h-4 w-20" />
-                    <Skeleton className="h-10 w-full" />
+                <div className="flex items-center justify-between pt-4">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-10 w-32 rounded-xl" />
                 </div>
-                 <div className="space-y-2">
-                    <Skeleton className="h-4 w-20" />
-                    <Skeleton className="h-10 w-full" />
-                </div>
-                <Skeleton className="h-10 w-24" />
             </CardContent>
         </Card>
     )
@@ -69,18 +89,45 @@ export function UserProfileCard() {
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
-  const { data: userProfile, isLoading } = useDoc('users', user?.id);
+  const { data: userProfileRaw, isLoading } = useDoc('users', user?.id);
+
+  // Transform user profile to handle both snake_case (from DB) and camelCase (from types)
+  const userProfile = useMemo(() => {
+    if (!userProfileRaw) return null;
+    return {
+      ...userProfileRaw,
+      username: userProfileRaw.username || user?.user_metadata?.username || '',
+      firstName: (userProfileRaw as any).first_name || (userProfileRaw as any).firstName || '',
+      lastName: (userProfileRaw as any).last_name || (userProfileRaw as any).lastName || '',
+      bio: userProfileRaw.bio || '',
+      profilePicture: (userProfileRaw as any).profile_picture || (userProfileRaw as any).profilePicture || '',
+      registrationDate: (userProfileRaw as any).registration_date || (userProfileRaw as any).registrationDate,
+    };
+  }, [userProfileRaw, user]);
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
-    values: {
-      username: userProfile?.username || user?.user_metadata?.username || '',
-      firstName: userProfile?.firstName || '',
-      lastName: userProfile?.lastName || '',
-      bio: userProfile?.bio || '',
-      profilePicture: userProfile?.profilePicture || '',
+    defaultValues: {
+      username: '',
+      firstName: '',
+      lastName: '',
+      bio: '',
+      profilePicture: '',
     },
   });
+
+  // Update form values when userProfile loads or changes
+  useEffect(() => {
+    if (userProfile && !isLoading) {
+      form.reset({
+        username: userProfile.username || '',
+        firstName: userProfile.firstName || '',
+        lastName: userProfile.lastName || '',
+        bio: userProfile.bio || '',
+        profilePicture: userProfile.profilePicture || '',
+      });
+    }
+  }, [userProfile, isLoading, form]);
 
   const onSubmit = async (data: ProfileFormValues) => {
     if (!user?.id) return;
@@ -89,9 +136,10 @@ export function UserProfileCard() {
     try {
       await updateUserProfile(supabase, user.id, {
         username: data.username,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        bio: data.bio,
+        firstName: data.firstName || '',
+        lastName: data.lastName || '',
+        bio: data.bio || '',
+        profilePicture: data.profilePicture || '',
       });
       
       toast({
@@ -118,35 +166,50 @@ export function UserProfileCard() {
   const getInitials = (name: string) => name.split(' ').map((n) => n[0]).join('');
 
   return (
-    <Card className="rounded-xl border bg-card dark:shadow-md transition-shadow dark:hover:shadow-lg">
+    <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
       <CardHeader>
-        <CardTitle>User Profile</CardTitle>
-        <CardDescription>This information will be displayed on your testimonials and other documents.</CardDescription>
+        <div>
+          <CardTitle className="text-xl">Profile Information</CardTitle>
+          <CardDescription className="mt-1">
+            Update your personal information and profile details
+          </CardDescription>
+        </div>
       </CardHeader>
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {/* Profile Picture Section */}
             <FormField
               control={form.control}
               name="profilePicture"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Profile Picture</FormLabel>
-                   <div className="flex items-center gap-4">
-                      <Avatar className="h-20 w-20">
-                          <AvatarImage src={field.value} alt={userProfile?.username} />
-                          <AvatarFallback className="bg-primary/20">
-                              {userProfile?.username ? getInitials(userProfile.username) : <UserIcon />}
-                          </AvatarFallback>
-                      </Avatar>
+                  <div className="flex items-start gap-6">
+                    <Avatar className="h-24 w-24 rounded-xl border-2 border-border">
+                      <AvatarImage src={field.value} alt={userProfile?.username} />
+                      <AvatarFallback className="bg-primary/20 rounded-xl text-primary text-lg font-semibold">
+                        {userProfile?.username ? getInitials(userProfile.username) : <UserIcon className="h-8 w-8" />}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 space-y-2">
                       <FormControl>
-                          <Input placeholder="https://example.com/your-image.png" {...field} />
+                        <Input 
+                          placeholder="https://example.com/your-image.png" 
+                          {...field} 
+                          className="rounded-xl" 
+                        />
                       </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Enter a URL to your profile picture. It will be displayed on your profile and testimonials.
+                      </p>
+                      <FormMessage />
+                    </div>
                   </div>
-                  <FormMessage />
                 </FormItem>
               )}
             />
+
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               <FormField
                 control={form.control}
@@ -155,15 +218,22 @@ export function UserProfileCard() {
                   <FormItem>
                     <FormLabel>Username</FormLabel>
                     <FormControl>
-                      <Input placeholder="Your username" {...field} />
+                      <Input placeholder="Your username" {...field} className="rounded-xl" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
               <FormItem>
-                <FormLabel>Email</FormLabel>
-                <Input value={user?.email || 'No email associated'} disabled />
+                <FormLabel>Email Address</FormLabel>
+                <Input 
+                  value={user?.email || 'No email associated'} 
+                  disabled 
+                  className="rounded-xl bg-muted" 
+                />
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Email address cannot be changed here
+                </p>
               </FormItem>
               <FormField
                 control={form.control}
@@ -172,7 +242,7 @@ export function UserProfileCard() {
                   <FormItem>
                     <FormLabel>First Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="Your first name" {...field} />
+                      <Input placeholder="Your first name" {...field} className="rounded-xl" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -185,7 +255,7 @@ export function UserProfileCard() {
                   <FormItem>
                     <FormLabel>Last Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="Your last name" {...field} />
+                      <Input placeholder="Your last name" {...field} className="rounded-xl" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -200,23 +270,42 @@ export function UserProfileCard() {
                 <FormItem>
                   <FormLabel>Bio</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Tell us a little about your experience..." {...field} />
+                    <Textarea 
+                      placeholder="Tell us a little about your experience and background..." 
+                      {...field} 
+                      className="rounded-xl min-h-[100px]" 
+                      rows={4}
+                    />
                   </FormControl>
+                  <p className="text-xs text-muted-foreground">
+                    A brief description of your experience and background
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}
             />
             
-            <Button type="submit" disabled={isSaving} variant="default" className="rounded-lg">
-              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save Changes
-            </Button>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-4 border-t">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Account Information</p>
+                <p className="text-xs text-muted-foreground">
+                  Member since {registrationDate ? format(registrationDate, 'MMMM d, yyyy') : 'N/A'}
+                </p>
+              </div>
+              <Button type="submit" disabled={isSaving} variant="default" className="rounded-xl">
+                {isSaving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Changes'
+                )}
+              </Button>
+            </div>
           </form>
         </Form>
       </CardContent>
-      <CardFooter className="text-sm text-muted-foreground">
-        <p>Member since: {registrationDate ? format(registrationDate, 'MMMM d, yyyy') : 'N/A'}</p>
-      </CardFooter>
     </Card>
   );
 }

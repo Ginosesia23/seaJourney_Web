@@ -63,9 +63,10 @@ export default function ExportPage() {
 
     const filterType = form.watch('filterType');
 
+    // Query all vessels (vessels are shared, not owned by users)
     const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
         'vessels',
-        { filter: 'owner_id', filterValue: user?.id, orderBy: 'created_at', ascending: false }
+        { orderBy: 'created_at', ascending: false }
     );
 
     const onSubmit = async (data: ExportFormValues) => {

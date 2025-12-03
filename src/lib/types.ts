@@ -12,7 +12,6 @@ export interface UserProfile {
   subscriptionTier: string;
   subscriptionStatus: 'active' | 'inactive' | 'past-due';
   activeVesselId?: string;
-  activeSeaServiceId?: string;
 }
 
 export interface Vessel {
@@ -20,24 +19,35 @@ export interface Vessel {
   name: string;
   type: string;
   officialNumber?: string;
-  ownerId: string;
 }
 
 export type DailyStatus = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';
 
 export interface SeaServiceRecord {
     id: string;
+    userId: string;
     vesselId: string;
-    position: string;
-    startDate: string; // ISO string or timestamp
-    endDate?: string; // ISO string or timestamp
-    isCurrent: boolean;
-    notes?: string;
+    date: string; // Date in YYYY-MM-DD format - the specific date this state applies to
+    state: DailyStatus; // The only field that can be updated
 }
 
 export interface StateLog {
-    id: string; // "YYYY-MM-DD"
-    date: string; // "YYYY-MM-DD"
+    id: string; // UUID
+    userId: string; // UUID
+    vesselId: string; // UUID
     state: DailyStatus;
-    migrated_at?: string;
+    date: string; // Date in YYYY-MM-DD format
+    createdAt?: string; // ISO timestamp
+    updatedAt?: string; // ISO timestamp
+}
+
+/**
+ * Check if a sea service record is the currently active service
+ * @param service - The sea service record to check
+ * @param activeVesselId - The ID of the currently active vessel (from user profile)
+ * @returns true if the service's vessel matches the active vessel
+ */
+export function isCurrentService(service: SeaServiceRecord, activeVesselId?: string | null): boolean {
+    if (!activeVesselId || !service) return false;
+    return service.vesselId === activeVesselId;
 }

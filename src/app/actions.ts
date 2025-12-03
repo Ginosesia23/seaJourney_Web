@@ -138,14 +138,12 @@ export async function generateSeaTimeReportData(
     subscriptionTier: userProfileData.subscription_tier,
     subscriptionStatus: userProfileData.subscription_status,
     activeVesselId: userProfileData.active_vessel_id,
-    activeSeaServiceId: userProfileData.active_sea_service_id,
   };
 
   // 2. Fetch all user's vessels to map names
   const { data: vesselsData, error: vesselsError } = await supabase
     .from('vessels')
-    .select('*')
-    .eq('owner_id', userId);
+    .select('*');
 
   if (vesselsError) {
     throw new Error('Failed to fetch vessels.');
@@ -157,8 +155,7 @@ export async function generateSeaTimeReportData(
       id: vessel.id,
       name: vessel.name,
       type: vessel.type,
-      officialNumber: vessel.official_number,
-      ownerId: vessel.owner_id,
+      officialNumber: vessel.imo,
     });
   });
 
@@ -168,12 +165,12 @@ export async function generateSeaTimeReportData(
 
   for (const vessel of vesselsData || []) {
     const { data: serviceData } = await supabase
-      .from('sea_service_records')
+      .from('daily_state_logs')
       .select('*')
       .eq('vessel_id', vessel.id);
 
     const { data: logsData } = await supabase
-      .from('state_logs')
+      .from('daily_state_logs')
       .select('*')
       .eq('vessel_id', vessel.id);
 
@@ -182,9 +179,7 @@ export async function generateSeaTimeReportData(
         id: service.id,
         vesselId: service.vessel_id,
         position: service.position,
-        startDate: service.start_date,
-        endDate: service.end_date || undefined,
-        isCurrent: service.is_current,
+        date: service.date,
         notes: service.notes,
       });
     });
@@ -209,10 +204,9 @@ export async function generateSeaTimeReportData(
     const toDate = endOfDay(new Date(dateRange.to));
 
     filteredServiceRecords = allServiceRecords.filter(service => {
-      const tripStart = new Date(service.startDate);
-      const tripEnd = service.endDate ? new Date(service.endDate) : new Date();
-      // Check for overlap: trip starts before range ends AND trip ends after range starts
-      return tripStart <= toDate && tripEnd >= fromDate;
+      const serviceDate = new Date(service.date);
+      // Check if the service date is within the date range
+      return serviceDate >= fromDate && serviceDate <= toDate;
     });
   } else {
     // If no filter, use all service records.
@@ -232,11 +226,12 @@ export async function generateSeaTimeReportData(
 
     logs.forEach(log => {
       const dayDate = new Date(log.date);
-      const serviceStartDate = new Date(service.startDate);
-      const serviceEndDate = service.endDate ? new Date(service.endDate) : new Date();
+      const serviceDate = new Date(service.date);
 
-      // Check if the log date is within the service period
-      if (!isWithinInterval(dayDate, { start: startOfDay(serviceStartDate), end: endOfDay(serviceEndDate) })) {
+      // Check if the log date matches the service date
+      const logDateStr = dayDate.toISOString().split('T')[0];
+      const serviceDateStr = serviceDate.toISOString().split('T')[0];
+      if (logDateStr !== serviceDateStr) {
         return;
       }
 

@@ -5,6 +5,7 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import { timestampToISO } from './helpers';
+import type { StateLog } from '@/lib/types';
 
 /**
  * Get user profile by user ID
@@ -32,18 +33,16 @@ export async function getUserProfile(supabase: SupabaseClient, userId: string) {
     subscriptionTier: data.subscription_tier,
     subscriptionStatus: data.subscription_status,
     activeVesselId: data.active_vessel_id,
-    activeSeaServiceId: data.active_sea_service_id,
   };
 }
 
 /**
- * Get vessels for a user
+ * Get all vessels (vessels are shared, not owned by users)
  */
 export async function getUserVessels(supabase: SupabaseClient, userId: string) {
   const { data, error } = await supabase
     .from('vessels')
     .select('*')
-    .eq('owner_id', userId)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -52,116 +51,140 @@ export async function getUserVessels(supabase: SupabaseClient, userId: string) {
     id: vessel.id,
     name: vessel.name,
     type: vessel.type,
-    officialNumber: vessel.official_number,
-    ownerId: vessel.owner_id,
+    officialNumber: vessel.imo,
   }));
 }
 
 /**
- * Get sea service records for a vessel
+ * Get sea service records for a user and vessel
  */
 export async function getVesselSeaService(
   supabase: SupabaseClient,
+  userId: string,
   vesselId: string
 ) {
   const { data, error } = await supabase
-    .from('sea_service_records')
+    .from('daily_state_logs')
     .select('*')
+    .eq('user_id', userId)
     .eq('vessel_id', vesselId)
-    .order('start_date', { ascending: false });
+    .order('date', { ascending: false });
 
   if (error) throw error;
 
   return (data || []).map((record) => ({
     id: record.id,
+    userId: record.user_id,
     vesselId: record.vessel_id,
-    position: record.position,
-    startDate: timestampToISO(record.start_date),
-    endDate: record.end_date ? timestampToISO(record.end_date) : undefined,
-    isCurrent: record.is_current,
-    notes: record.notes,
+    date: record.date,
+    state: record.state,
   }));
 }
 
 /**
- * Get state logs for a vessel
+ * Transform database state log record to TypeScript interface
+ */
+function transformStateLog(dbLog: any): StateLog {
+  return {
+    id: dbLog.id,
+    userId: dbLog.user_id,
+    vesselId: dbLog.vessel_id,
+    state: dbLog.state,
+    date: dbLog.date,
+    createdAt: dbLog.created_at,
+    updatedAt: dbLog.updated_at,
+  };
+}
+
+/**
+ * Get state logs for a vessel (and optionally filtered by user)
  */
 export async function getVesselStateLogs(
   supabase: SupabaseClient,
-  vesselId: string
-) {
-  const { data, error } = await supabase
-    .from('state_logs')
+  vesselId: string,
+  userId?: string
+): Promise<StateLog[]> {
+  let query = supabase
+    .from('daily_state_logs')
     .select('*')
-    .eq('vessel_id', vesselId)
-    .order('date', { ascending: true });
+    .eq('vessel_id', vesselId);
+  
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
+  
+  const { data, error } = await query.order('date', { ascending: true });
 
   if (error) throw error;
 
-  return (data || []).map((log) => ({
-    id: log.date, // Use date as ID to match Firestore structure
-    date: log.date,
-    state: log.state,
-  }));
+  return (data || []).map(transformStateLog);
 }
 
 /**
- * Create a vessel
+ * Create a vessel (vessels are shared, not owned by users)
  */
 export async function createVessel(
   supabase: SupabaseClient,
   vesselData: {
-    ownerId: string;
     name: string;
     type: string;
     officialNumber?: string;
   }
 ) {
+  // Properly handle officialNumber - preserve the value if provided, null if empty/undefined
+  const officialNumber = vesselData.officialNumber?.trim() || null;
+  
   const { data, error } = await supabase
     .from('vessels')
     .insert({
-      owner_id: vesselData.ownerId,
       name: vesselData.name,
       type: vesselData.type,
-      official_number: vesselData.officialNumber || null,
+      imo: officialNumber,
     })
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    throw error;
+  }
 
   return {
     id: data.id,
     name: data.name,
     type: data.type,
-    officialNumber: data.official_number,
-    ownerId: data.owner_id,
+    officialNumber: data.imo,
   };
 }
 
 /**
- * Create a sea service record
+ * Create or update a daily state log record (for a specific date)
+ * Only the state can be updated if the record already exists
  */
 export async function createSeaServiceRecord(
   supabase: SupabaseClient,
   recordData: {
+    userId: string;
     vesselId: string;
-    position: string;
-    startDate: Date | string;
-    isCurrent?: boolean;
-    notes?: string;
+    date: Date | string; // The specific date this state applies to
+    state: string; // The state for this date
   }
 ) {
+  // Convert date to YYYY-MM-DD format
+  const dateStr = typeof recordData.date === 'string' 
+    ? recordData.date.split('T')[0] // Extract date part if ISO string
+    : recordData.date.toISOString().split('T')[0];
+
+  // Use upsert to create or update (only state can change)
   const { data, error } = await supabase
-    .from('sea_service_records')
-    .insert({
+    .from('daily_state_logs')
+    .upsert({
+      user_id: recordData.userId,
       vessel_id: recordData.vesselId,
-      position: recordData.position,
-      start_date: typeof recordData.startDate === 'string' 
-        ? recordData.startDate 
-        : recordData.startDate.toISOString(),
-      is_current: recordData.isCurrent ?? true,
-      notes: recordData.notes || null,
+      date: dateStr,
+      state: recordData.state,
+    }, {
+      onConflict: 'user_id,vessel_id,date',
+      ignoreDuplicates: false
     })
     .select()
     .single();
@@ -170,12 +193,79 @@ export async function createSeaServiceRecord(
 
   return {
     id: data.id,
+    userId: data.user_id,
     vesselId: data.vessel_id,
-    position: data.position,
-    startDate: timestampToISO(data.start_date),
-    endDate: data.end_date ? timestampToISO(data.end_date) : undefined,
-    isCurrent: data.is_current,
-    notes: data.notes,
+    date: data.date,
+    state: data.state,
+  };
+}
+
+/**
+ * Update only the state of a daily state log record
+ */
+export async function updateDailyStateLogState(
+  supabase: SupabaseClient,
+  userId: string,
+  vesselId: string,
+  date: string,
+  newState: string
+) {
+  const { data, error } = await supabase
+    .from('daily_state_logs')
+    .update({ state: newState })
+    .eq('user_id', userId)
+    .eq('vessel_id', vesselId)
+    .eq('date', date)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    userId: data.user_id,
+    vesselId: data.vessel_id,
+    date: data.date,
+    state: data.state,
+  };
+}
+
+/**
+ * Create or update a single state log entry
+ */
+export async function upsertStateLog(
+  supabase: SupabaseClient,
+  userId: string,
+  vesselId: string,
+  date: string,
+  state: string
+) {
+  const { data, error } = await supabase
+    .from('daily_state_logs')
+    .upsert(
+      {
+        user_id: userId,
+        vessel_id: vesselId,
+        date: date,
+        state: state,
+      },
+      {
+        onConflict: 'user_id,vessel_id,date',
+      }
+    )
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    userId: data.user_id,
+    vesselId: data.vessel_id,
+    state: data.state,
+    date: data.date,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
   };
 }
 
@@ -184,20 +274,39 @@ export async function createSeaServiceRecord(
  */
 export async function updateStateLogsBatch(
   supabase: SupabaseClient,
+  userId: string,
   vesselId: string,
   logs: Array<{ date: string; state: string }>
 ) {
   // Use upsert to handle both inserts and updates
-  const { error } = await supabase.from('state_logs').upsert(
+  const { error } = await supabase.from('daily_state_logs').upsert(
     logs.map((log) => ({
+      user_id: userId,
       vessel_id: vesselId,
       date: log.date,
       state: log.state,
     })),
     {
-      onConflict: 'vessel_id,date',
+      onConflict: 'user_id,vessel_id,date',
     }
   );
+
+  if (error) throw error;
+}
+
+/**
+ * Delete all state logs for a specific user and vessel
+ */
+export async function deleteVesselStateLogs(
+  supabase: SupabaseClient,
+  userId: string,
+  vesselId: string
+) {
+  const { error } = await supabase
+    .from('daily_state_logs')
+    .delete()
+    .eq('user_id', userId)
+    .eq('vessel_id', vesselId);
 
   if (error) throw error;
 }
@@ -211,11 +320,11 @@ export async function updateUserProfile(
   userId: string,
   updates: Partial<{
     activeVesselId: string | null;
-    activeSeaServiceId: string | null;
     username: string;
     firstName: string;
     lastName: string;
     bio: string;
+    profilePicture: string;
     subscriptionTier: string;
     subscriptionStatus: string;
     email?: string;
@@ -231,11 +340,11 @@ export async function updateUserProfile(
   // Build update data (for when user exists)
   const updateData: any = {};
   if (updates.activeVesselId !== undefined) updateData.active_vessel_id = updates.activeVesselId;
-  if (updates.activeSeaServiceId !== undefined) updateData.active_sea_service_id = updates.activeSeaServiceId;
   if (updates.username !== undefined) updateData.username = updates.username;
   if (updates.firstName !== undefined) updateData.first_name = updates.firstName;
   if (updates.lastName !== undefined) updateData.last_name = updates.lastName;
   if (updates.bio !== undefined) updateData.bio = updates.bio;
+  if (updates.profilePicture !== undefined) updateData.profile_picture = updates.profilePicture;
   if (updates.subscriptionTier !== undefined) updateData.subscription_tier = updates.subscriptionTier;
   if (updates.subscriptionStatus !== undefined) updateData.subscription_status = updates.subscriptionStatus;
 

@@ -43,7 +43,7 @@ const Header = () => {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    router.push('/');
+      router.push('/');
   };
 
   const getInitials = (name: string) => {

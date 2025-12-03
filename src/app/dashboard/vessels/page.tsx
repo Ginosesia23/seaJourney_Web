@@ -1,47 +1,45 @@
 
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { MoreHorizontal, PlusCircle, Loader2, Ship, Building } from 'lucide-react';
+import { PlusCircle, Loader2, Ship, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useUser, useSupabase } from '@/supabase';
-import { useCollection } from '@/supabase/database';
+import { useCollection, useDoc } from '@/supabase/database';
 import { createVessel, getVesselStateLogs } from '@/supabase/database/queries';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import type { Vessel, StateLog, UserProfile } from '@/lib/types';
+import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
+import { cn } from '@/lib/utils';
 
 const vesselSchema = z.object({
   name: z.string().min(2, 'Vessel name is required.'),
-  type: z.string().min(2, 'Vessel type is required.'),
+  type: z.enum(vesselTypeValues, {
+    required_error: 'Please select a vessel type.',
+  }),
   officialNumber: z.string().optional(),
 });
 type VesselFormValues = z.infer<typeof vesselSchema>;
 
-const vesselStates: { value: string; label: string }[] = [
-    { value: 'underway', label: 'Underway' },
-    { value: 'at-anchor', label: 'At Anchor' },
-    { value: 'in-port', label: 'In Port' },
-    { value: 'on-leave', label: 'On Leave' },
-    { value: 'in-yard', label: 'In Yard / Maintenance' },
-];
 
 export default function VesselsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [editingVessel, setEditingVessel] = useState<Vessel | null>(null);
   const [vesselStateLogs, setVesselStateLogs] = useState<Map<string, StateLog[]>>(new Map());
+  const [expandedVesselId, setExpandedVesselId] = useState<string | null>(null);
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -51,74 +49,77 @@ export default function VesselsPage() {
     resolver: zodResolver(vesselSchema),
     defaultValues: {
       name: '',
-      type: '',
+      type: undefined,
       officialNumber: '',
     },
   });
 
-  const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
-    'vessels',
-    { filter: 'owner_id', filterValue: user?.id, orderBy: 'created_at', ascending: false }
+  // Query all vessels (vessels are shared, not owned by users)
+  const { data: allVessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
+    user?.id ? 'vessels' : null,
+    user?.id ? { orderBy: 'created_at', ascending: false } : undefined
   );
   
-  // Fetch stateLogs for each vessel
+  // Fetch user profile to get activeVesselId
+  const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
+  
+  // Transform user profile to handle both snake_case (from DB) and camelCase (from types)
+  const currentUserProfile = useMemo(() => {
+    if (!userProfileRaw) return null;
+    
+    const activeVesselId = (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId;
+    
+    return {
+      ...userProfileRaw,
+      activeVesselId: activeVesselId || undefined,
+    } as UserProfile;
+  }, [userProfileRaw]);
+
+  // Fetch stateLogs for each vessel and filter to only show vessels user has logged time on
   useEffect(() => {
-    if (vessels && user?.id) {
+    if (allVessels && user?.id) {
       const fetchLogs = async () => {
-        const newLogs = new Map<string, StateLog[]>();
-        await Promise.all(vessels.map(async (vessel) => {
-          const logs = await getVesselStateLogs(supabase, vessel.id);
+      const newLogs = new Map<string, StateLog[]>();
+        await Promise.all(allVessels.map(async (vessel) => {
+          const logs = await getVesselStateLogs(supabase, vessel.id, user.id);
+          // Only add to map if user has logged time on this vessel
+          if (logs && logs.length > 0) {
           newLogs.set(vessel.id, logs);
+          }
         }));
         setVesselStateLogs(newLogs);
       };
       fetchLogs();
     }
-  }, [vessels, user?.id, supabase]);
+  }, [allVessels, user?.id, supabase]);
 
-
-  const { data: userProfiles, isLoading: isLoadingProfile } = useCollection<UserProfile>(
-    'users',
-    { filter: 'id', filterValue: user?.id }
-  );
-  const currentUserProfile = userProfiles?.[0];
-
-  const isLoading = isLoadingVessels || isLoadingProfile;
-
-  const handleEdit = (vessel: Vessel) => {
-    setEditingVessel(vessel);
-    form.reset({
-        name: vessel.name,
-        type: vessel.type,
-        officialNumber: vessel.officialNumber || '',
+  // Filter vessels to only show ones the user has logged time on, and sort to show current vessel first
+  const vessels = useMemo(() => {
+    if (!allVessels) return [];
+    const filtered = allVessels.filter(vessel => {
+      const logs = vesselStateLogs.get(vessel.id) || [];
+      return logs.length > 0; // Only show vessels with logged days
     });
-    setIsFormOpen(true);
-  }
+    
+    // Sort to show current/active vessel at the top
+    return filtered.sort((a, b) => {
+      const aIsCurrent = currentUserProfile?.activeVesselId === a.id;
+      const bIsCurrent = currentUserProfile?.activeVesselId === b.id;
+      
+      // Current vessel should come first
+      if (aIsCurrent && !bIsCurrent) return -1;
+      if (!aIsCurrent && bIsCurrent) return 1;
+      
+      // If both are current or both are not, maintain original order (most recent first based on created_at)
+      return 0;
+    });
+  }, [allVessels, vesselStateLogs, currentUserProfile]);
 
-  const handleDelete = async (vesselId: string) => {
-    if (!user?.id) return;
-    
-    const { error } = await supabase
-      .from('vessels')
-      .delete()
-      .eq('id', vesselId)
-      .eq('owner_id', user.id);
-    
-    if (error) {
-      console.error('Failed to delete vessel:', error);
-      toast({ 
-        title: 'Error', 
-        description: 'Failed to delete vessel. Please try again.',
-        variant: 'destructive'
-      });
-    } else {
-      toast({ title: 'Vessel Deleted', description: 'The vessel has been removed from your list.' });
-    }
-  }
+
+  const isLoading = isLoadingVessels || isLoadingProfile || (vessels && vesselStateLogs.size === 0 && vessels.length > 0);
   
   const handleOpenChange = (open: boolean) => {
     if(!open) {
-        setEditingVessel(null);
         form.reset({ name: '', type: '', officialNumber: ''});
     }
     setIsFormOpen(open);
@@ -129,28 +130,12 @@ export default function VesselsPage() {
     setIsSaving(true);
     
     try {
-        if (editingVessel) {
-            const { error } = await supabase
-              .from('vessels')
-              .update({
-                name: data.name,
-                type: data.type,
-                official_number: data.officialNumber || null,
-              })
-              .eq('id', editingVessel.id)
-              .eq('owner_id', user.id);
-            
-            if (error) throw error;
-            toast({ title: 'Vessel Updated', description: `${data.name} has been updated.` });
-        } else {
             await createVessel(supabase, {
-              ownerId: user.id,
               name: data.name,
               type: data.type,
               officialNumber: data.officialNumber,
             });
-            toast({ title: 'Vessel Added', description: `${data.name} has been added to your fleet.` });
-        }
+            toast({ title: 'Vessel Added', description: `${data.name} has been added.` });
         form.reset();
         handleOpenChange(false);
     } catch (serverError: any) {
@@ -159,7 +144,7 @@ export default function VesselsPage() {
           title: 'Error',
           description: serverError.message || 'Failed to save vessel. Please try again.',
           variant: 'destructive',
-        });
+          });
     } finally {
         setIsSaving(false);
     }
@@ -167,26 +152,26 @@ export default function VesselsPage() {
 
 
   return (
-    <div className="w-full max-w-7xl mx-auto">
-        <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
-            <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                    <div className="flex items-center gap-3">
-                        <Building className="h-6 w-6" />
-                        <CardTitle>Your Vessels</CardTitle>
-                    </div>
-                    <CardDescription>Manage the vessels you have worked on.</CardDescription>
+    <div className="flex flex-col gap-6">
+      {/* Header Section */}
+      <div className="space-y-2">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-bold tracking-tight">My Vessels</h1>
+            <p className="text-muted-foreground">
+              Vessels you have logged time on. Add a new vessel to start tracking your service.
+            </p>
                 </div>
                 <Dialog open={isFormOpen} onOpenChange={handleOpenChange}>
                     <DialogTrigger asChild>
-                        <Button className="rounded-lg">
+              <Button className="rounded-xl">
                             <PlusCircle className="mr-2 h-4 w-4" />
                             Add Vessel
                         </Button>
                     </DialogTrigger>
                     <DialogContent>
                         <DialogHeader>
-                            <DialogTitle>{editingVessel ? 'Edit Vessel' : 'Add a New Vessel'}</DialogTitle>
+                <DialogTitle>Add a New Vessel</DialogTitle>
                         </DialogHeader>
                         <Form {...form}>
                             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
@@ -207,7 +192,15 @@ export default function VesselsPage() {
                                     render={({ field }) => (
                                         <FormItem>
                                             <FormLabel>Vessel Type</FormLabel>
-                                            <FormControl><Input placeholder="e.g., Motor Yacht" {...field} /></FormControl>
+                                            <FormControl>
+                                                <SearchableSelect
+                                                    options={vesselTypes}
+                                                    value={field.value}
+                                                    onValueChange={field.onChange}
+                                                    placeholder="Select a vessel type"
+                                                    searchPlaceholder="Search vessel types..."
+                                                />
+                                            </FormControl>
                                             <FormMessage />
                                         </FormItem>
                                     )}
@@ -227,93 +220,191 @@ export default function VesselsPage() {
                                     <DialogClose asChild>
                                         <Button type="button" variant="ghost">Cancel</Button>
                                     </DialogClose>
-                                    <Button type="submit" disabled={isSaving} className="rounded-lg">
+                    <Button type="submit" disabled={isSaving} className="rounded-xl">
                                         {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        {editingVessel ? 'Save Changes' : 'Save Vessel'}
+                      Add Vessel
                                     </Button>
                                 </DialogFooter>
                             </form>
                         </Form>
                     </DialogContent>
                 </Dialog>
-            </CardHeader>
-            <CardContent>
+        </div>
+        <Separator />
+      </div>
+
+      <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+        <CardContent className="p-0">
+                <div className="overflow-x-auto">
                 <Table>
                     <TableHeader>
                         <TableRow>
+                                <TableHead className="w-[50px]"></TableHead>
                         <TableHead>Vessel Name</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Official Number</TableHead>
+                                <TableHead>Total Days Logged</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead className="w-[50px]"></TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {isLoading ? (
                             <TableRow>
-                                <TableCell colSpan={5} className="h-24 text-center">
+                                    <TableCell colSpan={6} className="h-24 text-center">
                                     <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                                 </TableCell>
                             </TableRow>
                         ) : vessels && vessels.length > 0 ? (
                         vessels.map((vessel) => {
                             const isCurrent = currentUserProfile?.activeVesselId === vessel.id;
-                            let currentDayStatusLabel = 'N/A';
-                            if (isCurrent) {
-                                const todayKey = format(new Date(), 'yyyy-MM-dd');
+                            
                                 const logs = vesselStateLogs.get(vessel.id) || [];
-                                const todayLog = logs.find(log => log.id === todayKey);
-                                const stateInfo = todayLog ? vesselStates.find(s => s.value === todayLog.state) : null;
-                                if (stateInfo) {
-                                    currentDayStatusLabel = stateInfo.label;
-                                }
-                            }
+                                const totalDays = logs.length;
+                                const isExpanded = expandedVesselId === vessel.id;
+                                const vesselRaw = allVessels?.find(v => v.id === vessel.id);
+                                const vesselData = vesselRaw as any; // Access raw DB fields
 
                             return (
-                                <TableRow key={vessel.id}>
+                                    <React.Fragment key={vessel.id}>
+                                        <TableRow 
+                                            className="hover:bg-muted/30 transition-colors cursor-pointer"
+                                            onClick={() => setExpandedVesselId(isExpanded ? null : vessel.id)}
+                                        >
+                                            <TableCell className="w-[50px]">
+                                                <ChevronDown 
+                                                    className={cn(
+                                                        "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                                                        isExpanded && "rotate-180"
+                                                    )}
+                                                />
+                                            </TableCell>
                                     <TableCell className="font-medium">
-                                        <div className="flex items-center gap-2">
-                                            <span>{vessel.name}</span>
-                                            {isCurrent && (
-                                                <Badge variant="secondary">Current</Badge>
-                                            )}
-                                        </div>
+                                                {vessel.name}
                                     </TableCell>
-                                    <TableCell>{vessel.type}</TableCell>
-                                    <TableCell>{vessel.officialNumber || 'N/A'}</TableCell>
+                                    <TableCell>
+                                                <Badge variant="outline" className="font-normal">
+                                        {vesselTypes.find(t => t.value === vessel.type)?.label || vessel.type}
+                                                </Badge>
+                                    </TableCell>
+                                            <TableCell className="text-muted-foreground">{vessel.officialNumber || '—'}</TableCell>
+                                            <TableCell className="font-medium">{totalDays}</TableCell>
                                     <TableCell>
                                         {isCurrent ? (
-                                            <Badge variant="outline">{currentDayStatusLabel}</Badge>
+                                                    <Badge variant="default" className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
+                                                        Active
+                                                    </Badge>
                                         ) : (
-                                            <span className="text-muted-foreground">N/A</span>
+                                                    <Badge variant="secondary" className="font-normal">
+                                                        Past
+                                                    </Badge>
                                         )}
                                     </TableCell>
-                                    <TableCell>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" className="h-8 w-8 p-0 rounded-full">
-                                                    <span className="sr-only">Open menu</span>
-                                                    <MoreHorizontal className="h-4 w-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem onClick={() => handleEdit(vessel)}>Edit</DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => handleDelete(vessel.id)} className="text-destructive">Delete</DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
+                                        </TableRow>
+                                        {isExpanded && (
+                                            <TableRow>
+                                                <TableCell colSpan={6} className="bg-background/40 p-0">
+                                                    <div className="px-6 py-6">
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                                                            {/* Identification Section */}
+                                                            <div className="space-y-4 pr-4 md:pr-6">
+                                                                <h4 className="text-sm font-semibold text-foreground">Identification</h4>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">IMO Number</span>
+                                                                        <span className="text-sm font-medium">{vessel.officialNumber || vesselData?.imo || '—'}</span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">MMSI</span>
+                                                                        <span className="text-sm font-medium">{vesselData?.mmsi || '—'}</span>
+                                                                    </div>
+                                                                    {vesselData?.call_sign && (
+                                                                        <div className="flex justify-between items-center py-1">
+                                                                            <span className="text-sm text-muted-foreground">Call Sign</span>
+                                                                            <span className="text-sm font-medium">{vesselData.call_sign}</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {vesselData?.flag && (
+                                                                        <div className="flex justify-between items-center py-1">
+                                                                            <span className="text-sm text-muted-foreground">Flag</span>
+                                                                            <span className="text-sm font-medium">{vesselData.flag}</span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Dimensions Section */}
+                                                            <div className="space-y-4 pl-0 md:pl-4 md:border-l border-border/50 pr-4 md:pr-6 lg:pr-8">
+                                                                <h4 className="text-sm font-semibold text-foreground">Dimensions</h4>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">Length</span>
+                                                                        <span className="text-sm font-medium">
+                                                                            {vesselData?.length_m
+                                                                                ? `${vesselData.length_m} m`
+                                                                                : '—'}
+                                                                        </span>
+                                                                    </div>
+                                                                    {vesselData?.beam && (
+                                                                        <div className="flex justify-between items-center py-1">
+                                                                            <span className="text-sm text-muted-foreground">Beam</span>
+                                                                            <span className="text-sm font-medium">{vesselData.beam} m</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {vesselData?.draft && (
+                                                                        <div className="flex justify-between items-center py-1">
+                                                                            <span className="text-sm text-muted-foreground">Draft</span>
+                                                                            <span className="text-sm font-medium">{vesselData.draft} m</span>
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">Gross Tonnage</span>
+                                                                        <span className="text-sm font-medium">
+                                                                            {vesselData?.gross_tonnage || vesselData?.grossTonnage 
+                                                                                ? `${vesselData?.gross_tonnage || vesselData?.grossTonnage} GT`
+                                                                                : '—'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Vessel Information Section */}
+                                                            <div className="space-y-4 pl-0 md:pl-4 md:border-l border-border/50">
+                                                                <h4 className="text-sm font-semibold text-foreground">Information</h4>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">Vessel Type</span>
+                                                                        <span className="text-sm font-medium">
+                                                                            {vesselTypes.find(t => t.value === vessel.type)?.label || vessel.type}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">Added to System</span>
+                                                                        <span className="text-sm font-medium">
+                                                                            {vesselData?.created_at 
+                                                                                ? format(new Date(vesselData.created_at), 'MMM d, yyyy')
+                                                                                : '—'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                     </TableCell>
                                 </TableRow>
+                                        )}
+                                    </React.Fragment>
                             )
                         })
                         ) : (
                         <TableRow>
-                            <TableCell colSpan={5} className="h-24 text-center">
+                                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                             No vessels found.
                             </TableCell>
                         </TableRow>
                         )}
                     </TableBody>
                 </Table>
+                </div>
             </CardContent>
         </Card>
     </div>

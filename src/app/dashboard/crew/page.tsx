@@ -54,7 +54,7 @@ export default function CrewPage() {
     if (!isLoading && !isAuthorized) {
         return (
             <div className="w-full max-w-7xl mx-auto text-center py-10">
-                <Card className="max-w-md mx-auto">
+                <Card className="max-w-md mx-auto rounded-xl">
                     <CardHeader>
                         <CardTitle>Access Denied</CardTitle>
                         <CardDescription>You do not have permission to view this page.</CardDescription>

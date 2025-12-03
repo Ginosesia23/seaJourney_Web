@@ -39,12 +39,26 @@ export const SupabaseProvider: React.FC<SupabaseProviderProps> = ({ children }) 
   const [isUserLoading, setIsUserLoading] = useState(true);
   const [userError, setUserError] = useState<Error | null>(null);
 
-  const supabase = useMemo(() => createSupabaseClient(), []);
+  const supabase = useMemo(() => {
+    try {
+      return createSupabaseClient();
+    } catch (error) {
+      console.error('Failed to create Supabase client:', error);
+      setUserError(error instanceof Error ? error : new Error('Failed to initialize Supabase client'));
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
+    if (!supabase) {
+      setIsUserLoading(false);
+      return;
+    }
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
+        console.error('Error getting session:', error);
         setUserError(error);
         setIsUserLoading(false);
         return;
@@ -57,7 +71,8 @@ export const SupabaseProvider: React.FC<SupabaseProviderProps> = ({ children }) 
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('Auth state changed:', event);
       setSession(session);
       setUser(session?.user ?? null);
       setIsUserLoading(false);

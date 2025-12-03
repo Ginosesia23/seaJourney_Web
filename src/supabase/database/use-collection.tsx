@@ -22,7 +22,7 @@ export function useCollection<T = any>(
     realtime?: boolean;
   }
 ): UseCollectionResult<T> {
-  const { supabase, user } = useSupabase();
+  const { supabase, user, session, isUserLoading } = useSupabase();
   const [data, setData] = useState<WithId<T>[] | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
@@ -35,13 +35,35 @@ export function useCollection<T = any>(
       return;
     }
 
+    // Wait for user session to be loaded before querying
+    if (isUserLoading) {
+      setIsLoading(true);
+      return;
+    }
+
+    // Don't query if filter is required but filterValue is null/undefined
+    if (options?.filter && (options?.filterValue === null || options?.filterValue === undefined)) {
+      setData(null);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
+    // If we need authentication but don't have a session, don't query
+    if (options?.filter && !session) {
+      setData(null);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
     let query = supabase.from(tableName).select('*');
 
     // Apply filters
-    if (options?.filter && options?.filterValue !== undefined) {
+    if (options?.filter && options?.filterValue !== undefined && options?.filterValue !== null) {
       query = query.eq(options.filter, options.filterValue);
     }
 
@@ -50,11 +72,23 @@ export function useCollection<T = any>(
       query = query.order(options.orderBy, { ascending: options?.ascending ?? true });
     }
 
-    // Fetch initial data
+      // Fetch initial data
     const fetchData = async () => {
       const { data: fetchedData, error: fetchError } = await query;
 
       if (fetchError) {
+        console.error(`[useCollection] Error fetching ${tableName}:`, {
+          error: fetchError,
+          message: fetchError.message,
+          details: fetchError.details,
+          hint: fetchError.hint,
+          code: fetchError.code,
+          filter: options?.filter,
+          filterValue: options?.filterValue,
+          orderBy: options?.orderBy,
+          hasSession: !!session,
+          userId: user?.id,
+        });
         setError(fetchError);
         setData(null);
         setIsLoading(false);
@@ -101,7 +135,7 @@ export function useCollection<T = any>(
     };
 
     fetchData();
-  }, [tableName, user, options?.filter, options?.filterValue, options?.orderBy, options?.ascending, options?.realtime, supabase]);
+  }, [tableName, user, session, isUserLoading, options?.filter, options?.filterValue, options?.orderBy, options?.ascending, options?.realtime, supabase]);
 
   return { data, isLoading, error };
 }

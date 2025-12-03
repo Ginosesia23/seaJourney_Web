@@ -5,7 +5,7 @@ import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGri
 const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
-        <div className="rounded-lg border bg-background p-2 shadow-sm">
+        <div className="rounded-xl border bg-background p-2 shadow-sm">
           <div className="grid grid-cols-1 gap-1">
             <p className="font-bold text-foreground mb-1">{label}</p>
             {payload.slice().reverse().map((p: any, index: number) => (

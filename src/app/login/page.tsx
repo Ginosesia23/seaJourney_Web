@@ -42,13 +42,13 @@ export default function LoginPage() {
   const checkUserAndRedirect = async (userId: string) => {
     try {
       const userProfile = await getUserProfile(supabase, userId);
-      if (userProfile.role === 'vessel' || userProfile.role === 'admin') {
-        router.push('/dashboard/crew');
-      } else {
-        if (userProfile.subscriptionStatus === 'active') {
-          router.push('/dashboard');
+        if (userProfile.role === 'vessel' || userProfile.role === 'admin') {
+          router.push('/dashboard/crew');
         } else {
-          router.push('/offers');
+        if (userProfile.subscriptionStatus === 'active') {
+                router.push('/dashboard');
+            } else {
+                router.push('/offers');
         }
       }
     } catch (error) {
@@ -119,7 +119,7 @@ export default function LoginPage() {
         variant: 'destructive',
       });
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
   };
 
@@ -182,14 +182,14 @@ export default function LoginPage() {
                 </Button>
               </form>
             </Form>
-            
+
             <div className="mt-6 space-y-2">
               <p className="text-center text-sm text-muted-foreground">
-                Don't have an account?{' '}
-                <Link href="/signup" className="font-medium text-primary hover:underline">
-                  Sign up
-                </Link>
-              </p>
+              Don't have an account?{' '}
+              <Link href="/signup" className="font-medium text-primary hover:underline">
+                Sign up
+              </Link>
+            </p>
               <p className="text-center text-sm">
                 <Link href="/forgot-password" className="text-muted-foreground hover:text-primary hover:underline">
                   Forgot your password?

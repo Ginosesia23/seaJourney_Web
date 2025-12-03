@@ -35,8 +35,8 @@ export async function POST(req: NextRequest) {
     let session;
     try {
       session = await stripe.checkout.sessions.retrieve(sessionId, {
-        expand: ['subscription'],
-      });
+      expand: ['subscription'],
+    });
     } catch (stripeError: any) {
       console.error('[SERVER] Stripe API error:', {
         message: stripeError?.message,

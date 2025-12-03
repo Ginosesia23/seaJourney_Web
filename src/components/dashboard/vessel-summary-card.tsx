@@ -3,16 +3,17 @@
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Ship, Anchor, Calendar, Waves, Building, Briefcase } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Ship, Anchor, Calendar, Waves, Building, Briefcase, PlayCircle, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const vesselStates: { value: string; label: string, color: string, icon: React.FC<any> }[] = [
-    { value: 'underway', label: 'Underway', color: 'bg-blue-500', icon: Waves },
-    { value: 'at-anchor', label: 'At Anchor', color: 'bg-orange-500', icon: Anchor },
-    { value: 'in-port', label: 'In Port', color: 'bg-green-500', icon: Building },
-    { value: 'on-leave', label: 'On Leave', color: 'bg-gray-500', icon: Briefcase },
-    { value: 'in-yard', label: 'In Yard', color: 'bg-red-500', icon: Ship },
+    { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
+    { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
+    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
+    { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
+    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
 ];
 
 type VesselSummary = {
@@ -25,16 +26,39 @@ type VesselSummary = {
     isCurrent: boolean;
 };
 
-export function VesselSummaryCard({ vesselSummary }: { vesselSummary: VesselSummary }) {
+type VesselSummaryCardProps = {
+    vesselSummary: VesselSummary;
+    onResumeService?: (vesselId: string) => void;
+    showResumeButton?: boolean;
+    isResuming?: boolean;
+    onDelete?: (vesselId: string, vesselName: string) => void;
+    showDeleteButton?: boolean;
+};
+
+export function VesselSummaryCard({ 
+    vesselSummary, 
+    onResumeService, 
+    showResumeButton = false,
+    isResuming = false,
+    onDelete,
+    showDeleteButton = false
+}: VesselSummaryCardProps) {
     return (
-        <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg flex flex-col h-full">
+        <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow flex flex-col h-full">
             <CardHeader>
                 <div className="flex justify-between items-start">
-                    <div>
-                        <CardTitle className="font-headline text-xl">{vesselSummary.name}</CardTitle>
-                        <CardDescription>{vesselSummary.type}</CardDescription>
+                    <div className="flex items-center gap-3 flex-1">
+                        <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                            <Ship className="h-6 w-6 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <CardTitle className="text-xl font-semibold truncate">{vesselSummary.name}</CardTitle>
+                            <CardDescription className="truncate">{vesselSummary.type}</CardDescription>
+                        </div>
                     </div>
-                    {vesselSummary.isCurrent && <Badge variant="secondary">Current</Badge>}
+                    {vesselSummary.isCurrent && (
+                        <Badge className="bg-primary text-primary-foreground hover:bg-primary/90 shrink-0">Current</Badge>
+                    )}
                 </div>
             </CardHeader>
             <CardContent className="flex-grow space-y-4">
@@ -52,20 +76,67 @@ export function VesselSummaryCard({ vesselSummary }: { vesselSummary: VesselSumm
                 <div>
                      <h4 className="text-sm font-medium mb-2">Day Breakdown</h4>
                      <div className="space-y-2">
-                        {vesselStates.map(state => (
-                            <div key={state.value} className="flex justify-between items-center text-sm">
-                                <div className="flex items-center gap-2">
-                                    <span className={cn('h-2.5 w-2.5 rounded-full', state.color)}></span>
-                                    <span className="text-muted-foreground">{state.label}</span>
+                        {vesselStates.map(state => {
+                            const count = vesselSummary.dayCountByState[state.value] || 0;
+                            if (count === 0) return null; // Only show states with logged days
+                            return (
+                                <div key={state.value} className="flex justify-between items-center text-sm">
+                                    <div className="flex items-center gap-2">
+                                        <span 
+                                            className="h-2.5 w-2.5 rounded-full" 
+                                            style={{ backgroundColor: state.color }}
+                                        ></span>
+                                        <span className="text-muted-foreground">{state.label}</span>
+                                    </div>
+                                    <span className="font-semibold">{count} days</span>
                                 </div>
-                                <span className="font-semibold">{vesselSummary.dayCountByState[state.value] || 0} days</span>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             </CardContent>
-            <CardFooter>
-                 <p className="text-xs text-muted-foreground">Detailed trip logs can be found on the passages page.</p>
+            <CardFooter className="flex flex-col gap-2">
+                {vesselSummary.isCurrent ? (
+                    <p className="text-xs text-muted-foreground w-full">This is your currently active vessel.</p>
+                ) : (
+                    <div className="flex flex-col gap-2 w-full">
+                        {showResumeButton && onResumeService && (
+                            <Button
+                                onClick={() => onResumeService(vesselSummary.id)}
+                                disabled={isResuming}
+                                variant="outline"
+                                className="w-full rounded-lg"
+                                size="sm"
+                            >
+                                {isResuming ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Resuming...
+                                    </>
+                                ) : (
+                                    <>
+                                        <PlayCircle className="mr-2 h-4 w-4" />
+                                        Resume Service
+                                    </>
+                                )}
+                            </Button>
+                        )}
+                        {showDeleteButton && onDelete && (
+                            <Button
+                                onClick={() => onDelete(vesselSummary.id, vesselSummary.name)}
+                                variant="destructive"
+                                className="w-full rounded-xl"
+                                size="sm"
+                            >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete Data
+                            </Button>
+                        )}
+                        {!showResumeButton && !showDeleteButton && (
+                            <p className="text-xs text-muted-foreground w-full">Detailed trip logs can be found on the passages page.</p>
+                        )}
+                    </div>
+                )}
             </CardFooter>
         </Card>
     );
@@ -73,7 +144,7 @@ export function VesselSummaryCard({ vesselSummary }: { vesselSummary: VesselSumm
 
 export function VesselSummarySkeleton() {
     return (
-        <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+        <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader>
                 <div className="flex justify-between items-start">
                     <div>

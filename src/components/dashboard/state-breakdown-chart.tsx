@@ -27,7 +27,7 @@ interface StateBreakdownChartProps {
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     return (
-      <div className="rounded-lg border bg-background p-2 shadow-sm">
+      <div className="rounded-xl border bg-background p-2 shadow-sm">
         <div className="grid grid-cols-2 gap-2 items-center">
             <div className="font-bold text-foreground">{payload[0].name}</div>
             <div className="font-bold text-foreground text-right">{`${payload[0].value} days`}</div>
@@ -95,7 +95,10 @@ export default function StateBreakdownChart({ data }: StateBreakdownChartProps) 
                             </div>
                             <span className="font-medium text-foreground">{days} days</span>
                         </div>
-                        <Progress value={percentage} indicatorClassName={cn(stateInfo.color)} style={{'--primary': stateInfo.color} as any}/>
+                        <Progress 
+                          value={percentage} 
+                          indicatorStyle={{ backgroundColor: stateInfo.color }}
+                        />
                     </div>
                 )
             })}

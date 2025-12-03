@@ -5,42 +5,54 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 224 71% 4%;
+    --background: 213 28% 97%;
+    --foreground: 213 40% 8%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 224 71% 4%;
+    --card: 213 30% 96%;
+    --card-foreground: 213 40% 8%;
  
-    --popover: 0 0% 100%;
-    --popover-foreground: 224 71% 4%;
+    --popover: 213 30% 96%;
+    --popover-foreground: 213 40% 8%;
  
-    --primary: 211 100% 5%;
+    --primary: 213 55% 25%;
     --primary-foreground: 210 40% 98%;
  
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222 47% 11.2%;
+    --secondary: 213 35% 92%;
+    --secondary-foreground: 213 45% 15%;
  
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 213 30% 94%;
+    --muted-foreground: 213 20% 45%;
  
-    --accent: 211 85% 34%;
+    --accent: 213 60% 45%;
     --accent-foreground: 210 40% 98%;
  
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 213 30% 85%;
+    --input: 213 30% 94%;
+    --ring: 213 55% 45%;
 
-    --header: 211 100% 5%;
+    --header: 213 45% 18%;
     --header-foreground: 210 40% 98%;
 
-    /* Chart Colors */
-    --chart-blue: 205 90% 45%;
+    --content-background: 213 30% 94%;
+
+    /* Sidebar Colors - Lighter for light mode */
+    --sidebar-background: 213 45% 18%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 213 45% 18%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 213 45% 22%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 213 45% 28%;
+    --sidebar-ring: 213 90% 60%;
+
+    /* Chart Colors - Harmonized with blue theme */
+    --chart-blue: 213 60% 45%;
     --chart-orange: 25 95% 53%;
     --chart-green: 142 76% 36%;
-    --chart-gray: 215 14% 34%;
+    --chart-gray: 213 15% 50%;
     --chart-red: 0 84% 60%;
   }
  
@@ -75,6 +87,18 @@
 
     --header: 205 100% 4%;
     --header-foreground: 210 40% 98%;
+
+    --content-background: 210 100% 4%;
+
+    /* Sidebar Colors */
+    --sidebar-background: 213 45% 9%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 213 45% 9%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 213 45% 12%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 213 45% 18%;
+    --sidebar-ring: 213 90% 60%;
 
      /* Chart Colors */
     --chart-blue: 205 90% 60%;

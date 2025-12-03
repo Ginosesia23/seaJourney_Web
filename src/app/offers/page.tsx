@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
@@ -16,9 +16,12 @@ import {
 import { Check, Download, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useUser } from '@/supabase';
-import { useRouter } from 'next/navigation';
+import { useDoc } from '@/supabase/database';
+import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { useRouter, usePathname } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { getStripeProducts, createCheckoutSession, type StripeProduct } from '@/app/actions';
+import type { UserProfile } from '@/lib/types';
 
 
 const freeTier = {
@@ -35,12 +38,58 @@ export default function OffersPage() {
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
   const [products, setProducts] = useState<StripeProduct[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const redirectingRef = useRef(false);
 
-  const { user } = useUser();
+  const { user, isUserLoading } = useUser();
   const router = useRouter();
+  const pathname = usePathname();
   const { toast } = useToast();
 
+  // Get user profile to check subscription status
+  const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>('users', user?.id);
+
+  // Redirect to dashboard if user has active subscription
   useEffect(() => {
+    // Prevent multiple redirects
+    if (redirectingRef.current) return;
+    
+    // Wait for loading to complete
+    if (isUserLoading || isProfileLoading) {
+      return;
+    }
+    
+    // If no user, allow them to see offers
+    if (!user) {
+      return;
+    }
+
+    // Only proceed if we're actually on the offers page
+    if (pathname !== '/offers') {
+      return;
+    }
+
+    // Use helper function to check subscription status (handles snake_case from database)
+    const isActive = hasActiveSubscription(userProfile);
+
+    console.log('[OFFERS] Check:', {
+      pathname,
+      raw_subscription_status: userProfile ? (userProfile as any).subscription_status : null,
+      hasActiveSubscription: isActive,
+      userProfileKeys: userProfile ? Object.keys(userProfile) : [],
+    });
+
+    // Only redirect if subscription is active and we're on offers page
+    if (isActive) {
+      redirectingRef.current = true;
+      console.log('[OFFERS] Redirecting to dashboard - subscription is active');
+      router.replace('/dashboard');
+    }
+  }, [user, userProfile, isUserLoading, isProfileLoading, router, pathname]);
+
+  useEffect(() => {
+    // Don't fetch products if user has active subscription (will redirect)
+    if (hasActiveSubscription(userProfile)) return;
+    
     const fetchProducts = async () => {
       setIsLoadingProducts(true);
       try {
@@ -87,7 +136,37 @@ export default function OffersPage() {
     }
   };
 
-  const isLoading = isLoadingProducts;
+  const isLoading = isLoadingProducts || isUserLoading || isProfileLoading;
+  
+  // Show loading state while checking subscription
+  if (isUserLoading || isProfileLoading) {
+    return (
+      <div className="flex min-h-screen flex-col bg-background">
+        <Header />
+        <main className="flex-1 flex items-center justify-center">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  // Don't render offers page if user has active subscription (will redirect)
+  // Use helper function to check subscription status
+  const isActive = hasActiveSubscription(userProfile);
+  
+  // Show loading/redirect state if user has active subscription
+  if (user && isActive) {
+    return (
+      <div className="flex min-h-screen flex-col bg-background">
+        <Header />
+        <main className="flex-1 flex items-center justify-center">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </main>
+        <Footer />
+      </div>
+    );
+  }
   
   return (
     <div className="flex min-h-screen flex-col bg-background">
