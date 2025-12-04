@@ -1,7 +1,7 @@
 
 'use client';
 
-import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, CalendarDays, TrendingDown, Activity, Target, Trophy } from 'lucide-react';
+import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, CalendarDays, TrendingDown, Activity, Target, Trophy, CheckCircle2, XCircle, FileText } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -14,7 +14,7 @@ import { getVesselSeaService, getVesselStateLogs, updateStateLogsBatch } from '@
 import { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import type { Vessel, SeaServiceRecord, StateLog, UserProfile, DailyStatus } from '@/lib/types';
+import type { Vessel, SeaServiceRecord, StateLog, UserProfile, DailyStatus, Testimonial } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
 
@@ -36,6 +36,7 @@ export default function DashboardPage() {
   const [allSeaService, setAllSeaService] = useState<SeaServiceRecord[]>([]);
   const [allStateLogs, setAllStateLogs] = useState<Map<string, StateLog[]>>(new Map());
   const [currentVesselLogs, setCurrentVesselLogs] = useState<StateLog[]>([]);
+  const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
 
   // Fetch user profile to get active vessel
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -84,6 +85,34 @@ export default function DashboardPage() {
         fetchServiceAndLogs();
     }
   }, [vessels, user?.id, supabase]);
+
+  // Fetch testimonials
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const fetchTestimonials = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('testimonials')
+          .select('*')
+          .eq('user_id', user.id)
+          .in('status', ['approved', 'rejected'])
+          .order('updated_at', { ascending: false });
+
+        if (error) {
+          console.error('Error fetching testimonials:', error);
+          setTestimonials([]);
+        } else {
+          setTestimonials((data || []) as Testimonial[]);
+        }
+      } catch (error) {
+        console.error('Error fetching testimonials:', error);
+        setTestimonials([]);
+      }
+    };
+
+    fetchTestimonials();
+  }, [user?.id, supabase]);
 
   const [isFillingGaps, setIsFillingGaps] = useState(false);
 
@@ -203,35 +232,92 @@ export default function DashboardPage() {
   }, [allStateLogs, selectedVessel, selectedYear]);
 
   const recentActivity = useMemo(() => {
-    if (!allStateLogs || !vessels) return [];
+    const activities: Array<{
+      id: string;
+      type: 'state_log' | 'testimonial_approved' | 'testimonial_rejected' | 'state_change';
+      date: string;
+      timestamp: number;
+      vesselName?: string;
+      vesselType?: string;
+      vesselId?: string;
+      state?: DailyStatus;
+      testimonial?: Testimonial;
+    }> = [];
     
-    // Collect all state logs from all vessels
-    const allLogs: Array<StateLog & { vesselName: string; vesselType?: string }> = [];
+    if (!vessels) return [];
     
-    allStateLogs.forEach((logs, vesselId) => {
-      const vessel = vessels.find(v => v.id === vesselId);
-      logs.forEach(log => {
-        allLogs.push({
-          ...log,
-                vesselName: vessel?.name || 'Unknown Vessel',
-          vesselType: vessel?.type
+    const thirtyDaysAgo = subDays(new Date(), 30).getTime();
+    
+    // 1. Collect recent state logs and state changes
+    if (allStateLogs) {
+      
+      allStateLogs.forEach((logs, vesselId) => {
+        const vessel = vessels.find(v => v.id === vesselId);
+        logs.forEach(log => {
+          // Use updatedAt if available and different from createdAt (actual state change)
+          const logDate = new Date(log.date);
+          const logTimestamp = log.updatedAt 
+            ? new Date(log.updatedAt).getTime()
+            : logDate.getTime();
+          
+          // Only include recent activities (last 30 days)
+          if (logTimestamp >= thirtyDaysAgo) {
+            // Check if this is a state change (has updatedAt and it's different from the log date)
+            const isStateChange = log.updatedAt && 
+              Math.abs(new Date(log.updatedAt).getTime() - logDate.getTime()) > 60000; // More than 1 minute difference
+            
+            activities.push({
+              id: log.id || `${log.date}-${vesselId}`,
+              type: isStateChange ? 'state_change' : 'state_log',
+              date: format(isStateChange && log.updatedAt ? new Date(log.updatedAt) : logDate, 'yyyy-MM-dd'),
+              timestamp: logTimestamp,
+              vesselName: vessel?.name || 'Unknown Vessel',
+              vesselType: vessel?.type,
+              vesselId: log.vesselId,
+              state: log.state,
+            });
+          }
         });
       });
+    }
+    
+    // 2. Add testimonial approvals/rejections (only recent ones)
+    testimonials.forEach(testimonial => {
+      // Use signoff_used_at if available (when captain signed off), otherwise use updated_at
+      const timestampDate = testimonial.signoff_used_at 
+        ? new Date(testimonial.signoff_used_at)
+        : testimonial.updated_at 
+        ? new Date(testimonial.updated_at)
+        : null;
+      
+      // Only include recent approvals/rejections (last 30 days)
+      if (timestampDate && 
+          timestampDate.getTime() >= thirtyDaysAgo &&
+          (testimonial.status === 'approved' || testimonial.status === 'rejected')) {
+        const vessel = vessels.find(v => v.id === testimonial.vessel_id);
+        activities.push({
+          id: `testimonial-${testimonial.id}`,
+          type: testimonial.status === 'approved' ? 'testimonial_approved' : 'testimonial_rejected',
+          date: format(timestampDate, 'yyyy-MM-dd'),
+          timestamp: timestampDate.getTime(),
+          vesselName: vessel?.name || 'Unknown Vessel',
+          vesselType: vessel?.type,
+          vesselId: testimonial.vessel_id,
+          testimonial,
+        });
+      }
     });
     
-    // Sort by date (most recent first) and take the last 5
-    return allLogs
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 5)
-      .map(log => ({
-        id: log.id,
-        date: log.date,
-        state: log.state,
-        vesselName: log.vesselName,
-        vesselType: log.vesselType,
-        vesselId: log.vesselId,
+    // Sort by timestamp (most recent first) and take the last 8 (to show more activities)
+    return activities
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 8)
+      .map(activity => ({
+        ...activity,
+        // Ensure date is properly formatted
+        date: activity.date || format(new Date(activity.timestamp), 'yyyy-MM-dd'),
       }));
-  }, [allStateLogs, vessels]);
+  }, [allStateLogs, vessels, testimonials]);
   
   const availableYears = useMemo(() => {
     if (!allSeaService) return [];
@@ -855,14 +941,12 @@ export default function DashboardPage() {
               <History className="h-5 w-5 text-primary" />
                 <CardTitle>Recent Activity</CardTitle>
             </div>
-            <CardDescription>Your most recently logged sea time entries</CardDescription>
+            <CardDescription>Your recent activity including sea time, state changes, and testimonial updates</CardDescription>
             </CardHeader>
             <CardContent>
             {recentActivity.length > 0 ? (
               <div className="space-y-3">
                 {recentActivity.map((activity, index) => {
-                  const stateInfo = vesselStates.find(s => s.value === activity.state);
-                  const StateIcon = stateInfo?.icon || Ship;
                   const activityDate = new Date(activity.date);
                   const isToday = format(activityDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
                   const isYesterday = format(activityDate, 'yyyy-MM-dd') === format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
@@ -875,6 +959,56 @@ export default function DashboardPage() {
                   } else {
                     dateLabel = format(activityDate, 'MMM d, yyyy');
                   }
+                  
+                  // Handle different activity types
+                  if (activity.type === 'testimonial_approved' || activity.type === 'testimonial_rejected') {
+                    const isApproved = activity.type === 'testimonial_approved';
+                    return (
+                      <div 
+                        key={activity.id}
+                        className="flex items-center gap-3 p-3 rounded-xl border bg-background/50 hover:bg-background transition-colors"
+                      >
+                        <div 
+                          className={`h-10 w-10 flex items-center justify-center flex-shrink-0 rounded-xl ${
+                            isApproved 
+                              ? 'bg-green-500/20' 
+                              : 'bg-red-500/20'
+                          }`}
+                        >
+                          {isApproved ? (
+                            <CheckCircle2 className="h-5 w-5 text-green-600" />
+                          ) : (
+                            <XCircle className="h-5 w-5 text-red-600" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="text-sm font-semibold truncate">{activity.vesselName}</p>
+                            {activity.vesselType && (
+                              <span className="text-xs text-muted-foreground truncate">• {activity.vesselType}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-xs font-medium ${isApproved ? 'text-green-600' : 'text-red-600'}`}>
+                              Testimonial {isApproved ? 'Approved' : 'Rejected'}
+                            </span>
+                            <span className="text-xs text-muted-foreground">•</span>
+                            <span className="text-xs text-muted-foreground">{dateLabel}</span>
+                          </div>
+                        </div>
+                        <div 
+                          className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${
+                            isApproved ? 'bg-green-600' : 'bg-red-600'
+                          }`}
+                        />
+                      </div>
+                    );
+                  }
+                  
+                  // Handle state logs and state changes
+                  const stateInfo = vesselStates.find(s => s.value === activity.state);
+                  const StateIcon = stateInfo?.icon || Ship;
+                  const isStateChange = activity.type === 'state_change';
                   
                   return (
                     <div 
@@ -897,9 +1031,9 @@ export default function DashboardPage() {
                             <span className="text-xs text-muted-foreground truncate">• {activity.vesselType}</span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs font-medium" style={{ color: stateInfo?.color || 'hsl(var(--muted-foreground))' }}>
-                            {stateInfo?.label || activity.state}
+                            {isStateChange ? 'State Changed: ' : ''}{stateInfo?.label || activity.state}
                           </span>
                           <span className="text-xs text-muted-foreground">•</span>
                           <span className="text-xs text-muted-foreground">{dateLabel}</span>
@@ -976,9 +1110,9 @@ export default function DashboardPage() {
                 <CardContent>
                   <div className="text-3xl font-bold">{thisMonthStats.atSeaDays}</div>
                   <p className="text-xs text-muted-foreground mt-1">Days underway</p>
-                </CardContent>
-              </Card>
-              
+        </CardContent>
+      </Card>
+
               <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Standby</CardTitle>
@@ -989,8 +1123,8 @@ export default function DashboardPage() {
                 <CardContent>
                   <div className="text-3xl font-bold">{thisMonthStats.standbyDays}</div>
                   <p className="text-xs text-muted-foreground mt-1">MCA/PYA compliant</p>
-        </CardContent>
-      </Card>
+                </CardContent>
+            </Card>
 
               <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -1007,7 +1141,7 @@ export default function DashboardPage() {
             </div>
           </div>
         </>
-      )}
+        )}
 
       {/* Career Highlights Section */}
       <Separator />

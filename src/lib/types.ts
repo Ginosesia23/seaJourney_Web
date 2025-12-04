@@ -72,6 +72,13 @@ export interface Testimonial {
     official_body: string | null;
     official_reference: string | null;
     notes: string | null;
+    testimonial_code: string | null;           // Unique code in format SJ-XXXX-XXXX
+    signoff_token: string | null;              // UUID token for secure signoff links
+    signoff_token_expires_at: string | null;   // ISO timestamp
+    signoff_target_email: string | null;       // Email address the token was generated for
+    signoff_used_at: string | null;            // ISO timestamp
     created_at: string;           // ISO timestamp
     updated_at: string;           // ISO timestamp
 }
+
+

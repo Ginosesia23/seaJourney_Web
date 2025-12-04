@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, startOfDay, isAfter, parse, eachDayOfInterval, isWithinInterval } from 'date-fns';
-import { LifeBuoy, Loader2, PlusCircle, Mail, Calendar, CalendarIcon, Ship, Clock, CheckCircle2, XCircle, FileText } from 'lucide-react';
+import { LifeBuoy, Loader2, PlusCircle, Mail, Calendar, CalendarIcon, Ship, Clock, CheckCircle2, XCircle, FileText, Download } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,8 +25,11 @@ import { getVesselStateLogs } from '@/supabase/database/queries';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { generateTestimonialPDF } from '@/lib/pdf-generator';
+import { generateTestimonialCode } from '@/lib/testimonial-code';
 import type { Vessel, UserProfile, Testimonial, TestimonialStatus } from '@/lib/types';
 import type { StateLog } from '@/lib/types';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const testimonialSchema = z.object({
   vessel_id: z.string().min(1, 'Please select a vessel.'),
@@ -60,6 +63,156 @@ const testimonialSchema = z.object({
 });
 
 type TestimonialFormValues = z.infer<typeof testimonialSchema>;
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+
+// Helper function to create or get a secure signoff token
+async function createOrGetSignoffToken(
+  supabase: SupabaseClient,
+  testimonialId: string,
+  captainEmail: string
+): Promise<string> {
+  // 1. Try to reuse a valid token if it exists
+  const { data: existing, error: existingError } = await supabase
+    .from('testimonials')
+    .select('signoff_token, signoff_token_expires_at, signoff_target_email')
+    .eq('id', testimonialId)
+    .maybeSingle();
+
+  if (existingError) {
+    console.error('Error checking existing token:', existingError);
+    throw existingError;
+  }
+
+  const now = new Date();
+
+  if (
+    existing?.signoff_token &&
+    existing.signoff_token_expires_at &&
+    existing.signoff_target_email === captainEmail &&
+    new Date(existing.signoff_token_expires_at) > now
+  ) {
+    return existing.signoff_token as string;
+  }
+
+  // 2. Otherwise, create a new one
+  const token = crypto.randomUUID(); // browser-safe in Next.js
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7); // 7 days validity
+
+  const { error: updateError } = await supabase
+    .from('testimonials')
+    .update({
+      signoff_token: token,
+      signoff_token_expires_at: expiresAt.toISOString(),
+      signoff_target_email: captainEmail,
+    })
+    .eq('id', testimonialId);
+
+  if (updateError) {
+    console.error('Error creating signoff token:', updateError);
+    throw updateError;
+  }
+
+  return token;
+}
+
+// Helper function to request captain signoff
+async function requestCaptainSignoff(
+  supabase: SupabaseClient,
+  testimonial: Testimonial & { vessel_name?: string },
+  toast: (props: { title: string; description: string; variant?: 'default' | 'destructive' }) => void
+): Promise<void> {
+  if (!testimonial.captain_email) {
+    throw new Error('Captain email is required');
+  }
+
+  const captainEmail = testimonial.captain_email;
+  const captainName = testimonial.captain_name || 'Captain';
+  const vesselName = testimonial.vessel_name ?? 'Your Vessel';
+
+  // 1. Ensure token is in DB
+  const token = await createOrGetSignoffToken(
+    supabase,
+    testimonial.id,
+    captainEmail
+  );
+
+  // 2. Build the link used in the email
+  const signoffLink = `${APP_URL}/testimonials/signoff?token=${encodeURIComponent(
+    token
+  )}&email=${encodeURIComponent(captainEmail)}`;
+
+  // 3. Call Edge Function
+  const { data, error } = await supabase.functions.invoke('send-signoff-request', {
+    body: {
+      captainEmail,
+      captainName,
+      vesselName,
+      signoffLink,
+      pdfUrl: testimonial.pdf_url || null,
+    },
+  });
+
+  if (error) {
+    console.error('Error sending email:', error);
+    
+    // Try to get more details from the response
+    if (error.context instanceof Response) {
+      try {
+        const errorText = await error.context.clone().text();
+        console.error('Edge Function error response body:', errorText);
+        try {
+          const errorJson = JSON.parse(errorText);
+          console.error('Edge Function error details:', errorJson);
+        } catch {
+          // Not JSON, that's fine
+        }
+      } catch (e) {
+        console.error('Could not read error response body:', e);
+      }
+    }
+    
+    const statusCode = error.context?.status || error.status;
+    const errorMessage = error.message || 'Unknown error';
+    const isNetworkError = errorMessage?.includes('Failed to fetch') || 
+                          errorMessage?.includes('Failed to send a request');
+    
+    let errorDescription = '';
+    if (isNetworkError) {
+      errorDescription = `Email function appears to be unavailable. Please verify the Edge Function 'send-signoff-request' is deployed in Supabase.`;
+    } else if (statusCode === 400) {
+      errorDescription = `The email request was invalid (Status: ${statusCode}). Please check the console for details and contact the captain manually.`;
+    } else {
+      errorDescription = statusCode 
+        ? `Email failed (Status: ${statusCode}): ${errorMessage}. Please contact the captain manually.`
+        : errorMessage 
+          ? `Email failed: ${errorMessage}. Please contact the captain manually.`
+          : `There was an error sending the email. Please contact the captain manually.`;
+    }
+    
+    toast({
+      title: 'Request Created',
+      description: errorDescription,
+      variant: statusCode === 400 ? 'destructive' : 'default',
+    });
+    
+    return;
+  }
+
+  // 4. Optionally update status to pending_captain
+  await supabase
+    .from('testimonials')
+    .update({ status: 'pending_captain' })
+    .eq('id', testimonial.id);
+
+  // 5. Show success toast
+  toast({
+    title: 'Request Sent',
+    description: `Testimonial request has been sent to ${captainEmail}. You will be notified when the captain responds.`,
+  });
+}
 
 // Helper function to calculate day counts from state logs for a date range
 function calculateDayCounts(stateLogs: StateLog[], startDate: string, endDate: string) {
@@ -253,159 +406,69 @@ export default function TestimonialsPage() {
       // Determine initial status: if captain_email is provided, status is 'pending_captain', otherwise 'draft'
       const initialStatus: TestimonialStatus = data.captain_email ? 'pending_captain' : 'draft';
 
-      // Create testimonial in database
-      const { data: testimonialData, error } = await supabase
-        .from('testimonials')
-        .insert({
-          user_id: user.id,
-          vessel_id: data.vessel_id,
-          start_date: startDateStr,
-          end_date: endDateStr,
-          total_days: dayCounts.total_days,
-          at_sea_days: dayCounts.at_sea_days,
-          standby_days: dayCounts.standby_days,
-          yard_days: dayCounts.yard_days,
-          leave_days: dayCounts.leave_days,
-          status: initialStatus,
-          captain_email: data.captain_email || null,
-          captain_name: data.captain_name || null,
-          official_body: data.official_body || null,
-          official_reference: data.official_reference || null,
-          notes: data.notes || null,
-        })
-        .select()
-        .single();
+      // Generate unique testimonial code (with retry logic in case of collision)
+      let testimonialCode = generateTestimonialCode();
+      let testimonialData;
+      let insertError;
+      let retries = 0;
+      const maxRetries = 5;
 
-      if (error) {
-        throw error;
+      // Try to create testimonial, regenerating code if there's a unique constraint violation
+      while (retries < maxRetries) {
+        const result = await supabase
+          .from('testimonials')
+          .insert({
+            user_id: user.id,
+            vessel_id: data.vessel_id,
+            start_date: startDateStr,
+            end_date: endDateStr,
+            total_days: dayCounts.total_days,
+            at_sea_days: dayCounts.at_sea_days,
+            standby_days: dayCounts.standby_days,
+            yard_days: dayCounts.yard_days,
+            leave_days: dayCounts.leave_days,
+            status: initialStatus,
+            captain_email: data.captain_email || null,
+            captain_name: data.captain_name || null,
+            official_body: data.official_body || null,
+            official_reference: data.official_reference || null,
+            notes: data.notes || null,
+            testimonial_code: testimonialCode,
+          })
+          .select()
+          .single();
+
+        insertError = result.error;
+        
+        // Check if error is a unique constraint violation on testimonial_code
+        if (insertError && insertError.code === '23505' && insertError.message?.includes('testimonial_code')) {
+          // Code collision - generate a new one and retry
+          testimonialCode = generateTestimonialCode();
+          retries++;
+          continue;
+        }
+        
+        // If no error or different error, break out of loop
+        testimonialData = result.data;
+        break;
+      }
+
+      if (insertError) {
+        throw insertError;
       }
 
       // Send email to captain if captain_email is provided
       if (data.captain_email && initialStatus === 'pending_captain') {
-        try {
-          const vesselName = vessels.find(v => v.id === data.vessel_id)?.name || 'Unknown Vessel';
-          
-          // Generate signoff link - this should point to a page where the captain can approve/reject
-          // You may need to adjust this URL based on your routing structure
-          const signoffLink = `${window.location.origin}/testimonials/signoff?token=${testimonialData.id}&email=${encodeURIComponent(data.captain_email)}`;
-          
-          // Call Supabase Edge Function to send email
-          console.log('Calling Edge Function with params:', {
-            captainEmail: data.captain_email,
-            captainName: data.captain_name,
-            vesselName: vesselName,
-            signoffLink: signoffLink,
-            pdfUrl: testimonialData.pdf_url,
-          });
-
-          let emailData: any = null;
-          let emailError: any = null;
-          
-          try {
-            const result = await supabase.functions.invoke(
-              'send-signoff-request',
-              {
-                body: {
-                  captainEmail: data.captain_email,
-                  captainName: data.captain_name || null,
-                  vesselName: vesselName,
-                  signoffLink: signoffLink,
-                  pdfUrl: testimonialData.pdf_url || null,
-                },
-              }
-            );
-            emailData = result.data;
-            emailError = result.error;
-            
-            // If there's an error, try to get more details from the response
-            if (emailError && emailError.context instanceof Response) {
-              try {
-                const errorText = await emailError.context.clone().text();
-                console.error('Edge Function error response body:', errorText);
-                // Try to parse as JSON if possible
-                try {
-                  const errorJson = JSON.parse(errorText);
-                  console.error('Edge Function error details:', errorJson);
-                } catch {
-                  // Not JSON, that's fine
-                }
-              } catch (e) {
-                console.error('Could not read error response body:', e);
-              }
-            }
-          } catch (invokeError: any) {
-            emailError = invokeError;
-            console.error('Exception while invoking Edge Function:', invokeError);
-          }
-
-          console.log('Edge Function response:', { emailData, emailError });
-
-          if (emailError) {
-            const statusCode = emailError.context?.status || emailError.status;
-            const errorMessage = emailError.message || 'Unknown error';
-            
-            console.error('Error sending email:', {
-              error: emailError,
-              message: errorMessage,
-              statusCode: statusCode,
-              context: emailError.context,
-              functionName: 'send-signoff-request',
-              params: {
-                captainEmail: data.captain_email,
-                captainName: data.captain_name,
-                vesselName: vesselName,
-                signoffLink: signoffLink,
-                pdfUrl: testimonialData.pdf_url,
-              },
-            });
-            
-            // Check if it's a network/fetch error (function not deployed or not accessible)
-            const isNetworkError = emailError.message?.includes('Failed to fetch') || 
-                                  emailError.message?.includes('Failed to send a request');
-            
-            // Format error message
-            let errorDescription = '';
-            if (isNetworkError) {
-              errorDescription = `Testimonial was created successfully. Email function appears to be unavailable. Please verify the Edge Function 'send-signoff-request' is deployed in Supabase.`;
-            } else if (statusCode === 400) {
-              errorDescription = `Testimonial was created successfully, but the email request was invalid (Status: ${statusCode}). Please check the console for details and contact the captain manually.`;
-            } else {
-              errorDescription = statusCode 
-                ? `Testimonial was created but email failed (Status: ${statusCode}): ${errorMessage}. Please contact the captain manually.`
-                : errorMessage 
-                  ? `Testimonial was created but email failed: ${errorMessage}. Please contact the captain manually.`
-                  : `Testimonial was created but there was an error sending the email. Please contact the captain manually.`;
-            }
-            
-            // Don't throw error here - testimonial was created successfully
-            // Just log the error and show a warning toast
-            toast({
-              title: 'Request Created',
-              description: errorDescription,
-              variant: statusCode === 400 ? 'destructive' : 'default',
-            });
-          } else {
-            console.log('Email sent successfully:', emailData);
-            toast({
-              title: 'Request Sent',
-              description: `Testimonial request has been sent to ${data.captain_email}. You will be notified when the captain responds.`,
-            });
-          }
-        } catch (emailErr: any) {
-          console.error('Error calling email function:', {
-            error: emailErr,
-            message: emailErr.message,
-            stack: emailErr.stack,
-          });
-          // Don't throw - testimonial was created successfully
-          toast({
-            title: 'Request Created',
-            description: emailErr.message 
-              ? `Testimonial was created but email failed: ${emailErr.message}. Please check the console for details.`
-              : `Testimonial was created but there was an error sending the email. Please check the console for details.`,
-            variant: 'default',
-          });
-        }
+        const vesselName = vessels.find(v => v.id === data.vessel_id)?.name || 'Unknown Vessel';
+        
+        await requestCaptainSignoff(
+          supabase,
+          {
+            ...testimonialData,
+            vessel_name: vesselName,
+          },
+          toast
+        );
       } else {
         toast({
           title: 'Testimonial Created',
@@ -450,6 +513,74 @@ export default function TestimonialsPage() {
 
   const getVesselName = (vesselId: string) => {
     return vessels.find(v => v.id === vesselId)?.name || 'Unknown Vessel';
+  };
+
+  const getVesselDetails = (vesselId: string) => {
+    return vessels.find(v => v.id === vesselId);
+  };
+
+  const handleGeneratePDF = async (testimonial: Testimonial) => {
+    if (!userProfile) {
+      toast({
+        title: 'Error',
+        description: 'User profile not loaded.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const vessel = getVesselDetails(testimonial.vessel_id);
+    if (!vessel) {
+      toast({
+        title: 'Error',
+        description: 'Vessel details not found.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      await generateTestimonialPDF({
+      testimonial: {
+        id: testimonial.id,
+        start_date: testimonial.start_date,
+        end_date: testimonial.end_date,
+        total_days: testimonial.total_days,
+        at_sea_days: testimonial.at_sea_days,
+        standby_days: testimonial.standby_days,
+        yard_days: testimonial.yard_days,
+        leave_days: testimonial.leave_days,
+        captain_name: testimonial.captain_name,
+        captain_email: testimonial.captain_email,
+        official_body: testimonial.official_body,
+        official_reference: testimonial.official_reference,
+        notes: testimonial.notes,
+        testimonial_code: testimonial.testimonial_code,
+        status: testimonial.status,
+        signoff_used_at: testimonial.signoff_used_at,
+        created_at: testimonial.created_at,
+        updated_at: testimonial.updated_at,
+      },
+      userProfile: {
+        firstName: userProfile.firstName,
+        lastName: userProfile.lastName,
+        username: userProfile.username,
+        email: userProfile.email || '',
+      },
+      vessel: {
+        name: vessel.name,
+        type: vessel.type || null,
+        officialNumber: vessel.officialNumber || null,
+      },
+    });
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to generate PDF. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const getStatusBadge = (status: TestimonialStatus) => {
@@ -844,6 +975,16 @@ export default function TestimonialsPage() {
                               >
                                 View PDF
                               </a>
+                            ) : testimonial.status === 'approved' ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleGeneratePDF(testimonial)}
+                                className="rounded-xl"
+                              >
+                                <Download className="mr-2 h-4 w-4" />
+                                Generate PDF
+                              </Button>
                             ) : (
                               <span className="text-sm text-muted-foreground">—</span>
                             )}
