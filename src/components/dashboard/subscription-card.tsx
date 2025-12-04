@@ -19,7 +19,7 @@ function SubscriptionSkeleton() {
              <CardHeader>
                 <div className="flex items-center justify-between">
                     <div className="space-y-2">
-                        <Skeleton className="h-6 w-32" />
+                    <Skeleton className="h-6 w-32" />
                         <Skeleton className="h-4 w-48" />
                     </div>
                     <Skeleton className="h-6 w-20 rounded-xl" />
@@ -79,7 +79,7 @@ export function SubscriptionCard() {
   
   return (
     <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-      <CardHeader>
+        <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -92,21 +92,21 @@ export function SubscriptionCard() {
               </CardDescription>
             </div>
           </div>
-          <Badge 
-            className={cn(
+                <Badge 
+                    className={cn(
               "rounded-xl capitalize text-xs font-medium",
               isActive
                 ? 'bg-green-500/20 text-green-700 border-green-500/30 dark:text-green-400' 
                 : isPastDue
                 ? 'bg-orange-500/20 text-orange-700 border-orange-500/30 dark:text-orange-400'
                 : 'bg-muted text-muted-foreground border-border'
-            )}
-          >
-            {subscriptionStatus}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent>
+                    )}
+                >
+                    {subscriptionStatus}
+                </Badge>
+            </div>
+        </CardHeader>
+        <CardContent>
         <div className="space-y-6">
           <div className="space-y-2">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Current Plan</p>
@@ -116,19 +116,19 @@ export function SubscriptionCard() {
               </p>
             </div>
             {nextRenewalDate && isActive && (
-              <p className="text-sm text-muted-foreground">
-                Renews on {format(nextRenewalDate, 'PPP')}
-              </p>
-            )}
+                        <p className="text-sm text-muted-foreground">
+                            Renews on {format(nextRenewalDate, 'PPP')}
+                        </p>
+                    )}
             {!isActive && (
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {isPastDue 
                   ? 'Your subscription payment is past due. Please update your payment method to continue service.'
                   : 'You are currently on the free plan. Upgrade to unlock premium features.'
                 }
-              </p>
-            )}
-          </div>
+                        </p>
+                    )}
+                </div>
           
           <div className="pt-2">
             <Button 
@@ -150,10 +150,10 @@ export function SubscriptionCard() {
                   </>
                 )}
               </a>
-            </Button>
+                </Button>
           </div>
-        </div>
-      </CardContent>
+            </div>
+        </CardContent>
     </Card>
   )
 }

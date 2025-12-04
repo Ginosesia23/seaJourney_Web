@@ -51,3 +51,27 @@ export function isCurrentService(service: SeaServiceRecord, activeVesselId?: str
     if (!activeVesselId || !service) return false;
     return service.vesselId === activeVesselId;
 }
+
+export type TestimonialStatus = 'draft' | 'pending_captain' | 'pending_official' | 'approved' | 'rejected';
+
+export interface Testimonial {
+    id: string;                   // uuid
+    user_id: string;              // uuid (references auth.users)
+    vessel_id: string;            // uuid (references vessels)
+    start_date: string;           // ISO date string (YYYY-MM-DD)
+    end_date: string;             // ISO date string (YYYY-MM-DD)
+    total_days: number;
+    at_sea_days: number;
+    standby_days: number;
+    yard_days: number;
+    leave_days: number;
+    status: TestimonialStatus;
+    pdf_url: string | null;
+    captain_name: string | null;
+    captain_email: string | null;
+    official_body: string | null;
+    official_reference: string | null;
+    notes: string | null;
+    created_at: string;           // ISO timestamp
+    updated_at: string;           // ISO timestamp
+}

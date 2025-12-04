@@ -399,8 +399,14 @@ export default function DashboardPage() {
   // Calculate the number of vessels the user has logged time on
   const userVesselCount = useMemo(() => {
     if (!allStateLogs || allStateLogs.size === 0) return 0;
-    // Count vessels that have state logs (user has logged time on them)
-    return allStateLogs.size;
+    // Count only vessels that have non-empty state logs (user has actually logged time on them)
+    let count = 0;
+    allStateLogs.forEach((logs) => {
+      if (logs && logs.length > 0) {
+        count++;
+      }
+    });
+    return count;
   }, [allStateLogs]);
 
   const topVessel = useMemo(() => {

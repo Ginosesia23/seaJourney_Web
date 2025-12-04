@@ -59,17 +59,17 @@ function ProfileSkeleton() {
                     <div className="space-y-2">
                         <Skeleton className="h-4 w-20" />
                         <Skeleton className="h-10 w-full rounded-xl" />
-                    </div>
-                    <div className="space-y-2">
-                        <Skeleton className="h-4 w-20" />
+                </div>
+                <div className="space-y-2">
+                    <Skeleton className="h-4 w-20" />
                         <Skeleton className="h-10 w-full rounded-xl" />
-                    </div>
-                    <div className="space-y-2">
-                        <Skeleton className="h-4 w-20" />
+                </div>
+                 <div className="space-y-2">
+                    <Skeleton className="h-4 w-20" />
                         <Skeleton className="h-10 w-full rounded-xl" />
                     </div>
                 </div>
-                <div className="space-y-2">
+                 <div className="space-y-2">
                     <Skeleton className="h-4 w-20" />
                     <Skeleton className="h-24 w-full rounded-xl" />
                 </div>
@@ -142,19 +142,19 @@ export function UserProfileCard() {
         profilePicture: data.profilePicture || '',
       });
       
-      toast({
-        title: 'Profile Updated',
-        description: 'Your profile has been saved successfully.',
-      });
+        toast({
+          title: 'Profile Updated',
+          description: 'Your profile has been saved successfully.',
+        });
     } catch (error: any) {
       console.error('Error updating profile:', error);
       toast({
         title: 'Error',
         description: error.message || 'Failed to update profile. Please try again.',
         variant: 'destructive',
-      });
+        });
     } finally {
-      setIsSaving(false);
+        setIsSaving(false);
     }
   };
 
@@ -187,11 +187,11 @@ export function UserProfileCard() {
                   <FormLabel>Profile Picture</FormLabel>
                   <div className="flex items-start gap-6">
                     <Avatar className="h-24 w-24 rounded-xl border-2 border-border">
-                      <AvatarImage src={field.value} alt={userProfile?.username} />
+                          <AvatarImage src={field.value} alt={userProfile?.username} />
                       <AvatarFallback className="bg-primary/20 rounded-xl text-primary text-lg font-semibold">
                         {userProfile?.username ? getInitials(userProfile.username) : <UserIcon className="h-8 w-8" />}
-                      </AvatarFallback>
-                    </Avatar>
+                          </AvatarFallback>
+                      </Avatar>
                     <div className="flex-1 space-y-2">
                       <FormControl>
                         <Input 
@@ -301,7 +301,7 @@ export function UserProfileCard() {
                 ) : (
                   'Save Changes'
                 )}
-              </Button>
+            </Button>
             </div>
           </form>
         </Form>

@@ -24,12 +24,12 @@ export default function ProfilePage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Subscription Card - Takes 1/3 of width on large screens */}
         <div className="lg:col-span-1">
-          <SubscriptionCard />
+      <SubscriptionCard />
         </div>
         
         {/* User Profile Card - Takes 2/3 of width on large screens */}
         <div className="lg:col-span-2">
-          <UserProfileCard />
+      <UserProfileCard />
         </div>
       </div>
     </div>

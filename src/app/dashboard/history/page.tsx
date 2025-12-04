@@ -147,26 +147,26 @@ export default function HistoryPage() {
         return vesselLogs.length > 0; // Only include vessels with logged days
       })
       .map(vessel => {
-        const vesselServices = allSeaService.filter(s => s.vesselId === vessel.id);
-        const vesselLogs = allStateLogs.get(vessel.id) || [];
-        
-        const totalDays = vesselLogs.length;
+      const vesselServices = allSeaService.filter(s => s.vesselId === vessel.id);
+      const vesselLogs = allStateLogs.get(vessel.id) || [];
+      
+      const totalDays = vesselLogs.length;
 
-        const dayCountByState = vesselLogs.reduce((acc, log) => {
-            acc[log.state] = (acc[log.state] || 0) + 1;
-            return acc;
-        }, {} as Record<string, number>);
+      const dayCountByState = vesselLogs.reduce((acc, log) => {
+          acc[log.state] = (acc[log.state] || 0) + 1;
+          return acc;
+      }, {} as Record<string, number>);
 
         // Check if this vessel is the current active vessel
         const isCurrent = vessel.id === userProfile?.activeVesselId;
 
-        return {
-          ...vessel,
-          totalDays,
-          tripCount: vesselServices.length,
-          dayCountByState,
-          isCurrent
-        };
+      return {
+        ...vessel,
+        totalDays,
+        tripCount: vesselServices.length,
+        dayCountByState,
+        isCurrent
+      };
       })
       .sort((a, b) => {
         // Sort current vessel first, then by total days (descending)
@@ -436,14 +436,14 @@ export default function HistoryPage() {
     <div className="flex flex-col gap-6">
       {/* Header Section */}
       <div className="space-y-2">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="space-y-1">
             <h1 className="text-3xl font-bold tracking-tight">Vessel History</h1>
             <p className="text-muted-foreground">
               A list of all vessels you have logged time on, with your current active vessel highlighted.
             </p>
-          </div>
-          <div className="flex w-full sm:w-auto items-center gap-2">
+        </div>
+        <div className="flex w-full sm:w-auto items-center gap-2">
             <Dialog open={isAddPastVesselDialogOpen} onOpenChange={setIsAddPastVesselDialogOpen}>
               <DialogTrigger asChild>
                 <Button className="rounded-xl">
@@ -453,23 +453,23 @@ export default function HistoryPage() {
               </DialogTrigger>
             </Dialog>
             <div className="relative w-full sm:max-w-xs">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input 
-                placeholder="Filter vessels..."
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input 
+                    placeholder="Filter vessels..."
                 className="pl-8 rounded-xl"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
             </div>
             <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
               <Button variant={layout === 'card' ? 'secondary': 'ghost'} size="icon" onClick={() => setLayout('card')} className="h-8 w-8 rounded-xl">
-                <LayoutGrid className="h-4 w-4"/>
-              </Button>
+                    <LayoutGrid className="h-4 w-4"/>
+                </Button>
               <Button variant={layout === 'table' ? 'secondary': 'ghost'} size="icon" onClick={() => setLayout('table')} className="h-8 w-8 rounded-xl">
-                <List className="h-4 w-4"/>
-              </Button>
+                    <List className="h-4 w-4"/>
+                </Button>
             </div>
-          </div>
+        </div>
         </div>
         <Separator />
       </div>
@@ -595,7 +595,7 @@ export default function HistoryPage() {
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
               <Ship className="h-8 w-8 text-muted-foreground" />
-            </div>
+        </div>
             <h3 className="text-lg font-semibold mb-2">No Vessels Found</h3>
             <p className="text-sm text-muted-foreground max-w-md">
               {searchTerm 

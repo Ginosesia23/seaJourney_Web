@@ -325,8 +325,8 @@ export default function CurrentPage() {
       // 1. Update user profile to set active vessel (only if no end date, meaning it's still active)
       const isActiveService = !data.endDate;
       if (isActiveService) {
-        await updateUserProfile(supabase, user.id, {
-          activeVesselId: data.vesselId,
+      await updateUserProfile(supabase, user.id, {
+        activeVesselId: data.vesselId,
         });
       }
 
@@ -565,8 +565,8 @@ export default function CurrentPage() {
                             </div>
                         )}
                     </div>
-                </CardContent>
-            </Card>
+                    </CardContent>
+                </Card>
 
             {/* Quick Stats */}
             <div className="grid gap-4 md:grid-cols-3">
@@ -662,7 +662,7 @@ export default function CurrentPage() {
                                             style={{ backgroundColor: isActive ? state.color : 'hsl(var(--muted))' }}
                                         >
                                             <state.icon className={cn("h-6 w-6", isActive ? 'text-primary-foreground' : 'text-muted-foreground')} />
-                                        </span>
+                                    </span>
                                         <span className={cn("font-medium text-sm", isActive ? 'text-primary' : 'text-foreground')}>
                                             {state.label}
                                     </span>
