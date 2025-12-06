@@ -59,6 +59,7 @@ const navGroups = [
     title: "General",
     items: [
       { href: "/dashboard", label: "Home", icon: Home },
+      { href: "/dashboard/recent-activity", label: "Recent Activity", icon: History },
     ]
   },
   {

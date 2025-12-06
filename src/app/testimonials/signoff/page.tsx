@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import Image from 'next/image';
 
@@ -37,7 +37,7 @@ interface TestimonialSummary {
     beam?: number | null;
     draft?: number | null;
     call_sign?: string | null;
-    [key: string]: any; // Allow other fields from database
+    [key: string]: any;
   } | null;
 }
 
@@ -123,20 +123,20 @@ export default function SignoffPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0c1721]">
-        <div className="text-center">
-          <div className="flex items-center justify-center mb-8">
+      <div className="flex min-h-screen items-center justify-center subtle-gradient-background">
+        <div className="text-center space-y-6">
+          <div className="flex items-center justify-center mb-6">
             <Image
               src="/seajourney_logo_white.png"
               alt="SeaJourney"
-              width={256}
-              height={92}
-              className="h-auto w-64 object-contain"
+              width={180}
+              height={64}
+              className="h-14 w-auto"
               priority
             />
           </div>
-          <Loader2 className="h-8 w-8 animate-spin text-white mx-auto mt-6" />
-          <p className="text-white/70 mt-4">Loading testimonial...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-white/70 mx-auto" />
+          <p className="text-sm text-white/70">Loading testimonial...</p>
         </div>
       </div>
     );
@@ -144,59 +144,36 @@ export default function SignoffPage() {
 
   if (error && !testimonial) {
     return (
-      <div className="min-h-screen bg-[#0c1721]">
-        {/* Header with Logo */}
-        <header className="bg-gradient-to-r from-[#0c1721] to-[#1a2d3f] border-b border-white/10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <div className="flex items-center justify-center">
-              <Image
-                src="/seajourney_logo_white.png"
-                alt="SeaJourney"
-                width={256}
-                height={92}
-                className="h-auto w-64 object-contain"
-                priority
-              />
-            </div>
+      <div className="min-h-screen subtle-gradient-background flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-lg space-y-6">
+          {/* Branding Header */}
+          <div className="flex items-center justify-center py-8 border-b border-white/10">
+            <Image
+              src="/seajourney_logo_white.png"
+              alt="SeaJourney"
+              width={200}
+              height={72}
+              className="h-16 w-auto"
+              priority
+            />
           </div>
-        </header>
 
-        {/* Error Content */}
-        <div className="flex min-h-[calc(100vh-200px)] items-center justify-center p-4">
-          <div className="w-full max-w-lg">
-            <Card className="bg-white border-gray-200 shadow-2xl overflow-hidden">
-              {/* Status Header */}
-              <div className="bg-gradient-to-r from-amber-500 to-amber-600 px-6 py-6 text-center">
-                <div className="flex items-center justify-center mb-4">
-                  <div className="h-16 w-16 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
-                    <AlertCircle className="h-8 w-8 text-white" strokeWidth={2.5} />
-                  </div>
-                </div>
-                <p className="text-white/90 text-base">
-                  {error}
-                </p>
+          <Card>
+            <CardHeader className="text-center pb-4">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                <AlertCircle className="h-6 w-6 text-muted-foreground" />
               </div>
-
-              {/* Content */}
-              <CardContent className="px-6 py-6">
-                <div className="text-center">
-                  <p className="text-sm text-gray-600">
-                    If you believe this is an error, please contact the person who requested this testimonial.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Footer */}
-            <div className="mt-8 text-center">
-              <p className="text-sm text-white/60">
-                SeaJourney • Digital sea service testimonials
+              <CardTitle className="text-xl">Unable to Load</CardTitle>
+              <CardDescription className="text-base mt-2">
+                {error}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-center">
+              <p className="text-sm text-muted-foreground">
+                If you believe this is an error, please contact the person who requested this testimonial.
               </p>
-              <p className="text-xs text-white/40 mt-1">
-                www.seajourney.co.uk
-              </p>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
@@ -206,121 +183,79 @@ export default function SignoffPage() {
     const isApproved = action === 'approve';
     
     return (
-      <div className="min-h-screen bg-[#0c1721]">
-        {/* Header with Logo */}
-        <header className="bg-gradient-to-r from-[#0c1721] to-[#1a2d3f] border-b border-white/10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <div className="flex items-center justify-center">
-              <Image
-                src="/seajourney_logo_white.png"
-                alt="SeaJourney"
-                width={256}
-                height={92}
-                className="h-auto w-64 object-contain"
-                priority
-              />
-            </div>
+      <div className="min-h-screen subtle-gradient-background flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-lg space-y-6">
+          {/* Branding Header */}
+          <div className="flex items-center justify-center py-8 border-b border-white/10">
+            <Image
+              src="/seajourney_logo_white.png"
+              alt="SeaJourney"
+              width={200}
+              height={72}
+              className="h-16 w-auto"
+              priority
+            />
           </div>
-        </header>
 
-        {/* Success Content */}
-        <div className="flex min-h-[calc(100vh-200px)] items-center justify-center p-4">
-          <div className="w-full max-w-2xl">
-            <Card className="bg-white border-gray-200 shadow-2xl overflow-hidden">
-              {/* Status Header - Compact */}
-              <div className={`${isApproved ? 'bg-gradient-to-r from-green-500 to-green-600' : 'bg-gradient-to-r from-red-500 to-red-600'} px-6 py-6 text-center`}>
-                <div className="flex items-center justify-center mb-3">
-                  <div className="h-16 w-16 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
-                    {isApproved ? (
-                      <CheckCircle2 className="h-8 w-8 text-white" strokeWidth={2.5} />
-                    ) : (
-                      <XCircle className="h-8 w-8 text-white" strokeWidth={2.5} />
-                    )}
+          <Card>
+            <CardHeader className="text-center pb-4">
+            <div className={`mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full ${
+              isApproved ? 'bg-green-50' : 'bg-red-50'
+            }`}>
+              {isApproved ? (
+                <CheckCircle2 className="h-6 w-6 text-green-600" />
+              ) : (
+                <XCircle className="h-6 w-6 text-red-600" />
+              )}
+            </div>
+            <CardTitle className="text-xl">
+              {isApproved ? 'Testimonial Approved' : 'Testimonial Rejected'}
+            </CardTitle>
+            <CardDescription className="text-base mt-2">
+              {isApproved
+                ? 'Thank you for confirming this sea service record. The crew member has been notified.'
+                : 'Your response has been recorded. The crew member has been notified with your reason.'}
+            </CardDescription>
+          </CardHeader>
+          
+          {testimonial && (
+            <CardContent className="space-y-4 pt-0">
+              <Separator />
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">Summary</h3>
+                {testimonial.vessel && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                    <Ship className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm">{testimonial.vessel.name}</p>
+                      {testimonial.vessel.type && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{testimonial.vessel.type}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground mb-1">Service Period</p>
+                    <p className="font-medium text-xs leading-tight">
+                      {format(parse(testimonial.start_date, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')} - {format(parse(testimonial.end_date, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground mb-1">Total Days</p>
+                    <p className="font-medium text-lg">{testimonial.total_days}</p>
                   </div>
                 </div>
-                <h1 className="text-xl font-bold text-white mb-2">
-                  {isApproved ? 'Testimonial Approved' : 'Testimonial Rejected'}
-                </h1>
-                <p className="text-white/90 text-sm">
-                  {isApproved 
-                    ? 'Thank you for confirming this sea service record.'
-                    : 'Your response has been recorded.'}
-                </p>
               </div>
-
-              {/* Content */}
-              <CardContent className="px-6 py-6">
-                <div className="space-y-5">
-                  {/* Summary Message */}
-                  <div className={`p-4 rounded-xl ${isApproved ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-                    <p className={`text-center ${isApproved ? 'text-green-800' : 'text-red-800'} text-sm font-medium`}>
-                      {isApproved
-                        ? 'The crew member has been notified of your approval. This testimonial can now be used for official purposes.'
-                        : 'The crew member has been notified with your reason for rejection.'}
-                    </p>
-                  </div>
-
-                  {/* Testimonial Summary (if available) */}
-                  {testimonial && (
-                    <>
-                      <Separator />
-                      <div className="space-y-3">
-                        <h3 className="text-base font-semibold text-gray-900">Testimonial Summary</h3>
-                        
-                        {testimonial.vessel && (
-                          <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl">
-                            <Ship className="h-4 w-4 text-[#2E8BC0] mt-0.5 flex-shrink-0" />
-                            <div className="flex-1">
-                              <p className="font-semibold text-gray-900 text-sm">{testimonial.vessel.name}</p>
-                              {testimonial.vessel.type && (
-                                <p className="text-xs text-gray-600 mt-0.5">{testimonial.vessel.type}</p>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="p-3 bg-gray-50 rounded-xl">
-                            <p className="text-xs text-gray-600 mb-1">Service Period</p>
-                            <p className="font-semibold text-gray-900 text-xs leading-tight">
-                              {format(parse(testimonial.start_date, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')} - {format(parse(testimonial.end_date, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
-                            </p>
-                          </div>
-                          <div className="p-3 bg-gray-50 rounded-xl">
-                            <p className="text-xs text-gray-600 mb-1">Total Days</p>
-                            <p className="font-semibold text-gray-900 text-xl">{testimonial.total_days}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {/* Next Steps */}
-                  <Separator />
-                  <div className="text-center space-y-1.5">
-                    <p className="text-xs text-gray-600">
-                      {isApproved
-                        ? 'You can safely close this page. No further action is required.'
-                        : 'If you have any concerns, please contact the crew member directly.'}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      This link is no longer valid and cannot be used again.
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Footer */}
-            <div className="mt-8 text-center">
-              <p className="text-sm text-white/60">
-                SeaJourney • Digital sea service testimonials
-              </p>
-              <p className="text-xs text-white/40 mt-1">
-                www.seajourney.co.uk
-              </p>
-            </div>
-          </div>
+            </CardContent>
+          )}
+          
+          <CardContent className="pt-4">
+            <p className="text-xs text-center text-muted-foreground">
+              This link is no longer valid and cannot be used again.
+            </p>
+          </CardContent>
+        </Card>
         </div>
       </div>
     );
@@ -334,163 +269,144 @@ export default function SignoffPage() {
   const endDate = parse(testimonial.end_date, 'yyyy-MM-dd', new Date());
 
   return (
-    <div className="min-h-screen bg-[#0c1721]">
-      {/* Header with Logo */}
-      <header className="bg-gradient-to-r from-[#0c1721] to-[#1a2d3f] border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-center">
-            <Image
-              src="/seajourney_logo_white.png"
-              alt="SeaJourney"
-              width={256}
-              height={92}
-              className="h-auto w-64 object-contain"
-              priority
-            />
-          </div>
-          <p className="text-center mt-6 text-white/70 text-sm">
-            Sea Service Testimonial Signoff
+    <div className="min-h-screen subtle-gradient-background">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+        {/* Branding Header */}
+        <div className="flex items-center justify-center mb-10 py-8 border-b border-white/10">
+          <Image
+            src="/seajourney_logo_white.png"
+            alt="SeaJourney"
+            width={200}
+            height={72}
+            className="h-16 w-auto"
+            priority
+          />
+        </div>
+
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-semibold tracking-tight mb-2 text-white">Sea Service Testimonial</h1>
+          <p className="text-sm text-white/70">
+            Please review the sea service record below and approve or reject this request.
           </p>
         </div>
-      </header>
-
-      {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
 
         {error && (
-          <Alert variant="destructive" className="mb-6 bg-red-50 border-red-200">
+          <Alert variant="destructive" className="mb-6">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
 
-        <Card className="bg-white border-gray-200 shadow-xl">
-          <CardHeader className="border-b border-gray-200 bg-gradient-to-r from-[#0c1721] to-[#1a2d3f] text-white">
-            <CardTitle className="text-white text-xl">Testimonial Details</CardTitle>
-            <CardDescription className="text-white/80">
-              Please review the sea service record below and approve or reject this request.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
+        <Card>
+          <CardHeader>
             {/* Vessel Information */}
-            <div>
-              <div className="flex items-center gap-2 text-sm font-medium text-gray-500 mb-3">
-                <Ship className="h-4 w-4 text-[#2E8BC0]" />
-                Vessel Information
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xl font-bold text-gray-900">
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+                  <Ship className="h-4 w-4" />
+                  Vessel
+                </div>
+                <div className="space-y-2">
+                  <p className="text-lg font-semibold">
                     {testimonial.vessel?.name || 'Unknown Vessel'}
                   </p>
                   {testimonial.vessel?.type && (
-                    <p className="text-sm text-gray-600 mt-1">{testimonial.vessel.type}</p>
+                    <p className="text-sm text-muted-foreground">{testimonial.vessel.type}</p>
+                  )}
+                  {(testimonial.vessel?.imo || testimonial.vessel?.mmsi || testimonial.vessel?.flag || testimonial.vessel?.gross_tonnage) && (
+                    <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-xs text-muted-foreground pt-2 border-t">
+                      {testimonial.vessel?.imo && (
+                        <span><span className="font-medium">IMO:</span> {testimonial.vessel.imo}</span>
+                      )}
+                      {testimonial.vessel?.mmsi && (
+                        <span><span className="font-medium">MMSI:</span> {testimonial.vessel.mmsi}</span>
+                      )}
+                      {testimonial.vessel?.flag && (
+                        <span><span className="font-medium">Flag:</span> {testimonial.vessel.flag}</span>
+                      )}
+                      {testimonial.vessel?.gross_tonnage && (
+                        <span><span className="font-medium">GT:</span> {testimonial.vessel.gross_tonnage}</span>
+                      )}
+                    </div>
                   )}
                 </div>
-                {(testimonial.vessel?.imo || testimonial.vessel?.mmsi || testimonial.vessel?.flag || testimonial.vessel?.gross_tonnage) && (
-                  <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm pt-2 border-t border-gray-100">
-                    {testimonial.vessel?.imo && (
-                      <div>
-                        <span className="text-gray-500">IMO: </span>
-                        <span className="font-medium text-gray-900">{testimonial.vessel.imo}</span>
-                      </div>
-                    )}
-                    {testimonial.vessel?.mmsi && (
-                      <div>
-                        <span className="text-gray-500">MMSI: </span>
-                        <span className="font-medium text-gray-900">{testimonial.vessel.mmsi}</span>
-                      </div>
-                    )}
-                    {testimonial.vessel?.flag && (
-                      <div>
-                        <span className="text-gray-500">Flag: </span>
-                        <span className="font-medium text-gray-900">{testimonial.vessel.flag}</span>
-                      </div>
-                    )}
-                    {testimonial.vessel?.gross_tonnage && (
-                      <div>
-                        <span className="text-gray-500">Gross Tonnage: </span>
-                        <span className="font-medium text-gray-900">{testimonial.vessel.gross_tonnage} GT</span>
-                      </div>
-                    )}
+              </div>
+
+              <Separator />
+
+              {/* Date Range */}
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+                  <Calendar className="h-4 w-4" />
+                  Service Period
+                </div>
+                <p className="text-base font-medium">
+                  {format(startDate, 'MMMM d, yyyy')} - {format(endDate, 'MMMM d, yyyy')}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {testimonial.total_days} total days
+                </p>
+              </div>
+
+              <Separator />
+
+              {/* Service Breakdown */}
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-3">
+                  <Clock className="h-4 w-4" />
+                  Service Breakdown
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border bg-background">
+                    <span className="text-xs text-muted-foreground">At Sea:</span>
+                    <span className="text-xs font-medium">{testimonial.at_sea_days}</span>
                   </div>
-                )}
-              </div>
-            </div>
-
-            <Separator className="bg-gray-200" />
-
-            {/* Date Range */}
-            <div>
-              <div className="flex items-center gap-2 text-sm font-medium text-gray-500 mb-2">
-                <Calendar className="h-4 w-4 text-[#2E8BC0]" />
-                Service Period
-              </div>
-              <p className="text-xl font-bold text-gray-900">
-                {format(startDate, 'MMMM d, yyyy')} - {format(endDate, 'MMMM d, yyyy')}
-              </p>
-              <p className="text-sm text-gray-600 mt-1">
-                {testimonial.total_days} total days
-              </p>
-            </div>
-
-            <Separator className="bg-gray-200" />
-
-            {/* Day Breakdown - Compact Design */}
-            <div>
-              <div className="flex items-center gap-2 text-sm font-medium text-gray-500 mb-2">
-                <Clock className="h-4 w-4 text-[#2E8BC0]" />
-                Service Breakdown
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2E8BC0]/20 bg-[#2E8BC0]/5">
-                  <span className="text-sm text-gray-600">At Sea:</span>
-                  <span className="text-sm font-bold text-[#2E8BC0]">{testimonial.at_sea_days}</span>
-                </div>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2E8BC0]/20 bg-[#2E8BC0]/5">
-                  <span className="text-sm text-gray-600">Standby:</span>
-                  <span className="text-sm font-bold text-[#2E8BC0]">{testimonial.standby_days}</span>
-                </div>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2E8BC0]/20 bg-[#2E8BC0]/5">
-                  <span className="text-sm text-gray-600">In Yard:</span>
-                  <span className="text-sm font-bold text-[#2E8BC0]">{testimonial.yard_days}</span>
-                </div>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2E8BC0]/20 bg-[#2E8BC0]/5">
-                  <span className="text-sm text-gray-600">On Leave:</span>
-                  <span className="text-sm font-bold text-[#2E8BC0]">{testimonial.leave_days}</span>
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border bg-background">
+                    <span className="text-xs text-muted-foreground">Standby:</span>
+                    <span className="text-xs font-medium">{testimonial.standby_days}</span>
+                  </div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border bg-background">
+                    <span className="text-xs text-muted-foreground">In Yard:</span>
+                    <span className="text-xs font-medium">{testimonial.yard_days}</span>
+                  </div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border bg-background">
+                    <span className="text-xs text-muted-foreground">On Leave:</span>
+                    <span className="text-xs font-medium">{testimonial.leave_days}</span>
+                  </div>
                 </div>
               </div>
             </div>
+          </CardHeader>
 
+          <CardContent className="space-y-6">
             <Separator />
 
             {/* Action Section */}
             <div className="space-y-4">
-              {/* Rejection Reason Input */}
               <div className="space-y-2">
-                <Label htmlFor="rejection-reason" className="text-gray-700">Rejection Reason (Required if rejecting)</Label>
+                <Label htmlFor="rejection-reason" className="text-sm">
+                  Rejection Reason <span className="text-muted-foreground font-normal">(Required if rejecting)</span>
+                </Label>
                 <Textarea
                   id="rejection-reason"
                   placeholder="Please provide a reason for rejection if you plan to reject this testimonial..."
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
                   rows={3}
-                  className="resize-none border-gray-300 rounded-xl"
+                  className="resize-none"
                 />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   This reason will be shared with the crew member if you reject the testimonial.
                 </p>
               </div>
 
-              <Separator className="bg-gray-200" />
-
-              <div className="flex items-center justify-center gap-4">
+              <div className="flex gap-3">
                 <Button
                   onClick={() => handleDecision('approve')}
                   disabled={processing}
-                  size="lg"
-                  className="flex-1 bg-[#2E8BC0] hover:bg-[#2E8BC0]/90 text-white rounded-xl"
+                  className="flex-1"
+                  variant="default"
                 >
                   {processing ? (
                     <>
@@ -507,9 +423,8 @@ export default function SignoffPage() {
                 <Button
                   onClick={() => handleDecision('reject')}
                   disabled={processing}
-                  size="lg"
+                  className="flex-1"
                   variant="destructive"
-                  className="flex-1 rounded-xl"
                 >
                   {processing ? (
                     <>
@@ -528,8 +443,8 @@ export default function SignoffPage() {
           </CardContent>
         </Card>
 
-        <div className="mt-8 text-center text-sm text-white/70">
-          <p>
+        <div className="mt-8 text-center">
+          <p className="text-xs text-white/60">
             This link will expire after use. If you have any questions, please contact the crew member directly.
           </p>
         </div>
@@ -537,4 +452,3 @@ export default function SignoffPage() {
     </div>
   );
 }
-

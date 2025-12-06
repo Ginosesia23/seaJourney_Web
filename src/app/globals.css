@@ -194,6 +194,12 @@
       background-position: 0% 50%;
     }
   }
+
+  .subtle-gradient-background {
+    background: linear-gradient(135deg, #010e1a, #031323, #010e1a);
+    background-size: 200% 200%;
+    animation: gradient-animation 20s ease infinite;
+  }
 }
 
     

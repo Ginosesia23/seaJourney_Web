@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, startOfDay, isAfter, parse, eachDayOfInterval, isWithinInterval } from 'date-fns';
-import { LifeBuoy, Loader2, PlusCircle, Mail, Calendar, CalendarIcon, Ship, Clock, CheckCircle2, XCircle, FileText, Download } from 'lucide-react';
+import { LifeBuoy, Loader2, PlusCircle, Mail, Calendar, CalendarIcon, Ship, Clock, CheckCircle2, XCircle, FileText, Download, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,6 +19,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselStateLogs } from '@/supabase/database/queries';
@@ -255,6 +265,8 @@ export default function TestimonialsPage() {
   const [isLoadingTestimonials, setIsLoadingTestimonials] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'draft' | 'pending' | 'approved' | 'rejected'>('all');
   const [selectedVesselLogs, setSelectedVesselLogs] = useState<StateLog[]>([]);
+  const [testimonialToDelete, setTestimonialToDelete] = useState<Testimonial | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
     const { user } = useUser();
   const { supabase } = useSupabase();
@@ -580,6 +592,96 @@ export default function TestimonialsPage() {
         description: 'Failed to generate PDF. Please try again.',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleDeleteTestimonial = async (testimonial: Testimonial) => {
+    if (!user?.id) {
+      toast({
+        title: 'Error',
+        description: 'You must be logged in to delete testimonials.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      console.log('Attempting to delete testimonial:', testimonial.id);
+      console.log('Current user ID:', user.id);
+      
+      // Delete the testimonial - RLS will automatically check user_id
+      // Using .select() to get confirmation of what was deleted
+      const { data: deletedData, error: deleteError } = await supabase
+        .from('testimonials')
+        .delete()
+        .eq('id', testimonial.id)
+        .select();
+
+      console.log('Delete response:', { deletedData, deleteError });
+
+      if (deleteError) {
+        console.error('Delete error details:', {
+          code: deleteError.code,
+          message: deleteError.message,
+          details: deleteError.details,
+          hint: deleteError.hint,
+        });
+        throw deleteError;
+      }
+
+      // Check if anything was actually deleted
+      if (!deletedData || deletedData.length === 0) {
+        throw new Error('No testimonial was deleted. It may not exist or you may not have permission.');
+      }
+
+      console.log('Successfully deleted testimonial:', deletedData);
+
+      // Remove from local state immediately for better UX
+      setTestimonials((prev) => prev.filter((t) => t.id !== testimonial.id));
+
+      toast({
+        title: 'Testimonial Deleted',
+        description: 'The testimonial has been successfully deleted.',
+      });
+
+      // Refresh testimonials list to ensure consistency
+      const { data: updatedData, error: refreshError } = await supabase
+        .from('testimonials')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (refreshError) {
+        console.error('Refresh error (non-critical):', refreshError);
+      } else if (updatedData) {
+        setTestimonials(updatedData as Testimonial[]);
+      }
+
+      setTestimonialToDelete(null);
+    } catch (error: any) {
+      console.error('Error deleting testimonial:', error);
+      console.error('Full error object:', JSON.stringify(error, null, 2));
+      
+      let errorMessage = 'Failed to delete testimonial. Please try again.';
+      
+      if (error?.message) {
+        errorMessage = error.message;
+      } else if (error?.code === 'PGRST116') {
+        errorMessage = 'No rows were deleted. You may not have permission to delete this testimonial.';
+      } else if (error?.code === '42501') {
+        errorMessage = 'Permission denied. You do not have permission to delete this testimonial.';
+      } else if (error?.code) {
+        errorMessage = `Delete failed: ${error.code}. ${error.message || 'Please check the console for details.'}`;
+      }
+
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -919,6 +1021,7 @@ export default function TestimonialsPage() {
                         <TableHead>Status</TableHead>
                         <TableHead>Created</TableHead>
                         <TableHead>PDF</TableHead>
+                        <TableHead className="w-[100px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -989,6 +1092,16 @@ export default function TestimonialsPage() {
                               <span className="text-sm text-muted-foreground">—</span>
                             )}
                           </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setTestimonialToDelete(testimonial)}
+                              className="rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -999,6 +1112,47 @@ export default function TestimonialsPage() {
                             </CardContent>
                         </Card>
             )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!testimonialToDelete} onOpenChange={(open) => !open && setTestimonialToDelete(null)}>
+        <AlertDialogContent className="rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Testimonial?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this testimonial? This action cannot be undone.
+              {testimonialToDelete && (
+                <>
+                  <br />
+                  <br />
+                  <span className="font-medium">
+                    {getVesselName(testimonialToDelete.vessel_id)} - {format(new Date(testimonialToDelete.start_date), 'MMM d, yyyy')} to {format(new Date(testimonialToDelete.end_date), 'MMM d, yyyy')}
+                  </span>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting} className="rounded-xl">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => testimonialToDelete && handleDeleteTestimonial(testimonialToDelete)}
+              disabled={isDeleting}
+              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete Permanently
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
         </div>
     );
 }

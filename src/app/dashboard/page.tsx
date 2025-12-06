@@ -1059,9 +1059,9 @@ export default function DashboardPage() {
             {recentActivity.length > 0 && (
               <div className="mt-4 pt-3 border-t">
                 <Button asChild variant="ghost" className="w-full rounded-lg" size="sm">
-                  <Link href="/dashboard/history">
+                  <Link href="/dashboard/recent-activity">
                     <History className="mr-2 h-4 w-4" />
-                    View Full History
+                    View All Recent Activity
                   </Link>
                 </Button>
               </div>
