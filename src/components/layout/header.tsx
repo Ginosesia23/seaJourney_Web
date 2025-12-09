@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Menu, X, LogOut, LayoutDashboard } from 'lucide-react';
+import { Menu, X, LogOut, LayoutDashboard, ChevronDown, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -17,6 +17,8 @@ import {
 import Logo from '@/components/logo';
 import { Cart } from '@/components/cart';
 import { useSupabase, useUser } from '@/supabase';
+import { useDoc } from '@/supabase/database';
+import type { UserProfile } from '@/lib/types';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,9 +30,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 const navLinks = [
-  { href: '/how-to-use', label: 'Guide' },
-  { href: '/dashboard-offering', label: 'Features' },
-  { href: '/signup', label: 'Join' },
+  { href: '/how-to-use', label: 'How to Use' },
 ];
 
 const Header = () => {
@@ -40,6 +40,9 @@ const Header = () => {
   const { supabase } = useSupabase();
   const isShopPage = pathname.startsWith('/shop');
   const { user } = useUser();
+  
+  // Get user profile from database
+  const { data: userProfile } = useDoc<UserProfile>('users', user?.id);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -47,14 +50,84 @@ const Header = () => {
   };
 
   const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map((n) => n[0])
-      .join('');
+    if (!name) return '';
+    const parts = name.trim().split(' ').filter(Boolean);
+    if (parts.length === 0) return '';
+    if (parts.length === 1) {
+      // For single word, take first 2 characters
+      return name.substring(0, 2).toUpperCase();
+    }
+    // For multiple words, take first letter of first two words
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   };
 
+  // Get avatar initials - prefer firstName + lastName, then username, then email
+  const getAvatarInitials = () => {
+    if (userProfile) {
+      // Check for firstName and lastName (from database, may be snake_case)
+      const firstName = (userProfile as any).first_name || userProfile.firstName;
+      const lastName = (userProfile as any).last_name || userProfile.lastName;
+      
+      if (firstName && lastName) {
+        return (firstName[0] + lastName[0]).toUpperCase();
+      }
+      if (firstName) {
+        return firstName.substring(0, 2).toUpperCase();
+      }
+      
+      // Try username
+      const username = userProfile.username;
+      if (username && username.length > 1) {
+        return getInitials(username);
+      }
+    }
+    
+    // Fallback to user metadata or email
+    if (user?.user_metadata?.username) {
+      return getInitials(user.user_metadata.username);
+    }
+    
+    return user?.email?.[0].toUpperCase() || 'U';
+  };
+
+  // Get display name for the button
+  const getDisplayName = () => {
+    if (userProfile) {
+      const firstName = (userProfile as any).first_name || userProfile.firstName;
+      const lastName = (userProfile as any).last_name || userProfile.lastName;
+      
+      if (firstName && lastName) {
+        return `${firstName} ${lastName}`;
+      }
+      if (firstName) {
+        return firstName;
+      }
+      if (userProfile.username) {
+        return userProfile.username;
+      }
+    }
+    
+    if (user?.user_metadata?.username) {
+      return user.user_metadata.username;
+    }
+    
+    return user?.email?.split('@')[0] || 'User';
+  };
+
+  const displayName = getDisplayName();
+
+  const isLandingPage = pathname === '/';
+  const isDarkPage = pathname === '/' || pathname === '/how-to-use' || pathname.startsWith('/how-to-use');
+
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-header bg-header text-header-foreground backdrop-blur-sm">
+    <header 
+      className="sticky top-0 z-50 w-full border-b backdrop-blur-sm"
+      style={{
+        backgroundColor: isDarkPage ? '#000b15' : undefined,
+        borderColor: isDarkPage ? 'rgba(255, 255, 255, 0.1)' : undefined,
+        color: isDarkPage ? '#ffffff' : undefined,
+      }}
+    >
       <div className="container mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
         <Logo className="text-header-foreground" />
 
@@ -77,15 +150,15 @@ const Header = () => {
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="rounded-full">
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback className="bg-primary/80 text-primary-foreground">
-                        {user?.user_metadata?.username
-                          ? getInitials(user.user_metadata.username)
-                          : user?.email?.[0].toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="sr-only">Toggle user menu</span>
+                  <Button 
+                    variant="ghost" 
+                    className="flex items-center gap-2 px-4 py-2 rounded-full hover:bg-white/10 border border-white/10 h-auto"
+                  >
+                    <User className="h-4 w-4 text-header-foreground" />
+                    <span className="text-sm font-medium text-header-foreground">
+                      {displayName}
+                    </span>
+                    <ChevronDown className="h-3 w-3 text-header-foreground/60" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -123,7 +196,11 @@ const Header = () => {
             </SheetTrigger>
             <SheetContent
               side="right"
-              className="w-[300px] bg-header text-header-foreground"
+              className="w-[300px]"
+              style={{
+                backgroundColor: isDarkPage ? '#000b15' : undefined,
+                color: isDarkPage ? '#ffffff' : undefined,
+              }}
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>Mobile Menu</SheetTitle>
@@ -166,14 +243,9 @@ const Header = () => {
 
                 <div className="border-t border-primary/10 pt-6">
                   {user ? (
-                    <div className="space-y-4">
-                        <Link href="/dashboard" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
-                            Dashboard
-                        </Link>
-                         <button onClick={() => { handleSignOut(); setIsOpen(false); }} className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground flex items-center gap-2">
-                           <LogOut className="h-5 w-5" /> Log Out
-                        </button>
-                    </div>
+                    <button onClick={() => { handleSignOut(); setIsOpen(false); }} className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground flex items-center gap-2">
+                      <LogOut className="h-5 w-5" /> Log Out
+                    </button>
                   ) : (
                     <Link href="/login" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
                         Sign In

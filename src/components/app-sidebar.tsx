@@ -18,6 +18,7 @@ import {
   MapPin,
   ChevronRight,
   Calendar,
+  Navigation,
 } from "lucide-react"
 
 import {
@@ -54,30 +55,44 @@ import { LogOut, Settings, Sparkles, Sun, Moon, Laptop } from "lucide-react"
 import { useTheme } from "next-themes"
 import type { UserProfile } from "@/lib/types"
 
-const navGroups = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<any>;
+  disabled?: boolean;
+  requiredRole?: 'crew' | 'vessel' | 'admin';
+};
+
+const navGroups: Array<{ title: string; items: NavItem[] }> = [
   {
     title: "General",
     items: [
-      { href: "/dashboard", label: "Home", icon: Home },
-      { href: "/dashboard/recent-activity", label: "Recent Activity", icon: History },
+      { href: "/dashboard", label: "Home", icon: Home, disabled: false },
+      { href: "/dashboard/recent-activity", label: "Recent Activity", icon: History, disabled: false },
     ]
   },
   {
-    title: "Logbook",
+    title: "Sea Time",
     items: [
-      { href: "/dashboard/current", label: "Current", icon: MapPin },
-      { href: "/dashboard/history", label: "History", icon: History },
-      { href: "/dashboard/vessels", label: "Vessels", icon: Ship },
-      { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
+      { href: "/dashboard/current", label: "Current", icon: MapPin, disabled: false },
+      { href: "/dashboard/history", label: "History", icon: History, disabled: false },
+      { href: "/dashboard/calendar", label: "Calendar", icon: Calendar, disabled: false },
+    ]
+  },
+  {
+    title: "Logbooks",
+    items: [
+      { href: "/dashboard/passage-logbook", label: "Passage Log", icon: Map, disabled: false },
+      { href: "/dashboard/bridge-watch-log", label: "Bridge Watch", icon: Navigation, disabled: false },
     ]
   },
   {
     title: "Management",
     items: [
-      { href: "/dashboard/profile", label: "Profile", icon: User },
-      { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel" },
-      { href: "/dashboard/testimonials", label: "Testimonials", icon: LifeBuoy },
-      { href: "/dashboard/export", label: "Export", icon: Download },
+      { href: "/dashboard/vessels", label: "Vessels", icon: Ship, disabled: false },
+      { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false },
+      { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false },
+      { href: "/dashboard/testimonials", label: "Testimonials", icon: LifeBuoy, disabled: false },
     ]
   },
   {
@@ -169,11 +184,11 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => {
-                  if (item.requiredRole && userProfile?.role !== item.requiredRole && userProfile?.role !== "admin") {
+                  if ('requiredRole' in item && item.requiredRole && userProfile?.role !== item.requiredRole && userProfile?.role !== "admin") {
                     return null
                   }
                   
-                  if (item.disabled) {
+                  if ('disabled' in item && item.disabled) {
                     return null
                   }
 

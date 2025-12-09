@@ -27,13 +27,13 @@ const testimonialsData = [
 
 const Testimonials = () => {
   return (
-    <section id="testimonials" className="py-16 sm:py-24 bg-header text-header-foreground">
+    <section id="testimonials" className="py-16 sm:py-24" style={{ backgroundColor: '#000b15' }}>
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
             Trusted by Crew and Captains Alike
           </h2>
-          <p className="mt-4 text-lg leading-8 text-header-foreground/80">
+          <p className="mt-4 text-lg leading-8 text-blue-100">
             See why maritime professionals around the world trust SeaJourney to manage their careers.
           </p>
         </div>
@@ -41,27 +41,27 @@ const Testimonials = () => {
           {testimonialsData.map((testimonial) => {
             const image = PlaceHolderImages.find(p => p.id === testimonial.id);
             return (
-              <Card key={testimonial.name} className="flex flex-col justify-between shadow-lg transition-shadow duration-300 hover:shadow-xl bg-black/20 border-primary/20 backdrop-blur-sm text-card-foreground overflow-hidden rounded-2xl">
+              <Card key={testimonial.name} className="flex flex-col justify-between shadow-lg transition-shadow duration-300 hover:shadow-xl backdrop-blur-sm overflow-hidden rounded-xl border" style={{ backgroundColor: 'rgba(2, 22, 44, 0.5)', borderColor: 'rgba(255, 255, 255, 0.1)' }}>
                 <CardContent className="flex-grow p-6">
-                  <Quote className="h-8 w-8 text-accent" />
-                  <blockquote className="mt-4 text-lg text-header-foreground/90">
+                  <Quote className="h-8 w-8 text-blue-400" />
+                  <blockquote className="mt-4 text-lg text-white">
                     "{testimonial.quote}"
                   </blockquote>
                 </CardContent>
-                <div className="flex items-center gap-4 bg-black/30 p-6">
+                <div className="flex items-center gap-4 p-6 border-t" style={{ backgroundColor: 'rgba(0, 22, 44, 0.3)', borderColor: 'rgba(255, 255, 255, 0.1)' }}>
                   {image && (
                     <Image
                       src={image.imageUrl}
                       alt={`Avatar of ${testimonial.name}`}
                       width={48}
                       height={48}
-                      className="h-12 w-12 rounded-full object-cover"
+                      className="h-12 w-12 rounded-full object-cover border-2 border-blue-700/50 shadow-sm"
                       data-ai-hint={image.imageHint}
                     />
                   )}
                   <div>
                     <p className="font-bold text-white">{testimonial.name}</p>
-                    <p className="text-sm text-header-foreground/70">{testimonial.title}</p>
+                    <p className="text-sm" style={{ color: '#c7d2fe' }}>{testimonial.title}</p>
                   </div>
                 </div>
               </Card>

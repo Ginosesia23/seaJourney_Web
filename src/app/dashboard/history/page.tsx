@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -395,9 +395,40 @@ export default function HistoryPage() {
     }
   }, [user?.id, vessels, supabase, toast, pastVesselForm]);
 
+  // Count vessels user has logged time on
+  const actualVesselCount = useMemo(() => {
+    // Count vessels that have state logs
+    let count = 0;
+    allStateLogs.forEach((logs) => {
+      if (logs.length > 0) count++;
+    });
+    return count;
+  }, [allStateLogs]);
+
+  // Check vessel limit based on subscription tier
+  const hasUnlimitedVessels = useMemo(() => {
+    if (!userProfile) return false;
+    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
+    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
+    return (tier === 'premium' || tier === 'pro') && status === 'active';
+  }, [userProfile]);
+
+  const vesselLimit = hasUnlimitedVessels ? Infinity : 3;
+  const canAddVessel = hasUnlimitedVessels || actualVesselCount < vesselLimit;
+
   // Handler to add new vessel
   const handleAddVessel = useCallback(async (data: AddVesselFormValues) => {
     if (!user?.id) return;
+
+    // Check vessel limit for Standard tier
+    if (!canAddVessel) {
+      toast({
+        title: 'Vessel Limit Reached',
+        description: `Standard tier allows up to ${vesselLimit} vessels. Upgrade to Premium or Pro for unlimited vessels.`,
+        variant: 'destructive',
+      });
+      return;
+    }
     
     setIsSavingVessel(true);
     try {
@@ -430,7 +461,7 @@ export default function HistoryPage() {
     } finally {
       setIsSavingVessel(false);
     }
-  }, [user?.id, supabase, toast, addVesselForm, pastVesselForm]);
+  }, [user?.id, supabase, toast, addVesselForm, pastVesselForm, canAddVessel, vesselLimit]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -653,6 +684,17 @@ export default function HistoryPage() {
                                     <Ship className="h-5 w-5 text-primary" />
                                   </div>
                                   <DialogTitle>Add a New Vessel</DialogTitle>
+                                  <DialogDescription>
+                                    Add a vessel to start tracking your service time.
+                                    {!hasUnlimitedVessels && (
+                                      <span className="block mt-1 text-sm">
+                                        {actualVesselCount >= vesselLimit 
+                                          ? `You've reached the limit of ${vesselLimit} vessels for Standard tier. Upgrade to Premium or Pro for unlimited vessels.`
+                                          : `You can add ${vesselLimit - actualVesselCount} more vessel${vesselLimit - actualVesselCount === 1 ? '' : 's'}.`
+                                        }
+                                      </span>
+                                    )}
+                                  </DialogDescription>
                                 </div>
                               </DialogHeader>
                               <Form {...addVesselForm}>

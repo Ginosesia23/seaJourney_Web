@@ -16,3 +16,5 @@ export function generateTestimonialCode(): string {
   return `SJ-${generateSegment(4)}-${generateSegment(4)}`;
 }
 
+
+

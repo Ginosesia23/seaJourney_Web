@@ -126,6 +126,40 @@ export default function CurrentPage() {
     user?.id ? { orderBy: 'created_at', ascending: false } : undefined
   );
 
+  // Count vessels user has logged time on
+  const [actualVesselCount, setActualVesselCount] = useState(0);
+  
+  useEffect(() => {
+    if (!vessels || !user?.id) {
+      setActualVesselCount(0);
+      return;
+    }
+
+    const countVessels = async () => {
+      let count = 0;
+      for (const vessel of vessels) {
+        const logs = await getVesselStateLogs(supabase, vessel.id, user.id);
+        if (logs && logs.length > 0) {
+          count++;
+        }
+      }
+      setActualVesselCount(count);
+    };
+
+    countVessels();
+  }, [vessels, user?.id, supabase]);
+
+  // Check vessel limit based on subscription tier
+  const hasUnlimitedVessels = useMemo(() => {
+    if (!userProfile) return false;
+    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
+    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
+    return (tier === 'premium' || tier === 'pro') && status === 'active';
+  }, [userProfile]);
+
+  const vesselLimit = hasUnlimitedVessels ? Infinity : 3;
+  const canAddVessel = hasUnlimitedVessels || actualVesselCount < vesselLimit;
+
   const currentVessel = useMemo(() => {
     if (!userProfile || !vessels || vessels.length === 0) {
       console.log('[CURRENT PAGE] No user profile or vessels available');

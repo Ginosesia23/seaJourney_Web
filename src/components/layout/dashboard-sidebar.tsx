@@ -22,6 +22,7 @@ import {
   HelpCircle,
   FileText,
   MapPin,
+  Navigation,
 } from 'lucide-react';
 import Logo from '@/components/logo';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -34,22 +35,27 @@ const navGroups = [
     ]
   },
   {
-    title: 'Logbook',
+    title: 'Sea Time',
     items: [
       { href: '/dashboard/current', label: 'Current', icon: MapPin, disabled: false },
       { href: '/dashboard/history', label: 'History', icon: History, disabled: false },
-      { href: '/dashboard/passages', label: 'Passages', icon: Map, disabled: true },
-      { href: '/dashboard/vessels', label: 'Vessels', icon: Ship, disabled: false },
+    ]
+  },
+  {
+    title: 'Logbooks',
+    items: [
+      { href: '/dashboard/passage-logbook', label: 'Passage Log', icon: Map, disabled: false },
+      { href: '/dashboard/bridge-watch-log', label: 'Bridge Watch', icon: Navigation, disabled: false },
     ]
   },
   {
     title: 'Management',
     items: [
+        { href: '/dashboard/vessels', label: 'Vessels', icon: Ship, disabled: false },
         { href: '/dashboard/profile', label: 'Profile', icon: User, disabled: false },
         { href: '/dashboard/crew', label: 'Crew', icon: Users, disabled: false, requiredRole: 'vessel' },
         { href: '/dashboard/testimonials', label: 'Testimonials', icon: LifeBuoy, disabled: false },
         { href: '/dashboard/certificates', label: 'Certificates', icon: Award, disabled: true },
-        { href: '/dashboard/export', label: 'Export', icon: Download, disabled: false },
     ]
   },
     {

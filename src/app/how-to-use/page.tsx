@@ -158,6 +158,7 @@ const steps = [
     icon: <ShieldCheck className="h-8 w-8 text-accent" />,
     title: '6. Request Official Approval',
     description: "Submit your digitally signed and verified documents to maritime authorities for official review and certificate issuance.",
+    comingSoon: true,
     component: (
       <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white">
         <CardHeader className="text-center items-center">
@@ -166,7 +167,7 @@ const steps = [
             <CardDescription className="text-white/70">Send your verified documents for official review.</CardDescription>
         </CardHeader>
         <CardContent className="text-center">
-            <Button variant="accent" className="w-full rounded-lg">Submit for Approval</Button>
+            <Button variant="accent" className="w-full rounded-lg" disabled>Submit for Approval</Button>
         </CardContent>
       </Card>
     )
@@ -177,25 +178,32 @@ const StepSection = ({ step, index }: { step: (typeof steps)[0], index: number }
   const isOdd = index % 2 === 1;
   
   return (
-    <div className="py-12">
+    <div className="py-12" style={{ backgroundColor: '#000b15' }}>
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
           <div className={cn(
             "text-center lg:text-left",
             isOdd ? 'lg:order-2' : 'lg:order-1'
           )}>
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 mb-4">
-              {step.icon}
+            <div className="flex items-center justify-center lg:justify-start gap-3 mb-4">
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl" style={{ backgroundColor: 'rgba(59, 130, 246, 0.2)' }}>
+                {step.icon}
+              </div>
+              {step.comingSoon && (
+                <Badge className="px-3 py-1 rounded-full text-xs font-semibold border" style={{ backgroundColor: 'rgba(249, 115, 22, 0.2)', borderColor: 'rgba(249, 115, 22, 0.5)', color: '#fb923c' }}>
+                  Coming Soon
+                </Badge>
+              )}
             </div>
             <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">{step.title}</h2>
-            <p className="mt-6 text-lg leading-8 text-header-foreground/80">{step.description}</p>
+            <p className="mt-6 text-lg leading-8 text-blue-100">{step.description}</p>
           </div>
           <div className={cn(
             "flex justify-center",
             isOdd ? 'lg:order-1' : 'lg:order-2'
           )}>
-            <div className="w-full max-w-md p-2 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
-                 <div className="relative aspect-[4/3] w-full rounded-lg bg-primary/5 flex items-center justify-center p-4">
+            <div className="w-full max-w-md p-2 border rounded-xl backdrop-blur-sm" style={{ borderColor: 'rgba(255, 255, 255, 0.1)', backgroundColor: 'rgba(2, 22, 44, 0.5)' }}>
+                 <div className="relative aspect-[4/3] w-full rounded-lg flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.3)' }}>
                     {step.component}
                  </div>
             </div>
@@ -209,23 +217,23 @@ const StepSection = ({ step, index }: { step: (typeof steps)[0], index: number }
 export default function HowToUsePage() {
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-screen flex-col" style={{ backgroundColor: '#000b15' }}>
       <Header />
       <main className="flex-1">
-        <section className="py-16 sm:py-24 text-center bg-header text-header-foreground">
+        <section className="py-16 sm:py-24 text-center" style={{ backgroundColor: '#000b15' }}>
           <div className="container mx-auto px-4 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-3xl">
-              <h1 className="font-headline text-4xl font-bold tracking-tight sm:text-5xl">
+              <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-5xl">
                 How to Use SeaJourney
               </h1>
-              <p className="mt-4 text-lg leading-8 text-header-foreground/80">
+              <p className="mt-4 text-lg leading-8 text-blue-100">
                 Follow these simple steps to start tracking your sea time like a pro and accelerate your career.
               </p>
             </div>
           </div>
         </section>
 
-        <section className="bg-header text-header-foreground overflow-hidden">
+        <section style={{ backgroundColor: '#000b15', color: '#ffffff' }} className="overflow-hidden">
              {steps.map((step, index) => (
                <StepSection key={index} step={step} index={index} />
              ))}

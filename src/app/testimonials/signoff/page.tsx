@@ -415,7 +415,7 @@ export default function SignoffPage() {
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      <CheckCircle2 className="mr-2 h-4 w-4 rounded-full" />
                       Approve
                     </>
                   )}

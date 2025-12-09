@@ -1,17 +1,18 @@
 
 'use client';
 
-import { useMemo } from 'react';
-import { useUser } from '@/supabase';
-import { useDoc } from '@/supabase/database';
+import { useMemo, useState, useEffect } from 'react';
+import { useUser, useSupabase } from '@/supabase';
+import { useDoc, useCollection } from '@/supabase/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { Sparkles, Loader2, Ship, Map, Navigation } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Skeleton } from '../ui/skeleton';
-import { UserProfile } from '@/lib/types';
+import { UserProfile, Vessel } from '@/lib/types';
+import { getVesselStateLogs, getPassageLogs, getBridgeWatchLogs } from '@/supabase/database/queries';
 
 function SubscriptionSkeleton() {
     return (
@@ -41,6 +42,7 @@ function SubscriptionSkeleton() {
 
 export function SubscriptionCard() {
   const { user } = useUser();
+  const { supabase } = useSupabase();
 
   const { data: userProfileRaw, isLoading: isProfileLoading } = useDoc<UserProfile>('users', user?.id);
 
@@ -54,6 +56,64 @@ export function SubscriptionCard() {
       subscriptionStatus: (userProfileRaw as any).subscription_status || (userProfileRaw as any).subscriptionStatus || 'inactive',
     } as UserProfile;
   }, [userProfileRaw]);
+
+  // Fetch usage data
+  const { data: allVessels } = useCollection<Vessel>(
+    user?.id ? 'vessels' : null,
+    user?.id ? { orderBy: 'created_at', ascending: false } : undefined
+  );
+
+  const [usageData, setUsageData] = useState({
+    vesselCount: 0,
+    passageCount: 0,
+    watchCount: 0,
+    isLoading: true,
+  });
+
+  useEffect(() => {
+    if (!user?.id || !allVessels) {
+      setUsageData({ vesselCount: 0, passageCount: 0, watchCount: 0, isLoading: false });
+      return;
+    }
+
+    const fetchUsageData = async () => {
+      try {
+        // Count vessels user has logged time on
+        let vesselCount = 0;
+        for (const vessel of allVessels) {
+          const logs = await getVesselStateLogs(supabase, vessel.id, user.id);
+          if (logs && logs.length > 0) {
+            vesselCount++;
+          }
+        }
+
+        // Count passages (only for Premium/Pro)
+        let passageCount = 0;
+        try {
+          const passages = await getPassageLogs(supabase, user.id);
+          passageCount = passages.length;
+        } catch (e) {
+          // Table might not exist yet
+        }
+
+        // Count bridge watches (only for Premium/Pro)
+        let watchCount = 0;
+        try {
+          const watches = await getBridgeWatchLogs(supabase, user.id);
+          watchCount = watches.length;
+        } catch (e) {
+          // Table might not exist yet
+        }
+
+        setUsageData({ vesselCount, passageCount, watchCount, isLoading: false });
+      } catch (error) {
+        console.error('Error fetching usage data:', error);
+        setUsageData(prev => ({ ...prev, isLoading: false }));
+      }
+    };
+
+    fetchUsageData();
+  }, [user?.id, allVessels, supabase]);
 
   if (isProfileLoading) {
     return <SubscriptionSkeleton />;
@@ -76,6 +136,13 @@ export function SubscriptionCard() {
   const displayTier = formatTierName(subscriptionTier);
   const isActive = subscriptionStatus === 'active';
   const isPastDue = subscriptionStatus === 'past-due';
+
+  // Determine limits based on tier
+  const tierLower = subscriptionTier.toLowerCase();
+  const hasUnlimitedVessels = (tierLower === 'premium' || tierLower === 'pro') && isActive;
+  const hasPremiumFeatures = (tierLower === 'premium' || tierLower === 'pro') && isActive;
+  
+  const vesselLimit = hasUnlimitedVessels ? null : 3;
   
   return (
     <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
@@ -129,6 +196,42 @@ export function SubscriptionCard() {
                         </p>
                     )}
                 </div>
+
+          {/* Usage Data */}
+          {isActive && !usageData.isLoading && (
+            <div className="space-y-3 pt-2 border-t">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Usage</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    <Ship className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-muted-foreground">Vessels</span>
+                  </div>
+                  <span className="font-medium">
+                    {vesselLimit ? `${usageData.vesselCount} of ${vesselLimit}` : `${usageData.vesselCount} (Unlimited)`}
+                  </span>
+                </div>
+                {hasPremiumFeatures && (
+                  <>
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <Map className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-muted-foreground">Passages</span>
+                      </div>
+                      <span className="font-medium">{usageData.passageCount}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <Navigation className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-muted-foreground">Bridge Watches</span>
+                      </div>
+                      <span className="font-medium">{usageData.watchCount}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           
           <div className="pt-2">
             <Button 
@@ -137,19 +240,17 @@ export function SubscriptionCard() {
               className="w-full rounded-xl" 
               size="default"
             >
-              <a href="/offers">
-                {isActive ? (
-                  <>
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Manage Subscription
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Upgrade Plan
-                  </>
-                )}
-              </a>
+              {isActive ? (
+                <a href="/dashboard/subscription">
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Manage Subscription
+                </a>
+              ) : (
+                <a href="/offers">
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Upgrade Plan
+                </a>
+              )}
                 </Button>
           </div>
             </div>

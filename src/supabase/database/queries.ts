@@ -5,7 +5,7 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import { timestampToISO } from './helpers';
-import type { StateLog } from '@/lib/types';
+import type { StateLog, PassageLog, BridgeWatchLog } from '@/lib/types';
 
 /**
  * Get user profile by user ID
@@ -412,5 +412,441 @@ export async function updateUserProfile(
 
     if (updateError) throw updateError;
   }
+}
+
+/**
+ * Transform database passage log record to TypeScript interface
+ */
+function transformPassageLog(dbLog: any): PassageLog {
+  return {
+    id: dbLog.id,
+    crew_id: dbLog.crew_id,
+    vessel_id: dbLog.vessel_id,
+    start_time: dbLog.start_time,
+    end_time: dbLog.end_time,
+    departure_port: dbLog.departure_port,
+    departure_country: dbLog.departure_country,
+    arrival_port: dbLog.arrival_port,
+    arrival_country: dbLog.arrival_country,
+    departure_lat: dbLog.departure_lat,
+    departure_lon: dbLog.departure_lon,
+    arrival_lat: dbLog.arrival_lat,
+    arrival_lon: dbLog.arrival_lon,
+    distance_nm: dbLog.distance_nm,
+    engine_hours: dbLog.engine_hours,
+    avg_speed_knots: dbLog.avg_speed_knots,
+    passage_type: dbLog.passage_type,
+    weather_summary: dbLog.weather_summary,
+    sea_state: dbLog.sea_state,
+    notes: dbLog.notes,
+    source: dbLog.source,
+    track_data: dbLog.track_data,
+    created_at: dbLog.created_at,
+    updated_at: dbLog.updated_at,
+  };
+}
+
+/**
+ * Get all passage logs for a user
+ */
+export async function getPassageLogs(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<PassageLog[]> {
+  const { data, error } = await supabase
+    .from('passage_logs')
+    .select('*')
+    .eq('crew_id', userId)
+    .order('start_time', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || []).map(transformPassageLog);
+}
+
+/**
+ * Get a single passage log by ID
+ */
+export async function getPassageLog(
+  supabase: SupabaseClient,
+  passageId: string
+): Promise<PassageLog | null> {
+  const { data, error } = await supabase
+    .from('passage_logs')
+    .select('*')
+    .eq('id', passageId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    throw error;
+  }
+
+  return transformPassageLog(data);
+}
+
+/**
+ * Create a new passage log
+ */
+export async function createPassageLog(
+  supabase: SupabaseClient,
+  passageData: {
+    crewId: string;
+    vesselId: string;
+    startTime: Date | string;
+    endTime: Date | string;
+    departurePort: string;
+    departureCountry?: string;
+    arrivalPort: string;
+    arrivalCountry?: string;
+    departureLat?: number;
+    departureLon?: number;
+    arrivalLat?: number;
+    arrivalLon?: number;
+    distanceNm?: number;
+    engineHours?: number;
+    avgSpeedKnots?: number;
+    passageType?: string;
+    weatherSummary?: string;
+    seaState?: string;
+    notes?: string;
+    source?: string;
+    trackData?: any;
+  }
+): Promise<PassageLog> {
+  const startTime = typeof passageData.startTime === 'string' 
+    ? passageData.startTime 
+    : passageData.startTime.toISOString();
+  
+  const endTime = typeof passageData.endTime === 'string' 
+    ? passageData.endTime 
+    : passageData.endTime.toISOString();
+
+  const { data, error } = await supabase
+    .from('passage_logs')
+    .insert({
+      crew_id: passageData.crewId,
+      vessel_id: passageData.vesselId,
+      start_time: startTime,
+      end_time: endTime,
+      departure_port: passageData.departurePort,
+      departure_country: passageData.departureCountry || null,
+      arrival_port: passageData.arrivalPort,
+      arrival_country: passageData.arrivalCountry || null,
+      departure_lat: passageData.departureLat || null,
+      departure_lon: passageData.departureLon || null,
+      arrival_lat: passageData.arrivalLat || null,
+      arrival_lon: passageData.arrivalLon || null,
+      distance_nm: passageData.distanceNm || null,
+      engine_hours: passageData.engineHours || null,
+      avg_speed_knots: passageData.avgSpeedKnots || null,
+      passage_type: passageData.passageType || null,
+      weather_summary: passageData.weatherSummary || null,
+      sea_state: passageData.seaState || null,
+      notes: passageData.notes || null,
+      source: passageData.source || 'manual',
+      track_data: passageData.trackData || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return transformPassageLog(data);
+}
+
+/**
+ * Update an existing passage log
+ */
+export async function updatePassageLog(
+  supabase: SupabaseClient,
+  passageId: string,
+  updates: Partial<{
+    vesselId: string;
+    startTime: Date | string;
+    endTime: Date | string;
+    departurePort: string;
+    departureCountry?: string;
+    arrivalPort: string;
+    arrivalCountry?: string;
+    departureLat?: number;
+    departureLon?: number;
+    arrivalLat?: number;
+    arrivalLon?: number;
+    distanceNm?: number;
+    engineHours?: number;
+    avgSpeedKnots?: number;
+    passageType?: string;
+    weatherSummary?: string;
+    seaState?: string;
+    notes?: string;
+    source?: string;
+    trackData?: any;
+  }>
+): Promise<PassageLog> {
+  const updateData: any = {};
+  
+  if (updates.vesselId !== undefined) updateData.vessel_id = updates.vesselId;
+  if (updates.startTime !== undefined) {
+    updateData.start_time = typeof updates.startTime === 'string' 
+      ? updates.startTime 
+      : updates.startTime.toISOString();
+  }
+  if (updates.endTime !== undefined) {
+    updateData.end_time = typeof updates.endTime === 'string' 
+      ? updates.endTime 
+      : updates.endTime.toISOString();
+  }
+  if (updates.departurePort !== undefined) updateData.departure_port = updates.departurePort;
+  if (updates.departureCountry !== undefined) updateData.departure_country = updates.departureCountry || null;
+  if (updates.arrivalPort !== undefined) updateData.arrival_port = updates.arrivalPort;
+  if (updates.arrivalCountry !== undefined) updateData.arrival_country = updates.arrivalCountry || null;
+  if (updates.departureLat !== undefined) updateData.departure_lat = updates.departureLat || null;
+  if (updates.departureLon !== undefined) updateData.departure_lon = updates.departureLon || null;
+  if (updates.arrivalLat !== undefined) updateData.arrival_lat = updates.arrivalLat || null;
+  if (updates.arrivalLon !== undefined) updateData.arrival_lon = updates.arrivalLon || null;
+  if (updates.distanceNm !== undefined) updateData.distance_nm = updates.distanceNm || null;
+  if (updates.engineHours !== undefined) updateData.engine_hours = updates.engineHours || null;
+  if (updates.avgSpeedKnots !== undefined) updateData.avg_speed_knots = updates.avgSpeedKnots || null;
+  if (updates.passageType !== undefined) updateData.passage_type = updates.passageType || null;
+  if (updates.weatherSummary !== undefined) updateData.weather_summary = updates.weatherSummary || null;
+  if (updates.seaState !== undefined) updateData.sea_state = updates.seaState || null;
+  if (updates.notes !== undefined) updateData.notes = updates.notes || null;
+  if (updates.source !== undefined) updateData.source = updates.source || null;
+  if (updates.trackData !== undefined) updateData.track_data = updates.trackData || null;
+
+  const { data, error } = await supabase
+    .from('passage_logs')
+    .update(updateData)
+    .eq('id', passageId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return transformPassageLog(data);
+}
+
+/**
+ * Delete a passage log
+ */
+export async function deletePassageLog(
+  supabase: SupabaseClient,
+  passageId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('passage_logs')
+    .delete()
+    .eq('id', passageId);
+
+  if (error) throw error;
+}
+
+/**
+ * Transform database bridge watch log record to TypeScript interface
+ */
+function transformBridgeWatchLog(dbLog: any): BridgeWatchLog {
+  return {
+    id: dbLog.id,
+    crew_id: dbLog.crew_id,
+    vessel_id: dbLog.vessel_id,
+    passage_id: dbLog.passage_id,
+    start_time: dbLog.start_time,
+    end_time: dbLog.end_time,
+    state: dbLog.state,
+    role: dbLog.role,
+    is_night_watch: dbLog.is_night_watch,
+    solo_watch: dbLog.solo_watch,
+    supervised_by_name: dbLog.supervised_by_name,
+    area: dbLog.area,
+    traffic_density: dbLog.traffic_density,
+    visibility: dbLog.visibility,
+    weather_summary: dbLog.weather_summary,
+    incidents: dbLog.incidents,
+    equipment_used: dbLog.equipment_used,
+    notes: dbLog.notes,
+    created_at: dbLog.created_at,
+    updated_at: dbLog.updated_at,
+  };
+}
+
+/**
+ * Get all bridge watch logs for a user
+ */
+export async function getBridgeWatchLogs(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<BridgeWatchLog[]> {
+  const { data, error } = await supabase
+    .from('bridge_watch_logs')
+    .select('*')
+    .eq('crew_id', userId)
+    .order('start_time', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || []).map(transformBridgeWatchLog);
+}
+
+/**
+ * Get a single bridge watch log by ID
+ */
+export async function getBridgeWatchLog(
+  supabase: SupabaseClient,
+  watchId: string
+): Promise<BridgeWatchLog | null> {
+  const { data, error } = await supabase
+    .from('bridge_watch_logs')
+    .select('*')
+    .eq('id', watchId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    throw error;
+  }
+
+  return transformBridgeWatchLog(data);
+}
+
+/**
+ * Create a new bridge watch log
+ */
+export async function createBridgeWatchLog(
+  supabase: SupabaseClient,
+  watchData: {
+    crewId: string;
+    vesselId: string;
+    passageId?: string | null;
+    startTime: Date | string;
+    endTime: Date | string;
+    state: string;
+    role: string;
+    isNightWatch: boolean;
+    soloWatch: boolean;
+    supervisedByName?: string;
+    area?: string;
+    trafficDensity?: string;
+    visibility?: string;
+    weatherSummary?: string;
+    incidents?: string;
+    equipmentUsed?: string;
+    notes?: string;
+  }
+): Promise<BridgeWatchLog> {
+  const startTime = typeof watchData.startTime === 'string' 
+    ? watchData.startTime 
+    : watchData.startTime.toISOString();
+  
+  const endTime = typeof watchData.endTime === 'string' 
+    ? watchData.endTime 
+    : watchData.endTime.toISOString();
+
+  const { data, error } = await supabase
+    .from('bridge_watch_logs')
+    .insert({
+      crew_id: watchData.crewId,
+      vessel_id: watchData.vesselId,
+      passage_id: watchData.passageId || null,
+      start_time: startTime,
+      end_time: endTime,
+      state: watchData.state,
+      role: watchData.role,
+      is_night_watch: watchData.isNightWatch,
+      solo_watch: watchData.soloWatch,
+      supervised_by_name: watchData.supervisedByName || null,
+      area: watchData.area || null,
+      traffic_density: watchData.trafficDensity || null,
+      visibility: watchData.visibility || null,
+      weather_summary: watchData.weatherSummary || null,
+      incidents: watchData.incidents || null,
+      equipment_used: watchData.equipmentUsed || null,
+      notes: watchData.notes || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return transformBridgeWatchLog(data);
+}
+
+/**
+ * Update an existing bridge watch log
+ */
+export async function updateBridgeWatchLog(
+  supabase: SupabaseClient,
+  watchId: string,
+  updates: Partial<{
+    vesselId: string;
+    passageId?: string | null;
+    startTime: Date | string;
+    endTime: Date | string;
+    state: string;
+    role: string;
+    isNightWatch: boolean;
+    soloWatch: boolean;
+    supervisedByName?: string;
+    area?: string;
+    trafficDensity?: string;
+    visibility?: string;
+    weatherSummary?: string;
+    incidents?: string;
+    equipmentUsed?: string;
+    notes?: string;
+  }>
+): Promise<BridgeWatchLog> {
+  const updateData: any = {};
+  
+  if (updates.vesselId !== undefined) updateData.vessel_id = updates.vesselId;
+  if (updates.passageId !== undefined) updateData.passage_id = updates.passageId || null;
+  if (updates.startTime !== undefined) {
+    updateData.start_time = typeof updates.startTime === 'string' 
+      ? updates.startTime 
+      : updates.startTime.toISOString();
+  }
+  if (updates.endTime !== undefined) {
+    updateData.end_time = typeof updates.endTime === 'string' 
+      ? updates.endTime 
+      : updates.endTime.toISOString();
+  }
+  if (updates.state !== undefined) updateData.state = updates.state;
+  if (updates.role !== undefined) updateData.role = updates.role;
+  if (updates.isNightWatch !== undefined) updateData.is_night_watch = updates.isNightWatch;
+  if (updates.soloWatch !== undefined) updateData.solo_watch = updates.soloWatch;
+  if (updates.supervisedByName !== undefined) updateData.supervised_by_name = updates.supervisedByName || null;
+  if (updates.area !== undefined) updateData.area = updates.area || null;
+  if (updates.trafficDensity !== undefined) updateData.traffic_density = updates.trafficDensity || null;
+  if (updates.visibility !== undefined) updateData.visibility = updates.visibility || null;
+  if (updates.weatherSummary !== undefined) updateData.weather_summary = updates.weatherSummary || null;
+  if (updates.incidents !== undefined) updateData.incidents = updates.incidents || null;
+  if (updates.equipmentUsed !== undefined) updateData.equipment_used = updates.equipmentUsed || null;
+  if (updates.notes !== undefined) updateData.notes = updates.notes || null;
+
+  const { data, error } = await supabase
+    .from('bridge_watch_logs')
+    .update(updateData)
+    .eq('id', watchId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return transformBridgeWatchLog(data);
+}
+
+/**
+ * Delete a bridge watch log
+ */
+export async function deleteBridgeWatchLog(
+  supabase: SupabaseClient,
+  watchId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('bridge_watch_logs')
+    .delete()
+    .eq('id', watchId);
+
+  if (error) throw error;
 }
 

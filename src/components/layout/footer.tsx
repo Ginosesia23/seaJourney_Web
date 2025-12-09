@@ -5,7 +5,13 @@ import Logo from '@/components/logo';
 
 const Footer = () => {
   return (
-    <footer className="bg-header text-header-foreground border-t border-primary/10">
+    <footer 
+      className="text-header-foreground border-t border-primary/10"
+      style={{
+        backgroundColor: '#000b15',
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+      }}
+    >
       <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-8 md:grid-cols-4">
           <div>

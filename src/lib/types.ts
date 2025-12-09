@@ -81,4 +81,54 @@ export interface Testimonial {
     updated_at: string;           // ISO timestamp
 }
 
+export interface PassageLog {
+    id: string;                        // uuid PK
+    crew_id: string;                   // uuid FK → profiles.id
+    vessel_id: string;                 // uuid FK → vessels.id
+    start_time: string;                // timestamptz - departure date/time
+    end_time: string;                  // timestamptz - arrival date/time
+    departure_port: string;            // text - e.g. "Monaco"
+    departure_country?: string | null; // text - optional
+    arrival_port: string;              // text - e.g. "Porto Cervo"
+    arrival_country?: string | null;   // text - optional
+    departure_lat?: number | null;     // numeric - nullable
+    departure_lon?: number | null;     // numeric - nullable
+    arrival_lat?: number | null;       // numeric - nullable
+    arrival_lon?: number | null;       // numeric - nullable
+    distance_nm?: number | null;       // numeric - nautical miles
+    engine_hours?: number | null;      // numeric - optional
+    avg_speed_knots?: number | null;   // numeric - optional, can be derived
+    passage_type?: string | null;      // text - e.g. "delivery", "guest_trip", "shipyard_move"
+    weather_summary?: string | null;   // text - brief description
+    sea_state?: string | null;         // text - Beaufort/sea state notes
+    notes?: string | null;             // text - freeform
+    source?: string | null;            // text - "manual" / "ais_assisted" etc.
+    track_data?: any;                  // jsonb - optional polyline or AIS snapshot
+    created_at: string;                // timestamptz
+    updated_at: string;                // timestamptz
+}
+
+export interface BridgeWatchLog {
+    id: string;                        // uuid PK
+    crew_id: string;                   // uuid FK → profiles.id
+    vessel_id: string;                 // uuid FK → vessels.id
+    passage_id?: string | null;        // uuid FK → passage_logs.id - nullable
+    start_time: string;                // timestamptz - watch start
+    end_time: string;                  // timestamptz - watch end
+    state: string;                     // text - underway, anchor, port, yard…
+    role: string;                      // text - OOW, co-watch, lookout, helmsman
+    is_night_watch: boolean;           // boolean - easy filtering for night hours
+    solo_watch: boolean;               // boolean - true if alone on watch
+    supervised_by_name?: string | null; // text - captain/chief officer name if supervised
+    area?: string | null;              // text - e.g. "West Med", "Caribbean"
+    traffic_density?: string | null;   // text - low, medium, high
+    visibility?: string | null;        // text - free text or enum
+    weather_summary?: string | null;   // text - optional
+    incidents?: string | null;         // text - near misses, drills, etc.
+    equipment_used?: string | null;    // text - radar, ECDIS, ARPA, paper charts…
+    notes?: string | null;             // text - extra comments
+    created_at: string;                // timestamptz
+    updated_at: string;                // timestamptz
+}
+
 

@@ -14,7 +14,7 @@ import { Separator } from '@/components/ui/separator';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { SearchableSelect } from '@/components/ui/searchable-select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
@@ -72,8 +72,26 @@ export default function VesselsPage() {
     return {
       ...userProfileRaw,
       activeVesselId: activeVesselId || undefined,
+      subscriptionTier: (userProfileRaw as any).subscription_tier || userProfileRaw.subscriptionTier || 'free',
+      subscriptionStatus: (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive',
     } as UserProfile;
   }, [userProfileRaw]);
+
+  // Count vessels user has logged time on (based on vessels that have logs)
+  const vesselCount = useMemo(() => {
+    return vesselStateLogs.size;
+  }, [vesselStateLogs]);
+
+  // Check vessel limit based on subscription tier
+  const hasUnlimitedVessels = useMemo(() => {
+    if (!currentUserProfile) return false;
+    const tier = currentUserProfile.subscriptionTier?.toLowerCase() || 'free';
+    const status = currentUserProfile.subscriptionStatus?.toLowerCase() || 'inactive';
+    return (tier === 'premium' || tier === 'pro') && status === 'active';
+  }, [currentUserProfile]);
+
+  const vesselLimit = hasUnlimitedVessels ? Infinity : 3;
+  const canAddVessel = hasUnlimitedVessels || vesselCount < vesselLimit;
 
   // Fetch stateLogs for each vessel and filter to only show vessels user has logged time on
   useEffect(() => {
@@ -127,6 +145,17 @@ export default function VesselsPage() {
 
   async function onSubmit(data: VesselFormValues) {
     if (!user?.id) return;
+
+    // Check vessel limit for Standard tier
+    if (!canAddVessel) {
+      toast({
+        title: 'Vessel Limit Reached',
+        description: `Standard tier allows up to ${vesselLimit} vessels. Upgrade to Premium or Pro for unlimited vessels.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSaving(true);
     
     try {
@@ -172,6 +201,17 @@ export default function VesselsPage() {
                     <DialogContent>
                         <DialogHeader>
                 <DialogTitle>Add a New Vessel</DialogTitle>
+                        <DialogDescription>
+                          Add a vessel to start tracking your service time.
+                          {!hasUnlimitedVessels && (
+                            <span className="block mt-1 text-sm">
+                              {vesselCount >= vesselLimit 
+                                ? `You've reached the limit of ${vesselLimit} vessels for Standard tier. Upgrade to Premium or Pro for unlimited vessels.`
+                                : `You can add ${vesselLimit - vesselCount} more vessel${vesselLimit - vesselCount === 1 ? '' : 's'}.`
+                              }
+                            </span>
+                          )}
+                        </DialogDescription>
                         </DialogHeader>
                         <Form {...form}>
                             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">

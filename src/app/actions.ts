@@ -1,34 +1,125 @@
-
 'use server';
 
 import { createSupabaseServerClient } from '@/supabase/server';
-import type { SeaServiceRecord, UserProfile, Vessel, StateLog } from '@/lib/types';
+import type {
+  SeaServiceRecord,
+  UserProfile,
+  Vessel,
+  StateLog,
+} from '@/lib/types';
 import { isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { stripe } from '@/lib/stripe';
 import type { Stripe } from 'stripe';
 
-export interface StripeProduct extends Stripe.Product {
-  default_price: Stripe.Price;
-  features: { name: string }[];
+//
+// STRIPE TYPES
+//
+
+// Now: StripeProduct = Stripe.Price with product expanded
+export interface StripeProduct extends Stripe.Price {
+  product: Stripe.Product;
 }
 
+export interface StripePriceWithProduct extends Stripe.Price {
+  product: Stripe.Product;
+}
+
+// Subscription product ID - single product with multiple price tiers
+const SUBSCRIPTION_PRODUCT_ID = 'prod_TZIQQTKhLqi0eT';
+
+/**
+ * Get all prices for the subscription product
+ * Since we now have 1 product with 3 prices, we return all prices
+ * (each price represents a tier: standard / premium / professional)
+ */
 export async function getStripeProducts(): Promise<StripeProduct[]> {
-    const prices = await stripe.prices.list({
-      active: true,
-      limit: 10,
-      expand: ['data.product'],
+  console.log(
+    '[STRIPE] Fetching prices for subscription product ID:',
+    SUBSCRIPTION_PRODUCT_ID,
+  );
+
+  // Fetch all active prices for the subscription product, expanding the product
+  const prices = await stripe.prices.list({
+    active: true,
+    product: SUBSCRIPTION_PRODUCT_ID,
+    limit: 100,
+    expand: ['data.product'],
+  });
+
+  console.log('[STRIPE] Total prices fetched:', prices.data.length);
+  console.log(
+    '[STRIPE] Raw prices data:',
+    JSON.stringify(
+      prices.data.map((p) => ({
+        id: p.id,
+        product_id:
+          typeof p.product === 'string'
+            ? p.product
+            : (p.product as Stripe.Product)?.id,
+        product_name:
+          typeof p.product === 'string'
+            ? 'string'
+            : (p.product as Stripe.Product)?.name,
+        unit_amount: p.unit_amount,
+        currency: p.currency,
+        recurring: p.recurring,
+        metadata: p.metadata,
+        nickname: p.nickname,
+      })),
+      null,
+      2,
+    ),
+  );
+
+  // Filter to ensure we only return active prices on the right product
+  const filteredPrices: StripeProduct[] = prices.data.filter((price) => {
+    const product = price.product as Stripe.Product;
+
+    const isSubscriptionProduct =
+      product?.id === SUBSCRIPTION_PRODUCT_ID ||
+      (typeof price.product === 'string' &&
+        price.product === SUBSCRIPTION_PRODUCT_ID);
+
+    const isActive =
+      isSubscriptionProduct && !!product && product.active && price.active;
+
+    console.log('[STRIPE] Price filter check:', {
+      price_id: price.id,
+      product_id: product?.id,
+      product_name: product?.name,
+      isSubscriptionProduct,
+      product_active: product?.active,
+      price_active: price.active,
+      isActive,
     });
-  
-    const products = prices.data.map(price => {
-      const product = price.product as Stripe.Product;
-      return {
-        ...product,
-        default_price: price,
-      };
-    }).filter(p => p.active);
-  
-    // Filter out products that might not have a default price or are inactive
-    return products as StripeProduct[];
+
+    return isActive;
+  }) as StripeProduct[];
+
+  console.log(
+    '[STRIPE] Filtered prices (subscription product only):',
+    filteredPrices.length,
+  );
+
+  console.log(
+    '[STRIPE] Final prices array:',
+    JSON.stringify(
+      filteredPrices.map((p) => ({
+        id: p.id,
+        unit_amount: p.unit_amount,
+        currency: p.currency,
+        interval: p.recurring?.interval,
+        metadata: p.metadata,
+        nickname: p.nickname,
+        product_id: p.product.id,
+        product_name: p.product.name,
+      })),
+      null,
+      2,
+    ),
+  );
+
+  return filteredPrices;
 }
 
 export async function createCheckoutSession(
@@ -36,10 +127,13 @@ export async function createCheckoutSession(
   userId: string,
   userEmail: string,
 ): Promise<{ sessionId: string; url: string | null }> {
-  const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+  const origin =
+    process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
 
   if (!origin) {
-    throw new Error('App URL is not set in environment variables or as a fallback.');
+    throw new Error(
+      'App URL is not set in environment variables or as a fallback.',
+    );
   }
 
   // Fetch the price and product to get tier information
@@ -48,25 +142,25 @@ export async function createCheckoutSession(
   });
 
   const product = price.product as Stripe.Product;
-  
-  // Extract tier from product name or metadata
-  // You can customize this logic based on how you name your products in Stripe
-  // For example: "SeaJourney Premium" -> "premium", "SeaJourney Pro" -> "pro"
-  let tier = 'premium'; // default
-  if (product.metadata?.tier) {
-    tier = product.metadata.tier;
-  } else if (product.name) {
-    // Extract tier from product name (e.g., "Premium" from "SeaJourney Premium")
-    const nameLower = product.name.toLowerCase();
-    if (nameLower.includes('premium')) {
+
+  // Extract tier from price metadata (preferred) or product metadata
+  // With the new model, tier is stored in price metadata
+  let tier = 'standard'; // default
+  if (price.metadata?.tier) {
+    tier = price.metadata.tier.toLowerCase();
+  } else if (product.metadata?.tier) {
+    tier = product.metadata.tier.toLowerCase();
+  } else if (price.metadata?.price_tier) {
+    tier = price.metadata.price_tier.toLowerCase();
+  } else {
+    // Fallback: try to determine from price nickname or ID
+    const priceNickname = (price.nickname || '').toLowerCase();
+    if (priceNickname.includes('premium')) {
       tier = 'premium';
-    } else if (nameLower.includes('pro')) {
+    } else if (priceNickname.includes('pro')) {
       tier = 'pro';
-    } else if (nameLower.includes('basic')) {
-      tier = 'basic';
-    } else {
-      // Use a sanitized version of the product name as tier
-      tier = product.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    } else if (priceNickname.includes('standard')) {
+      tier = 'standard';
     }
   }
 
@@ -87,7 +181,9 @@ export async function createCheckoutSession(
     },
   });
 
-  console.log(`[SERVER] Created checkout session for user ${userId} with tier: ${tier}`);
+  console.log(
+    `[SERVER] Created checkout session for user ${userId} with tier: ${tier}`,
+  );
 
   return {
     sessionId: session.id,
@@ -95,10 +191,167 @@ export async function createCheckoutSession(
   };
 }
 
+/**
+ * Get user's Stripe subscription by email
+ */
+export async function getUserStripeSubscription(
+  userEmail: string,
+): Promise<{
+  subscription: Stripe.Subscription | null;
+  customer: Stripe.Customer | null;
+} | null> {
+  try {
+    console.log('[STRIPE] Looking up customer by email:', userEmail);
+
+    // Find customer by email
+    const customers = await stripe.customers.list({
+      email: userEmail,
+      limit: 1,
+    });
+
+    if (customers.data.length === 0) {
+      console.log('[STRIPE] No customer found for email:', userEmail);
+      return { subscription: null, customer: null };
+    }
+
+    const customer = customers.data[0];
+    console.log('[STRIPE] Found customer:', customer.id);
+
+    // Get active subscriptions for this customer
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customer.id,
+      status: 'all',
+      limit: 1,
+    });
+
+    const subscription =
+      subscriptions.data.length > 0 ? subscriptions.data[0] : null;
+
+    console.log('[STRIPE] Subscription found:', subscription?.id);
+
+    return { subscription, customer };
+  } catch (error: any) {
+    console.error('[STRIPE] Error fetching subscription:', error);
+    throw new Error(
+      `Failed to fetch subscription: ${error?.message || 'Unknown error'}`,
+    );
+  }
+}
+
+/**
+ * Change subscription plan (upgrade/downgrade)
+ */
+export async function changeSubscriptionPlan(
+  subscriptionId: string,
+  newPriceId: string,
+): Promise<Stripe.Subscription> {
+  try {
+    console.log('[STRIPE] Changing subscription plan:', {
+      subscriptionId,
+      newPriceId,
+    });
+
+    // Get current subscription
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
+    // Update subscription with new price
+    const updatedSubscription = await stripe.subscriptions.update(
+      subscriptionId,
+      {
+        items: [
+          {
+            id: subscription.items.data[0].id,
+            price: newPriceId,
+          },
+        ],
+        proration_behavior: 'always_invoice', // Prorate the change
+      },
+    );
+
+    console.log('[STRIPE] Subscription updated:', updatedSubscription.id);
+
+    return updatedSubscription;
+  } catch (error: any) {
+    console.error('[STRIPE] Error changing subscription:', error);
+    throw new Error(
+      `Failed to change subscription: ${error?.message || 'Unknown error'}`,
+    );
+  }
+}
+
+/**
+ * Cancel subscription
+ */
+export async function cancelSubscription(
+  subscriptionId: string,
+  cancelImmediately: boolean = false,
+): Promise<Stripe.Subscription> {
+  try {
+    console.log('[STRIPE] Cancelling subscription:', {
+      subscriptionId,
+      cancelImmediately,
+    });
+
+    let updatedSubscription: Stripe.Subscription;
+
+    if (cancelImmediately) {
+      // Cancel immediately
+      updatedSubscription = await stripe.subscriptions.cancel(subscriptionId);
+    } else {
+      // Cancel at period end (default)
+      updatedSubscription = await stripe.subscriptions.update(
+        subscriptionId,
+        {
+          cancel_at_period_end: true,
+        },
+      );
+    }
+
+    console.log('[STRIPE] Subscription cancelled:', updatedSubscription.id);
+
+    return updatedSubscription;
+  } catch (error: any) {
+    console.error('[STRIPE] Error cancelling subscription:', error);
+    throw new Error(
+      `Failed to cancel subscription: ${error?.message || 'Unknown error'}`,
+    );
+  }
+}
+
+/**
+ * Resume a cancelled subscription
+ */
+export async function resumeSubscription(
+  subscriptionId: string,
+): Promise<Stripe.Subscription> {
+  try {
+    console.log('[STRIPE] Resuming subscription:', subscriptionId);
+
+    const subscription = await stripe.subscriptions.update(subscriptionId, {
+      cancel_at_period_end: false,
+    });
+
+    console.log('[STRIPE] Subscription resumed:', subscription.id);
+
+    return subscription;
+  } catch (error: any) {
+    console.error('[STRIPE] Error resuming subscription:', error);
+    throw new Error(
+      `Failed to resume subscription: ${error?.message || 'Unknown error'}`,
+    );
+  }
+}
+
+//
+// EVERYTHING BELOW HERE IS YOUR EXISTING SEA-TIME REPORT LOGIC (UNCHANGED)
+//
 
 export type SeaTimeReportData = {
   userProfile: UserProfile;
-  serviceRecords: (SeaServiceRecord & { vesselName: string, totalDays: number })[];
+  serviceRecords: (SeaServiceRecord & {
+    vesselName: string;
+    totalDays: number;
+  })[];
   vesselDetails?: Vessel;
   totalDays: number;
   totalSeaDays: number;
@@ -109,9 +362,8 @@ export async function generateSeaTimeReportData(
   userId: string,
   filterType: 'vessel' | 'date_range',
   vesselId?: string,
-  dateRange?: { from: Date; to: Date }
+  dateRange?: { from: Date; to: Date },
 ): Promise<SeaTimeReportData> {
-  
   const supabase = createSupabaseServerClient();
 
   // 1. Fetch user profile
@@ -150,7 +402,7 @@ export async function generateSeaTimeReportData(
   }
 
   const vesselsMap = new Map<string, Vessel>();
-  (vesselsData || []).forEach(vessel => {
+  (vesselsData || []).forEach((vessel) => {
     vesselsMap.set(vessel.id, {
       id: vessel.id,
       name: vessel.name,
@@ -174,7 +426,7 @@ export async function generateSeaTimeReportData(
       .select('*')
       .eq('vessel_id', vessel.id);
 
-    (serviceData || []).forEach(service => {
+    (serviceData || []).forEach((service) => {
       allServiceRecords.push({
         id: service.id,
         vesselId: service.vessel_id,
@@ -184,7 +436,7 @@ export async function generateSeaTimeReportData(
       });
     });
 
-    const logs = (logsData || []).map(log => ({
+    const logs = (logsData || []).map((log) => ({
       id: log.date,
       date: log.date,
       state: log.state,
@@ -195,15 +447,19 @@ export async function generateSeaTimeReportData(
   // 4. Filter service records based on criteria
   let filteredServiceRecords: SeaServiceRecord[] = [];
   if (filterType === 'vessel') {
-    if (!vesselId) throw new Error('Vessel ID is required for vessel filter.');
-    filteredServiceRecords = allServiceRecords.filter(service => service.vesselId === vesselId);
+    if (!vesselId)
+      throw new Error('Vessel ID is required for vessel filter.');
+    filteredServiceRecords = allServiceRecords.filter(
+      (service) => service.vesselId === vesselId,
+    );
   } else if (filterType === 'date_range') {
-    if (!dateRange || !dateRange.from || !dateRange.to) throw new Error('Date range is required.');
-    
+    if (!dateRange || !dateRange.from || !dateRange.to)
+      throw new Error('Date range is required.');
+
     const fromDate = startOfDay(new Date(dateRange.from));
     const toDate = endOfDay(new Date(dateRange.to));
 
-    filteredServiceRecords = allServiceRecords.filter(service => {
+    filteredServiceRecords = allServiceRecords.filter((service) => {
       const serviceDate = new Date(service.date);
       // Check if the service date is within the date range
       return serviceDate >= fromDate && serviceDate <= toDate;
@@ -217,50 +473,68 @@ export async function generateSeaTimeReportData(
   let totalDays = 0;
   let totalSeaDays = 0;
   let totalStandbyDays = 0;
-  
-  const dateRangeInterval = dateRange?.from && dateRange.to ? { start: startOfDay(new Date(dateRange.from)), end: endOfDay(new Date(dateRange.to)) } : null;
 
-  const enrichedServiceRecords = filteredServiceRecords.map(service => {
-    const logs = allStateLogs.get(service.vesselId) || [];
-    let serviceTotalDays = 0;
+  const dateRangeInterval =
+    dateRange?.from && dateRange.to
+      ? {
+          start: startOfDay(new Date(dateRange.from)),
+          end: endOfDay(new Date(dateRange.to)),
+        }
+      : null;
 
-    logs.forEach(log => {
-      const dayDate = new Date(log.date);
-      const serviceDate = new Date(service.date);
+  const enrichedServiceRecords = filteredServiceRecords.map(
+    (service) => {
+      const logs = allStateLogs.get(service.vesselId) || [];
+      let serviceTotalDays = 0;
 
-      // Check if the log date matches the service date
-      const logDateStr = dayDate.toISOString().split('T')[0];
-      const serviceDateStr = serviceDate.toISOString().split('T')[0];
-      if (logDateStr !== serviceDateStr) {
-        return;
-      }
+      logs.forEach((log) => {
+        const dayDate = new Date(log.date);
+        const serviceDate = new Date(service.date);
 
-      // If filtering by date range, also check if it's within that range
-      if (dateRangeInterval && !isWithinInterval(dayDate, dateRangeInterval)) {
+        // Check if the log date matches the service date
+        const logDateStr = dayDate.toISOString().split('T')[0];
+        const serviceDateStr =
+          serviceDate.toISOString().split('T')[0];
+        if (logDateStr !== serviceDateStr) {
           return;
-      }
-      
-      const state = log.state;
-      totalDays++;
-      serviceTotalDays++;
-      if (state === 'underway') totalSeaDays++;
-      if (state === 'in-port' || state === 'at-anchor') totalStandbyDays++;
-    });
-    
-    return {
-      ...service,
-      vesselName: vesselsMap.get(service.vesselId)?.name || 'Unknown Vessel',
-      totalDays: serviceTotalDays,
-    };
-  });
-  
-  // For date range reports, we might not have a single vessel detail
-  const finalVesselDetails = filterType === 'vessel' && vesselId ? vesselsMap.get(vesselId) : undefined;
+        }
 
+        // If filtering by date range, also check if it's within that range
+        if (
+          dateRangeInterval &&
+          !isWithinInterval(dayDate, dateRangeInterval)
+        ) {
+          return;
+        }
+
+        const state = log.state;
+        totalDays++;
+        serviceTotalDays++;
+        if (state === 'underway') totalSeaDays++;
+        if (state === 'in-port' || state === 'at-anchor')
+          totalStandbyDays++;
+      });
+
+      return {
+        ...service,
+        vesselName:
+          vesselsMap.get(service.vesselId)?.name || 'Unknown Vessel',
+        totalDays: serviceTotalDays,
+      };
+    },
+  );
+
+  // For date range reports, we might not have a single vessel detail
+  const finalVesselDetails =
+    filterType === 'vessel' && vesselId
+      ? vesselsMap.get(vesselId)
+      : undefined;
 
   return {
     userProfile,
-    serviceRecords: enrichedServiceRecords.filter(s => s.totalDays > 0), // Only include services with days in the range
+    serviceRecords: enrichedServiceRecords.filter(
+      (s) => s.totalDays > 0,
+    ), // Only include services with days in the range
     vesselDetails: finalVesselDetails,
     totalDays,
     totalSeaDays,
