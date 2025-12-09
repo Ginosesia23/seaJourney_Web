@@ -1,5 +1,3 @@
-@ -1,272 +0,0 @@
-// app/reset-password/reset-password-client.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
