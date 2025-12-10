@@ -93,7 +93,7 @@ function SignupPageInner() {
             data: {
               username: data.username,
             },
-            emailRedirectTo: `${window.location.origin}/dashboard`,
+            emailRedirectTo: `${window.location.origin}/auth/confirm`,
           },
         });
 
