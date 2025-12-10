@@ -1,7 +1,4 @@
 // app/api/billing/route.ts
-
-'use server';
-
 import { NextResponse } from 'next/server';
 import {
   getStripeProducts,
@@ -9,6 +6,12 @@ import {
 } from '@/app/actions';
 
 export async function GET(req: Request) {
+  console.log(
+    '[API /api/billing] Has STRIPE_SECRET_KEY?',
+    !!process.env.STRIPE_SECRET_KEY,
+    process.env.STRIPE_SECRET_KEY ? process.env.STRIPE_SECRET_KEY.slice(0, 8) + '...' : 'undefined'
+  );
+
   const { searchParams } = new URL(req.url);
   const email = searchParams.get('email');
 
@@ -20,17 +23,11 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Fetch Stripe subscription based on user email
     const subscriptionData = await getUserStripeSubscription(email);
-
-    // Fetch available Stripe prices / plans
     const stripePrices = await getStripeProducts();
 
     return NextResponse.json(
-      {
-        subscriptionData,
-        stripePrices,
-      },
+      { subscriptionData, stripePrices },
       { status: 200 },
     );
   } catch (err: any) {
@@ -38,7 +35,8 @@ export async function GET(req: Request) {
     return NextResponse.json(
       {
         error:
-          err?.message || 'Failed to load billing data. Please try again later.',
+          err?.message ||
+          'Failed to load billing data. Please try again later.',
       },
       { status: 500 },
     );
