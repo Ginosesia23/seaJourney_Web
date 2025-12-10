@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import LogoOnboarding from '@/components/logo-onboarding';
+import { updateUserProfile } from '@/supabase/database/queries';
 
 // Inner component that actually uses hooks like useSearchParams
 function AuthCallbackInner() {
@@ -49,8 +50,71 @@ function AuthCallbackInner() {
             data: { session },
           } = await supabase.auth.getSession();
 
-          if (session) {
-            console.log('[AUTH CALLBACK] Email confirmed successfully');
+          if (session?.user) {
+            console.log('[AUTH CALLBACK] Email confirmed successfully, user:', session.user.id);
+            
+            // IMPORTANT: Create user record in users table now that we have a session
+            // This is required because RLS policies need auth.uid() to match the user ID
+            // During signup, there's no session yet, so the insert fails
+            try {
+              const { data: { user: authUser } } = await supabase.auth.getUser();
+              if (authUser) {
+                // Check if user exists in users table
+                const { data: existingUser, error: checkError } = await supabase
+                  .from('users')
+                  .select('id')
+                  .eq('id', authUser.id)
+                  .maybeSingle();
+
+                if (checkError) {
+                  console.error('[AUTH CALLBACK] Error checking for existing user:', checkError);
+                }
+
+                if (!existingUser) {
+                  console.log('[AUTH CALLBACK] User record not found in users table, creating it...');
+                  
+                  // Create user record directly (we have a session now, so RLS will allow it)
+                  const { error: insertError } = await supabase
+                    .from('users')
+                    .insert({
+                      id: authUser.id,
+                      email: authUser.email || '',
+                      username: authUser.user_metadata?.username || `user_${authUser.id.slice(0, 8)}`,
+                      first_name: '',
+                      last_name: '',
+                      registration_date: new Date().toISOString(),
+                      role: 'crew',
+                      subscription_tier: 'free',
+                      subscription_status: 'inactive',
+                    });
+
+                  if (insertError) {
+                    console.error('[AUTH CALLBACK] Error creating user profile:', insertError);
+                    // Try using updateUserProfile as fallback
+                    try {
+                      await updateUserProfile(supabase, authUser.id, {
+                        email: authUser.email || '',
+                        username: authUser.user_metadata?.username || `user_${authUser.id.slice(0, 8)}`,
+                        subscriptionTier: 'free',
+                        subscriptionStatus: 'inactive',
+                      });
+                      console.log('[AUTH CALLBACK] User record created via updateUserProfile');
+                    } catch (fallbackError) {
+                      console.error('[AUTH CALLBACK] Fallback profile creation also failed:', fallbackError);
+                    }
+                  } else {
+                    console.log('[AUTH CALLBACK] User record created successfully');
+                  }
+                } else {
+                  console.log('[AUTH CALLBACK] User record already exists in users table');
+                }
+              }
+            } catch (profileError) {
+              console.error('[AUTH CALLBACK] Error ensuring user profile exists:', profileError);
+              // Don't fail the confirmation flow if profile creation fails
+              // But log it so we can debug
+            }
+            
             setIsEmailConfirmed(true);
           } else {
             console.log('[AUTH CALLBACK] Email confirmation may have already been processed');
