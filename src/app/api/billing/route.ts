@@ -1,4 +1,7 @@
 // app/api/billing/route.ts
+
+'use server';
+
 import { NextResponse } from 'next/server';
 import {
   getStripeProducts,
