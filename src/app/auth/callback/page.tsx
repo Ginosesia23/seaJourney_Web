@@ -42,23 +42,84 @@ function AuthCallbackInner() {
       // Wait for Supabase to process the confirmation
       async function processEmailConfirmation() {
         try {
-          // Give Supabase time to process the URL and create session
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          const hashParams = window.location.hash;
+          let session = null;
           
-          // Check if session was created (email was confirmed)
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
+          // Try to get existing session first
+          const { data: { session: existingSession } } = await supabase.auth.getSession();
+          if (existingSession) {
+            session = existingSession;
+            console.log('[AUTH CALLBACK] Found existing session');
+          } else if (hashParams && hashParams.includes('access_token')) {
+            // Manually extract and verify the token (similar to password reset flow)
+            console.log('[AUTH CALLBACK] No session found, attempting to verify token from hash');
+            const tokenHash = hashParams.split('access_token=')[1]?.split('&')[0];
+            
+            if (tokenHash) {
+              // Determine the type from the hash
+              const type = hashParams.includes('type=signup') ? 'signup' : 
+                          hashParams.includes('type=email') ? 'email' : 
+                          hashParams.includes('type=recovery') ? 'recovery' : 'signup';
+              
+              console.log('[AUTH CALLBACK] Verifying OTP token, type:', type);
+              
+              const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+                token_hash: tokenHash,
+                type: type as 'signup' | 'email' | 'recovery',
+              });
+              
+              if (verifyError) {
+                console.error('[AUTH CALLBACK] Error verifying OTP:', verifyError);
+              } else if (verifyData.session) {
+                session = verifyData.session;
+                console.log('[AUTH CALLBACK] Successfully verified OTP and got session');
+              } else {
+                console.error('[AUTH CALLBACK] OTP verified but no session returned');
+              }
+            } else {
+              console.error('[AUTH CALLBACK] Could not extract token from hash');
+            }
+          } else {
+            console.log('[AUTH CALLBACK] No hash params found, waiting for auto-processing');
+            // Give Supabase time to auto-process
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            const { data: { session: autoSession } } = await supabase.auth.getSession();
+            session = autoSession || null;
+          }
 
           if (session?.user) {
             console.log('[AUTH CALLBACK] Email confirmed successfully, user:', session.user.id);
+            console.log('[AUTH CALLBACK] Session details:', {
+              userId: session.user.id,
+              email: session.user.email,
+              metadata: session.user.user_metadata,
+              accessToken: session.access_token ? 'present' : 'missing',
+              expiresAt: session.expires_at,
+            });
+            
+            // Verify we have a valid access token (required for RLS)
+            if (!session.access_token) {
+              console.error('[AUTH CALLBACK] ERROR: Session has no access token! RLS will fail.');
+            }
             
             // IMPORTANT: Create user record in users table now that we have a session
             // This is required because RLS policies need auth.uid() to match the user ID
             // During signup, there's no session yet, so the insert fails
+            let profileCreated = false;
             try {
-              const { data: { user: authUser } } = await supabase.auth.getUser();
+              const { data: { user: authUser }, error: getUserError } = await supabase.auth.getUser();
+              
+              if (getUserError) {
+                console.error('[AUTH CALLBACK] Error getting auth user:', getUserError);
+              }
+              
               if (authUser) {
+                console.log('[AUTH CALLBACK] Auth user retrieved:', {
+                  id: authUser.id,
+                  email: authUser.email,
+                  metadata: authUser.user_metadata,
+                });
+                
                 // Check if user exists in users table
                 const { data: existingUser, error: checkError } = await supabase
                   .from('users')
@@ -68,64 +129,135 @@ function AuthCallbackInner() {
 
                 if (checkError) {
                   console.error('[AUTH CALLBACK] Error checking for existing user:', checkError);
+                  console.error('[AUTH CALLBACK] Check error details:', {
+                    message: checkError.message,
+                    code: checkError.code,
+                    details: checkError.details,
+                    hint: checkError.hint,
+                  });
                 }
 
                 if (!existingUser) {
                   console.log('[AUTH CALLBACK] User record not found in users table, creating it...');
                   
+                  const username = authUser.user_metadata?.username || `user_${authUser.id.slice(0, 8)}`;
+                  const userData = {
+                    id: authUser.id,
+                    email: authUser.email || '',
+                    username: username,
+                    first_name: '',
+                    last_name: '',
+                    registration_date: new Date().toISOString(),
+                    role: 'crew',
+                    subscription_tier: 'free',
+                    subscription_status: 'inactive',
+                  };
+                  
+                  console.log('[AUTH CALLBACK] Attempting to insert user with data:', userData);
+                  
                   // Create user record directly (we have a session now, so RLS will allow it)
-                  const { error: insertError } = await supabase
+                  const { data: insertedUser, error: insertError } = await supabase
                     .from('users')
-                    .insert({
-                      id: authUser.id,
-                      email: authUser.email || '',
-                      username: authUser.user_metadata?.username || `user_${authUser.id.slice(0, 8)}`,
-                      first_name: '',
-                      last_name: '',
-                      registration_date: new Date().toISOString(),
-                      role: 'crew',
-                      subscription_tier: 'free',
-                      subscription_status: 'inactive',
-                    });
+                    .insert(userData)
+                    .select()
+                    .single();
 
                   if (insertError) {
                     console.error('[AUTH CALLBACK] Error creating user profile:', insertError);
+                    console.error('[AUTH CALLBACK] Insert error details:', {
+                      message: insertError.message,
+                      code: insertError.code,
+                      details: insertError.details,
+                      hint: insertError.hint,
+                    });
+                    
                     // Try using updateUserProfile as fallback
                     try {
+                      console.log('[AUTH CALLBACK] Trying fallback: updateUserProfile');
                       await updateUserProfile(supabase, authUser.id, {
                         email: authUser.email || '',
-                        username: authUser.user_metadata?.username || `user_${authUser.id.slice(0, 8)}`,
+                        username: username,
                         subscriptionTier: 'free',
                         subscriptionStatus: 'inactive',
                       });
                       console.log('[AUTH CALLBACK] User record created via updateUserProfile');
-                    } catch (fallbackError) {
+                      
+                      // Verify it was created
+                      const { data: verifyUser } = await supabase
+                        .from('users')
+                        .select('id, email, username')
+                        .eq('id', authUser.id)
+                        .single();
+                      
+                      if (verifyUser) {
+                        console.log('[AUTH CALLBACK] Verified user exists after updateUserProfile:', verifyUser);
+                        profileCreated = true;
+                      } else {
+                        console.error('[AUTH CALLBACK] User still not found after updateUserProfile');
+                      }
+                    } catch (fallbackError: any) {
                       console.error('[AUTH CALLBACK] Fallback profile creation also failed:', fallbackError);
+                      console.error('[AUTH CALLBACK] Fallback error details:', {
+                        message: fallbackError?.message,
+                        stack: fallbackError?.stack,
+                      });
                     }
                   } else {
-                    console.log('[AUTH CALLBACK] User record created successfully');
+                    console.log('[AUTH CALLBACK] User record created successfully:', insertedUser);
+                    
+                    // Verify it was actually created by reading it back
+                    const { data: verifyUser, error: verifyError } = await supabase
+                      .from('users')
+                      .select('id, email, username')
+                      .eq('id', authUser.id)
+                      .single();
+                    
+                    if (verifyError) {
+                      console.error('[AUTH CALLBACK] Error verifying user creation:', verifyError);
+                    } else if (verifyUser) {
+                      console.log('[AUTH CALLBACK] Verified user exists in database:', verifyUser);
+                      profileCreated = true;
+                    } else {
+                      console.error('[AUTH CALLBACK] User not found after insertion (but no error)');
+                    }
                   }
                 } else {
                   console.log('[AUTH CALLBACK] User record already exists in users table');
+                  profileCreated = true;
                 }
+              } else {
+                console.error('[AUTH CALLBACK] No auth user returned from getUser()');
               }
-            } catch (profileError) {
+            } catch (profileError: any) {
               console.error('[AUTH CALLBACK] Error ensuring user profile exists:', profileError);
+              console.error('[AUTH CALLBACK] Profile error details:', {
+                message: profileError?.message,
+                stack: profileError?.stack,
+              });
               // Don't fail the confirmation flow if profile creation fails
               // But log it so we can debug
             }
             
-            // IMPORTANT: Sign the user out after email confirmation
-            // This ensures they need to manually log in with their credentials
-            // Supabase automatically logs users in when they confirm email, but we want them
-            // to manually log in after confirmation for security
-            try {
-              console.log('[AUTH CALLBACK] Signing user out after email confirmation');
-              await supabase.auth.signOut();
-              console.log('[AUTH CALLBACK] User signed out successfully');
-            } catch (signOutError) {
-              console.error('[AUTH CALLBACK] Error signing out user:', signOutError);
-              // Don't fail the flow if sign out fails, but log it
+            if (!profileCreated) {
+              console.warn('[AUTH CALLBACK] WARNING: User profile was not created. User may need to contact support.');
+              // Show an error state or message to the user
+            } else {
+              // IMPORTANT: Only sign out if profile was successfully created
+              // Sign the user out after email confirmation to ensure they need to manually log in
+              // Supabase automatically logs users in when they confirm email, but we want them
+              // to manually log in after confirmation for security
+              try {
+                console.log('[AUTH CALLBACK] Profile created successfully, signing user out...');
+                const { error: signOutError } = await supabase.auth.signOut();
+                if (signOutError) {
+                  console.error('[AUTH CALLBACK] Error signing out user:', signOutError);
+                } else {
+                  console.log('[AUTH CALLBACK] User signed out successfully');
+                }
+              } catch (signOutError: any) {
+                console.error('[AUTH CALLBACK] Exception while signing out user:', signOutError);
+                // Don't fail the flow if sign out fails, but log it
+              }
             }
             
             setIsEmailConfirmed(true);
