@@ -115,6 +115,19 @@ function AuthCallbackInner() {
               // But log it so we can debug
             }
             
+            // IMPORTANT: Sign the user out after email confirmation
+            // This ensures they need to manually log in with their credentials
+            // Supabase automatically logs users in when they confirm email, but we want them
+            // to manually log in after confirmation for security
+            try {
+              console.log('[AUTH CALLBACK] Signing user out after email confirmation');
+              await supabase.auth.signOut();
+              console.log('[AUTH CALLBACK] User signed out successfully');
+            } catch (signOutError) {
+              console.error('[AUTH CALLBACK] Error signing out user:', signOutError);
+              // Don't fail the flow if sign out fails, but log it
+            }
+            
             setIsEmailConfirmed(true);
           } else {
             console.log('[AUTH CALLBACK] Email confirmation may have already been processed');
