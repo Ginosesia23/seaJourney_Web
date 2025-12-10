@@ -25,14 +25,6 @@ import { motion } from 'framer-motion';
 import { useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
-import {
-  getStripeProducts,
-  getUserStripeSubscription,
-  changeSubscriptionPlan,
-  cancelSubscription,
-  resumeSubscription,
-  type StripeProduct,
-} from '@/app/actions';
 import type { UserProfile } from '@/lib/types';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
@@ -59,6 +51,35 @@ interface Plan {
   priceId?: string;
   comingSoon?: boolean;
   availableDate?: string;
+}
+
+// Minimal shape of Stripe price coming from /api/billing
+interface StripePrice {
+  id: string;
+  unit_amount: number | null;
+  recurring?: {
+    interval: string;
+  } | null;
+  metadata?: {
+    tier?: string;
+    [key: string]: any;
+  } | null;
+  nickname?: string | null;
+  [key: string]: any;
+}
+
+// Minimal shape of Stripe subscription coming from /api/billing
+interface StripeSubscription {
+  id: string;
+  status: string;
+  cancel_at_period_end?: boolean | null;
+  current_period_end?: number | null; // unix timestamp (seconds)
+  [key: string]: any;
+}
+
+interface StripeSubscriptionData {
+  subscription: StripeSubscription | null;
+  [key: string]: any;
 }
 
 const planTemplates: Omit<Plan, 'priceId'>[] = [
@@ -118,9 +139,7 @@ export default function ManageSubscriptionPage() {
   const [isCancelling, setIsCancelling] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [stripeSubscription, setStripeSubscription] =
-    useState<Awaited<ReturnType<typeof getUserStripeSubscription>> | null>(
-      null,
-    );
+    useState<StripeSubscriptionData | null>(null);
 
   const { user } = useUser();
   const router = useRouter();
@@ -160,7 +179,7 @@ export default function ManageSubscriptionPage() {
   const currentTier = userProfile
     ? formatTierName(
         (userProfile as any).subscription_tier ||
-          userProfile.subscriptionTier ||
+          (userProfile as any).subscriptionTier ||
           'free',
       )
     : 'Free';
@@ -170,7 +189,7 @@ export default function ManageSubscriptionPage() {
     if (!userProfile) return false;
     const userTier =
       (userProfile as any).subscription_tier ||
-      userProfile.subscriptionTier ||
+      (userProfile as any).subscriptionTier ||
       'free';
     const normalizedUserTier = formatTierName(userTier).toLowerCase();
     const normalizedPlanName = planName.toLowerCase();
@@ -181,7 +200,7 @@ export default function ManageSubscriptionPage() {
     );
   };
 
-  // Fetch subscription data and plans
+  // Fetch subscription data and plans via API
   useEffect(() => {
     const fetchData = async () => {
       if (!user?.email) return;
@@ -189,12 +208,26 @@ export default function ManageSubscriptionPage() {
       try {
         setIsLoading(true);
 
-        // Fetch Stripe subscription
-        const subscriptionData = await getUserStripeSubscription(user.email);
-        setStripeSubscription(subscriptionData);
+        const res = await fetch(
+          `/api/billing?email=${encodeURIComponent(user.email)}`,
+        );
 
-        // Fetch available plans
-        const stripePrices = await getStripeProducts();
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(
+            body.error || 'Failed to load subscription information.',
+          );
+        }
+
+        const {
+          subscriptionData,
+          stripePrices,
+        }: {
+          subscriptionData: StripeSubscriptionData | null;
+          stripePrices: StripePrice[];
+        } = await res.json();
+
+        setStripeSubscription(subscriptionData || null);
 
         const getTemplateTierKey = (templateName: string) => {
           const lower = templateName.toLowerCase();
@@ -205,11 +238,12 @@ export default function ManageSubscriptionPage() {
         const mappedPlans: Plan[] = planTemplates.map((template) => {
           const templateTier = getTemplateTierKey(template.name);
 
-          const matchingPrice = stripePrices.find((price) => {
-            const anyPrice: any = price;
+          const matchingPrice = stripePrices.find((price: StripePrice) => {
             const priceTier = (
-              anyPrice.metadata?.tier || anyPrice.nickname || ''
-            ).toLowerCase();
+              price.metadata?.tier || price.nickname || ''
+            )
+              .toString()
+              .toLowerCase();
 
             return (
               priceTier === templateTier ||
@@ -219,15 +253,15 @@ export default function ManageSubscriptionPage() {
           });
 
           if (matchingPrice) {
-            const anyPrice: any = matchingPrice;
-            const amount = (anyPrice.unit_amount ?? 0) / 100;
-            const interval = anyPrice.recurring?.interval || 'month';
+            const amount = (matchingPrice.unit_amount ?? 0) / 100;
+            const interval =
+              matchingPrice.recurring?.interval?.toString() || 'month';
 
             return {
               ...template,
               price: `£${amount.toFixed(2)}`,
               priceSuffix: `/${interval}`,
-              priceId: anyPrice.id,
+              priceId: matchingPrice.id,
             };
           }
 
@@ -268,7 +302,9 @@ export default function ManageSubscriptionPage() {
     if (plan.comingSoon) {
       toast({
         title: 'Coming Soon',
-        description: `This plan will be available in ${plan.availableDate || '2026'}.`,
+        description: `This plan will be available in ${
+          plan.availableDate || '2026'
+        }.`,
       });
       return;
     }
@@ -276,20 +312,37 @@ export default function ManageSubscriptionPage() {
     setIsChangingPlan(plan.name);
 
     try {
-      await changeSubscriptionPlan(
-        stripeSubscription.subscription.id,
-        plan.priceId,
-      );
+      const res = await fetch('/api/billing/change-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscriptionId: stripeSubscription.subscription.id,
+          priceId: plan.priceId,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          body.error || 'Failed to change subscription plan.',
+        );
+      }
 
       toast({
         title: 'Plan Changed',
         description: `Your subscription has been changed to ${plan.name}. Changes will be reflected on your next billing cycle.`,
       });
 
-      // Refresh data
+      // Refresh subscription data
       if (user?.email) {
-        const subscriptionData = await getUserStripeSubscription(user.email);
-        setStripeSubscription(subscriptionData);
+        const refreshed = await fetch(
+          `/api/billing?email=${encodeURIComponent(user.email)}`,
+        );
+        if (refreshed.ok) {
+          const { subscriptionData }: { subscriptionData: StripeSubscriptionData | null } =
+            await refreshed.json();
+          setStripeSubscription(subscriptionData || null);
+        }
       }
 
       // Refresh page after a short delay
@@ -301,7 +354,8 @@ export default function ManageSubscriptionPage() {
       toast({
         title: 'Change Failed',
         description:
-          error.message || 'Failed to change subscription plan. Please try again.',
+          error.message ||
+          'Failed to change subscription plan. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -322,7 +376,20 @@ export default function ManageSubscriptionPage() {
     setIsCancelling(true);
 
     try {
-      await cancelSubscription(stripeSubscription.subscription.id, false);
+      const res = await fetch('/api/billing/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscriptionId: stripeSubscription.subscription.id,
+          // You can also pass `cancelAtPeriodEnd: false` if your API expects it
+          cancelAtPeriodEnd: false,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to cancel subscription.');
+      }
 
       toast({
         title: 'Subscription Cancelled',
@@ -330,10 +397,16 @@ export default function ManageSubscriptionPage() {
           'Your subscription has been cancelled. You will retain access until the end of your billing period.',
       });
 
-      // Refresh data
+      // Refresh subscription data
       if (user?.email) {
-        const subscriptionData = await getUserStripeSubscription(user.email);
-        setStripeSubscription(subscriptionData);
+        const refreshed = await fetch(
+          `/api/billing?email=${encodeURIComponent(user.email)}`,
+        );
+        if (refreshed.ok) {
+          const { subscriptionData }: { subscriptionData: StripeSubscriptionData | null } =
+            await refreshed.json();
+          setStripeSubscription(subscriptionData || null);
+        }
       }
 
       router.refresh();
@@ -363,17 +436,34 @@ export default function ManageSubscriptionPage() {
     }
 
     try {
-      await resumeSubscription(stripeSubscription.subscription.id);
+      const res = await fetch('/api/billing/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscriptionId: stripeSubscription.subscription.id,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to resume subscription.');
+      }
 
       toast({
         title: 'Subscription Resumed',
         description: 'Your subscription has been resumed.',
       });
 
-      // Refresh data
+      // Refresh subscription data
       if (user?.email) {
-        const subscriptionData = await getUserStripeSubscription(user.email);
-        setStripeSubscription(subscriptionData);
+        const refreshed = await fetch(
+          `/api/billing?email=${encodeURIComponent(user.email)}`,
+        );
+        if (refreshed.ok) {
+          const { subscriptionData }: { subscriptionData: StripeSubscriptionData | null } =
+            await refreshed.json();
+          setStripeSubscription(subscriptionData || null);
+        }
       }
 
       router.refresh();
@@ -397,7 +487,7 @@ export default function ManageSubscriptionPage() {
     );
   }
 
-  const subscription = stripeSubscription?.subscription;
+  const subscription = stripeSubscription?.subscription || null;
   const isCancelled =
     subscription?.cancel_at_period_end || subscription?.status === 'canceled';
   const currentPeriodEnd = subscription?.current_period_end
@@ -463,15 +553,15 @@ export default function ManageSubscriptionPage() {
               </div>
             )}
 
-            {isCancelled && (
-              <div className="flex items-center gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-                <AlertTriangle className="h-4 w-4 text-yellow-600" />
+            {isCancelled && currentPeriodEnd && (
+              <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 rounded-lg">
+                <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">
                     Subscription Cancelled
                   </p>
                   <p className="text-xs text-yellow-700 dark:text-yellow-300">
-                    You will retain access until {format(currentPeriodEnd!, 'PPP')}
+                    You will retain access until {format(currentPeriodEnd, 'PPP')}
                   </p>
                 </div>
                 <Button
@@ -490,7 +580,9 @@ export default function ManageSubscriptionPage() {
 
       {/* Available Plans */}
       <div className="mb-8">
-        <h2 className="text-2xl font-bold mb-6 text-foreground">Available Plans</h2>
+        <h2 className="text-2xl font-bold mb-6 text-foreground">
+          Available Plans
+        </h2>
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {plans.map((plan, index) => {
             const Icon = plan.icon;
@@ -506,207 +598,156 @@ export default function ManageSubscriptionPage() {
                 transition={{ duration: 0.5, delay: index * 0.1 }}
                 className={isCurrent ? 'scale-105' : ''}
               >
-              <Card
-                key={plan.name}
-                className={`flex flex-col rounded-2xl border transition-all duration-300 ${
-                  isCurrent ? 'hover:scale-102' : 'hover:scale-105'
-                } ${
-                  isHighlighted
-                    ? 'border-purple-500/50 ring-2 ring-purple-500/30'
-                    : plan.color === 'blue'
-                    ? 'border-blue-500/30 ring-1 ring-blue-500/20'
-                    : 'border-orange-500/30 ring-1 ring-orange-500/20'
-                }`}
-                style={{
-                  backgroundColor: isHighlighted
-                    ? 'rgba(147, 51, 234, 0.1)'
-                    : plan.color === 'blue'
-                    ? 'rgba(2, 22, 44, 0.6)'
-                    : 'rgba(2, 22, 44, 0.6)',
-                  backdropFilter: 'blur(20px)',
-                  boxShadow:
+                <Card
+                  className={`flex flex-col rounded-2xl border transition-all duration-300 ${
+                    isCurrent ? 'hover:scale-102' : 'hover:scale-105'
+                  } ${
+                    isHighlighted
+                      ? 'border-purple-500/50 ring-2 ring-purple-500/30 dark:border-purple-500/50 dark:ring-purple-500/30'
+                      : plan.color === 'blue'
+                      ? 'border-blue-500/30 ring-1 ring-blue-500/20 dark:border-blue-500/30 dark:ring-blue-500/20'
+                      : 'border-orange-500/30 ring-1 ring-orange-500/20 dark:border-orange-500/30 dark:ring-orange-500/20'
+                  } ${
+                    isHighlighted
+                      ? 'bg-purple-50/80 dark:bg-purple-950/20'
+                      : plan.color === 'blue'
+                      ? 'bg-white dark:bg-[rgba(2,22,44,0.6)]'
+                      : 'bg-white dark:bg-[rgba(2,22,44,0.6)]'
+                  } ${
                     plan.color === 'blue'
-                      ? '0 8px 32px rgba(59, 130, 246, 0.15), 0 0 0 1px rgba(59, 130, 246, 0.1)'
+                      ? 'shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30'
                       : plan.color === 'purple'
-                      ? '0 8px 32px rgba(147, 51, 234, 0.25), 0 0 0 1px rgba(147, 51, 234, 0.15)'
-                      : '0 8px 32px rgba(249, 115, 22, 0.15), 0 0 0 1px rgba(249, 115, 22, 0.1)',
-                }}
-                onMouseEnter={(e) => {
-                  if (plan.color === 'blue') {
-                    e.currentTarget.style.boxShadow =
-                      '0 12px 48px rgba(59, 130, 246, 0.3), 0 0 0 1px rgba(59, 130, 246, 0.2)';
-                  } else if (plan.color === 'purple') {
-                    e.currentTarget.style.boxShadow =
-                      '0 12px 48px rgba(147, 51, 234, 0.4), 0 0 0 1px rgba(147, 51, 234, 0.25)';
-                  } else {
-                    e.currentTarget.style.boxShadow =
-                      '0 12px 48px rgba(249, 115, 22, 0.3), 0 0 0 1px rgba(249, 115, 22, 0.2)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (plan.color === 'blue') {
-                    e.currentTarget.style.boxShadow =
-                      '0 8px 32px rgba(59, 130, 246, 0.15), 0 0 0 1px rgba(59, 130, 246, 0.1)';
-                  } else if (plan.color === 'purple') {
-                    e.currentTarget.style.boxShadow =
-                      '0 8px 32px rgba(147, 51, 234, 0.25), 0 0 0 1px rgba(147, 51, 234, 0.15)';
-                  } else {
-                    e.currentTarget.style.boxShadow =
-                      '0 8px 32px rgba(249, 115, 22, 0.15), 0 0 0 1px rgba(249, 115, 22, 0.1)';
-                  }
-                }}
-              >
-                <CardHeader className="flex-grow pb-6">
-                  <div className="flex justify-between items-start mb-4">
-                    {isCurrent && (
-                      <div
-                        className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border"
-                        style={{
-                          backgroundColor: 'rgba(34, 197, 94, 0.2)',
-                          borderColor: 'rgba(34, 197, 94, 0.5)',
-                          color: '#4ade80',
-                        }}
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                        Current Plan
-                      </div>
-                    )}
-                    {plan.comingSoon && (
-                      <div
-                        className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto"
-                        style={{
-                          backgroundColor: 'rgba(249, 115, 22, 0.2)',
-                          borderColor: 'rgba(249, 115, 22, 0.5)',
-                          color: '#fb923c',
-                        }}
-                      >
-                        Coming Soon
-                      </div>
-                    )}
-                    {isHighlighted && !isCurrent && !plan.comingSoon && (
-                      <div
-                        className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto"
-                        style={{
-                          backgroundColor: 'rgba(147, 51, 234, 0.2)',
-                          borderColor: 'rgba(147, 51, 234, 0.5)',
-                          color: '#c084fc',
-                        }}
-                      >
-                        <Star className="h-3.5 w-3.5 fill-current" />
-                        Most Popular
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-3 mb-4">
-                    <div
-                      className={`h-12 w-12 rounded-xl flex items-center justify-center ${
-                        plan.color === 'blue'
-                          ? 'bg-blue-500/20'
-                          : plan.color === 'purple'
-                          ? 'bg-purple-500/20'
-                          : 'bg-orange-500/20'
-                      }`}
-                    >
-                      <Icon
-                        className={`h-6 w-6 ${
-                          plan.color === 'blue'
-                            ? 'text-blue-400'
-                            : plan.color === 'purple'
-                            ? 'text-purple-400'
-                            : 'text-orange-400'
-                        }`}
-                      />
-                    </div>
-                    <CardTitle className="font-headline text-2xl text-white">
-                      {plan.name}
-                    </CardTitle>
-                  </div>
-
-                  <div className="flex items-baseline gap-2 mb-2">
-                    <span className="text-5xl font-bold tracking-tight text-white">
-                      {plan.price}
-                    </span>
-                    <span
-                      className="text-base font-semibold"
-                      style={{ color: '#94a3b8' }}
-                    >
-                      {plan.priceSuffix}
-                    </span>
-                  </div>
-                  <CardDescription className="text-blue-100/80 text-base mt-4">
-                    {plan.description}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="border-t border-white/10 pt-6 pb-6">
-                  <ul className="space-y-4 text-sm">
-                    {plan.features.map((feature, idx) => (
-                      <li key={idx} className="flex items-start gap-3">
-                        <div
-                          className={`mt-0.5 h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                            plan.color === 'blue'
-                              ? 'bg-blue-500/20'
-                              : plan.color === 'purple'
-                              ? 'bg-purple-500/20'
-                              : 'bg-orange-500/20'
-                          }`}
-                        >
-                          <Check
-                            className={`h-3 w-3 ${
-                              plan.color === 'blue'
-                                ? 'text-blue-400'
-                                : plan.color === 'purple'
-                                ? 'text-purple-400'
-                                : 'text-orange-400'
-                            }`}
-                          />
-                        </div>
-                        <span className="text-white/90">{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-                <CardFooter className="pt-0">
-                  {isCurrent ? (
-                    <Button
-                      disabled
-                      className="w-full rounded-xl text-base font-semibold h-12 bg-blue-600 hover:bg-blue-700 text-white border-0 shadow-lg"
-                    >
-                      Current Plan
-                    </Button>
-                  ) : plan.comingSoon ? (
-                    <Button
-                      disabled
-                      className="w-full rounded-xl text-base font-semibold h-12 bg-white/5 text-white/50 border border-white/10 cursor-not-allowed"
-                    >
-                      <div className="flex items-center justify-center gap-2">
-                        Available Later {plan.availableDate || '2026'}
-                      </div>
-                    </Button>
-                  ) : (
-                    <Button
-                      onClick={() => handleChangePlan(plan)}
-                      disabled={!plan.priceId || isChangingPlan === plan.name}
-                      className={`w-full rounded-xl text-base font-semibold h-12 ${
-                        isHighlighted
-                          ? 'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white border-0 shadow-lg shadow-purple-500/30 disabled:opacity-50'
-                          : 'bg-white/10 hover:bg-white/20 text-white border border-white/20 disabled:opacity-50'
-                      }`}
-                    >
-                      {isChangingPlan === plan.name ? (
-                        <div className="flex items-center justify-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Changing...
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center gap-2">
-                          Switch to This Plan
+                      ? 'shadow-lg shadow-purple-500/15 dark:shadow-purple-500/25 hover:shadow-xl hover:shadow-purple-500/25 dark:hover:shadow-purple-500/40'
+                      : 'shadow-lg shadow-orange-500/10 dark:shadow-orange-500/15 hover:shadow-xl hover:shadow-orange-500/20 dark:hover:shadow-orange-500/30'
+                  } backdrop-blur-sm dark:backdrop-blur-[20px]`}
+                >
+                  <CardHeader className="flex-grow pb-6">
+                    <div className="flex justify-between items-start mb-4">
+                      {isCurrent && (
+                        <div className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border bg-green-100 dark:bg-green-500/20 border-green-300 dark:border-green-500/50 text-green-700 dark:text-green-400">
+                          <Check className="h-3.5 w-3.5" />
+                          Current Plan
                         </div>
                       )}
-                    </Button>
-                  )}
-                </CardFooter>
-              </Card>
+                      {plan.comingSoon && (
+                        <div className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto bg-orange-100 dark:bg-orange-500/20 border-orange-300 dark:border-orange-500/50 text-orange-700 dark:text-orange-400">
+                          Coming Soon
+                        </div>
+                      )}
+                      {isHighlighted && !isCurrent && !plan.comingSoon && (
+                        <div className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto bg-purple-100 dark:bg-purple-500/20 border-purple-300 dark:border-purple-500/50 text-purple-700 dark:text-purple-400">
+                          <Star className="h-3.5 w-3.5 fill-current" />
+                          Most Popular
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3 mb-4">
+                      <div
+                        className={`h-12 w-12 rounded-xl flex items-center justify-center ${
+                          plan.color === 'blue'
+                            ? 'bg-blue-100 dark:bg-blue-500/20'
+                            : plan.color === 'purple'
+                            ? 'bg-purple-100 dark:bg-purple-500/20'
+                            : 'bg-orange-100 dark:bg-orange-500/20'
+                        }`}
+                      >
+                        <Icon
+                          className={`h-6 w-6 ${
+                            plan.color === 'blue'
+                              ? 'text-blue-600 dark:text-blue-400'
+                              : plan.color === 'purple'
+                              ? 'text-purple-600 dark:text-purple-400'
+                              : 'text-orange-600 dark:text-orange-400'
+                          }`}
+                        />
+                      </div>
+                      <CardTitle className="font-headline text-2xl text-gray-900 dark:text-white">
+                        {plan.name}
+                      </CardTitle>
+                    </div>
+
+                    <div className="flex items-baseline gap-2 mb-2">
+                      <span className="text-5xl font-bold tracking-tight text-gray-900 dark:text-white">
+                        {plan.price}
+                      </span>
+                      <span className="text-base font-semibold text-gray-600 dark:text-slate-400">
+                        {plan.priceSuffix}
+                      </span>
+                    </div>
+                    <CardDescription className="text-gray-600 dark:text-blue-100/80 text-base mt-4">
+                      {plan.description}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="border-t border-gray-200 dark:border-white/10 pt-6 pb-6">
+                    <ul className="space-y-4 text-sm">
+                      {plan.features.map((feature, idx) => (
+                        <li key={idx} className="flex items-start gap-3">
+                          <div
+                            className={`mt-0.5 h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0 ${
+                              plan.color === 'blue'
+                                ? 'bg-blue-100 dark:bg-blue-500/20'
+                                : plan.color === 'purple'
+                                ? 'bg-purple-100 dark:bg-purple-500/20'
+                                : 'bg-orange-100 dark:bg-orange-500/20'
+                            }`}
+                          >
+                            <Check
+                              className={`h-3 w-3 ${
+                                plan.color === 'blue'
+                                  ? 'text-blue-600 dark:text-blue-400'
+                                  : plan.color === 'purple'
+                                  ? 'text-purple-600 dark:text-purple-400'
+                                  : 'text-orange-600 dark:text-orange-400'
+                              }`}
+                            />
+                          </div>
+                          <span className="text-gray-700 dark:text-white/90">{feature}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                  <CardFooter className="pt-0">
+                    {isCurrent ? (
+                      <Button
+                        disabled
+                        className="w-full rounded-xl text-base font-semibold h-12 bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white border-0 shadow-lg"
+                      >
+                        Current Plan
+                      </Button>
+                    ) : plan.comingSoon ? (
+                      <Button
+                        disabled
+                        className="w-full rounded-xl text-base font-semibold h-12 bg-gray-100 dark:bg-white/5 text-gray-400 dark:text-white/50 border border-gray-300 dark:border-white/10 cursor-not-allowed"
+                      >
+                        <div className="flex items-center justify-center gap-2">
+                          Available Later {plan.availableDate || '2026'}
+                        </div>
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={() => handleChangePlan(plan)}
+                        disabled={!plan.priceId || isChangingPlan === plan.name}
+                        className={`w-full rounded-xl text-base font-semibold h-12 ${
+                          isHighlighted
+                            ? 'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white border-0 shadow-lg shadow-purple-500/30 disabled:opacity-50'
+                            : 'bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/20 text-gray-900 dark:text-white border border-gray-300 dark:border-white/20 disabled:opacity-50'
+                        }`}
+                      >
+                        {isChangingPlan === plan.name ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Changing...
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-2">
+                            Switch to This Plan
+                          </div>
+                        )}
+                      </Button>
+                    )}
+                  </CardFooter>
+                </Card>
               </motion.div>
             );
           })}
@@ -717,7 +758,9 @@ export default function ManageSubscriptionPage() {
       {subscription && !isCancelled && (
         <Card className="border-destructive/50">
           <CardHeader>
-            <CardTitle className="text-destructive">Cancel Subscription</CardTitle>
+            <CardTitle className="text-destructive">
+              Cancel Subscription
+            </CardTitle>
             <CardDescription>
               Cancel your subscription. You will retain access until the end of
               your billing period.
@@ -742,8 +785,8 @@ export default function ManageSubscriptionPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel Subscription?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to cancel your subscription? You will
-              retain access to all premium features until{' '}
+              Are you sure you want to cancel your subscription? You will retain
+              access to all premium features until{' '}
               {currentPeriodEnd
                 ? format(currentPeriodEnd, 'PPP')
                 : 'the end of your billing period'}
@@ -752,7 +795,9 @@ export default function ManageSubscriptionPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-xl">Keep Subscription</AlertDialogCancel>
+            <AlertDialogCancel className="rounded-xl">
+              Keep Subscription
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleCancelSubscription}
               disabled={isCancelling}
