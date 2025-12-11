@@ -117,7 +117,11 @@ const Header = () => {
   const displayName = getDisplayName();
 
   const isLandingPage = pathname === '/';
-  const isDarkPage = pathname === '/' || pathname === '/how-to-use' || pathname.startsWith('/how-to-use');
+  const isDarkPage = pathname === '/' || 
+                     pathname === '/how-to-use' || 
+                     pathname.startsWith('/how-to-use') ||
+                     pathname === '/offers' ||
+                     pathname.startsWith('/offers');
 
   return (
     <header 
@@ -129,14 +133,18 @@ const Header = () => {
       }}
     >
       <div className="container mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Logo className="text-header-foreground" />
+        <Logo className={isDarkPage ? "text-white" : "text-header-foreground"} />
 
         <nav className="hidden md:flex md:items-center md:gap-6">
           {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="font-medium text-header-foreground/80 transition-colors hover:text-header-foreground"
+              className={`font-medium transition-colors ${
+                isDarkPage 
+                  ? "text-white/80 hover:text-white" 
+                  : "text-header-foreground/80 hover:text-header-foreground"
+              }`}
             >
               {link.label}
             </Link>
@@ -152,13 +160,17 @@ const Header = () => {
                 <DropdownMenuTrigger asChild>
                   <Button 
                     variant="ghost" 
-                    className="flex items-center gap-2 px-4 py-2 rounded-full hover:bg-white/10 border border-white/10 h-auto"
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full h-auto ${
+                      isDarkPage
+                        ? "hover:bg-white/10 border border-white/10"
+                        : "hover:bg-muted"
+                    }`}
                   >
-                    <User className="h-4 w-4 text-header-foreground" />
-                    <span className="text-sm font-medium text-header-foreground">
+                    <User className={`h-4 w-4 ${isDarkPage ? "text-white" : "text-header-foreground"}`} />
+                    <span className={`text-sm font-medium ${isDarkPage ? "text-white" : "text-header-foreground"}`}>
                       {displayName}
                     </span>
-                    <ChevronDown className="h-3 w-3 text-header-foreground/60" />
+                    <ChevronDown className={`h-3 w-3 ${isDarkPage ? "text-white/60" : "text-header-foreground/60"}`} />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -176,7 +188,11 @@ const Header = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Button asChild variant="ghost" className="hover:bg-white/10 rounded-full">
+              <Button 
+                asChild 
+                variant="ghost" 
+                className={isDarkPage ? "hover:bg-white/10 rounded-full text-white" : "hover:bg-muted rounded-full"}
+              >
                 <Link href="/login">Sign In</Link>
               </Button>
             )}
@@ -188,7 +204,9 @@ const Header = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                className="md:hidden hover:bg-white/10 rounded-full"
+                className={`md:hidden rounded-full ${
+                  isDarkPage ? "hover:bg-white/10 text-white" : "hover:bg-muted"
+                }`}
               >
                 <Menu className="h-6 w-6" />
                 <span className="sr-only">Open menu</span>
@@ -210,12 +228,12 @@ const Header = () => {
               </SheetHeader>
               <div className="flex h-full flex-col">
                 <div className="mb-8 flex items-center justify-between">
-                  <Logo className="text-header-foreground" />
+                  <Logo className={isDarkPage ? "text-white" : "text-header-foreground"} />
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={() => setIsOpen(false)}
-                    className="hover:bg-white/10 rounded-full"
+                    className={isDarkPage ? "hover:bg-white/10 rounded-full text-white" : "hover:bg-muted rounded-full"}
                   >
                     <X className="h-6 w-6" />
                     <span className="sr-only">Close menu</span>
@@ -226,7 +244,11 @@ const Header = () => {
                     <Link
                       key={link.href}
                       href={link.href}
-                      className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground"
+                      className={`text-lg font-medium transition-colors ${
+                        isDarkPage
+                          ? "text-white/80 hover:text-white"
+                          : "text-header-foreground/80 hover:text-header-foreground"
+                      }`}
                       onClick={() => setIsOpen(false)}
                     >
                       {link.label}
@@ -234,20 +256,39 @@ const Header = () => {
                   ))}
                    <Link
                       href="/shop"
-                      className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground"
+                      className={`text-lg font-medium transition-colors ${
+                        isDarkPage
+                          ? "text-white/80 hover:text-white"
+                          : "text-header-foreground/80 hover:text-header-foreground"
+                      }`}
                       onClick={() => setIsOpen(false)}
                     >
                       Shop
                     </Link>
                 </nav>
 
-                <div className="border-t border-primary/10 pt-6">
+                <div className={`border-t pt-6 ${isDarkPage ? "border-white/10" : "border-primary/10"}`}>
                   {user ? (
-                    <button onClick={() => { handleSignOut(); setIsOpen(false); }} className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground flex items-center gap-2">
+                    <button 
+                      onClick={() => { handleSignOut(); setIsOpen(false); }} 
+                      className={`text-lg font-medium transition-colors flex items-center gap-2 ${
+                        isDarkPage
+                          ? "text-white/80 hover:text-white"
+                          : "text-header-foreground/80 hover:text-header-foreground"
+                      }`}
+                    >
                       <LogOut className="h-5 w-5" /> Log Out
                     </button>
                   ) : (
-                    <Link href="/login" className="text-lg font-medium text-header-foreground/80 transition-colors hover:text-header-foreground" onClick={() => setIsOpen(false)}>
+                    <Link 
+                      href="/login" 
+                      className={`text-lg font-medium transition-colors ${
+                        isDarkPage
+                          ? "text-white/80 hover:text-white"
+                          : "text-header-foreground/80 hover:text-header-foreground"
+                      }`} 
+                      onClick={() => setIsOpen(false)}
+                    >
                         Sign In
                     </Link>
                   )}
