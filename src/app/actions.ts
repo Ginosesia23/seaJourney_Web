@@ -25,7 +25,7 @@ export interface StripePriceWithProduct extends Stripe.Price {
 }
 
 // Subscription product ID - single product with multiple price tiers
-const SUBSCRIPTION_PRODUCT_ID = 'prod_TZIQQTKhLqi0eT';
+const SUBSCRIPTION_PRODUCT_ID = 'prod_TaGxvKHBvt0Ajn';
 
 /**
  * Get all prices for the subscription product
@@ -35,8 +35,12 @@ const SUBSCRIPTION_PRODUCT_ID = 'prod_TZIQQTKhLqi0eT';
 export async function getStripeProducts(): Promise<StripeProduct[]> {
   console.log(
     '[STRIPE] Fetching prices for subscription product ID:',
+    
     SUBSCRIPTION_PRODUCT_ID,
   );
+
+  console.log("USING STRIPE KEY:", process.env.STRIPE_SECRET_KEY?.slice(0, 10));
+
 
   // Fetch all active prices for the subscription product, expanding the product
   const prices = await stripe.prices.list({
