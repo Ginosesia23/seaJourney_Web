@@ -22,6 +22,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { getStripeProducts, createCheckoutSession, type StripeProduct } from '@/app/actions';
 import type { UserProfile } from '@/lib/types';
+import type { Stripe } from 'stripe';
 
 
 const freeTier = {
@@ -69,7 +70,8 @@ export default function OffersPage() {
     }
 
     // Use helper function to check subscription status (handles snake_case from database)
-    const isActive = hasActiveSubscription(userProfile);
+    // Handle null/undefined userProfile gracefully
+    const isActive = userProfile ? hasActiveSubscription(userProfile) : false;
 
     console.log('[OFFERS] Check:', {
       pathname,
@@ -94,9 +96,11 @@ export default function OffersPage() {
       setIsLoadingProducts(true);
       try {
         const stripeProducts = await getStripeProducts();
-        setProducts(stripeProducts);
-      } catch (error) {
-        console.error('Failed to fetch Stripe products:', error);
+        console.log('[OFFERS] Fetched Stripe products:', stripeProducts);
+        setProducts(stripeProducts || []);
+      } catch (error: any) {
+        console.error('[OFFERS] Failed to fetch Stripe products:', error);
+        setProducts([]); // Set empty array on error
         toast({
           title: 'Error',
           description: 'Could not load subscription plans. Please try again later.',
@@ -107,7 +111,7 @@ export default function OffersPage() {
       }
     };
     fetchProducts();
-  }, [toast]);
+  }, [toast, userProfile]);
 
 
   const handlePurchase = async (priceId: string) => {
@@ -152,8 +156,8 @@ export default function OffersPage() {
   }
 
   // Don't render offers page if user has active subscription (will redirect)
-  // Use helper function to check subscription status
-  const isActive = hasActiveSubscription(userProfile);
+  // Use helper function to check subscription status (handles null/undefined userProfile)
+  const isActive = userProfile ? hasActiveSubscription(userProfile) : false;
   
   // Show loading/redirect state if user has active subscription
   if (user && isActive) {
@@ -252,33 +256,76 @@ export default function OffersPage() {
                       No paid plans are configured in Stripe.
                     </div>
                   ) : (
-                    products.map((product) => {
-                      const isProcessing = isPurchasing === product.default_price.id;
+                    products.map((price) => {
+                      // StripeProduct now extends Stripe.Price, so price IS the price object
+                      const isProcessing = isPurchasing === price.id;
+                      const product = (price.product && typeof price.product === 'object') 
+                        ? price.product as Stripe.Product 
+                        : null;
+                      const tier = price.metadata?.tier || price.nickname || 'Standard';
+                      const tierName = tier.charAt(0).toUpperCase() + tier.slice(1);
+                      
+                      // Get tier-specific features based on tier name
+                      const getTierFeatures = (tierName: string) => {
+                        const lower = tierName.toLowerCase();
+                        if (lower.includes('premium')) {
+                          return [
+                            'Unlimited vessels',
+                            'Advanced analytics',
+                            'Passage log book',
+                            'Bridge watch log',
+                            'Priority support',
+                          ];
+                        } else if (lower.includes('pro') || lower.includes('professional')) {
+                          return [
+                            'Everything in Premium',
+                            'API access',
+                            'Custom integrations',
+                            'Dedicated support',
+                            'Advanced reporting',
+                          ];
+                        } else {
+                          return [
+                            'Up to 3 vessels',
+                            'Sea time tracking',
+                            'Basic analytics',
+                            'PDF exports',
+                            'Email support',
+                          ];
+                        }
+                      };
+                      
+                      const features = getTierFeatures(tierName);
+                      const amount = (price.unit_amount || 0) / 100;
+                      const interval = price.recurring?.interval || 'month';
+                      
                       return (
                         <Card
-                          key={product.id}
+                          key={price.id}
                           className="flex flex-col rounded-2xl"
                         >
                           <CardHeader className="flex-grow">
                             <CardTitle className="font-headline text-2xl">
-                              {product.name}
+                              {tierName}
                             </CardTitle>
                             <div className="flex items-baseline gap-1">
                               <span className="text-4xl font-bold tracking-tight">
-                                £{((product.default_price.unit_amount || 0) / 100).toFixed(2)}
+                                £{amount.toFixed(2)}
                               </span>
                               <span className="text-sm font-semibold text-muted-foreground">
-                                  / {product.default_price.recurring?.interval}
+                                  / {interval}
                               </span>
                             </div>
-                            <CardDescription>{product.description}</CardDescription>
+                            <CardDescription>
+                              {product?.description || `Subscribe to the ${tierName.toLowerCase()} plan`}
+                            </CardDescription>
                           </CardHeader>
                           <CardContent>
                              <ul className="space-y-4">
-                                {product.features && product.features.map((feature) => (
-                                    <li key={feature.name} className="flex items-start">
+                                {features.map((feature, idx) => (
+                                    <li key={idx} className="flex items-start">
                                     <Check className="mr-3 h-5 w-5 flex-shrink-0 text-primary" />
-                                    <span>{feature.name}</span>
+                                    <span>{feature}</span>
                                     </li>
                                 ))}
                             </ul>
@@ -288,7 +335,7 @@ export default function OffersPage() {
                               className="w-full rounded-full"
                               variant="outline"
                               disabled={isPurchasing !== null}
-                              onClick={() => handlePurchase(product.default_price.id)}
+                              onClick={() => handlePurchase(price.id)}
                             >
                               {isProcessing && (
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
