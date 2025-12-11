@@ -194,11 +194,22 @@ export default function OffersPage() {
     if (hasActiveSub) return;
     
     const fetchProducts = async () => {
+      console.log('========================================');
+      console.log('[OFFERS PAGE] ===== FETCHING PRODUCTS =====');
+      console.log('[OFFERS PAGE] Timestamp:', new Date().toISOString());
+      console.log('========================================');
+      
       try {
-        console.log('[OFFERS] Fetching Stripe prices...');
+        console.log('[OFFERS PAGE] Calling getStripeProducts()...');
         const stripePrices: StripeProduct[] = await getStripeProducts();
 
-        console.log('[OFFERS] Received prices from Stripe:', stripePrices.length);
+        console.log('[OFFERS PAGE] ✅ Received prices from Stripe:', stripePrices.length);
+        console.log('[OFFERS PAGE] Prices received:', stripePrices.map((p: any) => ({
+          id: p.id,
+          amount: p.unit_amount ? `£${(p.unit_amount / 100).toFixed(2)}` : 'N/A',
+          interval: p.recurring?.interval,
+          tier: p.metadata?.tier || p.nickname || 'unknown',
+        })));
 
         const getTemplateTierKey = (templateName: string) => {
           const lower = templateName.toLowerCase();
@@ -206,8 +217,12 @@ export default function OffersPage() {
           return lower;
         };
 
+        console.log('[OFFERS PAGE] Mapping prices to plan templates...');
+        console.log('[OFFERS PAGE] Available templates:', planTemplates.map(t => t.name));
+        
         const mappedPlans: Plan[] = planTemplates.map((template) => {
           const templateTier = getTemplateTierKey(template.name);
+          console.log(`[OFFERS PAGE] Mapping template "${template.name}" (tier key: "${templateTier}")...`);
 
           const matchingPrice = stripePrices.find((price) => {
             const anyPrice: any = price;
@@ -222,6 +237,14 @@ export default function OffersPage() {
               priceTier.includes(templateTier) ||
               templateTier.includes(priceTier);
 
+            if (match) {
+              console.log(`[OFFERS PAGE] ✅ Found match for "${template.name}":`, {
+                price_id: anyPrice.id,
+                price_tier: priceTier,
+                template_tier: templateTier,
+              });
+            }
+
             return match;
           });
 
@@ -230,14 +253,24 @@ export default function OffersPage() {
             const amount = (anyPrice.unit_amount ?? 0) / 100;
             const interval = anyPrice.recurring?.interval || 'month';
 
-            return {
+            const mappedPlan = {
               ...template,
               price: `£${amount.toFixed(2)}`,
               priceSuffix: `/${interval}`,
               priceId: anyPrice.id,
             };
+            
+            console.log(`[OFFERS PAGE] ✅ Mapped "${template.name}" to:`, {
+              price: mappedPlan.price,
+              priceId: mappedPlan.priceId,
+              interval: interval,
+            });
+            
+            return mappedPlan;
           }
 
+          console.log(`[OFFERS PAGE] ⚠️ No Stripe price found for "${template.name}", using template defaults`);
+          
           // Fallback to template values if no Stripe price found
           return {
             ...template,
@@ -245,10 +278,39 @@ export default function OffersPage() {
           };
         });
 
+        console.log('[OFFERS PAGE] Final mapped plans:');
+        mappedPlans.forEach((plan, index) => {
+          console.log(`[OFFERS PAGE] Plan ${index + 1}:`, {
+            name: plan.name,
+            price: plan.price,
+            priceId: plan.priceId || 'NOT SET',
+            hasPriceId: !!plan.priceId,
+          });
+        });
+
+        const plansWithPriceIds = mappedPlans.filter(p => p.priceId).length;
+        console.log('[OFFERS PAGE] Summary:', {
+          total_plans: mappedPlans.length,
+          plans_with_price_ids: plansWithPriceIds,
+          plans_without_price_ids: mappedPlans.length - plansWithPriceIds,
+        });
+
+        console.log('[OFFERS PAGE] Setting plans state...');
         setPlans(mappedPlans);
-      } catch (error) {
-        console.error('[OFFERS] Failed to fetch Stripe prices:', error);
+        console.log('[OFFERS PAGE] ✅ Plans set successfully');
+        console.log('========================================');
+      } catch (error: any) {
+        console.error('========================================');
+        console.error('[OFFERS PAGE] ❌ ERROR FETCHING PRODUCTS');
+        console.error('[OFFERS PAGE] Error message:', error?.message);
+        console.error('[OFFERS PAGE] Error type:', error?.type);
+        console.error('[OFFERS PAGE] Error code:', error?.code);
+        console.error('[OFFERS PAGE] Error stack:', error?.stack);
+        console.error('[OFFERS PAGE] Full error:', error);
+        console.error('[OFFERS PAGE] ========================================');
+        
         // Fallback to templates without price IDs
+        console.log('[OFFERS PAGE] Falling back to template defaults (no price IDs)');
         setPlans(
           planTemplates.map((t) => ({ ...t, priceId: undefined })),
         );
@@ -259,6 +321,7 @@ export default function OffersPage() {
         });
       } finally {
         setIsLoading(false);
+        console.log('[OFFERS PAGE] Fetch complete, loading set to false');
       }
     };
 

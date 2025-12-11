@@ -33,97 +33,157 @@ const SUBSCRIPTION_PRODUCT_ID = 'prod_TaGxvKHBvt0Ajn';
  * (each price represents a tier: standard / premium / professional)
  */
 export async function getStripeProducts(): Promise<StripeProduct[]> {
+
   console.log(
-    '[STRIPE] Fetching prices for subscription product ID:',
-    
-    SUBSCRIPTION_PRODUCT_ID,
+    '[STRIPE] Using secret key prefix:',
+    process.env.STRIPE_SECRET_KEY?.slice(0, 8),
   );
 
-  console.log("USING STRIPE KEY:", process.env.STRIPE_SECRET_KEY?.slice(0, 10));
+  
+  console.log('========================================');
+  console.log('[STRIPE] ===== FETCHING PRODUCTS =====');
+  console.log('[STRIPE] Product ID:', SUBSCRIPTION_PRODUCT_ID);
+  console.log('[STRIPE] Environment:', process.env.STRIPE_SECRET_KEY?.startsWith('sk_live_') ? 'LIVE' : 'SANDBOX');
+  console.log('[STRIPE] API Key (first 10 chars):', process.env.STRIPE_SECRET_KEY?.slice(0, 10) || 'NOT SET');
+  console.log('[STRIPE] Timestamp:', new Date().toISOString());
+  console.log('========================================');
 
 
-  // Fetch all active prices for the subscription product, expanding the product
-  const prices = await stripe.prices.list({
-    active: true,
-    product: SUBSCRIPTION_PRODUCT_ID,
-    limit: 100,
-    expand: ['data.product'],
-  });
+  try {
+    // Fetch all active prices for the subscription product, expanding the product
+    console.log('[STRIPE] Calling stripe.prices.list()...');
+    const prices = await stripe.prices.list({
+      active: true,
+      product: SUBSCRIPTION_PRODUCT_ID,
+      limit: 100,
+      expand: ['data.product'],
+    });
+    console.log('[STRIPE] ✅ API call successful');
+    console.log('[STRIPE] Response status: OK');
 
-  console.log('[STRIPE] Total prices fetched:', prices.data.length);
-  console.log(
-    '[STRIPE] Raw prices data:',
-    JSON.stringify(
-      prices.data.map((p) => ({
-        id: p.id,
-        product_id:
-          typeof p.product === 'string'
-            ? p.product
-            : (p.product as Stripe.Product)?.id,
-        product_name:
-          typeof p.product === 'string'
-            ? 'string'
-            : (p.product as Stripe.Product)?.name,
-        unit_amount: p.unit_amount,
-        currency: p.currency,
-        recurring: p.recurring,
-        metadata: p.metadata,
-        nickname: p.nickname,
-      })),
-      null,
-      2,
-    ),
-  );
-
-  // Filter to ensure we only return active prices on the right product
-  const filteredPrices: StripeProduct[] = prices.data.filter((price) => {
-    const product = price.product as Stripe.Product;
-
-    const isSubscriptionProduct =
-      product?.id === SUBSCRIPTION_PRODUCT_ID ||
-      (typeof price.product === 'string' &&
-        price.product === SUBSCRIPTION_PRODUCT_ID);
-
-    const isActive =
-      isSubscriptionProduct && !!product && product.active && price.active;
-
-    console.log('[STRIPE] Price filter check:', {
-      price_id: price.id,
-      product_id: product?.id,
-      product_name: product?.name,
-      isSubscriptionProduct,
-      product_active: product?.active,
-      price_active: price.active,
-      isActive,
+    console.log('[STRIPE] Total prices fetched:', prices.data.length);
+    console.log('[STRIPE] Raw prices summary:', {
+      count: prices.data.length,
+      has_more: prices.has_more,
     });
 
-    return isActive;
-  }) as StripeProduct[];
-
-  console.log(
-    '[STRIPE] Filtered prices (subscription product only):',
-    filteredPrices.length,
-  );
-
-  console.log(
-    '[STRIPE] Final prices array:',
-    JSON.stringify(
-      filteredPrices.map((p) => ({
-        id: p.id,
-        unit_amount: p.unit_amount,
+    // Log each price with key details
+    prices.data.forEach((p, index) => {
+      const product = typeof p.product === 'string' ? p.product : (p.product as Stripe.Product);
+      console.log(`[STRIPE] Price ${index + 1}/${prices.data.length}:`, {
+        price_id: p.id,
+        product_id: typeof product === 'string' ? product : product?.id,
+        product_name: typeof product === 'string' ? 'N/A' : product?.name,
+        amount: p.unit_amount ? `£${(p.unit_amount / 100).toFixed(2)}` : 'N/A',
         currency: p.currency,
-        interval: p.recurring?.interval,
-        metadata: p.metadata,
-        nickname: p.nickname,
-        product_id: p.product.id,
-        product_name: p.product.name,
-      })),
-      null,
-      2,
-    ),
-  );
+        interval: p.recurring?.interval || 'one-time',
+        active: p.active,
+        nickname: p.nickname || 'none',
+        metadata_tier: (p.metadata as any)?.tier || 'none',
+        livemode: p.livemode,
+      });
+    });
 
-  return filteredPrices;
+    console.log(
+      '[STRIPE] Detailed raw prices data:',
+      JSON.stringify(
+        prices.data.map((p) => ({
+          id: p.id,
+          product_id:
+            typeof p.product === 'string'
+              ? p.product
+              : (p.product as Stripe.Product)?.id,
+          product_name:
+            typeof p.product === 'string'
+              ? 'string'
+              : (p.product as Stripe.Product)?.name,
+          unit_amount: p.unit_amount,
+          currency: p.currency,
+          recurring: p.recurring,
+          metadata: p.metadata,
+          nickname: p.nickname,
+          livemode: p.livemode,
+        })),
+        null,
+        2,
+      ),
+    );
+
+    // Filter to ensure we only return active prices on the right product
+    console.log('[STRIPE] Filtering prices...');
+    const filteredPrices: StripeProduct[] = prices.data.filter((price) => {
+      const product = price.product as Stripe.Product;
+
+      const isSubscriptionProduct =
+        product?.id === SUBSCRIPTION_PRODUCT_ID ||
+        (typeof price.product === 'string' &&
+          price.product === SUBSCRIPTION_PRODUCT_ID);
+
+      const isActive =
+        isSubscriptionProduct && !!product && product.active && price.active;
+
+      if (!isActive) {
+        console.log('[STRIPE] ⚠️ Price filtered out:', {
+          price_id: price.id,
+          product_id: product?.id,
+          product_name: product?.name,
+          isSubscriptionProduct,
+          product_active: product?.active,
+          price_active: price.active,
+          reason: !isSubscriptionProduct ? 'wrong_product' : !product?.active ? 'product_inactive' : !price.active ? 'price_inactive' : 'unknown',
+        });
+      }
+
+      return isActive;
+    }) as StripeProduct[];
+
+    console.log(
+      '[STRIPE] Filtered prices (subscription product only):',
+      filteredPrices.length,
+    );
+    console.log(
+      '[STRIPE] Prices before filtering:',
+      prices.data.length,
+      '| After filtering:',
+      filteredPrices.length,
+    );
+
+    console.log(
+      '[STRIPE] Final filtered prices array:',
+      JSON.stringify(
+        filteredPrices.map((p) => ({
+          id: p.id,
+          unit_amount: p.unit_amount,
+          currency: p.currency,
+          interval: p.recurring?.interval,
+          metadata: p.metadata,
+          nickname: p.nickname,
+          product_id: p.product.id,
+          product_name: p.product.name,
+          livemode: p.livemode,
+        })),
+        null,
+        2,
+      ),
+    );
+
+    console.log('========================================');
+    console.log('[STRIPE] ✅ FETCH COMPLETE');
+    console.log('[STRIPE] Returning', filteredPrices.length, 'prices');
+    console.log('[STRIPE] ========================================');
+
+    return filteredPrices;
+  } catch (error: any) {
+    console.error('========================================');
+    console.error('[STRIPE] ❌ ERROR FETCHING PRODUCTS');
+    console.error('[STRIPE] Error message:', error.message);
+    console.error('[STRIPE] Error type:', error.type);
+    console.error('[STRIPE] Error code:', error.code);
+    console.error('[STRIPE] Error stack:', error.stack);
+    console.error('[STRIPE] Full error:', error);
+    console.error('[STRIPE] ========================================');
+    throw error;
+  }
 }
 
 export async function createCheckoutSession(

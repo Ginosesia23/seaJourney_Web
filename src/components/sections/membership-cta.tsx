@@ -155,17 +155,29 @@ export default function MembershipCTA() {
 
   useEffect(() => {
     const fetchProducts = async () => {
+      console.log('========================================');
+      console.log('[MEMBERSHIP CTA] ===== FETCHING PRODUCTS =====');
+      console.log('[MEMBERSHIP CTA] Timestamp:', new Date().toISOString());
+      console.log('========================================');
+      
       try {
-        console.log('[MEMBERSHIP CTA] Fetching Stripe prices...');
+        console.log('[MEMBERSHIP CTA] Calling getStripeProducts()...');
         // ⚠️ getStripeProducts should now return Stripe Price objects, NOT products
         const stripePrices: StripeProduct[] = await getStripeProducts();
 
         console.log(
-          '[MEMBERSHIP CTA] Received prices from Stripe:',
+          '[MEMBERSHIP CTA] ✅ Received prices from Stripe:',
           stripePrices.length,
         );
+        console.log('[MEMBERSHIP CTA] Prices summary:', stripePrices.map((p: any) => ({
+          id: p.id,
+          amount: p.unit_amount ? `£${(p.unit_amount / 100).toFixed(2)}` : 'N/A',
+          interval: p.recurring?.interval,
+          tier: p.metadata?.tier || p.nickname || 'unknown',
+          livemode: p.livemode,
+        })));
         console.log(
-          '[MEMBERSHIP CTA] Prices data:',
+          '[MEMBERSHIP CTA] Detailed prices data:',
           JSON.stringify(
             stripePrices.map((p) => ({
               id: (p as any).id,
@@ -178,6 +190,7 @@ export default function MembershipCTA() {
                 typeof (p as any).product === 'string'
                   ? (p as any).product
                   : (p as any).product?.id,
+              livemode: (p as any).livemode,
             })),
             null,
             2,
@@ -258,31 +271,45 @@ export default function MembershipCTA() {
           };
         });
 
-        console.log(
-          '[MEMBERSHIP CTA] Final mapped plans:',
-          JSON.stringify(
-            mappedPlans.map((p) => ({
-              name: p.name,
-              price: p.price,
-              priceId: p.priceId,
-            })),
-            null,
-            2,
-          ),
-        );
+        console.log('[MEMBERSHIP CTA] Final mapped plans:');
+        mappedPlans.forEach((plan, index) => {
+          console.log(`[MEMBERSHIP CTA] Plan ${index + 1}:`, {
+            name: plan.name,
+            price: plan.price,
+            priceId: plan.priceId || 'NOT SET',
+            hasPriceId: !!plan.priceId,
+          });
+        });
+        
+        const plansWithPriceIds = mappedPlans.filter(p => p.priceId).length;
+        console.log('[MEMBERSHIP CTA] Summary:', {
+          total_plans: mappedPlans.length,
+          plans_with_price_ids: plansWithPriceIds,
+          plans_without_price_ids: mappedPlans.length - plansWithPriceIds,
+        });
 
+        console.log('[MEMBERSHIP CTA] Setting plans state...');
         setPlans(mappedPlans);
-      } catch (error) {
-        console.error(
-          '[MEMBERSHIP CTA] Failed to fetch Stripe prices:',
-          error,
-        );
+        console.log('[MEMBERSHIP CTA] ✅ Plans set successfully');
+        console.log('========================================');
+      } catch (error: any) {
+        console.error('========================================');
+        console.error('[MEMBERSHIP CTA] ❌ ERROR FETCHING PRODUCTS');
+        console.error('[MEMBERSHIP CTA] Error message:', error?.message);
+        console.error('[MEMBERSHIP CTA] Error type:', error?.type);
+        console.error('[MEMBERSHIP CTA] Error code:', error?.code);
+        console.error('[MEMBERSHIP CTA] Error stack:', error?.stack);
+        console.error('[MEMBERSHIP CTA] Full error:', error);
+        console.error('[MEMBERSHIP CTA] ========================================');
+        
         // Fallback to templates without price IDs
+        console.log('[MEMBERSHIP CTA] Falling back to template defaults (no price IDs)');
         setPlans(
           planTemplates.map((t) => ({ ...t, priceId: undefined })),
         );
       } finally {
         setIsLoading(false);
+        console.log('[MEMBERSHIP CTA] Fetch complete, loading set to false');
       }
     };
 
