@@ -33,33 +33,53 @@ const SUBSCRIPTION_PRODUCT_ID = 'prod_TaGxvKHBvt0Ajn';
  * (each price represents a tier: standard / premium / professional)
  */
 export async function getStripeProducts(): Promise<StripeProduct[]> {
-
-  console.log(
-    '[STRIPE] Using secret key prefix:',
-    process.env.STRIPE_SECRET_KEY?.slice(0, 8),
-  );
-
-  
   console.log('========================================');
   console.log('[STRIPE] ===== FETCHING PRODUCTS =====');
   console.log('[STRIPE] Product ID:', SUBSCRIPTION_PRODUCT_ID);
-  console.log('[STRIPE] Environment:', process.env.STRIPE_SECRET_KEY?.startsWith('sk_live_') ? 'LIVE' : 'SANDBOX');
-  console.log('[STRIPE] API Key (first 10 chars):', process.env.STRIPE_SECRET_KEY?.slice(0, 10) || 'NOT SET');
   console.log('[STRIPE] Timestamp:', new Date().toISOString());
+  
+  // Validate Stripe secret key
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    const errorMsg = '[STRIPE] ❌ ERROR: STRIPE_SECRET_KEY is not set in environment variables';
+    console.error(errorMsg);
+    throw new Error('Stripe secret key is not configured. Please set STRIPE_SECRET_KEY environment variable.');
+  }
+  
+  console.log('[STRIPE] Secret key prefix:', secretKey.slice(0, 8));
+  console.log('[STRIPE] Environment:', secretKey.startsWith('sk_live_') ? 'LIVE' : secretKey.startsWith('sk_test_') ? 'SANDBOX' : 'UNKNOWN');
+  console.log('[STRIPE] API Key (first 10 chars):', secretKey.slice(0, 10));
+  
+  // Validate Stripe client
+  if (!stripe) {
+    const errorMsg = '[STRIPE] ❌ ERROR: Stripe client is not initialized';
+    console.error(errorMsg);
+    throw new Error('Stripe client is not initialized. Please check your Stripe configuration.');
+  }
+  
+  console.log('[STRIPE] Stripe client initialized:', !!stripe);
   console.log('========================================');
-
 
   try {
     // Fetch all active prices for the subscription product, expanding the product
     console.log('[STRIPE] Calling stripe.prices.list()...');
+    console.log('[STRIPE] Request params:', {
+      active: true,
+      product: SUBSCRIPTION_PRODUCT_ID,
+      limit: 100,
+      expand: ['data.product'],
+    });
+    
     const prices = await stripe.prices.list({
       active: true,
       product: SUBSCRIPTION_PRODUCT_ID,
       limit: 100,
       expand: ['data.product'],
     });
+    
     console.log('[STRIPE] ✅ API call successful');
     console.log('[STRIPE] Response status: OK');
+    console.log('[STRIPE] Response has_more:', prices.has_more);
 
     console.log('[STRIPE] Total prices fetched:', prices.data.length);
     console.log('[STRIPE] Raw prices summary:', {
@@ -176,11 +196,30 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
   } catch (error: any) {
     console.error('========================================');
     console.error('[STRIPE] ❌ ERROR FETCHING PRODUCTS');
-    console.error('[STRIPE] Error message:', error.message);
-    console.error('[STRIPE] Error type:', error.type);
-    console.error('[STRIPE] Error code:', error.code);
-    console.error('[STRIPE] Error stack:', error.stack);
-    console.error('[STRIPE] Full error:', error);
+    console.error('[STRIPE] Error name:', error?.name);
+    console.error('[STRIPE] Error message:', error?.message);
+    console.error('[STRIPE] Error type:', error?.type);
+    console.error('[STRIPE] Error code:', error?.code);
+    console.error('[STRIPE] Error statusCode:', error?.statusCode);
+    console.error('[STRIPE] Error requestId:', error?.requestId);
+    
+    // Check for common errors
+    if (error?.code === 'resource_missing') {
+      console.error('[STRIPE] ⚠️ Product ID may be incorrect or not found in this Stripe account');
+      console.error('[STRIPE] Current Product ID:', SUBSCRIPTION_PRODUCT_ID);
+    }
+    
+    if (error?.statusCode === 401) {
+      console.error('[STRIPE] ⚠️ Authentication failed - check your STRIPE_SECRET_KEY');
+      console.error('[STRIPE] Key prefix:', process.env.STRIPE_SECRET_KEY?.slice(0, 10) || 'NOT SET');
+    }
+    
+    if (error?.code === 'api_key_expired' || error?.message?.includes('Invalid API Key')) {
+      console.error('[STRIPE] ⚠️ Invalid or expired API key');
+    }
+    
+    console.error('[STRIPE] Error stack:', error?.stack);
+    console.error('[STRIPE] Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
     console.error('[STRIPE] ========================================');
     throw error;
   }
