@@ -5,11 +5,7 @@ const secretKey = process.env.STRIPE_SECRET_KEY;
 
 if (!secretKey) {
 
-  console.log('========================================');
-  console.log('[STRIPE INIT] ===== STRIPE_SECRET_KEY IS' + secretKey);
-  console.log('========================================');
 
-  
   console.error(
     '[STRIPE INIT] ❌ STRIPE_SECRET_KEY is NOT set. Stripe calls will fail.'
   );

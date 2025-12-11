@@ -34,7 +34,7 @@ export interface StripePriceWithProduct extends Stripe.Price {
 export async function getStripeProducts(): Promise<StripeProduct[]> {
   console.log('========================================');
   console.log('[STRIPE] ===== FETCHING PRODUCTS =====');
-  console.log('[STRIPE] Product ID:', process.env.SUBSCRIPTION_PRODUCT_ID);
+  console.log('[STRIPE] Product ID:', process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID);
   console.log('[STRIPE] Timestamp:', new Date().toISOString());
   
   // Validate Stripe secret key
@@ -64,14 +64,14 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
     console.log('[STRIPE] Calling stripe.prices.list()...');
     console.log('[STRIPE] Request params:', {
       active: true,
-      product: process.env.SUBSCRIPTION_PRODUCT_ID,
+      product: process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID,
       limit: 100,
       expand: ['data.product'],
     });
     
     const prices = await stripe.prices.list({
       active: true,
-      product: process.env.SUBSCRIPTION_PRODUCT_ID,
+      product: process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID,
       limit: 100,
       expand: ['data.product'],
     });
@@ -134,9 +134,9 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
       const product = price.product as Stripe.Product;
 
       const isSubscriptionProduct =
-        product?.id === process.env.SUBSCRIPTION_PRODUCT_ID ||
+        product?.id === process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID ||
         (typeof price.product === 'string' &&
-          price.product === process.env.SUBSCRIPTION_PRODUCT_ID);
+          price.product === process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID);
 
       const isActive =
         isSubscriptionProduct && !!product && product.active && price.active;
@@ -205,7 +205,7 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
     // Check for common errors
     if (error?.code === 'resource_missing') {
       console.error('[STRIPE] ⚠️ Product ID may be incorrect or not found in this Stripe account');
-      console.error('[STRIPE] Current Product ID:', process.env.SUBSCRIPTION_PRODUCT_ID);
+      console.error('[STRIPE] Current Product ID:', process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID);
     }
     
     if (error?.statusCode === 401) {
