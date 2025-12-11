@@ -12,20 +12,62 @@ async function updateUserFromSubscription(
   const supabase = createSupabaseServerClient();
 
   const metadata = subscription.metadata || {};
-  const userId = metadata.userId;
-  const tier = (metadata.tier || 'standard').toLowerCase();
-  const status = subscription.status; // trialing, active, past_due, canceled, etc.
+  let userId = metadata.userId || null;
   const customerId = subscription.customer as string;
+
+  // 👉 Fallback: look up user by stripe_customer_id
+  if (!userId && customerId) {
+    console.log(
+      '[STRIPE WEBHOOK] No userId in metadata, trying stripe_customer_id lookup...',
+      { customerId },
+    );
+
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id')
+      .eq('stripe_customer_id', customerId)
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        '[STRIPE WEBHOOK] Error looking up user by stripe_customer_id:',
+        error,
+      );
+    } else if (user) {
+      userId = user.id;
+      console.log(
+        '[STRIPE WEBHOOK] Found user from stripe_customer_id lookup:',
+        userId,
+      );
+    } else {
+      console.warn(
+        '[STRIPE WEBHOOK] No user found for stripe_customer_id',
+        customerId,
+      );
+    }
+  }
 
   if (!userId) {
     console.warn(
-      '[STRIPE WEBHOOK] Subscription has no userId in metadata, skipping update',
+      '[STRIPE WEBHOOK] Subscription has no userId and no matching stripe_customer_id, skipping update',
       { subscriptionId: subscription.id },
     );
     return;
   }
 
-  let subscriptionStatus: string = 'inactive';
+  // Derive tier from price / metadata
+  const item = subscription.items.data[0];
+  const price = item.price as StripeType.Price;
+  const product = price.product as StripeType.Product | string;
+
+  let tier =
+    (metadata.tier ||
+      price.metadata?.tier ||
+      (typeof product !== 'string' ? product.metadata?.tier : '') ||
+      '')?.toLowerCase() || 'standard';
+
+  const status = subscription.status;
+  let subscriptionStatus = 'inactive';
 
   if (status === 'active' || status === 'trialing') {
     subscriptionStatus = 'active';
@@ -35,17 +77,23 @@ async function updateUserFromSubscription(
     status === 'incomplete'
   ) {
     subscriptionStatus = 'past_due';
-  } else if (status === 'canceled' || status === 'incomplete_expired') {
+  } else if (
+    status === 'canceled' ||
+    status === 'incomplete_expired'
+  ) {
     subscriptionStatus = 'canceled';
   }
 
-  console.log('[STRIPE WEBHOOK] Updating user from subscription:', {
+  console.log('[STRIPE WEBHOOK] updateUserFromSubscription:', {
     userId,
     tier,
-    status,
+    stripeStatus: status,
     subscriptionStatus,
     subscriptionId: subscription.id,
     customerId,
+    priceId: price.id,
+    priceNickname: price.nickname,
+    priceMetadataTier: price.metadata?.tier,
   });
 
   const { error } = await supabase
@@ -64,6 +112,7 @@ async function updateUserFromSubscription(
     console.log('[STRIPE WEBHOOK] ✅ User updated successfully');
   }
 }
+
 
 export async function POST(req: NextRequest) {
   const sig = req.headers.get('stripe-signature');
