@@ -74,7 +74,7 @@ const testimonialSchema = z.object({
 
 type TestimonialFormValues = z.infer<typeof testimonialSchema>;
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://www.seajourney.co.uk';
 
 // Helper function to create or get a secure signoff token
 async function createOrGetSignoffToken(
