@@ -11,6 +11,8 @@ export interface UserProfile {
   role: 'crew' | 'vessel' | 'admin';
   subscriptionTier: string;
   subscriptionStatus: 'active' | 'inactive' | 'past-due';
+  stripeCustomerId?: string;       // <- add
+  stripeSubscriptionId?: string;   // <- add if you want
   activeVesselId?: string;
 }
 

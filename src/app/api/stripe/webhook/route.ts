@@ -15,10 +15,10 @@ async function updateUserFromSubscription(
   let userId = metadata.userId || null;
   const customerId = subscription.customer as string;
 
-  // 👉 Fallback: look up user by stripe_customer_id
+  // Fallback: look up by stripe_customer_id
   if (!userId && customerId) {
     console.log(
-      '[STRIPE WEBHOOK] No userId in metadata, trying stripe_customer_id lookup...',
+      '[STRIPE WEBHOOK] No userId in metadata, trying stripe_customer_id lookup',
       { customerId },
     );
 
@@ -55,7 +55,7 @@ async function updateUserFromSubscription(
     return;
   }
 
-  // Derive tier from price / metadata
+  // Derive tier from active price
   const item = subscription.items.data[0];
   const price = item.price as StripeType.Price;
   const product = price.product as StripeType.Product | string;
@@ -114,6 +114,7 @@ async function updateUserFromSubscription(
 }
 
 
+
 export async function POST(req: NextRequest) {
   const sig = req.headers.get('stripe-signature');
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -145,45 +146,48 @@ export async function POST(req: NextRequest) {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as StripeType.Checkout.Session;
-
+      
         const metadata = session.metadata || {};
         const userId = metadata.userId;
         const tier = (metadata.tier || 'standard').toLowerCase();
         const subscriptionId = session.subscription as string | null;
-
+        const customerId = session.customer as string | null;
+      
         console.log('[STRIPE WEBHOOK] checkout.session.completed payload:', {
           userId,
           tier,
           subscriptionId,
+          customerId,
           payment_status: session.payment_status,
           status: session.status,
         });
-
+      
         if (!userId) {
           console.warn(
             '[STRIPE WEBHOOK] Session has no userId metadata, skipping DB update',
           );
           break;
         }
-
+      
         if (session.payment_status !== 'paid') {
           console.warn(
             '[STRIPE WEBHOOK] Session not fully paid, skipping premium grant',
           );
           break;
         }
-
+      
         const supabase = createSupabaseServerClient();
-
+      
         const { error } = await supabase
           .from('users')
           .update({
             subscription_tier: tier,
             subscription_status: 'active',
             stripe_subscription_id: subscriptionId,
+            stripe_customer_id: customerId, // 🔥 store it here
           })
           .eq('id', userId);
-
+      
         if (error) {
           console.error(
             '[STRIPE WEBHOOK] Supabase update error (session completed):',
@@ -196,21 +200,18 @@ export async function POST(req: NextRequest) {
         }
         break;
       }
+      
 
       case 'customer.subscription.created':
-      case 'customer.subscription.updated': {
-        const subscription = event.data
-          .object as StripeType.Subscription;
-
-        console.log(
-          `[STRIPE WEBHOOK] Handling ${event.type} for subscription ${subscription.id}`,
-        );
-
-        // Use helper that is defensive about metadata
-        await updateUserFromSubscription(subscription);
-        break;
-      }
-
+        case 'customer.subscription.updated': {
+          const subscription = event.data.object as StripeType.Subscription;
+          console.log(
+            `[STRIPE WEBHOOK] Handling ${event.type} for subscription ${subscription.id}`,
+          );
+          await updateUserFromSubscription(subscription);
+          break;
+        }
+        
       case 'customer.subscription.deleted': {
         const subscription = event.data
           .object as StripeType.Subscription;
