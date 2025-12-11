@@ -132,40 +132,6 @@ function SignupPageInner() {
         throw new Error('User creation failed');
       }
 
-      // Create / upsert user profile
-      // NOTE: If email confirmation is required, there's no session yet, so RLS will block the insert.
-      // The profile will be created automatically during email confirmation (see auth/callback page).
-      // However, if there IS a session (email confirmation disabled or already confirmed), create it now.
-      if (authData.session) {
-        const { error: profileError } = await supabase
-          .from('users')
-          .upsert(
-            {
-              id: authData.user.id,
-              email: data.email,
-              username: data.username,
-              first_name: '',
-              last_name: '',
-              registration_date: new Date().toISOString(),
-              role: 'crew',
-              subscription_tier: 'free',
-              subscription_status: 'inactive',
-            },
-            {
-              onConflict: 'id',
-            },
-          );
-
-        if (profileError) {
-          console.error('Profile creation error:', profileError);
-          // Don't show error toast - profile will be created on email confirmation
-        } else {
-          console.log('User profile created successfully during signup');
-        }
-      } else {
-        console.log('No session during signup - profile will be created during email confirmation');
-      }
-
       // Email confirmation flow
       if (authData.user && !authData.session) {
         toast({

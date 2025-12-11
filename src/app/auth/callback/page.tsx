@@ -155,12 +155,30 @@ function AuthCallbackInner() {
                   
                   console.log('[AUTH CALLBACK] Attempting to insert user with data:', userData);
                   
+                  // Verify we have a valid session before inserting
+                  const { data: { session: currentSession } } = await supabase.auth.getSession();
+                  if (!currentSession) {
+                    console.error('[AUTH CALLBACK] ERROR: No session available for insert! Cannot create user profile.');
+                  } else {
+                    console.log('[AUTH CALLBACK] Session confirmed before insert:', {
+                      userId: currentSession.user.id,
+                      hasAccessToken: !!currentSession.access_token,
+                    });
+                  }
+                  
                   // Create user record directly (we have a session now, so RLS will allow it)
+                  console.log('[AUTH CALLBACK] Calling supabase.from("users").insert()...');
                   const { data: insertedUser, error: insertError } = await supabase
                     .from('users')
                     .insert(userData)
                     .select()
                     .single();
+
+                  console.log('[AUTH CALLBACK] Insert response:', {
+                    hasData: !!insertedUser,
+                    hasError: !!insertError,
+                    error: insertError,
+                  });
 
                   if (insertError) {
                     console.error('[AUTH CALLBACK] Error creating user profile:', insertError);
@@ -169,6 +187,7 @@ function AuthCallbackInner() {
                       code: insertError.code,
                       details: insertError.details,
                       hint: insertError.hint,
+                      statusCode: (insertError as any).status || (insertError as any).statusCode,
                     });
                     
                     // Try using updateUserProfile as fallback

@@ -15,7 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useSupabase, useUser } from '@/supabase';
 import { Loader2 } from 'lucide-react';
 import LogoOnboarding from '@/components/logo-onboarding';
-import { getUserProfile } from '@/supabase/database/queries';
+import { getUserProfile, updateUserProfile } from '@/supabase/database/queries';
 import type { UserProfile } from '@/lib/types';
 
 const loginSchema = z.object({
@@ -104,8 +104,35 @@ export default function LoginPage() {
       }
 
       // Success - user is now authenticated
-      // The useEffect will handle the redirect after successful login
+      // Ensure user profile exists in users table (fallback if trigger/callback didn't create it)
       if (authData.user) {
+        try {
+          // Check if user profile exists
+          const userProfile = await getUserProfile(supabase, authData.user.id);
+          console.log('[LOGIN] User profile found:', userProfile);
+        } catch (profileError: any) {
+          // Profile doesn't exist - create it
+          console.log('[LOGIN] User profile not found, creating it...');
+          try {
+            await updateUserProfile(supabase, authData.user.id, {
+              email: authData.user.email || '',
+              username: authData.user.user_metadata?.username || `user_${authData.user.id.slice(0, 8)}`,
+              subscriptionTier: 'free',
+              subscriptionStatus: 'inactive',
+            });
+            console.log('[LOGIN] User profile created successfully');
+          } catch (createError: any) {
+            console.error('[LOGIN] Error creating user profile:', createError);
+            // Don't block login if profile creation fails, but log it
+            toast({
+              title: 'Login Successful',
+              description: 'Logged in successfully, but there was an issue with your profile. Please contact support if you experience any issues.',
+              variant: 'default',
+            });
+            return; // Return early so useEffect handles redirect
+          }
+        }
+        
         toast({
           title: 'Welcome Back!',
           description: 'You have been successfully logged in.',

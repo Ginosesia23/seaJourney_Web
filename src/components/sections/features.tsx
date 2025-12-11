@@ -259,12 +259,12 @@ const Features = () => {
           <h4 className="font-semibold text-sm text-white mb-1">February 2024</h4>
           {/* Day headers */}
           <div className="grid grid-cols-7 gap-0.5 mb-1.5">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
               <div key={day} className="text-center text-[10px] font-medium py-0.5" style={{ color: '#94a3b8' }}>
-                {day}
-              </div>
-            ))}
-          </div>
+              {day}
+            </div>
+          ))}
+        </div>
           
           {/* Calendar grid */}
           <div className="grid grid-cols-7 gap-0.5">
@@ -277,8 +277,8 @@ const Features = () => {
               const Icon = stateInfo?.icon;
               
               return (
-                <div
-                  key={idx}
+            <div
+              key={idx}
                   className="aspect-square rounded-lg text-[10px] font-medium transition-all duration-200 flex flex-col items-center justify-center relative group cursor-pointer hover:scale-110 hover:shadow-xl hover:z-10 hover:ring-2"
                   style={stateInfo ? {
                     backgroundColor: stateInfo.color,
@@ -303,13 +303,13 @@ const Features = () => {
                   {stateInfo && (
                     <div 
                       className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none z-50 shadow-2xl"
-                      style={{ 
+              style={{ 
                         backgroundColor: 'rgba(15, 23, 42, 0.98)',
                         border: `2px solid ${stateInfo.color}`,
                         color: 'white',
                         backdropFilter: 'blur(10px)'
-                      }}
-                    >
+              }}
+            >
                       <div className="flex items-center gap-2">
                         {Icon && <Icon className="h-3.5 w-3.5" style={{ color: stateInfo.color }} />}
                         <span className="font-semibold">February {date.day}, 2024</span>
@@ -321,8 +321,8 @@ const Features = () => {
                         <div className="w-2.5 h-2.5 rotate-45 border-r-2 border-b-2" style={{ backgroundColor: 'rgba(15, 23, 42, 0.98)', borderColor: stateInfo.color }}></div>
                       </div>
                     </div>
-                  )}
-                </div>
+              )}
+            </div>
               );
             })}
           </div>
