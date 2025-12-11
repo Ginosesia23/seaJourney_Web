@@ -4,7 +4,7 @@ import { stripe } from '@/lib/stripe';
 import { createSupabaseServerClient } from '@/supabase/server';
 import type StripeType from 'stripe';
 
-export const runtime = 'nodejs'; // important for raw body
+export const runtime = 'nodejs';
 
 async function updateUserFromSubscription(
   subscription: StripeType.Subscription,
@@ -15,7 +15,7 @@ async function updateUserFromSubscription(
   let userId = metadata.userId || null;
   const customerId = subscription.customer as string;
 
-  // Fallback: look up by stripe_customer_id
+  // Fallback: look up by stripe_customer_id if userId missing
   if (!userId && customerId) {
     console.log(
       '[STRIPE WEBHOOK] No userId in metadata, trying stripe_customer_id lookup',
@@ -55,7 +55,7 @@ async function updateUserFromSubscription(
     return;
   }
 
-  // Derive tier from active price
+  // Derive tier from price metadata / product metadata / subscription metadata
   const item = subscription.items.data[0];
   const price = item.price as StripeType.Price;
   const product = price.product as StripeType.Product | string;
@@ -113,21 +113,18 @@ async function updateUserFromSubscription(
   }
 }
 
-
-
 export async function POST(req: NextRequest) {
   const sig = req.headers.get('stripe-signature');
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!sig || !webhookSecret) {
     console.error(
-      '[STRIPE WEBHOOK] Missing stripe-signature header or webhook secret',
+      '[STRIPE WEBHOOK] Missing stripe-signature or webhook secret',
     );
     return new NextResponse('Bad Request', { status: 400 });
   }
 
   const rawBody = await req.text();
-
   let event: StripeType.Event;
 
   try {
@@ -144,15 +141,22 @@ export async function POST(req: NextRequest) {
 
   try {
     switch (event.type) {
+      //
+      // 1) INITIAL CHECKOUT COMPLETED
+      //
       case 'checkout.session.completed': {
         const session = event.data.object as StripeType.Checkout.Session;
-      
+
         const metadata = session.metadata || {};
         const userId = metadata.userId;
         const tier = (metadata.tier || 'standard').toLowerCase();
+
         const subscriptionId = session.subscription as string | null;
-        const customerId = session.customer as string | null;
-      
+        const customerId =
+          typeof session.customer === 'string'
+            ? session.customer
+            : (session.customer as StripeType.Customer | null)?.id || null;
+
         console.log('[STRIPE WEBHOOK] checkout.session.completed payload:', {
           userId,
           tier,
@@ -161,33 +165,33 @@ export async function POST(req: NextRequest) {
           payment_status: session.payment_status,
           status: session.status,
         });
-      
+
         if (!userId) {
           console.warn(
             '[STRIPE WEBHOOK] Session has no userId metadata, skipping DB update',
           );
           break;
         }
-      
+
         if (session.payment_status !== 'paid') {
           console.warn(
             '[STRIPE WEBHOOK] Session not fully paid, skipping premium grant',
           );
           break;
         }
-      
+
         const supabase = createSupabaseServerClient();
-      
+
         const { error } = await supabase
           .from('users')
           .update({
             subscription_tier: tier,
             subscription_status: 'active',
             stripe_subscription_id: subscriptionId,
-            stripe_customer_id: customerId, // 🔥 store it here
+            stripe_customer_id: customerId,
           })
           .eq('id', userId);
-      
+
         if (error) {
           console.error(
             '[STRIPE WEBHOOK] Supabase update error (session completed):',
@@ -200,18 +204,24 @@ export async function POST(req: NextRequest) {
         }
         break;
       }
-      
 
+      //
+      // 2) SUBSCRIPTION CREATED / UPDATED (UPGRADES, DOWNGRADES, RENEWALS)
+      //
       case 'customer.subscription.created':
-        case 'customer.subscription.updated': {
-          const subscription = event.data.object as StripeType.Subscription;
-          console.log(
-            `[STRIPE WEBHOOK] Handling ${event.type} for subscription ${subscription.id}`,
-          );
-          await updateUserFromSubscription(subscription);
-          break;
-        }
-        
+      case 'customer.subscription.updated': {
+        const subscription = event.data
+          .object as StripeType.Subscription;
+        console.log(
+          `[STRIPE WEBHOOK] Handling ${event.type} for subscription ${subscription.id}`,
+        );
+        await updateUserFromSubscription(subscription);
+        break;
+      }
+
+      //
+      // 3) SUBSCRIPTION DELETED (CANCELLED)
+      //
       case 'customer.subscription.deleted': {
         const subscription = event.data
           .object as StripeType.Subscription;
@@ -220,28 +230,7 @@ export async function POST(req: NextRequest) {
           subscription.id,
         );
 
-        // Mark as cancelled if we have userId
-        const userId = subscription.metadata?.userId;
-        if (userId) {
-          const supabase = createSupabaseServerClient();
-          const { error } = await supabase
-            .from('users')
-            .update({
-              subscription_status: 'canceled',
-            })
-            .eq('id', userId);
-
-          if (error) {
-            console.error(
-              '[STRIPE WEBHOOK] Supabase update error (subscription.deleted):',
-              error,
-            );
-          }
-        } else {
-          console.warn(
-            '[STRIPE WEBHOOK] Subscription.deleted has no userId metadata, skipping DB update',
-          );
-        }
+        await updateUserFromSubscription(subscription);
         break;
       }
 
@@ -255,7 +244,7 @@ export async function POST(req: NextRequest) {
     return new NextResponse('OK', { status: 200 });
   } catch (err: any) {
     console.error('[STRIPE WEBHOOK] ❌ Handler error:', err);
-    // Important: still return 200 so Stripe doesn't keep retrying forever
-    return new NextResponse('Handler error', { status: 200 });
+    // To avoid Stripe retry storms, still return 200
+    return new NextResponse('OK', { status: 200 });
   }
 }

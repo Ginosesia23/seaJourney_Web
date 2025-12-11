@@ -329,9 +329,9 @@ export default function ManageSubscriptionPage() {
       }
 
       toast({
-        title: 'Plan Changed',
-        description: `Your subscription has been changed to ${plan.name}. Changes will be reflected on your next billing cycle.`,
-      });
+        title: 'Subscription updated',
+        description: 'Your plan has been upgraded and will renew on your usual billing date.',
+            });
 
       // Refresh subscription data
       if (user?.email) {

@@ -229,22 +229,15 @@ export async function createCheckoutSession(
   userId: string,
   userEmail: string,
 ): Promise<{ sessionId: string; url: string | null }> {
-  const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+  const origin =
+    process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
 
-  if (!origin) {
-    throw new Error(
-      'App URL is not set in environment variables or as a fallback.',
-    );
-  }
-
-  // Fetch the price and product to get tier information
   const price = await stripe.prices.retrieve(priceId, {
     expand: ['product'],
   });
 
   const product = price.product as Stripe.Product;
 
-  // Extract tier from price/product metadata or nickname
   let tier = 'standard';
   if (price.metadata?.tier) {
     tier = price.metadata.tier.toLowerCase();
@@ -253,10 +246,9 @@ export async function createCheckoutSession(
   } else if (price.metadata?.price_tier) {
     tier = price.metadata.price_tier.toLowerCase();
   } else {
-    const priceNickname = (price.nickname || '').toLowerCase();
-    if (priceNickname.includes('premium')) tier = 'premium';
-    else if (priceNickname.includes('pro')) tier = 'pro';
-    else if (priceNickname.includes('standard')) tier = 'standard';
+    const nick = (price.nickname || '').toLowerCase();
+    if (nick.includes('premium')) tier = 'premium';
+    else if (nick.includes('pro')) tier = 'pro';
   }
 
   const session = await stripe.checkout.sessions.create({
@@ -268,7 +260,7 @@ export async function createCheckoutSession(
     success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/offers`,
 
-    // 🔴 SESSION METADATA (for checkout.session.completed)
+    // 👇 for checkout.session.completed handler
     metadata: {
       userId,
       priceId,
@@ -277,7 +269,7 @@ export async function createCheckoutSession(
       productName: product.name,
     },
 
-    // 🟢 SUBSCRIPTION METADATA (for customer.subscription.* events)
+    // 👇 for customer.subscription.* events going forward
     subscription_data: {
       metadata: {
         userId,
@@ -294,6 +286,8 @@ export async function createCheckoutSession(
     sessionId: session.id,
     url: session.url,
   };
+}
+
 }
 
 
