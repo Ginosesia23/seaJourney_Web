@@ -25,7 +25,6 @@ export interface StripePriceWithProduct extends Stripe.Price {
 }
 
 // Subscription product ID - single product with multiple price tiers
-const SUBSCRIPTION_PRODUCT_ID = 'prod_TaGxvKHBvt0Ajn';
 
 /**
  * Get all prices for the subscription product
@@ -35,7 +34,7 @@ const SUBSCRIPTION_PRODUCT_ID = 'prod_TaGxvKHBvt0Ajn';
 export async function getStripeProducts(): Promise<StripeProduct[]> {
   console.log('========================================');
   console.log('[STRIPE] ===== FETCHING PRODUCTS =====');
-  console.log('[STRIPE] Product ID:', SUBSCRIPTION_PRODUCT_ID);
+  console.log('[STRIPE] Product ID:', process.env.SUBSCRIPTION_PRODUCT_ID);
   console.log('[STRIPE] Timestamp:', new Date().toISOString());
   
   // Validate Stripe secret key
@@ -65,14 +64,14 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
     console.log('[STRIPE] Calling stripe.prices.list()...');
     console.log('[STRIPE] Request params:', {
       active: true,
-      product: SUBSCRIPTION_PRODUCT_ID,
+      product: process.env.SUBSCRIPTION_PRODUCT_ID,
       limit: 100,
       expand: ['data.product'],
     });
     
     const prices = await stripe.prices.list({
       active: true,
-      product: SUBSCRIPTION_PRODUCT_ID,
+      product: process.env.SUBSCRIPTION_PRODUCT_ID,
       limit: 100,
       expand: ['data.product'],
     });
@@ -135,9 +134,9 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
       const product = price.product as Stripe.Product;
 
       const isSubscriptionProduct =
-        product?.id === SUBSCRIPTION_PRODUCT_ID ||
+        product?.id === process.env.SUBSCRIPTION_PRODUCT_ID ||
         (typeof price.product === 'string' &&
-          price.product === SUBSCRIPTION_PRODUCT_ID);
+          price.product === process.env.SUBSCRIPTION_PRODUCT_ID);
 
       const isActive =
         isSubscriptionProduct && !!product && product.active && price.active;
@@ -206,7 +205,7 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
     // Check for common errors
     if (error?.code === 'resource_missing') {
       console.error('[STRIPE] ⚠️ Product ID may be incorrect or not found in this Stripe account');
-      console.error('[STRIPE] Current Product ID:', SUBSCRIPTION_PRODUCT_ID);
+      console.error('[STRIPE] Current Product ID:', process.env.SUBSCRIPTION_PRODUCT_ID);
     }
     
     if (error?.statusCode === 401) {
@@ -230,8 +229,7 @@ export async function createCheckoutSession(
   userId: string,
   userEmail: string,
 ): Promise<{ sessionId: string; url: string | null }> {
-  const origin =
-    process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+  const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
 
   if (!origin) {
     throw new Error(
@@ -246,9 +244,8 @@ export async function createCheckoutSession(
 
   const product = price.product as Stripe.Product;
 
-  // Extract tier from price metadata (preferred) or product metadata
-  // With the new model, tier is stored in price metadata
-  let tier = 'standard'; // default
+  // Extract tier from price/product metadata or nickname
+  let tier = 'standard';
   if (price.metadata?.tier) {
     tier = price.metadata.tier.toLowerCase();
   } else if (product.metadata?.tier) {
@@ -256,15 +253,10 @@ export async function createCheckoutSession(
   } else if (price.metadata?.price_tier) {
     tier = price.metadata.price_tier.toLowerCase();
   } else {
-    // Fallback: try to determine from price nickname or ID
     const priceNickname = (price.nickname || '').toLowerCase();
-    if (priceNickname.includes('premium')) {
-      tier = 'premium';
-    } else if (priceNickname.includes('pro')) {
-      tier = 'pro';
-    } else if (priceNickname.includes('standard')) {
-      tier = 'standard';
-    }
+    if (priceNickname.includes('premium')) tier = 'premium';
+    else if (priceNickname.includes('pro')) tier = 'pro';
+    else if (priceNickname.includes('standard')) tier = 'standard';
   }
 
   const session = await stripe.checkout.sessions.create({
@@ -275,12 +267,22 @@ export async function createCheckoutSession(
     client_reference_id: userId,
     success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/offers`,
+
+    // 🔴 SESSION METADATA (for checkout.session.completed)
     metadata: {
       userId,
       priceId,
-      tier, // Store the tier in metadata for verification
+      tier,
       productId: product.id,
       productName: product.name,
+    },
+
+    // 🟢 SUBSCRIPTION METADATA (for customer.subscription.* events)
+    subscription_data: {
+      metadata: {
+        userId,
+        tier,
+      },
     },
   });
 
@@ -293,6 +295,7 @@ export async function createCheckoutSession(
     url: session.url,
   };
 }
+
 
 /**
  * Get user's Stripe subscription by email
