@@ -360,30 +360,46 @@ export async function changeSubscriptionPlan(
     // Get current subscription
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
-    // Update subscription with new price
+    const currentItem = subscription.items.data[0];
+
     const updatedSubscription = await stripe.subscriptions.update(
       subscriptionId,
       {
         items: [
           {
-            id: subscription.items.data[0].id,
+            id: currentItem.id,
             price: newPriceId,
           },
         ],
-        proration_behavior: 'always_invoice', // Prorate the change
+
+        // 👉 THIS IS THE IMPORTANT BIT:
+        // Create a proration line item for the difference
+        proration_behavior: 'create_prorations',
+
+        // Keep the same renewal date but upgrade immediately.
+        // If you want the billing date to reset to today, use 'now' instead.
+        billing_cycle_anchor: 'unchanged',
       },
     );
 
-    console.log('[STRIPE] Subscription updated:', updatedSubscription.id);
+    console.log('[STRIPE] Subscription updated:', {
+      id: updatedSubscription.id,
+      status: updatedSubscription.status,
+    });
 
     return updatedSubscription;
   } catch (error: any) {
-    console.error('[STRIPE] Error changing subscription:', error);
+    console.error('[STRIPE] Error changing subscription:', {
+      message: error?.message,
+      code: error?.code,
+      type: error?.type,
+    });
     throw new Error(
       `Failed to change subscription: ${error?.message || 'Unknown error'}`,
     );
   }
 }
+
 
 /**
  * Cancel subscription
