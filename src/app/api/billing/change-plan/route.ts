@@ -8,45 +8,41 @@ function tierFromPrice(price: Stripe.Price): string {
   return (price.metadata?.tier || '').toString().toLowerCase().trim() || 'standard';
 }
 
-async function scheduleDowngradeAtPeriodEnd(subscriptionId: string, newPriceId: string) {
-  const sub = await stripe.subscriptions.retrieve(subscriptionId, {
-    expand: ['items.data.price'],
-  });
-
-  const currentPeriodEnd = sub.current_period_end; // unix seconds
-  const currentItems = sub.items.data.map((it) => ({
-    price: (it.price as Stripe.Price).id,
-    quantity: it.quantity ?? 1,
-  }));
-
-  // Create schedule if missing
-  let scheduleId = sub.schedule as string | null;
-  if (!scheduleId) {
-    const created = await stripe.subscriptionSchedules.create({
+async function scheduleDowngradeAtPeriodEnd(
+    subscriptionId: string,
+    newPriceId: string,
+  ) {
+    // 1. Retrieve subscription
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  
+    // 2. Create schedule from subscription (Stripe defines current phase)
+    const schedule = await stripe.subscriptionSchedules.create({
       from_subscription: subscriptionId,
     });
-    scheduleId = created.id;
+  
+    const currentPeriodEnd = subscription.current_period_end;
+  
+    // 3. Update schedule by ADDING a future phase only
+    const updated = await stripe.subscriptionSchedules.update(schedule.id, {
+      end_behavior: 'release',
+      phases: [
+        // ⬇️ IMPORTANT: reuse Stripe-generated current phase
+        schedule.phases![0],
+  
+        // ⬇️ NEW phase: downgrade at next billing date
+        {
+          start_date: currentPeriodEnd,
+          items: [{ price: newPriceId, quantity: 1 }],
+        },
+      ],
+    });
+  
+    return {
+      schedule: updated,
+      effectiveAt: currentPeriodEnd,
+    };
   }
-
-  const updated = await stripe.subscriptionSchedules.update(scheduleId, {
-    end_behavior: 'release',
-    phases: [
-      // Keep current plan until period end
-      {
-        start_date: 'now',
-        end_date: currentPeriodEnd,
-        items: currentItems,
-      },
-      // Apply downgrade from next billing date
-      {
-        start_date: currentPeriodEnd,
-        items: [{ price: newPriceId, quantity: 1 }],
-      },
-    ],
-  });
-
-  return { schedule: updated, effectiveAt: currentPeriodEnd, subscription: sub };
-}
+  
 
 export async function POST(req: Request) {
   try {
