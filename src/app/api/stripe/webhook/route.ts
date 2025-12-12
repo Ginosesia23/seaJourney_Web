@@ -117,9 +117,16 @@ export async function POST(req: NextRequest) {
   const sig = req.headers.get('stripe-signature');
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
+  console.log('[STRIPE WEBHOOK] Incoming request', {
+    hasSig: !!sig,
+    hasSecret: !!webhookSecret,
+    secretPrefix: webhookSecret ? webhookSecret.slice(0, 7) : null,
+  });
+
   if (!sig || !webhookSecret) {
     console.error(
       '[STRIPE WEBHOOK] Missing stripe-signature or webhook secret',
+      { hasSig: !!sig, hasSecret: !!webhookSecret },
     );
     return new NextResponse('Bad Request', { status: 400 });
   }
@@ -248,3 +255,5 @@ export async function POST(req: NextRequest) {
     return new NextResponse('OK', { status: 200 });
   }
 }
+
+
