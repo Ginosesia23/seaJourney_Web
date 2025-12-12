@@ -1,48 +1,36 @@
 // app/api/stripe/webhook/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
-import { createSupabaseServerClient } from '@/supabase/server';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import type StripeType from 'stripe';
 
 export const runtime = 'nodejs'; // we need raw body support
 
-async function updateUserFromSubscription(
-  subscription: StripeType.Subscription,
-) {
-  const supabase = createSupabaseServerClient();
-
+async function updateUserFromSubscription(subscription: StripeType.Subscription) {
   const metadata = subscription.metadata || {};
-  let userId = metadata.userId || null;
+  let userId = (metadata.userId as string | undefined) || null;
   const customerId = subscription.customer as string;
 
+  // 1) Resolve userId (metadata preferred, fallback via stripe_customer_id)
   if (!userId && customerId) {
     console.log(
       '[STRIPE WEBHOOK] No userId in metadata, trying stripe_customer_id lookup',
       { customerId },
     );
 
-    const { data: user, error } = await supabase
+    const { data: user, error } = await supabaseAdmin
       .from('users')
       .select('id')
       .eq('stripe_customer_id', customerId)
       .maybeSingle();
 
     if (error) {
-      console.error(
-        '[STRIPE WEBHOOK] Error looking up user by stripe_customer_id:',
-        error,
-      );
+      console.error('[STRIPE WEBHOOK] Error looking up user by stripe_customer_id:', error);
     } else if (user) {
       userId = user.id;
-      console.log(
-        '[STRIPE WEBHOOK] Found user from stripe_customer_id lookup:',
-        userId,
-      );
+      console.log('[STRIPE WEBHOOK] Found user from stripe_customer_id lookup:', userId);
     } else {
-      console.warn(
-        '[STRIPE WEBHOOK] No user found for stripe_customer_id',
-        customerId,
-      );
+      console.warn('[STRIPE WEBHOOK] No user found for stripe_customer_id', customerId);
     }
   }
 
@@ -54,32 +42,63 @@ async function updateUserFromSubscription(
     return;
   }
 
-  const item = subscription.items.data[0];
-  const price = item.price as StripeType.Price;
-  const product = price.product as StripeType.Product | string;
+  // 2) Safely extract tier from subscription item price/product metadata
+  const firstItem = subscription.items?.data?.[0];
+  if (!firstItem) {
+    console.warn('[STRIPE WEBHOOK] Subscription has no items, skipping update', {
+      subscriptionId: subscription.id,
+      userId,
+    });
+    return;
+  }
+
+  const price = firstItem.price as StripeType.Price | null;
+  const product = (price?.product as StripeType.Product | string | null) ?? null;
 
   let tier =
-    (metadata.tier ||
-      price.metadata?.tier ||
-      (typeof product !== 'string' ? product.metadata?.tier : '') ||
-      '')?.toLowerCase() || 'standard';
+    (
+      (metadata.tier as string | undefined) ||
+      (price?.metadata?.tier as string | undefined) ||
+      (typeof product !== 'string' && product ? (product.metadata?.tier as string | undefined) : undefined) ||
+      ''
+    )
+      .toLowerCase()
+      .trim() || 'standard';
 
   const status = subscription.status;
-  let subscriptionStatus = 'inactive';
+  let subscriptionStatus: 'active' | 'past_due' | 'canceled' | 'inactive' = 'inactive';
 
   if (status === 'active' || status === 'trialing') {
     subscriptionStatus = 'active';
-  } else if (
-    status === 'past_due' ||
-    status === 'unpaid' ||
-    status === 'incomplete'
-  ) {
+  } else if (status === 'past_due' || status === 'unpaid' || status === 'incomplete') {
     subscriptionStatus = 'past_due';
-  } else if (
-    status === 'canceled' ||
-    status === 'incomplete_expired'
-  ) {
+  } else if (status === 'canceled' || status === 'incomplete_expired') {
     subscriptionStatus = 'canceled';
+  }
+
+  // 3) ✅ Idempotency guard (skip if already applied)
+  const { data: existing, error: existingErr } = await supabaseAdmin
+    .from('users')
+    .select('stripe_subscription_id, subscription_status, subscription_tier')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (existingErr) {
+    console.error('[STRIPE WEBHOOK] Guard lookup error:', existingErr);
+    // continue anyway
+  } else if (
+    existing &&
+    existing.stripe_subscription_id === subscription.id &&
+    (existing.subscription_tier || '').toLowerCase() === tier &&
+    (existing.subscription_status || '').toLowerCase() === subscriptionStatus
+  ) {
+    console.log('[STRIPE WEBHOOK] 🔁 Guard: subscription already applied, skipping update', {
+      userId,
+      subscriptionId: subscription.id,
+      tier,
+      subscriptionStatus,
+    });
+    return;
   }
 
   console.log('[STRIPE WEBHOOK] updateUserFromSubscription:', {
@@ -89,12 +108,13 @@ async function updateUserFromSubscription(
     subscriptionStatus,
     subscriptionId: subscription.id,
     customerId,
-    priceId: price.id,
-    priceNickname: price.nickname,
-    priceMetadataTier: price.metadata?.tier,
+    priceId: price?.id,
+    priceNickname: price?.nickname,
+    priceMetadataTier: price?.metadata?.tier,
   });
 
-  const { error } = await supabase
+  // 4) Write to DB (service role => no RLS issues)
+  const { data: updated, error } = await supabaseAdmin
     .from('users')
     .update({
       subscription_tier: tier,
@@ -102,12 +122,13 @@ async function updateUserFromSubscription(
       stripe_subscription_id: subscription.id,
       stripe_customer_id: customerId,
     })
-    .eq('id', userId);
+    .eq('id', userId)
+    .select('id, email, subscription_tier, subscription_status, stripe_subscription_id, stripe_customer_id');
 
   if (error) {
     console.error('[STRIPE WEBHOOK] Supabase update error:', error);
   } else {
-    console.log('[STRIPE WEBHOOK] ✅ User updated successfully');
+    console.log('[STRIPE WEBHOOK] ✅ User updated successfully:', updated);
   }
 }
 
@@ -121,10 +142,10 @@ export async function POST(req: NextRequest) {
   console.log('[STRIPE WEBHOOK] Using webhook secret prefix:', webhookSecret?.slice(0, 8));
 
   if (!sig || !webhookSecret) {
-    console.error(
-      '[STRIPE WEBHOOK] Missing stripe-signature or STRIPE_WEBHOOK_SECRET',
-      { hasSig: !!sig, hasSecret: !!webhookSecret },
-    );
+    console.error('[STRIPE WEBHOOK] Missing stripe-signature or STRIPE_WEBHOOK_SECRET', {
+      hasSig: !!sig,
+      hasSecret: !!webhookSecret,
+    });
     return new NextResponse('Bad Request', { status: 400 });
   }
 
@@ -134,10 +155,7 @@ export async function POST(req: NextRequest) {
   try {
     event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (err: any) {
-    console.error(
-      '[STRIPE WEBHOOK] ❌ Signature verification failed:',
-      err.message,
-    );
+    console.error('[STRIPE WEBHOOK] ❌ Signature verification failed:', err.message);
     return new NextResponse(`Webhook Error: ${err.message}`, { status: 400 });
   }
 
@@ -167,44 +185,35 @@ export async function POST(req: NextRequest) {
           status: session.status,
         });
 
-        // we *could* update here too, but you already do it in verify-checkout-session
+        // Optional: You can update here too, but since your verify-checkout-session does it,
+        // and subscription.updated will also arrive, it’s okay to leave this as logging only.
         break;
       }
 
       case 'customer.subscription.created':
-      case 'customer.subscription.updated': {
-        const subscription = event.data
-          .object as StripeType.Subscription;
-        console.log(
-          `[STRIPE WEBHOOK] Handling ${event.type} for subscription ${subscription.id}`,
-        );
-        await updateUserFromSubscription(subscription);
-        break;
-      }
-
-      case 'customer.subscription.deleted': {
-        const subscription = event.data
-          .object as StripeType.Subscription;
-        console.log(
-          '[STRIPE WEBHOOK] customer.subscription.deleted:',
-          subscription.id,
-        );
-        await updateUserFromSubscription(subscription);
-        break;
-      }
-
+      case 'customer.subscription.updated':
+        case 'customer.subscription.deleted': {
+          const partial = event.data.object as StripeType.Subscription;
+        
+          console.log(`[STRIPE WEBHOOK] Handling ${event.type} for subscription ${partial.id}`);
+        
+          // ✅ Re-fetch full subscription with expanded price/product so metadata is reliable
+          const full = await stripe.subscriptions.retrieve(partial.id, {
+            expand: ['items.data.price.product'],
+          });
+        
+          await updateUserFromSubscription(full as StripeType.Subscription);
+          break;
+        }
+        
       default:
-        console.log(
-          '[STRIPE WEBHOOK] Ignoring event type:',
-          event.type,
-        );
+        console.log('[STRIPE WEBHOOK] Ignoring event type:', event.type);
     }
 
     return new NextResponse('OK', { status: 200 });
   } catch (err: any) {
     console.error('[STRIPE WEBHOOK] ❌ Handler error:', err);
-    // still return 200 so Stripe doesn't keep retrying forever
+    // To avoid retry storms, still return 200
     return new NextResponse('OK', { status: 200 });
   }
 }
- 

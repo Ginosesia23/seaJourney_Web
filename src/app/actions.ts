@@ -341,58 +341,37 @@ export async function getUserStripeSubscription(
 /**
  * Change subscription plan (upgrade/downgrade)
  */
-export async function changeSubscriptionPlan(
-  subscriptionId: string,
-  newPriceId: string,
-): Promise<Stripe.Subscription> {
-  try {
-    console.log('[STRIPE] Changing subscription plan:', {
-      subscriptionId,
-      newPriceId,
-    });
+// in your server action / api route that changes plan
+export async function changeSubscriptionPlan(subscriptionId: string, newPriceId: string) {
+  // 1) Retrieve current subscription
+  const sub = await stripe.subscriptions.retrieve(subscriptionId);
 
-    // Get current subscription
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  // 2) Update subscription price with prorations
+  const updated = await stripe.subscriptions.update(subscriptionId, {
+    items: [{ id: sub.items.data[0].id, price: newPriceId }],
+    proration_behavior: 'create_prorations', // creates proration line items
+    payment_behavior: 'pending_if_incomplete', // handles SCA cases safely
+  });
 
-    const currentItem = subscription.items.data[0];
+  // 3) Immediately invoice the proration and attempt payment
+  const invoice = await stripe.invoices.create({
+    customer: sub.customer as string,
+    subscription: subscriptionId,
+    auto_advance: true, // finalize automatically
+  });
 
-    const updatedSubscription = await stripe.subscriptions.update(
-      subscriptionId,
-      {
-        items: [
-          {
-            id: currentItem.id,
-            price: newPriceId,
-          },
-        ],
+  // Finalize + pay (some accounts auto-finalize; doing it explicitly is safest)
+  const finalized = await stripe.invoices.finalizeInvoice(invoice.id);
+  const paid = await stripe.invoices.pay(finalized.id);
 
-        // 👉 THIS IS THE IMPORTANT BIT:
-        // Create a proration line item for the difference
-        proration_behavior: 'create_prorations',
-
-        // Keep the same renewal date but upgrade immediately.
-        // If you want the billing date to reset to today, use 'now' instead.
-        billing_cycle_anchor: 'unchanged',
-      },
-    );
-
-    console.log('[STRIPE] Subscription updated:', {
-      id: updatedSubscription.id,
-      status: updatedSubscription.status,
-    });
-
-    return updatedSubscription;
-  } catch (error: any) {
-    console.error('[STRIPE] Error changing subscription:', {
-      message: error?.message,
-      code: error?.code,
-      type: error?.type,
-    });
-    throw new Error(
-      `Failed to change subscription: ${error?.message || 'Unknown error'}`,
-    );
-  }
+  return {
+    subscription: updated,
+    invoiceId: paid.id,
+    invoiceStatus: paid.status,
+    hostedInvoiceUrl: paid.hosted_invoice_url ?? null,
+  };
 }
+
 
 
 /**
