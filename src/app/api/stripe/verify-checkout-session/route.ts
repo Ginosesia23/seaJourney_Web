@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
-import { createSupabaseServerClient } from '@/supabase/server'; // or supabaseAdmin
+import { createSupabaseServerClient } from '@/supabase/server';
+// If you decide to use a service-role client instead, you could import supabaseAdmin here.
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     if (session.payment_status !== 'paid') {
       return NextResponse.json(
-        { ok: false, error: 'Payment not completed' },
+        { success: false, error: 'Payment not completed' },
         { status: 400 },
       );
     }
@@ -48,7 +49,6 @@ export async function POST(req: NextRequest) {
       productName: meta.productName,
     });
 
-    // 🔥 NEW: extract subscription + customer IDs
     const subscriptionId =
       typeof session.subscription === 'string'
         ? session.subscription
@@ -59,11 +59,11 @@ export async function POST(req: NextRequest) {
         ? session.customer
         : (session.customer as any)?.id || null;
 
-    // 🔥 NEW: update Supabase user
     if (userId) {
-      const supabase = createSupabaseServerClient(); // or supabaseAdmin
+      // You can switch this to a supabaseAdmin client (service role) if RLS bites you.
+      const supabase = createSupabaseServerClient();
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('users')
         .update({
           subscription_tier: tier,
@@ -71,7 +71,10 @@ export async function POST(req: NextRequest) {
           stripe_subscription_id: subscriptionId,
           stripe_customer_id: customerId,
         })
-        .eq('id', userId);
+        .eq('id', userId)
+        .select(
+          'id, email, subscription_tier, subscription_status, stripe_subscription_id, stripe_customer_id',
+        ); // returns updated rows
 
       if (error) {
         console.error(
@@ -79,6 +82,7 @@ export async function POST(req: NextRequest) {
           error,
         );
       } else {
+        console.log('[SERVER] ✅ User row after update:', data);
         console.log(
           '[SERVER] ✅ User updated in verify-checkout-session:',
           { userId, tier, subscriptionId, customerId },
@@ -90,16 +94,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // whatever you already return to the client
+    // IMPORTANT: front-end should check `data.success`
     return NextResponse.json({
-      ok: true,
+      success: true, // <- this is what your UI should look at
+      status: 'success',
       tier,
+      subscriptionId,
+      customerId,
     });
   } catch (err: any) {
     console.error('[SERVER] Error verifying checkout session:', err);
     return NextResponse.json(
-      { ok: false, error: err?.message || 'Verification failed' },
-      { status: 500 },
+      {
+        success: false,
+        error: err?.message || 'Payment not completed',
+      },
+      { status: 400 },
     );
   }
 }
