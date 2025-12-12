@@ -55,15 +55,54 @@ async function updateUserFromSubscription(subscription: StripeType.Subscription)
   const price = firstItem.price as StripeType.Price | null;
   const product = (price?.product as StripeType.Product | string | null) ?? null;
 
+  console.log('[STRIPE WEBHOOK] Tier source debug:', {
+    subId: subscription.id,
+    priceId: price?.id,
+    priceMetaTier: price?.metadata?.tier,
+    productIsString: typeof product === 'string',
+    productMetaTier: typeof product !== 'string' && product ? product.metadata?.tier : null,
+    metadataTier: metadata.tier,
+    envPriceStandard: !!process.env.STRIPE_PRICE_STANDARD_ID,
+    envPricePremium: !!process.env.STRIPE_PRICE_PREMIUM_ID,
+    envPricePro: !!process.env.STRIPE_PRICE_PRO_ID,
+  });
+  
+
   let tier =
-    (
-      (metadata.tier as string | undefined) ||
-      (price?.metadata?.tier as string | undefined) ||
-      (typeof product !== 'string' && product ? (product.metadata?.tier as string | undefined) : undefined) ||
-      ''
-    )
-      .toLowerCase()
-      .trim() || 'standard';
+  (
+    (metadata.tier as string | undefined) ||
+    (price?.metadata?.tier as string | undefined) ||
+    (typeof product !== 'string' && product ? (product.metadata?.tier as string | undefined) : undefined) ||
+    ''
+  )
+    .toLowerCase()
+    .trim() || 'standard';
+
+  // ✅ fallback: infer tier from known price IDs if metadata missing
+  // ✅ fallback: infer tier from known price IDs if metadata missing
+  if (!tier || tier === 'standard') {
+    const priceId = price?.id || '';
+
+    const standardId = process.env.STRIPE_PRICE_STANDARD_ID;
+    const premiumId = process.env.STRIPE_PRICE_PREMIUM_ID;
+    const proId = process.env.STRIPE_PRICE_PRO_ID;
+
+    const map: Record<string, string> = {};
+    if (standardId) map[standardId] = 'standard';
+    if (premiumId) map[premiumId] = 'premium';
+    if (proId) map[proId] = 'professional';
+
+    const mapped = map[priceId];
+    if (mapped) {
+      tier = mapped;
+      console.log('[STRIPE WEBHOOK] Tier fallback matched priceId:', { priceId, tier });
+    } else {
+      console.log('[STRIPE WEBHOOK] Tier fallback did NOT match priceId:', {
+        priceId,
+        knownPriceIds: Object.keys(map),
+      });
+    }
+  }
 
   const status = subscription.status;
   let subscriptionStatus: 'active' | 'past_due' | 'canceled' | 'inactive' = 'inactive';
@@ -194,10 +233,10 @@ export async function POST(req: NextRequest) {
       case 'customer.subscription.updated':
         case 'customer.subscription.deleted': {
           const partial = event.data.object as StripeType.Subscription;
-        
+
           console.log(`[STRIPE WEBHOOK] Handling ${event.type} for subscription ${partial.id}`);
         
-          // ✅ Re-fetch full subscription with expanded price/product so metadata is reliable
+          // ✅ IMPORTANT: re-fetch full subscription with expanded price + product
           const full = await stripe.subscriptions.retrieve(partial.id, {
             expand: ['items.data.price.product'],
           });
