@@ -43,18 +43,42 @@ async function updateUserFromSubscription(subscription: StripeType.Subscription)
   }
 
   // 2) Safely extract tier from subscription item price/product metadata
-  const firstItem = subscription.items?.data?.[0];
-  if (!firstItem) {
+  const items = subscription.items?.data ?? [];
+
+  console.log('[STRIPE WEBHOOK] Subscription items:', items.map((it) => ({
+    itemId: it.id,
+    priceId: (it.price as any)?.id,
+    tier: (it.price as any)?.metadata?.tier,
+    productId: typeof (it.price as any)?.product === 'string'
+      ? (it.price as any).product
+      : (it.price as any)?.product?.id,
+  })));
+  
+
+  const pickedItem =
+    // 1) Prefer an item whose price has metadata.tier
+    items.find((it) => (it.price as any)?.metadata?.tier) ||
+    // 2) Or an item whose product matches your subscription product (if you want)
+    items.find((it) => {
+      const p = it.price as StripeType.Price;
+      const prod = p.product as any;
+      const prodId = typeof prod === 'string' ? prod : prod?.id;
+      return prodId === process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID; // optional
+    }) ||
+    // 3) Fallback to first item
+    items[0];
+  
+  if (!pickedItem) {
     console.warn('[STRIPE WEBHOOK] Subscription has no items, skipping update', {
       subscriptionId: subscription.id,
       userId,
     });
     return;
   }
-
-  const price = firstItem.price as StripeType.Price | null;
+  
+  const price = pickedItem.price as StripeType.Price | null;
   const product = (price?.product as StripeType.Product | string | null) ?? null;
-
+  
   console.log('[STRIPE WEBHOOK] Tier source debug:', {
     subId: subscription.id,
     priceId: price?.id,
