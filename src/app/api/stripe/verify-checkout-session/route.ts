@@ -82,7 +82,6 @@ export async function POST(req: NextRequest) {
           error,
         );
       } else {
-        console.log('[SERVER] ✅ User row after update:', data);
         console.log(
           '[SERVER] ✅ User updated in verify-checkout-session:',
           { userId, tier, subscriptionId, customerId },

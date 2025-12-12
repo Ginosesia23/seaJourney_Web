@@ -66,20 +66,25 @@ async function updateUserFromSubscription(
       (typeof product !== 'string' ? product.metadata?.tier : '') ||
       '')?.toLowerCase() || 'standard';
 
-  const status = subscription.status;
+  // Normalize tier names (e.g., 'professional' -> 'pro')
+  if (tier === 'professional') {
+    tier = 'pro';
+  }
+
+  const stripeStatus = subscription.status;
   let subscriptionStatus = 'inactive';
 
-  if (status === 'active' || status === 'trialing') {
+  if (stripeStatus === 'active' || stripeStatus === 'trialing') {
     subscriptionStatus = 'active';
   } else if (
-    status === 'past_due' ||
-    status === 'unpaid' ||
-    status === 'incomplete'
+    stripeStatus === 'past_due' ||
+    stripeStatus === 'unpaid' ||
+    stripeStatus === 'incomplete'
   ) {
     subscriptionStatus = 'past_due';
   } else if (
-    status === 'canceled' ||
-    status === 'incomplete_expired'
+    stripeStatus === 'canceled' ||
+    stripeStatus === 'incomplete_expired'
   ) {
     subscriptionStatus = 'canceled';
   }
@@ -87,7 +92,7 @@ async function updateUserFromSubscription(
   console.log('[STRIPE WEBHOOK] updateUserFromSubscription:', {
     userId,
     tier,
-    stripeStatus: status,
+    stripeStatus,
     subscriptionStatus,
     subscriptionId: subscription.id,
     customerId,
@@ -96,7 +101,17 @@ async function updateUserFromSubscription(
     priceMetadataTier: price.metadata?.tier,
   });
 
-  const { error } = await supabase
+  console.log('[STRIPE WEBHOOK] Attempting to update user with:', {
+    userId,
+    updateData: {
+      subscription_tier: tier,
+      subscription_status: subscriptionStatus,
+      stripe_subscription_id: subscription.id,
+      stripe_customer_id: customerId,
+    },
+  });
+
+  const { data: updateResult, error } = await supabase
     .from('users')
     .update({
       subscription_tier: tier,
@@ -104,12 +119,36 @@ async function updateUserFromSubscription(
       stripe_subscription_id: subscription.id,
       stripe_customer_id: customerId,
     })
-    .eq('id', userId);
+    .eq('id', userId)
+    .select('id, subscription_tier, subscription_status, stripe_subscription_id, stripe_customer_id');
 
   if (error) {
-    console.error('[STRIPE WEBHOOK] Supabase update error:', error);
+    console.error('[STRIPE WEBHOOK] ❌ Supabase update error:', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      error,
+    });
   } else {
     console.log('[STRIPE WEBHOOK] ✅ User updated successfully');
+    console.log('[STRIPE WEBHOOK] Updated user data:', updateResult);
+    
+    // Verify the update actually worked
+    if (updateResult && updateResult.length > 0) {
+      const updated = updateResult[0];
+      console.log('[STRIPE WEBHOOK] Verification - Updated fields:', {
+        subscription_tier: updated.subscription_tier,
+        subscription_status: updated.subscription_status,
+        stripe_subscription_id: updated.stripe_subscription_id || 'NULL',
+        stripe_customer_id: updated.stripe_customer_id || 'NULL',
+      });
+      
+      if (!updated.stripe_subscription_id || !updated.stripe_customer_id) {
+        console.warn('[STRIPE WEBHOOK] ⚠️ WARNING: stripe_subscription_id or stripe_customer_id was not updated!');
+        console.warn('[STRIPE WEBHOOK] This may indicate these columns do not exist in the database schema.');
+      }
+    }
   }
 }
 
@@ -189,7 +228,17 @@ export async function POST(req: NextRequest) {
 
         const supabase = createSupabaseServerClient();
 
-        const { error } = await supabase
+        console.log('[STRIPE WEBHOOK] Attempting to update user from checkout.session.completed:', {
+          userId,
+          updateData: {
+            subscription_tier: tier,
+            subscription_status: 'active',
+            stripe_subscription_id: subscriptionId,
+            stripe_customer_id: customerId,
+          },
+        });
+
+        const { data: updateResult, error } = await supabase
           .from('users')
           .update({
             subscription_tier: tier,
@@ -197,17 +246,41 @@ export async function POST(req: NextRequest) {
             stripe_subscription_id: subscriptionId,
             stripe_customer_id: customerId,
           })
-          .eq('id', userId);
+          .eq('id', userId)
+          .select('id, subscription_tier, subscription_status, stripe_subscription_id, stripe_customer_id');
 
         if (error) {
           console.error(
-            '[STRIPE WEBHOOK] Supabase update error (session completed):',
-            error,
+            '[STRIPE WEBHOOK] ❌ Supabase update error (session completed):',
+            {
+              message: error.message,
+              code: error.code,
+              details: error.details,
+              hint: error.hint,
+              error,
+            },
           );
         } else {
           console.log(
             '[STRIPE WEBHOOK] ✅ User updated from checkout.session.completed',
           );
+          console.log('[STRIPE WEBHOOK] Updated user data:', updateResult);
+          
+          // Verify the update actually worked
+          if (updateResult && updateResult.length > 0) {
+            const updated = updateResult[0];
+            console.log('[STRIPE WEBHOOK] Verification - Updated fields:', {
+              subscription_tier: updated.subscription_tier,
+              subscription_status: updated.subscription_status,
+              stripe_subscription_id: updated.stripe_subscription_id || 'NULL',
+              stripe_customer_id: updated.stripe_customer_id || 'NULL',
+            });
+            
+            if (!updated.stripe_subscription_id || !updated.stripe_customer_id) {
+              console.warn('[STRIPE WEBHOOK] ⚠️ WARNING: stripe_subscription_id or stripe_customer_id was not updated!');
+              console.warn('[STRIPE WEBHOOK] This may indicate these columns do not exist in the database schema.');
+            }
+          }
         }
         break;
       }
