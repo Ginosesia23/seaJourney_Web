@@ -5,44 +5,85 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import type Stripe from 'stripe';
 
 function tierFromPrice(price: Stripe.Price): string {
-  return (price.metadata?.tier || '').toString().toLowerCase().trim() || 'standard';
+  return (
+    (price.metadata?.tier || '').toString().toLowerCase().trim() || 'standard'
+  );
 }
 
-async function scheduleDowngradeAtPeriodEnd(
-    subscriptionId: string,
-    newPriceId: string,
-  ) {
-    // 1. Retrieve subscription
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-  
-    // 2. Create schedule from subscription (Stripe defines current phase)
-    const schedule = await stripe.subscriptionSchedules.create({
+/**
+ * Find the phase that is active "now".
+ * Stripe phases have start_date/end_date as unix seconds.
+ */
+function getCurrentPhase(schedule: Stripe.SubscriptionSchedule): Stripe.SubscriptionSchedule.Phase | null {
+  const now = Math.floor(Date.now() / 1000);
+  const phases = schedule.phases || [];
+  // active phase: start_date <= now < end_date (or end_date null)
+  const active =
+    phases.find((p) => {
+      const startOk = (p.start_date ?? 0) <= now;
+      const endOk = p.end_date ? now < p.end_date : true;
+      return startOk && endOk;
+    }) || null;
+
+  // fallback to last phase if none matched
+  return active || phases[phases.length - 1] || null;
+}
+
+export async function scheduleDowngradeAtPeriodEnd(
+  subscriptionId: string,
+  newPriceId: string,
+) {
+  // 1) Load subscription (need current_period_end + schedule)
+  const sub = await stripe.subscriptions.retrieve(subscriptionId);
+
+  const currentPeriodEnd = sub.current_period_end; // unix seconds
+
+  // 2) Get schedule id if it exists, else create it
+  let scheduleId: string;
+
+  if (sub.schedule) {
+    scheduleId = sub.schedule as string;
+  } else {
+    const created = await stripe.subscriptionSchedules.create({
       from_subscription: subscriptionId,
     });
-  
-    const currentPeriodEnd = subscription.current_period_end;
-  
-    // 3. Update schedule by ADDING a future phase only
-    const updated = await stripe.subscriptionSchedules.update(schedule.id, {
-      end_behavior: 'release',
-      phases: [
-        // ⬇️ IMPORTANT: reuse Stripe-generated current phase
-        schedule.phases![0],
-  
-        // ⬇️ NEW phase: downgrade at next billing date
-        {
-          start_date: currentPeriodEnd,
-          items: [{ price: newPriceId, quantity: 1 }],
-        },
-      ],
-    });
-  
-    return {
-      schedule: updated,
-      effectiveAt: currentPeriodEnd,
-    };
+    scheduleId = created.id;
   }
-  
+
+  // 3) Fetch schedule and find the active phase
+  const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
+  const currentPhase = getCurrentPhase(schedule);
+
+  if (!currentPhase) {
+    throw new Error('Schedule has no phases; cannot schedule downgrade.');
+  }
+
+  // 4) Build a clean 2-phase schedule:
+  //    - keep CURRENT phase items until current_period_end
+  //    - apply downgrade from current_period_end
+  const phases: Stripe.SubscriptionScheduleUpdateParams.Phase[] = [
+    {
+      start_date: currentPhase.start_date, // ✅ DO NOT CHANGE THIS
+      end_date: currentPeriodEnd,
+      items: (currentPhase.items || []).map((it) => ({
+        price: typeof it.price === 'string' ? it.price : it.price.id,
+        quantity: it.quantity ?? 1,
+      })),
+    },
+    {
+      start_date: currentPeriodEnd,
+      items: [{ price: newPriceId, quantity: 1 }],
+    },
+  ];
+
+  // 5) Update schedule
+  const updated = await stripe.subscriptionSchedules.update(scheduleId, {
+    end_behavior: 'release',
+    phases,
+  });
+
+  return { schedule: updated, effectiveAt: currentPeriodEnd, scheduleId };
+}
 
 export async function POST(req: Request) {
   try {
@@ -63,6 +104,7 @@ export async function POST(req: Request) {
 
     const currentItem = currentSub.items.data[0];
     const currentPrice = currentItem?.price as Stripe.Price | undefined;
+
     if (!currentPrice) {
       return NextResponse.json(
         { error: 'Could not determine current subscription price' },
@@ -72,13 +114,13 @@ export async function POST(req: Request) {
 
     // 2) Load target price
     const newPrice = await stripe.prices.retrieve(priceId);
+
     const currentAmount = currentPrice.unit_amount ?? 0;
     const newAmount = newPrice.unit_amount ?? 0;
 
     const currentTier = tierFromPrice(currentPrice);
     const targetTier = tierFromPrice(newPrice);
 
-    // 3) Decide upgrade vs downgrade
     const isDowngrade = newAmount < currentAmount;
     const isSame = newPrice.id === currentPrice.id;
 
@@ -89,22 +131,27 @@ export async function POST(req: Request) {
       );
     }
 
-    // ---------- DOWNGRADE (schedule for period end) ----------
-    if (isDowngrade) {
-      const { effectiveAt } = await scheduleDowngradeAtPeriodEnd(subscriptionId, priceId);
-
-      // Write pending change to DB so UI can display it
-      // We try to locate user by userId (preferred) or by stripe_customer_id from subscription
-      const stripeCustomerId = typeof currentSub.customer === 'string'
+    const stripeCustomerId =
+      typeof currentSub.customer === 'string'
         ? currentSub.customer
         : (currentSub.customer as any)?.id;
 
+    // ---------- DOWNGRADE (schedule for period end) ----------
+    if (isDowngrade) {
+      const { effectiveAt, scheduleId } = await scheduleDowngradeAtPeriodEnd(
+        subscriptionId,
+        priceId,
+      );
+
+      // Save pending change to DB for UI
       if (userId) {
         await supabaseAdmin
           .from('users')
           .update({
             pending_subscription_tier: targetTier,
-            pending_change_effective_at: new Date(effectiveAt * 1000).toISOString(),
+            pending_change_effective_at: new Date(
+              effectiveAt * 1000,
+            ).toISOString(),
           })
           .eq('id', userId);
       } else if (stripeCustomerId) {
@@ -112,7 +159,9 @@ export async function POST(req: Request) {
           .from('users')
           .update({
             pending_subscription_tier: targetTier,
-            pending_change_effective_at: new Date(effectiveAt * 1000).toISOString(),
+            pending_change_effective_at: new Date(
+              effectiveAt * 1000,
+            ).toISOString(),
           })
           .eq('stripe_customer_id', stripeCustomerId);
       }
@@ -124,6 +173,7 @@ export async function POST(req: Request) {
           currentTier,
           targetTier,
           effectiveAt, // unix seconds
+          scheduleId,
           message: 'Downgrade scheduled for next billing date.',
         },
         { status: 200 },
@@ -131,6 +181,11 @@ export async function POST(req: Request) {
     }
 
     // ---------- UPGRADE (apply immediately with proration) ----------
+    // ✅ If there is a schedule, release it first so it doesn't override the upgrade
+    if (currentSub.schedule) {
+      await stripe.subscriptionSchedules.release(currentSub.schedule as string);
+    }
+
     const updated = await stripe.subscriptions.update(subscriptionId, {
       items: [{ id: currentItem.id, price: priceId }],
       proration_behavior: 'create_prorations',
@@ -138,11 +193,7 @@ export async function POST(req: Request) {
       expand: ['latest_invoice.payment_intent'],
     });
 
-    // Clear any pending downgrade if user upgraded again
-    const stripeCustomerId = typeof updated.customer === 'string'
-      ? updated.customer
-      : (updated.customer as any)?.id;
-
+    // Clear any pending downgrade (user changed mind)
     if (userId) {
       await supabaseAdmin
         .from('users')
@@ -161,7 +212,6 @@ export async function POST(req: Request) {
         .eq('stripe_customer_id', stripeCustomerId);
     }
 
-    // If SCA is required, you may need to send client_secret / hosted invoice URL
     const latestInvoice = updated.latest_invoice as Stripe.Invoice | null;
     const pi = latestInvoice?.payment_intent as Stripe.PaymentIntent | null;
 
