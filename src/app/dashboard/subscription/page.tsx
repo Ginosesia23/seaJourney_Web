@@ -328,11 +328,20 @@ export default function ManageSubscriptionPage() {
         );
       }
 
-      toast({
-        title: 'Subscription updated',
-        description: 'Your plan has been upgraded and will renew on your usual billing date.',
-            });
+      const json = await res.json();
 
+      if (json.mode === 'downgrade_scheduled') {
+        toast({
+          title: 'Downgrade scheduled',
+          description: `Your plan will change on ${new Date(json.effectiveAt * 1000).toLocaleDateString()}.`,
+        });
+      } else {
+        toast({
+          title: 'Subscription updated',
+          description: 'Your plan has been updated.',
+        });
+      }
+      
       // Refresh subscription data
       if (user?.email) {
         const refreshed = await fetch(
