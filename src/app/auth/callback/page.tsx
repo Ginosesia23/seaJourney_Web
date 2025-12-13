@@ -141,14 +141,19 @@ function AuthCallbackInner() {
                   console.log('[AUTH CALLBACK] User record not found in users table, creating it...');
                   
                   const username = authUser.user_metadata?.username || `user_${authUser.id.slice(0, 8)}`;
+                  const firstName = authUser.user_metadata?.firstName || '';
+                  const lastName = authUser.user_metadata?.lastName || '';
+                  const position = authUser.user_metadata?.position || '';
+                  const role = authUser.user_metadata?.role || 'crew';
                   const userData = {
                     id: authUser.id,
                     email: authUser.email || '',
                     username: username,
-                    first_name: '',
-                    last_name: '',
+                    first_name: firstName,
+                    last_name: lastName,
+                    position: position,
                     registration_date: new Date().toISOString(),
-                    role: 'crew',
+                    role: role,
                     subscription_tier: 'free',
                     subscription_status: 'inactive',
                   };

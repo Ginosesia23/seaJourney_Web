@@ -421,7 +421,7 @@ export default function MembershipCTA() {
             const Icon = plan.icon;
             const isHighlighted = plan.highlighted;
             const isCurrent = isCurrentPlan(plan.name);
-
+            
             return (
               <motion.div
                 key={plan.name}
@@ -450,10 +450,10 @@ export default function MembershipCTA() {
                     backdropFilter: 'blur(20px)',
                     boxShadow:
                       plan.color === 'blue'
-                        ? '0 8px 32px rgba(59, 130, 246, 0.15), 0 0 0 1px rgba(59, 130, 246, 0.1)'
-                        : plan.color === 'purple'
-                        ? '0 8px 32px rgba(147, 51, 234, 0.25), 0 0 0 1px rgba(147, 51, 234, 0.15)'
-                        : '0 8px 32px rgba(249, 115, 22, 0.15), 0 0 0 1px rgba(249, 115, 22, 0.1)',
+                      ? '0 8px 32px rgba(59, 130, 246, 0.15), 0 0 0 1px rgba(59, 130, 246, 0.1)'
+                      : plan.color === 'purple'
+                      ? '0 8px 32px rgba(147, 51, 234, 0.25), 0 0 0 1px rgba(147, 51, 234, 0.15)'
+                      : '0 8px 32px rgba(249, 115, 22, 0.15), 0 0 0 1px rgba(249, 115, 22, 0.1)',
                   }}
                   onMouseEnter={(e) => {
                     if (plan.color === 'blue') {
@@ -505,8 +505,8 @@ export default function MembershipCTA() {
                           }}
                         >
                           Coming Soon
-                        </div>
-                      )}
+                      </div>
+                    )}
                       {isHighlighted &&
                         !isCurrent &&
                         !plan.comingSoon && (
@@ -599,8 +599,8 @@ export default function MembershipCTA() {
                   </CardContent>
                   <CardFooter className="pt-0">
                     {isCurrent ? (
-                      <Button
-                        asChild
+                    <Button
+                      asChild
                         className="w-full rounded-xl text-base font-semibold h-12 bg-blue-600 hover:bg-blue-700 text-white border-0 shadow-lg"
                       >
                         <Link
@@ -628,12 +628,12 @@ export default function MembershipCTA() {
                           !plan.priceId ||
                           purchasingPlan === plan.name
                         }
-                        className={`w-full rounded-xl text-base font-semibold h-12 ${
-                          isHighlighted
+                      className={`w-full rounded-xl text-base font-semibold h-12 ${
+                        isHighlighted
                             ? 'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white border-0 shadow-lg shadow-purple-500/30 disabled:opacity-50'
                             : 'bg-white/10 hover:bg-white/20 text-white border border-white/20 disabled:opacity-50'
-                        }`}
-                      >
+                      }`}
+                    >
                         {purchasingPlan === plan.name ? (
                           <div className="flex items-center justify-center gap-2">
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -644,10 +644,10 @@ export default function MembershipCTA() {
                             {hasActiveSub && user
                               ? 'Switch Plan'
                               : plan.cta}
-                            <ArrowRight className="h-4 w-4" />
+                        <ArrowRight className="h-4 w-4" />
                           </div>
                         )}
-                      </Button>
+                    </Button>
                     )}
                   </CardFooter>
                 </Card>

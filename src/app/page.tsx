@@ -24,8 +24,8 @@ export default function Home() {
         <Testimonials />
         <MembershipCTA />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t border-white/10" style={{ backgroundColor: '#000b15' }}>
-          <ShopPromo />
-          <AndroidTesterSignup />
+        <ShopPromo />
+        <AndroidTesterSignup />
         </div>
       </main>
       <Footer />

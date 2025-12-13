@@ -355,9 +355,9 @@ export default function OffersPage() {
       router.push(`/signup?redirect=/offers`);
       return;
     }
-
+  
     setPurchasingPlan(plan.name);
-
+  
     try {
       const { sessionId, url } = await createCheckoutSession(
         plan.priceId,
@@ -380,7 +380,7 @@ export default function OffersPage() {
       setPurchasingPlan(null);
     }
   };
-
+  
   // Show loading state while checking subscription
   if (isLoading || isUserLoading || isProfileLoading) {
     return (
@@ -393,7 +393,7 @@ export default function OffersPage() {
       </div>
     );
   }
-
+  
   // Show loading/redirect state if user has active subscription
   if (user && hasActiveSub) {
     return (
@@ -433,12 +433,12 @@ export default function OffersPage() {
                   {hasActiveSub && user
                     ? 'Change Your Plan'
                     : 'Choose Your Voyage'}
-                </h1>
+              </h1>
                 <p className="mt-6 text-xl leading-8 text-blue-100">
                   {hasActiveSub && user
                     ? 'Upgrade or downgrade your subscription to match your needs. Changes take effect immediately.'
                     : 'Find the perfect fit for your maritime career and get ready to set sail. Start your journey today with a 7-day free trial.'}
-                </p>
+              </p>
               </motion.div>
             </div>
 
@@ -462,11 +462,11 @@ export default function OffersPage() {
                     </div>
                     <div className="flex items-baseline gap-2 mb-2">
                       <span className="text-5xl font-bold tracking-tight text-white">Free</span>
-                    </div>
+                      </div>
                     <CardDescription className="text-blue-100/80 text-base mt-4">
                       {freeTier.description}
                     </CardDescription>
-                  </CardHeader>
+                    </CardHeader>
                   <CardContent className="border-t border-white/10 pt-6 pb-6">
                     <ul className="space-y-4 text-sm">
                       {freeTier.features.map((feature, idx) => (
@@ -475,27 +475,27 @@ export default function OffersPage() {
                             <Check className="h-3 w-3 text-blue-400" />
                           </div>
                           <span className="text-white/90">{feature}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </CardContent>
+                          </li>
+                        ))}
+                      </ul>
+                    </CardContent>
                   <CardFooter className="pt-0">
-                    <Button
-                      asChild
+                      <Button
+                        asChild
                       className="w-full rounded-xl text-base font-semibold h-12 bg-white/10 hover:bg-white/20 text-white border border-white/20"
-                    >
-                      <Link
-                        href={freeTier.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2"
                       >
+                        <Link
+                          href={freeTier.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-2"
+                        >
                         <Download className="h-4 w-4" />
                         {freeTier.cta}
-                      </Link>
-                    </Button>
-                  </CardFooter>
-                </Card>
+                        </Link>
+                      </Button>
+                    </CardFooter>
+                  </Card>
               </motion.div>
 
               {/* Paid plan cards */}
@@ -504,7 +504,7 @@ export default function OffersPage() {
                 const isHighlighted = plan.highlighted;
                 const isCurrent = isCurrentPlan(plan.name);
 
-                return (
+                      return (
                   <motion.div
                     key={plan.name}
                     initial={{ opacity: 0, y: 30 }}
@@ -513,7 +513,7 @@ export default function OffersPage() {
                     transition={{ duration: 0.5, delay: (index + 1) * 0.1 }}
                     className={isCurrent ? 'scale-105' : ''}
                   >
-                    <Card
+                        <Card
                       className={`flex flex-col rounded-2xl border transition-all duration-300 ${
                         isCurrent ? 'hover:scale-102' : 'hover:scale-105'
                       } ${
@@ -572,7 +572,7 @@ export default function OffersPage() {
                                 borderColor: 'rgba(34, 197, 94, 0.5)',
                                 color: '#4ade80',
                               }}
-                            >
+                        >
                               <Check className="h-3.5 w-3.5" />
                               Current Plan
                             </div>
@@ -627,7 +627,7 @@ export default function OffersPage() {
                           </div>
                           <CardTitle className="font-headline text-2xl text-white">
                             {plan.name}
-                          </CardTitle>
+                            </CardTitle>
                         </div>
                         <div className="flex items-baseline gap-2 mb-2">
                           <span className="text-5xl font-bold tracking-tight text-white">
@@ -638,7 +638,7 @@ export default function OffersPage() {
                             style={{ color: '#94a3b8' }}
                           >
                             {plan.priceSuffix}
-                          </span>
+                              </span>
                         </div>
                         <CardDescription className="text-blue-100/80 text-base mt-4">
                           {plan.description}
@@ -673,13 +673,13 @@ export default function OffersPage() {
                               <span className="text-white/90">
                                 {feature}
                               </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </CardContent>
+                                    </li>
+                                ))}
+                            </ul>
+                          </CardContent>
                       <CardFooter className="pt-0">
                         {isCurrent ? (
-                          <Button
+                            <Button
                             asChild
                             className="w-full rounded-xl text-base font-semibold h-12 bg-blue-600 hover:bg-blue-700 text-white border-0 shadow-lg"
                           >
@@ -713,7 +713,7 @@ export default function OffersPage() {
                                 ? 'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white border-0 shadow-lg shadow-purple-500/30 disabled:opacity-50'
                                 : 'bg-white/10 hover:bg-white/20 text-white border border-white/20 disabled:opacity-50'
                             }`}
-                          >
+                            >
                             {purchasingPlan === plan.name ? (
                               <div className="flex items-center justify-center gap-2">
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -727,12 +727,12 @@ export default function OffersPage() {
                                 <ArrowRight className="h-4 w-4" />
                               </div>
                             )}
-                          </Button>
+                            </Button>
                         )}
-                      </CardFooter>
-                    </Card>
+                          </CardFooter>
+                        </Card>
                   </motion.div>
-                );
+                      );
               })}
             </div>
 

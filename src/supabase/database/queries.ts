@@ -323,6 +323,7 @@ export async function updateUserProfile(
     username: string;
     firstName: string;
     lastName: string;
+    position: string;
     bio: string;
     profilePicture: string;
     subscriptionTier: string;
@@ -343,6 +344,7 @@ export async function updateUserProfile(
   if (updates.username !== undefined) updateData.username = updates.username;
   if (updates.firstName !== undefined) updateData.first_name = updates.firstName;
   if (updates.lastName !== undefined) updateData.last_name = updates.lastName;
+  if (updates.position !== undefined) updateData.position = updates.position;
   if (updates.bio !== undefined) updateData.bio = updates.bio;
   if (updates.profilePicture !== undefined) updateData.profile_picture = updates.profilePicture;
   if (updates.subscriptionTier !== undefined) updateData.subscription_tier = updates.subscriptionTier;

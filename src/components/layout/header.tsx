@@ -277,8 +277,8 @@ const Header = () => {
                           : "text-header-foreground/80 hover:text-header-foreground"
                       }`}
                     >
-                      <LogOut className="h-5 w-5" /> Log Out
-                    </button>
+                           <LogOut className="h-5 w-5" /> Log Out
+                        </button>
                   ) : (
                     <Link 
                       href="/login" 

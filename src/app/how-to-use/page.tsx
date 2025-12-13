@@ -187,7 +187,7 @@ const StepSection = ({ step, index }: { step: (typeof steps)[0], index: number }
           )}>
             <div className="flex items-center justify-center lg:justify-start gap-3 mb-4">
               <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl" style={{ backgroundColor: 'rgba(59, 130, 246, 0.2)' }}>
-                {step.icon}
+              {step.icon}
               </div>
               {step.comingSoon && (
                 <Badge className="px-3 py-1 rounded-full text-xs font-semibold border" style={{ backgroundColor: 'rgba(249, 115, 22, 0.2)', borderColor: 'rgba(249, 115, 22, 0.5)', color: '#fb923c' }}>

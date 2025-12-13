@@ -240,17 +240,17 @@ export function SubscriptionCard() {
               className="w-full rounded-xl" 
               size="default"
             >
-              {isActive ? (
+                {isActive ? (
                 <a href="/dashboard/subscription">
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  Manage Subscription
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Manage Subscription
                 </a>
-              ) : (
+                ) : (
                 <a href="/offers">
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  Upgrade Plan
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Upgrade Plan
                 </a>
-              )}
+                )}
                 </Button>
           </div>
             </div>

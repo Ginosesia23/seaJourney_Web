@@ -9,6 +9,7 @@ BEGIN
     username,
     first_name,
     last_name,
+    position,
     registration_date,
     role,
     subscription_tier,
@@ -18,10 +19,11 @@ BEGIN
     NEW.id,
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'username', 'user_' || SUBSTRING(NEW.id::text, 1, 8)),
-    '',
-    '',
+    COALESCE(NEW.raw_user_meta_data->>'firstName', ''),
+    COALESCE(NEW.raw_user_meta_data->>'lastName', ''),
+    COALESCE(NEW.raw_user_meta_data->>'position', NULL),
     NOW(),
-    'crew',
+    COALESCE(NEW.raw_user_meta_data->>'role', 'crew'),
     'free',
     'inactive'
   )

@@ -5,6 +5,7 @@ export interface UserProfile {
   username: string;
   firstName?: string;
   lastName?: string;
+  position?: string;
   profilePicture?: string;
   bio?: string;
   registrationDate: string; // ISO String

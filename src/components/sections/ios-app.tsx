@@ -198,17 +198,17 @@ const IOSApp = () => {
                               className={`rounded-xl p-3 border cursor-pointer transition-all ${
                                 isActive ? 'ring-2' : 'hover:scale-105'
                               }`}
-                              style={{
+                            style={{
                                 backgroundColor: isActive ? state.bgColor : 'rgba(30, 41, 59, 0.5)',
                                 borderColor: isActive ? state.borderColor : 'rgba(255, 255, 255, 0.1)',
                                 ringColor: `${state.color}80`
-                              }}
+                            }}
                               whileTap={{ scale: 0.95 }}
                               transition={{ duration: 0.2 }}
-                            >
-                              <div className="flex flex-col items-center gap-2">
+                          >
+                            <div className="flex flex-col items-center gap-2">
                                 <motion.div 
-                                  className="h-8 w-8 rounded-lg flex items-center justify-center"
+                                className="h-8 w-8 rounded-lg flex items-center justify-center"
                                   style={{ 
                                     backgroundColor: isActive ? state.color : 'rgba(148, 163, 184, 0.2)'
                                   }}
@@ -216,7 +216,7 @@ const IOSApp = () => {
                                     scale: isActive ? [1, 1.1, 1] : 1,
                                   }}
                                   transition={{ duration: 0.3 }}
-                                >
+                              >
                                   <StateIcon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                                 </motion.div>
                                 <p className={`text-xs font-medium ${isActive ? 'text-white' : 'text-slate-400'}`}>

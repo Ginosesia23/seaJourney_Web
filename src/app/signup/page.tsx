@@ -23,6 +23,13 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useSupabase, useUser } from '@/supabase';
 import { Loader2 } from 'lucide-react';
@@ -36,9 +43,40 @@ const signupSchema = z.object({
   password: z
     .string()
     .min(8, { message: 'Password must be at least 8 characters long.' }),
+  firstName: z
+    .string()
+    .min(1, { message: 'First name is required.' }),
+  lastName: z
+    .string()
+    .min(1, { message: 'Last name is required.' }),
+  position: z.string().min(1, { message: 'Position is required.' }),
 });
 
 type SignupFormValues = z.infer<typeof signupSchema>;
+
+// Maritime position options
+const POSITION_OPTIONS = [
+  'Captain / Master',
+  'Chief Officer / First Mate',
+  'Second Officer',
+  'Third Officer',
+  'Officer of the Watch (OOW)',
+  'Deck Officer',
+  'Deckhand',
+  'Able Seaman (AB)',
+  'Bosun',
+  'Cadet',
+  'Chief Engineer',
+  'First Engineer / Second Engineer',
+  'Third Engineer',
+  'Engineer',
+  'Electrician',
+  'Chef / Cook',
+  'Steward / Stewardess',
+  'Chief Steward / Stewardess',
+  'Interior Crew',
+  'Other',
+] as const;
 
 // Inner component that actually uses hooks like useSearchParams
 function SignupPageInner() {
@@ -57,7 +95,14 @@ function SignupPageInner() {
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { username: '', email: '', password: '' },
+    defaultValues: { 
+      username: '', 
+      email: '', 
+      password: '', 
+      firstName: '',
+      lastName: '',
+      position: '' 
+    },
   });
 
   useEffect(() => {
@@ -92,6 +137,9 @@ function SignupPageInner() {
           options: {
             data: {
               username: data.username,
+              firstName: data.firstName,
+              lastName: data.lastName,
+              position: data.position,
             },
             emailRedirectTo: `${window.location.origin}/auth/confirm`,
           },
@@ -130,6 +178,35 @@ function SignupPageInner() {
 
       if (!authData.user) {
         throw new Error('User creation failed');
+      }
+
+      // Create user profile via API (includes full name, position, role)
+      try {
+        const profileResponse = await fetch('/api/users/create-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: authData.user.id,
+            email: data.email,
+            username: data.username,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            position: data.position, // Required field - always provided
+            role: 'crew', // Default role for all signups
+          }),
+        });
+
+        const profileResult = await profileResponse.json();
+        
+        if (!profileResponse.ok) {
+          console.error('[SIGNUP] Profile creation API error:', profileResult);
+          // Don't fail signup - profile will be created by database trigger as fallback
+        } else {
+          console.log('[SIGNUP] User profile created successfully with position:', profileResult);
+        }
+      } catch (profileError: any) {
+        console.error('[SIGNUP] Error calling profile creation API:', profileError);
+        // Don't fail signup - profile will be created by database trigger as fallback
       }
 
       // Email confirmation flow
@@ -253,6 +330,66 @@ function SignupPageInner() {
                           className="rounded-lg"
                         />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="firstName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>First Name</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="John"
+                            {...field}
+                            className="rounded-lg"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="lastName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Last Name</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Doe"
+                            {...field}
+                            className="rounded-lg"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <FormField
+                  control={form.control}
+                  name="position"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Position/Role</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="rounded-lg">
+                            <SelectValue placeholder="Select your position" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="rounded-lg">
+                          {POSITION_OPTIONS.map((position) => (
+                            <SelectItem key={position} value={position}>
+                              {position}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
