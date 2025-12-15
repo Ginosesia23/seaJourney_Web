@@ -5,7 +5,7 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import { timestampToISO } from './helpers';
-import type { StateLog, PassageLog, BridgeWatchLog } from '@/lib/types';
+import type { StateLog, PassageLog, BridgeWatchLog, VesselAssignment } from '@/lib/types';
 
 /**
  * Get user profile by user ID
@@ -414,6 +414,175 @@ export async function updateUserProfile(
 
     if (updateError) throw updateError;
   }
+}
+
+/**
+ * Get vessel assignments for a user
+ */
+export async function getVesselAssignments(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<VesselAssignment[]> {
+  const { data, error } = await supabase
+    .from('vessel_assignments')
+    .select('*')
+    .eq('user_id', userId)
+    .order('start_date', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || []).map((assignment) => ({
+    id: assignment.id,
+    userId: assignment.user_id,
+    vesselId: assignment.vessel_id,
+    startDate: assignment.start_date,
+    endDate: assignment.end_date || null,
+    position: assignment.position || null,
+    createdAt: timestampToISO(assignment.created_at),
+    updatedAt: timestampToISO(assignment.updated_at),
+  }));
+}
+
+/**
+ * Get vessel assignment for a specific vessel
+ */
+export async function getVesselAssignment(
+  supabase: SupabaseClient,
+  userId: string,
+  vesselId: string
+): Promise<VesselAssignment | null> {
+  const { data, error } = await supabase
+    .from('vessel_assignments')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('vessel_id', vesselId)
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  return {
+    id: data.id,
+    userId: data.user_id,
+    vesselId: data.vessel_id,
+    startDate: data.start_date,
+    endDate: data.end_date || null,
+    position: data.position || null,
+    createdAt: timestampToISO(data.created_at),
+    updatedAt: timestampToISO(data.updated_at),
+  };
+}
+
+/**
+ * Create a vessel assignment
+ */
+export async function createVesselAssignment(
+  supabase: SupabaseClient,
+  assignmentData: {
+    userId: string;
+    vesselId: string;
+    startDate: string; // YYYY-MM-DD format
+    endDate?: string | null; // YYYY-MM-DD format, null if active
+    position?: string | null;
+  }
+): Promise<VesselAssignment> {
+  const { data, error } = await supabase
+    .from('vessel_assignments')
+    .insert({
+      user_id: assignmentData.userId,
+      vessel_id: assignmentData.vesselId,
+      start_date: assignmentData.startDate,
+      end_date: assignmentData.endDate || null,
+      position: assignmentData.position || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    userId: data.user_id,
+    vesselId: data.vessel_id,
+    startDate: data.start_date,
+    endDate: data.end_date || null,
+    position: data.position || null,
+    createdAt: timestampToISO(data.created_at),
+    updatedAt: timestampToISO(data.updated_at),
+  };
+}
+
+/**
+ * Update vessel assignment (e.g., set end date when leaving)
+ */
+export async function updateVesselAssignment(
+  supabase: SupabaseClient,
+  assignmentId: string,
+  updates: {
+    endDate?: string | null; // YYYY-MM-DD format
+    position?: string | null;
+  }
+): Promise<VesselAssignment> {
+  const updateData: any = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updates.endDate !== undefined) {
+    updateData.end_date = updates.endDate;
+  }
+  if (updates.position !== undefined) {
+    updateData.position = updates.position;
+  }
+
+  const { data, error } = await supabase
+    .from('vessel_assignments')
+    .update(updateData)
+    .eq('id', assignmentId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    userId: data.user_id,
+    vesselId: data.vessel_id,
+    startDate: data.start_date,
+    endDate: data.end_date || null,
+    position: data.position || null,
+    createdAt: timestampToISO(data.created_at),
+    updatedAt: timestampToISO(data.updated_at),
+  };
+}
+
+/**
+ * End an active vessel assignment (set end date)
+ */
+export async function endVesselAssignment(
+  supabase: SupabaseClient,
+  userId: string,
+  vesselId: string,
+  endDate: string // YYYY-MM-DD format
+): Promise<VesselAssignment> {
+  // Find the active assignment (end_date is NULL)
+  const { data: activeAssignment, error: findError } = await supabase
+    .from('vessel_assignments')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('vessel_id', vesselId)
+    .is('end_date', null)
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (findError) throw findError;
+  if (!activeAssignment) {
+    throw new Error('No active assignment found for this vessel.');
+  }
+
+  return updateVesselAssignment(supabase, activeAssignment.id, { endDate });
 }
 
 /**

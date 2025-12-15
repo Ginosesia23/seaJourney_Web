@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { format, startOfYear, endOfYear, eachMonthOfInterval, startOfMonth, endOfMonth, eachDayOfInterval, getDaysInMonth, getDay, isSameMonth, isToday, isWithinInterval, startOfDay, endOfDay, isAfter } from 'date-fns';
-import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect } from 'lucide-react';
+import type { CSSProperties } from 'react';
+import { format, startOfYear, endOfYear, eachMonthOfInterval, startOfMonth, endOfMonth, eachDayOfInterval, getDaysInMonth, getDay, isSameMonth, isToday, isWithinInterval, startOfDay, endOfDay, isAfter, isBefore, parse, addDays } from 'date-fns';
+import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, Clock } from 'lucide-react';
 import { DateRange } from 'react-day-picker';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,9 +14,10 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselStateLogs, updateStateLogsBatch } from '@/supabase/database/queries';
+import { getVesselStateLogs, updateStateLogsBatch, getVesselAssignments } from '@/supabase/database/queries';
 import { useToast } from '@/hooks/use-toast';
-import type { UserProfile, Vessel, StateLog, DailyStatus } from '@/lib/types';
+import type { UserProfile, Vessel, StateLog, DailyStatus, VesselAssignment } from '@/lib/types';
+import { calculateStandbyDays } from '@/lib/standby-calculation';
 
 const vesselStates: { value: DailyStatus; label: string; color: string; icon: React.FC<any> }[] = [
   { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
@@ -35,6 +37,7 @@ export default function CalendarPage() {
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [selectionMode, setSelectionMode] = useState<'single' | 'range'>('single');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -78,7 +81,7 @@ export default function CalendarPage() {
     return vessels.find(v => v.id === activeVesselId);
   }, [vessels, userProfile]);
 
-  // Fetch state logs
+  // Fetch state logs for current vessel
   useEffect(() => {
     if (!currentVessel || !user?.id) {
       setStateLogs([]);
@@ -99,6 +102,26 @@ export default function CalendarPage() {
       });
   }, [currentVessel?.id, user?.id, supabase]);
 
+  // Fetch vessel assignments to determine valid date ranges
+  useEffect(() => {
+    if (!user?.id) {
+      setVesselAssignments([]);
+      return;
+    }
+
+    const fetchAssignments = async () => {
+      try {
+        const assignments = await getVesselAssignments(supabase, user.id);
+        setVesselAssignments(assignments);
+      } catch (error) {
+        console.error('Error fetching vessel assignments:', error);
+        setVesselAssignments([]);
+      }
+    };
+
+    fetchAssignments();
+  }, [user?.id, supabase]);
+
   // Create a map of date to state for quick lookup
   const stateLogMap = useMemo(() => {
     const map = new Map<string, DailyStatus>();
@@ -106,6 +129,44 @@ export default function CalendarPage() {
       map.set(log.date, log.state);
     });
     return map;
+  }, [stateLogs]);
+
+  // Calculate standby periods to identify standby dates
+  const { standbyPeriods } = useMemo(() => {
+    if (!stateLogs || stateLogs.length === 0) {
+      return { standbyPeriods: [] };
+    }
+    const result = calculateStandbyDays(stateLogs);
+    return { standbyPeriods: result.standbyPeriods };
+  }, [stateLogs]);
+
+  // Create a Set of dates that are counted as standby (for visual differentiation)
+  const standbyDatesSet = useMemo(() => {
+    const dates = new Set<string>();
+    standbyPeriods.forEach(period => {
+      // Only include dates that are actually counted (within the allowed limit)
+      // period.startDate is already a Date object from calculateStandbyDays
+      const startDate = period.startDate instanceof Date 
+        ? period.startDate 
+        : new Date(period.startDate);
+      const countedDays = period.countedDays;
+      for (let i = 0; i < countedDays; i++) {
+        const date = addDays(startDate, i);
+        dates.add(format(date, 'yyyy-MM-dd'));
+      }
+    });
+    return dates;
+  }, [standbyPeriods]);
+
+  // Also create a set for all potential standby states (in-port, at-anchor) for visual indication
+  const standbyStateDatesSet = useMemo(() => {
+    const dates = new Set<string>();
+    stateLogs.forEach(log => {
+      if (log.state === 'in-port' || log.state === 'at-anchor') {
+        dates.add(log.date);
+      }
+    });
+    return dates;
   }, [stateLogs]);
 
   // Get all months for the selected year
@@ -116,6 +177,114 @@ export default function CalendarPage() {
   // Get current year for navigation restrictions
   const currentYear = new Date().getFullYear();
   const isCurrentYear = selectedYear >= currentYear;
+
+  // Helper function to validate if a date is within valid vessel assignment period
+  const isDateValidForStateChange = (date: Date): { valid: boolean; reason?: string } => {
+    if (!currentVessel || !user?.id) {
+      return { valid: false, reason: 'No vessel selected.' };
+    }
+
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
+
+    // Find the earliest assignment across ALL vessels (when user first joined any vessel)
+    let earliestAssignment: VesselAssignment | null = null;
+    if (vesselAssignments.length > 0) {
+      earliestAssignment = vesselAssignments.reduce((earliest, assignment) => {
+        const assignmentStart = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
+        if (!earliest) return assignment;
+        const earliestStart = parse(earliest.startDate, 'yyyy-MM-dd', new Date());
+        return assignmentStart < earliestStart ? assignment : earliest;
+      }, null as VesselAssignment | null);
+    }
+
+    // Check if date is before the earliest vessel assignment
+    if (earliestAssignment) {
+      const earliestStart = parse(earliestAssignment.startDate, 'yyyy-MM-dd', new Date());
+      if (isBefore(dateObj, earliestStart)) {
+        return {
+          valid: false,
+          reason: `You cannot change states before ${format(earliestStart, 'MMM d, yyyy')} (when you first joined a vessel).`,
+        };
+      }
+    }
+
+    // Find assignments for the current vessel (ordered by start date, most recent first)
+    const currentVesselAssignments = vesselAssignments
+      .filter(a => a.vesselId === currentVessel.id)
+      .sort((a, b) => {
+        const aStart = parse(a.startDate, 'yyyy-MM-dd', new Date());
+        const bStart = parse(b.startDate, 'yyyy-MM-dd', new Date());
+        return bStart.getTime() - aStart.getTime(); // Most recent first
+      });
+
+    // If no assignments for current vessel, check if it's active
+    if (currentVesselAssignments.length === 0) {
+      // If vessel is active but has no assignment record yet (edge case), allow from today
+      if (userProfile?.activeVesselId === currentVessel.id) {
+        const today = startOfDay(new Date());
+        if (isBefore(dateObj, today)) {
+          return {
+            valid: false,
+            reason: 'You cannot change states for dates before you joined this vessel.',
+          };
+        }
+        return { valid: true };
+      } else {
+        return {
+          valid: false,
+          reason: 'You have no assignment record for this vessel. Please start a service first.',
+        };
+      }
+    }
+
+    // Check if date falls within any assignment period for this vessel
+    // Note: end_date is exclusive '[)' - meaning if end_date = 2025-01-10, 
+    // valid dates are < 2025-01-10 (through 2025-01-09 inclusive)
+    let dateInAnyAssignment = false;
+    for (const assignment of currentVesselAssignments) {
+      const assignmentStart = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
+      const assignmentEnd = assignment.endDate
+        ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
+        : null;
+
+      // Check if date is within this assignment period [start_date, end_date)
+      // date >= start_date AND (end_date is null OR date < end_date)
+      const isAfterOrEqualStart = !isBefore(dateObj, assignmentStart);
+      const isBeforeEnd = !assignmentEnd || isBefore(dateObj, assignmentEnd);
+      
+      if (isAfterOrEqualStart && isBeforeEnd) {
+        dateInAnyAssignment = true;
+        break;
+      }
+    }
+
+    if (!dateInAnyAssignment) {
+      // Find the most recent assignment to show a helpful message
+      const mostRecentAssignment = currentVesselAssignments[0];
+      const assignmentStart = parse(mostRecentAssignment.startDate, 'yyyy-MM-dd', new Date());
+      const assignmentEnd = mostRecentAssignment.endDate
+        ? parse(mostRecentAssignment.endDate, 'yyyy-MM-dd', new Date())
+        : null;
+
+      if (isBefore(dateObj, assignmentStart)) {
+        return {
+          valid: false,
+          reason: `You cannot change states before ${format(assignmentStart, 'MMM d, yyyy')} (when you joined this vessel).`,
+        };
+      }
+
+      // end_date is exclusive, so if end_date = 2025-01-10, dates >= 2025-01-10 are invalid
+      if (assignmentEnd && !isBefore(dateObj, assignmentEnd)) {
+        return {
+          valid: false,
+          reason: `You cannot change states on or after ${format(assignmentEnd, 'MMM d, yyyy')} (when you left this vessel). Join a new vessel to continue logging.`,
+        };
+      }
+    }
+
+    return { valid: true };
+  };
 
   const handleDateClick = (date: Date) => {
     if (!currentVessel) {
@@ -139,6 +308,17 @@ export default function CalendarPage() {
       });
       return;
     }
+
+    // Validate date is within valid vessel assignment period
+    const validation = isDateValidForStateChange(date);
+    if (!validation.valid) {
+      toast({
+        title: 'Invalid Date',
+        description: validation.reason || 'You cannot change the state for this date.',
+        variant: 'destructive',
+      });
+      return;
+    }
     
     if (selectionMode === 'single') {
       // Single date selection
@@ -150,7 +330,7 @@ export default function CalendarPage() {
       setIsDialogOpen(true);
     } else {
       // Range selection mode
-      if (!dateRange?.from || (dateRange.from && dateRange.to)) {
+        if (!dateRange?.from || (dateRange.from && dateRange.to)) {
         // Start new range - check if date is in future
         const today = startOfDay(new Date());
         const clickedDate = startOfDay(date);
@@ -159,6 +339,17 @@ export default function CalendarPage() {
           toast({
             title: 'Future Date',
             description: 'You cannot start a range with a future date.',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        // Validate date is within valid vessel assignment period
+        const validation = isDateValidForStateChange(date);
+        if (!validation.valid) {
+          toast({
+            title: 'Invalid Date',
+            description: validation.reason || 'You cannot change the state for this date.',
             variant: 'destructive',
           });
           return;
@@ -196,6 +387,29 @@ export default function CalendarPage() {
         if (isAfter(start, today)) {
           start = today;
         }
+
+        // Validate both start and end dates are within valid vessel assignment period
+        const startValidation = isDateValidForStateChange(start);
+        if (!startValidation.valid) {
+          toast({
+            title: 'Invalid Range Start',
+            description: startValidation.reason || 'The start date is not valid for state changes.',
+            variant: 'destructive',
+          });
+          setDateRange({ from: start, to: undefined });
+          return;
+        }
+
+        const endValidation = isDateValidForStateChange(end);
+        if (!endValidation.valid) {
+          toast({
+            title: 'Invalid Range End',
+            description: endValidation.reason || 'The end date is not valid for state changes.',
+            variant: 'destructive',
+          });
+          setDateRange({ from: start, to: undefined });
+          return;
+        }
         
         setDateRange({ from: start, to: end });
         setSelectedDate(null);
@@ -218,7 +432,14 @@ export default function CalendarPage() {
         const today = startOfDay(new Date());
         const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
         logs = interval
-          .filter(day => !isAfter(startOfDay(day), today)) // Filter out future dates
+          .filter(day => {
+            const dayStart = startOfDay(day);
+            // Filter out future dates
+            if (isAfter(dayStart, today)) return false;
+            // Validate each date is within valid vessel assignment period
+            const validation = isDateValidForStateChange(day);
+            return validation.valid;
+          })
           .map(day => ({
             date: format(day, 'yyyy-MM-dd'),
             state: state,
@@ -227,14 +448,24 @@ export default function CalendarPage() {
         if (logs.length === 0) {
           toast({
             title: 'Invalid Range',
-            description: 'No valid dates selected. All dates in the range are in the future.',
+            description: 'No valid dates in the selected range. Dates may be outside your vessel assignment period or in the future.',
             variant: 'destructive',
           });
           setIsSaving(false);
           return;
         }
       } else if (selectedDate) {
-        // Single date update
+        // Single date update - validate one more time before saving
+        const validation = isDateValidForStateChange(selectedDate);
+        if (!validation.valid) {
+          toast({
+            title: 'Invalid Date',
+            description: validation.reason || 'You cannot change the state for this date.',
+            variant: 'destructive',
+          });
+          setIsSaving(false);
+          return;
+        }
         const dateKey = format(selectedDate, 'yyyy-MM-dd');
         logs = [{ date: dateKey, state }];
       } else {
@@ -329,6 +560,10 @@ export default function CalendarPage() {
                 const isCurrentDay = isToday(day);
                 const isCurrentMonth = isSameMonth(day, month);
                 
+                // Check if this date is a standby date (in-port or at-anchor state)
+                const isStandbyState = standbyStateDatesSet.has(dateKey);
+                const isCountedStandby = standbyDatesSet.has(dateKey);
+                
                 // Check if date is in selected range
                 let isInRange = false;
                 let isRangeStart = false;
@@ -351,6 +586,45 @@ export default function CalendarPage() {
                 const dayStart = startOfDay(day);
                 const isFuture = isAfter(dayStart, today);
 
+                // Determine styling for standby dates with diagonal split
+                let standbyStyle: React.CSSProperties = {};
+                let backgroundStyle: React.CSSProperties | undefined = undefined;
+                
+                if (isCountedStandby && stateInfo) {
+                  // Only apply diagonal split to dates that are counted as standby
+                  // Standby color - using a distinct purple for counted standby
+                  const standbyColor = 'rgba(139, 92, 246, 0.85)'; // Purple for counted standby
+                  
+                  // Create diagonal split: state color on one half, standby color on other half
+                  // Using linear gradient at 135 degrees (diagonal from top-left to bottom-right)
+                  const stateColor = stateInfo.color;
+                  backgroundStyle = {
+                    background: `linear-gradient(135deg, ${stateColor} 0%, ${stateColor} 50%, ${standbyColor} 50%, ${standbyColor} 100%)`,
+                  };
+                  
+                  // No border, just the diagonal split
+                  standbyStyle = {};
+                } else if (isCountedStandby && !stateInfo) {
+                  // Counted standby but no state color (edge case - shouldn't happen normally)
+                  backgroundStyle = {
+                    backgroundColor: 'rgba(139, 92, 246, 0.7)',
+                  };
+                  standbyStyle = {};
+                }
+
+                // Build title text with standby indicator
+                let titleText = '';
+                if (isFuture) {
+                  titleText = 'Cannot update future dates';
+                } else if (stateInfo) {
+                  titleText = `${format(day, 'MMM d, yyyy')}: ${stateInfo.label}`;
+                  if (isCountedStandby) {
+                    titleText += ' (Counted as Standby)';
+                  }
+                } else {
+                  titleText = format(day, 'MMM d, yyyy');
+                }
+
                 return (
                   <button
                     key={dateKey}
@@ -368,13 +642,30 @@ export default function CalendarPage() {
                         ? "text-white" 
                         : "bg-muted/50 text-muted-foreground hover:bg-muted"
                     )}
-                    style={stateInfo ? { backgroundColor: stateInfo.color } : isInRange ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } : undefined}
-                    title={isFuture ? 'Cannot update future dates' : (stateInfo ? `${format(day, 'MMM d, yyyy')}: ${stateInfo.label}` : format(day, 'MMM d, yyyy'))}
+                    style={
+                      backgroundStyle
+                        ? { ...standbyStyle, ...backgroundStyle }
+                        : stateInfo 
+                          ? { ...standbyStyle, backgroundColor: stateInfo.color } 
+                          : isInRange 
+                            ? { backgroundColor: 'hsl(var(--primary) / 0.15)', ...standbyStyle } 
+                            : standbyStyle
+                    }
+                    title={titleText}
                   >
-                    <div className="flex flex-col items-center justify-center h-full">
-                      <span>{format(day, 'd')}</span>
-                      {stateInfo && (
-                        <stateInfo.icon className="h-2 w-2 mt-0.5 opacity-90" />
+                    <div className="flex flex-col items-center justify-center h-full relative">
+                      <span className="relative z-10 text-center">{format(day, 'd')}</span>
+                      {/* State icon in top-left corner (only for counted standby dates) */}
+                      {isCountedStandby && stateInfo && (
+                        <stateInfo.icon className="absolute top-1.5 left-1.5 h-2 w-2 opacity-90 z-10" />
+                      )}
+                      {/* State icon centered (for non-standby dates) */}
+                      {!isCountedStandby && stateInfo && (
+                        <stateInfo.icon className="h-2 w-2 mt-0.5 opacity-90 relative z-10" />
+                      )}
+                      {/* Standby icon in bottom-right corner (only for counted standby dates) */}
+                      {isCountedStandby && (
+                        <Clock className="absolute bottom-1.5 right-1.5 h-2 w-2 opacity-90 z-10" />
                       )}
                     </div>
                   </button>
@@ -533,21 +824,41 @@ export default function CalendarPage() {
           <CardTitle className="text-sm font-medium">State Legend</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {vesselStates.map((state) => {
-              const StateIcon = state.icon;
-              return (
-                <div key={state.value} className="flex items-center gap-2">
-                  <div
-                    className="h-8 w-8 rounded-xl flex items-center justify-center"
-                    style={{ backgroundColor: state.color }}
-                  >
-                    <StateIcon className="h-4 w-4 text-white" />
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              {vesselStates.map((state) => {
+                const StateIcon = state.icon;
+                return (
+                  <div key={state.value} className="flex items-center gap-2">
+                    <div
+                      className="h-8 w-8 rounded-xl flex items-center justify-center"
+                      style={{ backgroundColor: state.color }}
+                    >
+                      <StateIcon className="h-4 w-4 text-white" />
+                    </div>
+                    <span className="text-sm font-medium">{state.label}</span>
                   </div>
-                  <span className="text-sm font-medium">{state.label}</span>
+                );
+              })}
+            </div>
+            <Separator />
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <div 
+                  className="h-8 w-8 rounded relative"
+                  style={{
+                    background: `linear-gradient(135deg, hsl(var(--chart-orange)) 0%, hsl(var(--chart-orange)) 50%, rgba(139, 92, 246, 0.85) 50%, rgba(139, 92, 246, 0.85) 100%)`
+                  }}
+                >
+                  <Anchor className="absolute top-1.5 left-1.5 h-2 w-2 opacity-90" />
+                  <Clock className="absolute bottom-1.5 right-1.5 h-2 w-2 opacity-90" />
                 </div>
-              );
-            })}
+                <span>Counted as Standby (state icon top-left, standby icon bottom-right)</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Only dates that count toward standby days are marked with the diagonal split and icons in corners.
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>

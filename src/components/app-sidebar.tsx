@@ -89,7 +89,7 @@ const navGroups: Array<{ title: string; items: NavItem[] }> = [
   {
     title: "Management",
     items: [
-      { href: "/dashboard/vessels", label: "Vessels", icon: Ship, disabled: false },
+      { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false },
       { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false },
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false },
       { href: "/dashboard/testimonials", label: "Testimonials", icon: LifeBuoy, disabled: false },

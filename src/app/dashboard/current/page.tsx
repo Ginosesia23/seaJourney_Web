@@ -27,7 +27,9 @@ import {
   createSeaServiceRecord, 
   updateStateLogsBatch, 
   updateUserProfile,
-  getVesselStateLogs 
+  getVesselStateLogs,
+  createVesselAssignment,
+  endVesselAssignment
 } from '@/supabase/database/queries';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -356,15 +358,27 @@ export default function CurrentPage() {
           }
         }
       }
-      // 1. Update user profile to set active vessel (only if no end date, meaning it's still active)
+      // 1. Create vessel assignment record
+      const startDateStr = format(startDate, 'yyyy-MM-dd');
+      const endDateStr = data.endDate ? format(endDate, 'yyyy-MM-dd') : null;
       const isActiveService = !data.endDate;
+      
+      await createVesselAssignment(supabase, {
+        userId: user.id,
+        vesselId: data.vesselId,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        position: data.position || null,
+      });
+
+      // 2. Update user profile to set active vessel (only if no end date, meaning it's still active)
       if (isActiveService) {
-      await updateUserProfile(supabase, user.id, {
-        activeVesselId: data.vesselId,
+        await updateUserProfile(supabase, user.id, {
+          activeVesselId: data.vesselId,
         });
       }
 
-      // 2. Create state logs for all dates from start to end
+      // 3. Create state logs for all dates from start to end
       const dateRange = eachDayOfInterval({ start: startDate, end: endDate });
       const logs = dateRange.map(day => ({
         date: format(day, 'yyyy-MM-dd'),
@@ -493,12 +507,17 @@ export default function CurrentPage() {
     if (!currentVessel || !user?.id) return;
     
     try {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      
+      // End the vessel assignment (set end_date to today)
+      await endVesselAssignment(supabase, user.id, currentVessel.id, today);
+      
       // Update user profile to clear active vessel
       await updateUserProfile(supabase, user.id, {
         activeVesselId: null,
       });
 
-      toast({ title: 'Service Ended', description: 'Your active service has been cleared.' });
+      toast({ title: 'Service Ended', description: 'Your active service has been ended.' });
     } catch (error: any) {
       console.error('Error ending trip:', error);
       toast({

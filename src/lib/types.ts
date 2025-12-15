@@ -134,4 +134,15 @@ export interface BridgeWatchLog {
     updated_at: string;                // timestamptz
 }
 
+export interface VesselAssignment {
+    id: string;                        // uuid PK
+    userId: string;                    // uuid FK → auth.users.id
+    vesselId: string;                  // uuid FK → vessels.id
+    startDate: string;                 // Date in YYYY-MM-DD format
+    endDate?: string | null;           // Date in YYYY-MM-DD format, NULL if still active
+    position?: string | null;          // User's position/role on this vessel
+    createdAt?: string;                // ISO timestamp
+    updatedAt?: string;                // ISO timestamp
+}
+
 
