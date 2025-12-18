@@ -45,7 +45,7 @@
         "role": {
           "type": "string",
           "description": "The user's role, determining their permissions.",
-          "enum": ["crew", "vessel", "admin"]
+          "enum": ["crew", "captain", "vessel", "admin"]
         },
         "subscriptionTier": {
           "type": "string",

@@ -9,7 +9,7 @@ export interface UserProfile {
   profilePicture?: string;
   bio?: string;
   registrationDate: string; // ISO String
-  role: 'crew' | 'vessel' | 'admin';
+  role: 'crew' | 'captain' | 'vessel' | 'admin';
   subscriptionTier: string;
   subscriptionStatus: 'active' | 'inactive' | 'past-due';
   stripeCustomerId?: string | null;
@@ -141,6 +141,15 @@ export interface VesselAssignment {
     startDate: string;                 // Date in YYYY-MM-DD format
     endDate?: string | null;           // Date in YYYY-MM-DD format, NULL if still active
     position?: string | null;          // User's position/role on this vessel
+    createdAt?: string;                // ISO timestamp
+    updatedAt?: string;                // ISO timestamp
+}
+
+export interface VesselCaptaincy {
+    id: string;                        // uuid PK
+    vesselId: string;                  // uuid FK → vessels.id
+    userId: string;                    // uuid FK → auth.users.id
+    status: 'pending' | 'approved' | 'rejected';
     createdAt?: string;                // ISO timestamp
     updatedAt?: string;                // ISO timestamp
 }

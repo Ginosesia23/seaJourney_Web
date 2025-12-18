@@ -8,8 +8,9 @@ import { MoreHorizontal, Loader2, Search, Users, User as UserIcon } from 'lucide
 import { format } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -27,7 +28,7 @@ export default function CrewPage() {
     // The user's own profile is needed to check their role.
     const { data: currentUserProfile, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
 
-    const isAuthorized = currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'vessel';
+    const isAuthorized = currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'vessel' || currentUserProfile?.role === 'captain';
 
     const { data: profiles, isLoading: isLoadingProfiles } = useCollection<UserProfile>(
         isAuthorized ? 'users' : null
@@ -68,28 +69,33 @@ export default function CrewPage() {
     }
 
     return (
-        <div className="w-full max-w-7xl mx-auto">
-            <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
-                <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div>
-                        <div className="flex items-center gap-3">
-                            <Users className="h-6 w-6" />
-                            <CardTitle>Crew Members</CardTitle>
-                        </div>
-                        <CardDescription>View and manage all users on the platform.</CardDescription>
+        <div className="flex flex-col gap-6">
+            {/* Header Section */}
+            <div className="space-y-2">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="space-y-1">
+                        <h1 className="text-3xl font-bold tracking-tight">Crew Members</h1>
+                        <p className="text-muted-foreground">
+                            View and manage all users on the platform.
+                        </p>
                     </div>
                     <div className="relative w-full sm:max-w-xs">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
                             placeholder="Search by name, username, or email..."
-                            className="pl-8"
+                            className="pl-8 rounded-xl"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
-                </CardHeader>
-                <CardContent>
-                    <Table>
+                </div>
+                <Separator />
+            </div>
+
+            <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <Table>
                         <TableHeader>
                             <TableRow>
                                 <TableHead>User</TableHead>
@@ -165,7 +171,8 @@ export default function CrewPage() {
                                 </TableRow>
                             )}
                         </TableBody>
-                    </Table>
+                        </Table>
+                    </div>
                 </CardContent>
             </Card>
         </div>

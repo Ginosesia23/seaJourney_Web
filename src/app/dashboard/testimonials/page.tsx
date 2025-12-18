@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, startOfDay, isAfter, parse, eachDayOfInterval, isWithinInterval } from 'date-fns';
+import { format, startOfDay, isAfter, parse, eachDayOfInterval, isWithinInterval, subMonths, addDays, differenceInDays } from 'date-fns';
 import { LifeBuoy, Loader2, PlusCircle, Mail, Calendar, CalendarIcon, Ship, Clock, CheckCircle2, XCircle, FileText, Download, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -31,13 +31,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselStateLogs } from '@/supabase/database/queries';
+import { getVesselStateLogs, getVesselAssignments } from '@/supabase/database/queries';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { generateTestimonialPDF } from '@/lib/pdf-generator';
 import { generateTestimonialCode } from '@/lib/testimonial-code';
-import type { Vessel, UserProfile, Testimonial, TestimonialStatus } from '@/lib/types';
+import type { Vessel, UserProfile, Testimonial, TestimonialStatus, VesselAssignment } from '@/lib/types';
 import type { StateLog } from '@/lib/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -338,18 +338,251 @@ export default function TestimonialsPage() {
     });
   }, [allVessels, vesselStateLogs]);
 
-  // Fetch state logs for selected vessel to calculate day counts
+  // Fetch vessel assignments and state logs for selected vessel
+  const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
+  
   useEffect(() => {
     if (watchedVesselId && user?.id) {
-      const fetchLogs = async () => {
-        const logs = await getVesselStateLogs(supabase, watchedVesselId, user.id);
+      const fetchData = async () => {
+        const [logs, assignments] = await Promise.all([
+          getVesselStateLogs(supabase, watchedVesselId, user.id),
+          getVesselAssignments(supabase, user.id)
+        ]);
         setSelectedVesselLogs(logs);
+        
+        // Filter assignments for this vessel
+        const vesselAssignments = assignments.filter(a => a.vesselId === watchedVesselId);
+        setVesselAssignments(vesselAssignments);
       };
-      fetchLogs();
+      fetchData();
     } else {
       setSelectedVesselLogs([]);
+      setVesselAssignments([]);
     }
   }, [watchedVesselId, user?.id, supabase]);
+
+  // Calculate date range options based on vessel assignments and state logs
+  const dateRangeOptions = useMemo(() => {
+    // Only require vessel and logs - assignments are optional
+    if (!watchedVesselId || selectedVesselLogs.length === 0) {
+      return [];
+    }
+
+    const today = startOfDay(new Date());
+    const options: Array<{ label: string; startDate: Date; endDate: Date }> = [];
+
+    // Option 1: Period between last two leave periods (or before last leave if only one)
+    // Find all unique leave dates (group consecutive leave days)
+    const allLeaveDates = selectedVesselLogs
+      .filter(log => log.state === 'on-leave')
+      .map(log => parse(log.date, 'yyyy-MM-dd', new Date()))
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    // Group consecutive leave dates into periods
+    const leavePeriods: Array<{ start: Date; end: Date }> = [];
+    if (allLeaveDates.length > 0) {
+      let currentPeriodStart = allLeaveDates[0];
+      let currentPeriodEnd = allLeaveDates[0];
+      
+      for (let i = 1; i < allLeaveDates.length; i++) {
+        const daysDiff = differenceInDays(allLeaveDates[i], currentPeriodEnd);
+        if (daysDiff <= 1) {
+          // Consecutive or same day - extend current period
+          currentPeriodEnd = allLeaveDates[i];
+        } else {
+          // Gap found - save current period and start new one
+          leavePeriods.push({ start: currentPeriodStart, end: currentPeriodEnd });
+          currentPeriodStart = allLeaveDates[i];
+          currentPeriodEnd = allLeaveDates[i];
+        }
+      }
+      // Add the last period
+      leavePeriods.push({ start: currentPeriodStart, end: currentPeriodEnd });
+    }
+
+    if (leavePeriods.length >= 2) {
+      // We have at least 2 leave periods - find onboard period between the last two
+      const lastLeavePeriod = leavePeriods[leavePeriods.length - 1];
+      const previousLeavePeriod = leavePeriods[leavePeriods.length - 2];
+      
+      // Find logged dates between the two leave periods (onboard period)
+      const onboardDatesBetweenLeaves = selectedVesselLogs
+        .filter(log => {
+          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+          return logDate > previousLeavePeriod.end && logDate < lastLeavePeriod.start && log.state !== 'on-leave';
+        })
+        .map(log => parse(log.date, 'yyyy-MM-dd', new Date()))
+        .sort((a, b) => a.getTime() - b.getTime());
+
+      if (onboardDatesBetweenLeaves.length > 0) {
+        const periodStart = onboardDatesBetweenLeaves[0];
+        const periodEnd = onboardDatesBetweenLeaves[onboardDatesBetweenLeaves.length - 1];
+        
+        options.push({
+          label: 'Between Last Two Leaves',
+          startDate: periodStart,
+          endDate: periodEnd,
+        });
+      }
+    } else if (leavePeriods.length === 1) {
+      // Only one leave period - find period before it
+      const lastLeavePeriod = leavePeriods[0];
+      
+      // Find logged dates before the last leave
+      const onboardDatesBeforeLeave = selectedVesselLogs
+        .filter(log => {
+          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+          return logDate < lastLeavePeriod.start && log.state !== 'on-leave';
+        })
+        .map(log => parse(log.date, 'yyyy-MM-dd', new Date()))
+        .sort((a, b) => a.getTime() - b.getTime());
+
+      if (onboardDatesBeforeLeave.length > 0) {
+        const periodStart = onboardDatesBeforeLeave[0];
+        const periodEnd = onboardDatesBeforeLeave[onboardDatesBeforeLeave.length - 1];
+        
+        options.push({
+          label: 'Before Last Leave',
+          startDate: periodStart,
+          endDate: periodEnd,
+        });
+      }
+    }
+
+    // Option 2: Fixed time period options (Last 2, 3, 4 months)
+    const twoMonthsAgo = subMonths(today, 2);
+    const threeMonthsAgo = subMonths(today, 3);
+    const fourMonthsAgo = subMonths(today, 4);
+
+    // Check if we have logs in each period
+    const hasLogsLast2Months = selectedVesselLogs.some(log => {
+      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+      return logDate >= twoMonthsAgo;
+    });
+
+    const hasLogsLast3Months = selectedVesselLogs.some(log => {
+      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+      return logDate >= threeMonthsAgo;
+    });
+
+    const hasLogsLast4Months = selectedVesselLogs.some(log => {
+      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+      return logDate >= fourMonthsAgo;
+    });
+
+    if (hasLogsLast2Months) {
+      options.push({
+        label: 'Last 2 Months',
+        startDate: twoMonthsAgo,
+        endDate: today,
+      });
+    }
+
+    if (hasLogsLast3Months) {
+      options.push({
+        label: 'Last 3 Months',
+        startDate: threeMonthsAgo,
+        endDate: today,
+      });
+    }
+
+    if (hasLogsLast4Months) {
+      options.push({
+        label: 'Last 4 Months',
+        startDate: fourMonthsAgo,
+        endDate: today,
+      });
+    }
+
+    // Option 3: Last onboard period (from vessel assignment)
+    // Find the most recent assignment for this vessel
+    const sortedAssignments = [...vesselAssignments].sort((a, b) => {
+      const aStart = parse(a.startDate, 'yyyy-MM-dd', new Date());
+      const bStart = parse(b.startDate, 'yyyy-MM-dd', new Date());
+      return bStart.getTime() - aStart.getTime();
+    });
+
+    if (sortedAssignments.length > 0) {
+      const latestAssignment = sortedAssignments[0];
+      const assignmentStart = parse(latestAssignment.startDate, 'yyyy-MM-dd', new Date());
+      const assignmentEnd = latestAssignment.endDate 
+        ? parse(latestAssignment.endDate, 'yyyy-MM-dd', new Date())
+        : today;
+
+      // Check if this assignment has logged days
+      const assignmentLogs = selectedVesselLogs.filter(log => {
+        const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+        return logDate >= assignmentStart && logDate <= assignmentEnd;
+      });
+
+      if (assignmentLogs.length > 0) {
+        // Find the actual range of logged days within this assignment
+        const loggedDates = assignmentLogs
+          .map(log => parse(log.date, 'yyyy-MM-dd', new Date()))
+          .sort((a, b) => a.getTime() - b.getTime());
+        
+        const firstLoggedDate = loggedDates[0];
+        const lastLoggedDate = loggedDates[loggedDates.length - 1];
+
+        options.push({
+          label: 'Last Onboard Period',
+          startDate: firstLoggedDate,
+          endDate: lastLoggedDate > today ? today : lastLoggedDate,
+        });
+      }
+
+      // Option 3: Find period between "on-leave" states (most recent onboard period before leave)
+      const leaveLogsWithDates = selectedVesselLogs
+        .filter(log => log.state === 'on-leave')
+        .map(log => ({
+          logDate: parse(log.date, 'yyyy-MM-dd', new Date()),
+          state: log.state
+        }))
+        .sort((a, b) => b.logDate.getTime() - a.logDate.getTime());
+
+      if (leaveLogsWithDates.length > 0) {
+        // Find the last leave period
+        const lastLeaveDate = leaveLogsWithDates[0].logDate;
+        
+        // Find the last logged date before leave
+        const logsBeforeLeave = selectedVesselLogs
+          .filter(log => {
+            const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+            return logDate < lastLeaveDate && log.state !== 'on-leave';
+          })
+          .map(log => parse(log.date, 'yyyy-MM-dd', new Date()))
+          .sort((a, b) => a.getTime() - b.getTime());
+
+        if (logsBeforeLeave.length > 0) {
+          const lastOnboardBeforeLeave = logsBeforeLeave[logsBeforeLeave.length - 1];
+          // Go back to find the start of this onboard period (first non-leave date in sequence)
+          let periodStart = lastOnboardBeforeLeave;
+          for (let i = logsBeforeLeave.length - 2; i >= 0; i--) {
+            const daysDiff = differenceInDays(logsBeforeLeave[i + 1], logsBeforeLeave[i]);
+            if (daysDiff <= 1) {
+              periodStart = logsBeforeLeave[i];
+            } else {
+              break;
+            }
+          }
+
+          options.push({
+            label: 'Before Last Leave',
+            startDate: periodStart,
+            endDate: addDays(lastLeaveDate, -1),
+          });
+        }
+      }
+    }
+
+    return options;
+  }, [watchedVesselId, vesselAssignments, selectedVesselLogs]);
+
+  // Function to apply a date range option
+  const applyDateRangeOption = (option: { startDate: Date; endDate: Date }) => {
+    form.setValue('start_date', startOfDay(option.startDate));
+    form.setValue('end_date', startOfDay(option.endDate));
+  };
 
   // Calculate and display day counts preview
   const dayCountsPreview = useMemo(() => {
@@ -747,6 +980,40 @@ export default function TestimonialsPage() {
                       </FormItem>
                     )}
                   />
+
+                  {/* Quick Date Range Options */}
+                  {watchedVesselId && (
+                    <div className="space-y-2">
+                      <FormLabel>Quick Select Date Range</FormLabel>
+                      {dateRangeOptions && dateRangeOptions.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {dateRangeOptions.map((option, index) => (
+                            <Button
+                              key={index}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="rounded-xl border-2 hover:border-primary transition-all"
+                              onClick={() => applyDateRangeOption(option)}
+                            >
+                              {option.label}
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                ({format(option.startDate, 'MMM d')} - {format(option.endDate, 'MMM d, yyyy')})
+                              </span>
+                            </Button>
+                          ))}
+                        </div>
+                      ) : selectedVesselLogs.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          Loading vessel data...
+                        </p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No date range options available. Ensure you have logged time on this vessel.
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-4">
                     <FormField

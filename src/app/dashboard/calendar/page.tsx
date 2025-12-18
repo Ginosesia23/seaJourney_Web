@@ -516,6 +516,35 @@ export default function CalendarPage() {
     const firstDayOfMonth = getDay(monthStart);
     const daysInMonth = getDaysInMonth(month);
     
+    // Calculate state counts for this month
+    const monthStartStr = format(monthStart, 'yyyy-MM-dd');
+    const monthEndStr = format(monthEnd, 'yyyy-MM-dd');
+    
+    const monthStateCounts: Record<string, number> = {
+      underway: 0,
+      'at-anchor': 0,
+      'in-port': 0,
+      'on-leave': 0,
+      'in-yard': 0,
+      standby: 0,
+    };
+    
+    // Count states for this month
+    stateLogs.forEach(log => {
+      if (log.date >= monthStartStr && log.date <= monthEndStr) {
+        if (log.state in monthStateCounts) {
+          monthStateCounts[log.state as keyof typeof monthStateCounts]++;
+        }
+      }
+    });
+    
+    // Count standby days for this month
+    standbyDatesSet.forEach(dateStr => {
+      if (dateStr >= monthStartStr && dateStr <= monthEndStr) {
+        monthStateCounts.standby++;
+      }
+    });
+    
     // Generate calendar grid - start from Sunday
     const days: (Date | null)[] = [];
     
@@ -536,8 +565,8 @@ export default function CalendarPage() {
             {format(month, 'MMMM yyyy')}
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-1">
+        <CardContent className="flex flex-col pb-6">
+          <div className="flex-1 space-y-1">
             {/* Day headers */}
             <div className="grid grid-cols-7 gap-1 mb-2">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
@@ -671,6 +700,31 @@ export default function CalendarPage() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+          
+          {/* Month Summary Section */}
+          <Separator className="mt-6 mb-4" />
+          <div className="grid grid-cols-3 gap-3 text-sm">
+            {vesselStates.map((state) => {
+              const count = monthStateCounts[state.value] || 0;
+              const StateIcon = state.icon;
+              return (
+                <div key={state.value} className="flex items-center gap-2">
+                  <StateIcon className="h-4 w-4" style={{ color: state.color }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-muted-foreground truncate">{state.label}</div>
+                  </div>
+                  <span className="font-medium">{count}</span>
+                </div>
+              );
+            })}
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-purple-600" />
+              <div className="flex-1 min-w-0">
+                <div className="text-muted-foreground truncate">Standby</div>
+              </div>
+              <span className="font-medium">{monthStateCounts.standby}</span>
             </div>
           </div>
         </CardContent>

@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Calendar,
   Navigation,
+  Inbox,
 } from "lucide-react"
 
 import {
@@ -60,27 +61,29 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<any>;
   disabled?: boolean;
-  requiredRole?: 'crew' | 'vessel' | 'admin';
+  requiredRole?: 'captain' | 'vessel' | 'admin';
+  hideForRoles?: ('vessel' | 'admin')[]; // Note: 'captain' is not included - captains are crew members with extra privileges
 };
 
-const navGroups: Array<{ title: string; items: NavItem[] }> = [
+const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vessel' | 'admin')[] }> = [
   {
     title: "General",
     items: [
       { href: "/dashboard", label: "Home", icon: Home, disabled: false },
-      { href: "/dashboard/recent-activity", label: "Recent Activity", icon: History, disabled: false },
+      { href: "/dashboard/recent-activity", label: "Recent Activity", icon: History, disabled: false, hideForRoles: ['vessel', 'admin'] },
     ]
   },
   {
     title: "Sea Time",
+    hideForRoles: ['vessel', 'admin'], // Hide entire section for vessel managers/admins (but not captains - they're crew members)
     items: [
       { href: "/dashboard/current", label: "Current", icon: MapPin, disabled: false },
-      { href: "/dashboard/history", label: "History", icon: History, disabled: false },
       { href: "/dashboard/calendar", label: "Calendar", icon: Calendar, disabled: false },
     ]
   },
   {
     title: "Logbooks",
+    hideForRoles: ['vessel', 'admin'], // Hide entire section for vessel managers/admins (but not captains - they're crew members)
     items: [
       { href: "/dashboard/passage-logbook", label: "Passage Log", icon: Map, disabled: false },
       { href: "/dashboard/bridge-watch-log", label: "Bridge Watch", icon: Navigation, disabled: false },
@@ -91,8 +94,9 @@ const navGroups: Array<{ title: string; items: NavItem[] }> = [
     items: [
       { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false },
       { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false },
+      { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, requiredRole: "captain", disabled: false },
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false },
-      { href: "/dashboard/testimonials", label: "Testimonials", icon: LifeBuoy, disabled: false },
+      { href: "/dashboard/testimonials", label: "Testimonials", icon: LifeBuoy, disabled: false, hideForRoles: ['vessel', 'admin'] },
     ]
   },
   {
@@ -178,13 +182,39 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {navGroups.map((group) => (
+        {navGroups.map((group) => {
+          // Hide entire group if user role matches hideForRoles (captains are not hidden - they're crew members)
+          if (group.hideForRoles && userProfile?.role && group.hideForRoles.includes(userProfile.role as 'vessel' | 'admin')) {
+            return null;
+          }
+
+          return (
           <SidebarGroup key={group.title}>
             <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => {
-                  if ('requiredRole' in item && item.requiredRole && userProfile?.role !== item.requiredRole && userProfile?.role !== "admin") {
+                  if ('requiredRole' in item && item.requiredRole) {
+                    // Show item if user has the required role or is admin
+                    // Also allow captains to access items that require 'captain' or 'vessel' role
+                    const userRole = userProfile?.role;
+                    if (userRole !== item.requiredRole && userRole !== "admin") {
+                      // Special case: captains can access vessel-required items, vessel managers can access captain-required items
+                      if (item.requiredRole === 'vessel' && userRole !== 'captain') {
+                        return null;
+                      }
+                      if (item.requiredRole === 'captain' && userRole !== 'captain' && userRole !== 'vessel') {
+                        return null;
+                      }
+                      // If none of the above conditions matched, hide the item
+                      if (userRole !== item.requiredRole) {
+                        return null;
+                      }
+                    }
+                  }
+                  
+                  // Hide individual item if it's in hideForRoles (captains are not hidden - they're crew members)
+                  if ('hideForRoles' in item && item.hideForRoles && userProfile?.role && item.hideForRoles.includes(userProfile.role as 'vessel' | 'admin')) {
                     return null
                   }
                   
@@ -208,7 +238,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-        ))}
+        )
+        })}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>

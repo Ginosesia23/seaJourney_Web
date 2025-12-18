@@ -16,7 +16,7 @@ The `users` table has the following columns:
 | `profile_picture` | TEXT | ❌ No | `null` | URL to user's profile picture |
 | `bio` | TEXT | ❌ No | `null` | User's biography/description |
 | `registration_date` | TIMESTAMPTZ | ✅ Yes | `NOW()` | When the user registered |
-| `role` | TEXT | ✅ Yes | `'crew'` | User role: `'crew'`, `'vessel'`, or `'admin'` |
+| `role` | TEXT | ✅ Yes | `'crew'` | User role: `'crew'`, `'captain'`, `'vessel'`, or `'admin'` |
 | `subscription_tier` | TEXT | ✅ Yes | `'free'` | Subscription tier (e.g., `'free'`, `'premium'`, `'pro'`) |
 | `subscription_status` | TEXT | ✅ Yes | `'inactive'` | Status: `'active'`, `'inactive'`, or `'past-due'` |
 | `active_vessel_id` | UUID | ❌ No | `null` | ID of currently active vessel |
@@ -169,7 +169,7 @@ Only the fields provided in `updates` are updated:
 
 ## Data Validation
 
-- **`role`**: Must be one of: `'crew'`, `'vessel'`, `'admin'`
+- **`role`**: Must be one of: `'crew'`, `'captain'`, `'vessel'`, `'admin'`
 - **`subscription_status`**: Must be one of: `'active'`, `'inactive'`, `'past-due'`
 - **`id`**: Must reference a valid `auth.users(id)` record
 - **`active_vessel_id`**: Must reference a valid `vessels(id)` if set
