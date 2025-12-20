@@ -129,6 +129,7 @@ export async function createVessel(
     name: string;
     type: string;
     officialNumber?: string;
+    isOfficial?: boolean; // true if created by vessel role user, false if by crew member
   }
 ) {
   // Properly handle officialNumber - preserve the value if provided, null if empty/undefined
@@ -140,6 +141,7 @@ export async function createVessel(
       name: vesselData.name,
       type: vesselData.type,
       imo: officialNumber,
+      is_official: vesselData.isOfficial ?? false, // Default to false (crew member creation)
     })
     .select()
     .single();
@@ -314,6 +316,7 @@ export async function deleteVesselStateLogs(
 /**
  * Update user profile (creates user if they don't exist)
  * Uses upsert to handle both insert and update cases gracefully
+ * Automatically syncs vessel assignments when activeVesselId changes
  */
 export async function updateUserProfile(
   supabase: SupabaseClient,
@@ -413,6 +416,21 @@ export async function updateUserProfile(
       .eq('id', userId);
 
     if (updateError) throw updateError;
+
+    // If activeVesselId was updated, sync vessel assignments
+    if (updates.activeVesselId !== undefined) {
+      try {
+        await syncVesselAssignmentForActiveVessel(
+          supabase,
+          userId,
+          updates.activeVesselId,
+          updates.position || undefined
+        );
+      } catch (assignmentError) {
+        // Log error but don't fail the profile update
+        console.error('[updateUserProfile] Error syncing vessel assignment:', assignmentError);
+      }
+    }
   }
 }
 
@@ -473,6 +491,45 @@ export async function getVesselAssignment(
     createdAt: timestampToISO(data.created_at),
     updatedAt: timestampToISO(data.updated_at),
   };
+}
+
+/**
+ * Get all active vessel assignments for a specific vessel (where end_date IS NULL)
+ */
+export async function getActiveVesselAssignmentsByVessel(
+  supabase: SupabaseClient,
+  vesselId: string
+): Promise<VesselAssignment[]> {
+  console.log('[getActiveVesselAssignmentsByVessel] Fetching assignments for vessel:', vesselId);
+  
+  const { data, error } = await supabase
+    .from('vessel_assignments')
+    .select('*')
+    .eq('vessel_id', vesselId)
+    .is('end_date', null)
+    .order('start_date', { ascending: false });
+
+  console.log('[getActiveVesselAssignmentsByVessel] Query result:', { data, error });
+
+  if (error) {
+    console.error('[getActiveVesselAssignmentsByVessel] Error:', error);
+    throw error;
+  }
+
+  const mapped = (data || []).map((assignment) => ({
+    id: assignment.id,
+    userId: assignment.user_id,
+    vesselId: assignment.vessel_id,
+    startDate: assignment.start_date,
+    endDate: assignment.end_date || null,
+    position: assignment.position || null,
+    createdAt: timestampToISO(assignment.created_at),
+    updatedAt: timestampToISO(assignment.updated_at),
+  }));
+  
+  console.log('[getActiveVesselAssignmentsByVessel] Mapped assignments:', mapped);
+  
+  return mapped;
 }
 
 /**
@@ -555,6 +612,80 @@ export async function updateVesselAssignment(
     createdAt: timestampToISO(data.created_at),
     updatedAt: timestampToISO(data.updated_at),
   };
+}
+
+/**
+ * Ensure vessel assignment exists when user sets active_vessel_id
+ * This creates or updates the assignment to reflect the current vessel
+ */
+export async function syncVesselAssignmentForActiveVessel(
+  supabase: SupabaseClient,
+  userId: string,
+  vesselId: string | null,
+  position?: string | null
+): Promise<void> {
+  // If vesselId is null, we need to end all active assignments
+  if (!vesselId) {
+    // Find all active assignments for this user and end them
+    const { data: activeAssignments } = await supabase
+      .from('vessel_assignments')
+      .select('id')
+      .eq('user_id', userId)
+      .is('end_date', null);
+
+    if (activeAssignments && activeAssignments.length > 0) {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      for (const assignment of activeAssignments) {
+        await updateVesselAssignment(supabase, assignment.id, {
+          endDate: today,
+        });
+      }
+    }
+    return;
+  }
+
+  // Check if there's already an active assignment for this vessel
+  const existingAssignment = await getVesselAssignment(supabase, userId, vesselId);
+  
+  if (existingAssignment && !existingAssignment.endDate) {
+    // Assignment already exists and is active - just update position if provided
+    if (position !== undefined) {
+      await updateVesselAssignment(supabase, existingAssignment.id, {
+        position,
+      });
+    }
+    return;
+  }
+
+  // Check if user has any other active assignments that need to be ended first
+  const { data: otherActiveAssignments } = await supabase
+    .from('vessel_assignments')
+    .select('id, vessel_id')
+    .eq('user_id', userId)
+    .is('end_date', null);
+
+  if (otherActiveAssignments && otherActiveAssignments.length > 0) {
+    // End all other active assignments
+    const today = new Date().toISOString().split('T')[0];
+    for (const assignment of otherActiveAssignments) {
+      if (assignment.vessel_id !== vesselId) {
+        await updateVesselAssignment(supabase, assignment.id, {
+          endDate: today,
+        });
+      }
+    }
+  }
+
+  // If there was an assignment but it's ended, we could resume it, but it's cleaner to create a new one
+  // Create new active assignment
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+  await createVesselAssignment(supabase, {
+    userId,
+    vesselId,
+    startDate: today,
+    endDate: null, // Active assignment
+    position: position || null,
+  });
 }
 
 /**

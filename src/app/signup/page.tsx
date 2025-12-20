@@ -414,6 +414,13 @@ function SignupPageInner() {
               >
                 Sign in
               </Link>
+              {' · '}
+              <Link
+                href="/signup/vessel"
+                className="font-medium text-primary hover:underline"
+              >
+                Register a vessel
+              </Link>
             </p>
           </CardContent>
         </Card>

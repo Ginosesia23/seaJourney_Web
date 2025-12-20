@@ -10,12 +10,22 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { useUser, useSupabase } from '@/supabase';
-import { useCollection } from '@/supabase/database';
+import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments } from '@/supabase/database/queries';
 import { format, parse, differenceInDays, isAfter } from 'date-fns';
-import { Ship, Calendar, Briefcase, Loader2 } from 'lucide-react';
-import type { VesselAssignment, Vessel } from '@/lib/types';
+import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
+import type { VesselAssignment, Vessel, UserProfile } from '@/lib/types';
 
 function CareerTab({ userId }: { userId?: string }) {
   const { supabase } = useSupabase();
@@ -200,9 +210,489 @@ function CareerTab({ userId }: { userId?: string }) {
   );
 }
 
+const vesselDetailsSchema = z.object({
+  name: z.string().min(1, 'Vessel name is required'),
+  type: z.enum(vesselTypeValues, { required_error: 'Vessel type is required' }),
+  imo: z.string().optional().or(z.literal('')),
+  length_m: z.string().optional().or(z.literal('')),
+  beam: z.string().optional().or(z.literal('')),
+  draft: z.string().optional().or(z.literal('')),
+  gross_tonnage: z.string().optional().or(z.literal('')),
+  number_of_crew: z.string().optional().or(z.literal('')),
+  build_year: z.string().optional().or(z.literal('')),
+  flag_state: z.string().optional().or(z.literal('')),
+  call_sign: z.string().optional().or(z.literal('')),
+  mmsi: z.string().optional().or(z.literal('')),
+  description: z.string().optional().or(z.literal('')),
+});
+
+type VesselDetailsFormValues = z.infer<typeof vesselDetailsSchema>;
+
+function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: UserProfile | null; vessel: Vessel | null; vesselData: any }) {
+  const { toast } = useToast();
+  const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+
+  const form = useForm<VesselDetailsFormValues>({
+    resolver: zodResolver(vesselDetailsSchema),
+    defaultValues: {
+      name: vessel?.name || '',
+      type: (vessel?.type as any) || '',
+      imo: vessel?.imo || vessel?.officialNumber || '',
+      length_m: vessel?.length_m?.toString() || '',
+      beam: vessel?.beam?.toString() || '',
+      draft: vessel?.draft?.toString() || '',
+      gross_tonnage: vessel?.gross_tonnage?.toString() || '',
+      number_of_crew: vessel?.number_of_crew?.toString() || '',
+      build_year: vessel?.build_year?.toString() || '',
+      flag_state: vessel?.flag_state || '',
+      call_sign: vessel?.call_sign || '',
+      mmsi: vessel?.mmsi || '',
+      description: vessel?.description || '',
+    },
+  });
+
+  // Reset form when vessel data changes
+  useEffect(() => {
+    if (vesselData) {
+      form.reset({
+        name: vesselData.name || '',
+        type: vesselData.type || '',
+        imo: vesselData.imo || '',
+        length_m: vesselData.length_m?.toString() || '',
+        beam: vesselData.beam?.toString() || '',
+        draft: vesselData.draft?.toString() || '',
+        gross_tonnage: vesselData.gross_tonnage?.toString() || '',
+        number_of_crew: vesselData.number_of_crew?.toString() || '',
+        build_year: vesselData.build_year?.toString() || '',
+        flag_state: vesselData.flag_state || '',
+        call_sign: vesselData.call_sign || '',
+        mmsi: vesselData.mmsi || '',
+        description: vesselData.description || '',
+      });
+    }
+  }, [vesselData, form]);
+
+  const onSubmit = async (data: VesselDetailsFormValues) => {
+    if (!vessel?.id) return;
+
+    setIsSaving(true);
+    try {
+      // Transform empty strings to null for optional numeric fields
+      const updates = {
+        ...data,
+        length_m: data.length_m === '' ? null : data.length_m,
+        beam: data.beam === '' ? null : data.beam,
+        draft: data.draft === '' ? null : data.draft,
+        gross_tonnage: data.gross_tonnage === '' ? null : data.gross_tonnage,
+        number_of_crew: data.number_of_crew === '' ? null : data.number_of_crew,
+        build_year: data.build_year === '' ? null : data.build_year,
+        imo: data.imo === '' ? null : data.imo,
+        flag_state: data.flag_state === '' ? null : data.flag_state,
+        call_sign: data.call_sign === '' ? null : data.call_sign,
+        mmsi: data.mmsi === '' ? null : data.mmsi,
+        description: data.description === '' ? null : data.description,
+      };
+
+      const response = await fetch('/api/vessels/update', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vesselId: vessel.id,
+          updates,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to update vessel');
+      }
+
+      toast({
+        title: 'Vessel Updated',
+        description: 'Vessel details have been saved successfully.',
+      });
+
+      setIsEditing(false);
+      // The page will refresh with new data via useDoc
+    } catch (error: any) {
+      console.error('Error updating vessel:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update vessel details. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (!vessel) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">Vessel Details</h1>
+          <p className="text-muted-foreground">View and manage your vessel information</p>
+          <Separator />
+        </div>
+        <Card className="rounded-xl border">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <Ship className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Vessel Found</h3>
+            <p className="text-sm text-muted-foreground max-w-md">
+              You don't have an active vessel assigned. Please contact support to set up your vessel.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Header Section */}
+      <div className="space-y-2">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-bold tracking-tight">Vessel Details</h1>
+            <p className="text-muted-foreground">
+              View and manage your vessel information
+            </p>
+          </div>
+          {!isEditing && (
+            <Button onClick={() => setIsEditing(true)} variant="default">
+              <Edit className="h-4 w-4 mr-2" />
+              Edit Vessel Details
+            </Button>
+          )}
+        </div>
+        <Separator />
+      </div>
+
+      {/* Vessel Information Form */}
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <Card className="rounded-xl border">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Ship className="h-5 w-5" />
+                  Basic Information
+                </CardTitle>
+                <CardDescription>Essential vessel identification details</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Vessel Name</FormLabel>
+                      <FormControl>
+                        <Input {...field} disabled={!isEditing} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Vessel Type</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ''} disabled={!isEditing}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select vessel type">
+                              {field.value ? vesselTypes.find(t => t.value === field.value)?.label : 'Select vessel type'}
+                            </SelectValue>
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {vesselTypes.map((type) => (
+                            <SelectItem key={type.value} value={type.value}>
+                              {type.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="imo"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>IMO Number</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="International Maritime Organization number" disabled={!isEditing} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="call_sign"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Call Sign</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Radio call sign" disabled={!isEditing} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="mmsi"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>MMSI</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Maritime Mobile Service Identity" disabled={!isEditing} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-xl border">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  Dimensions & Specifications
+                </CardTitle>
+                <CardDescription>Physical characteristics of the vessel</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="length_m"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Length (m)</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="beam"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Beam (m)</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="draft"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Draft (m)</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="gross_tonnage"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tonnage (tonnes)</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <FormField
+                  control={form.control}
+                  name="number_of_crew"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Number of Crew</FormLabel>
+                      <FormControl>
+                        <Input {...field} type="number" placeholder="0" disabled={!isEditing} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="build_year"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Year Built</FormLabel>
+                      <FormControl>
+                        <Input {...field} type="number" placeholder="YYYY" min="1900" max={new Date().getFullYear()} disabled={!isEditing} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="flag_state"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Flag State</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Country of registration" disabled={!isEditing} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="rounded-xl border">
+            <CardHeader>
+              <CardTitle>Additional Information</CardTitle>
+              <CardDescription>Additional notes and description</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} placeholder="Additional vessel information, notes, or description..." disabled={!isEditing} rows={4} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </CardContent>
+          </Card>
+
+          {isEditing && (
+            <div className="flex justify-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsEditing(false);
+                  form.reset();
+                }}
+                disabled={isSaving}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSaving}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Changes
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </form>
+      </Form>
+
+      {/* Account Information Card */}
+      <Card className="rounded-xl border">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <User className="h-5 w-5" />
+            Account Information
+          </CardTitle>
+          <CardDescription>Your vessel management account</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <UserInfoCard userId={userProfile?.id} />
+        </CardContent>
+      </Card>
+
+      {/* Subscription Card */}
+      <SubscriptionCard />
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const { user } = useUser();
+  const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
+  
+  // Transform user profile
+  const userProfile = useMemo(() => {
+    if (!userProfileRaw) return null;
+    const activeVesselId = (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId;
+    return {
+      ...userProfileRaw,
+      activeVesselId: activeVesselId || undefined,
+      role: (userProfileRaw as any).role || userProfileRaw.role || 'crew',
+    } as UserProfile;
+  }, [userProfileRaw]);
 
+  // Fetch vessel details if user is vessel role (only fetch when we know the role)
+  const isVesselRole = userProfile?.role === 'vessel';
+  const { data: vesselData } = useDoc<any>('vessels', isVesselRole ? userProfile?.activeVesselId || null : null);
+  
+  const vessel = useMemo(() => {
+    if (!vesselData) return null;
+    return {
+      id: vesselData.id,
+      name: vesselData.name,
+      type: vesselData.type,
+      officialNumber: vesselData.imo || vesselData.officialNumber || null,
+    } as Vessel;
+  }, [vesselData]);
+
+  // Show loading state while profile is loading
+  if (isLoadingProfile) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="space-y-2">
+          <Skeleton className="h-9 w-64" />
+          <Skeleton className="h-5 w-96" />
+        </div>
+        <Separator />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  // If vessel role, show vessel details page
+  if (isVesselRole) {
+    return <VesselDetailsPage userProfile={userProfile} vessel={vessel} vesselData={vesselData} />;
+  }
+
+  // For crew/captain/admin roles, show regular profile page
   return (
     <div className="flex flex-col gap-6">
       {/* Header Section */}

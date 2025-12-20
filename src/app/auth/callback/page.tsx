@@ -317,7 +317,7 @@ function AuthCallbackInner() {
 
         // For regular login flows, check if user is authenticated
         if (session && !error) {
-          router.replace('/dashboard');
+      router.replace('/dashboard');
         } else {
           // No session or error, redirect to login
           router.replace('/login');

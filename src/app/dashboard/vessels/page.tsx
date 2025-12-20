@@ -153,7 +153,7 @@ export default function VesselsPage() {
   useEffect(() => {
     if (allVessels && user?.id) {
       const fetchData = async () => {
-        const newLogs = new Map<string, StateLog[]>();
+      const newLogs = new Map<string, StateLog[]>();
         const serviceRecords: SeaServiceRecord[] = [];
         
         await Promise.all(allVessels.map(async (vessel) => {
@@ -163,7 +163,7 @@ export default function VesselsPage() {
           ]);
           
           if (logs && logs.length > 0) {
-            newLogs.set(vessel.id, logs);
+          newLogs.set(vessel.id, logs);
           }
           if (seaService && seaService.length > 0) {
             serviceRecords.push(...seaService);
@@ -302,23 +302,23 @@ export default function VesselsPage() {
     setIsSaving(true);
     
     try {
-      await createVessel(supabase, {
-        name: data.name,
-        type: data.type,
-        officialNumber: data.officialNumber,
-      });
-      toast({ title: 'Vessel Added', description: `${data.name} has been added.` });
-      form.reset();
-      handleOpenChange(false);
+            await createVessel(supabase, {
+              name: data.name,
+              type: data.type,
+              officialNumber: data.officialNumber,
+            });
+            toast({ title: 'Vessel Added', description: `${data.name} has been added.` });
+        form.reset();
+        handleOpenChange(false);
     } catch (serverError: any) {
-      console.error("Failed to save vessel:", serverError);
-      toast({
-        title: 'Error',
-        description: serverError.message || 'Failed to save vessel. Please try again.',
-        variant: 'destructive',
-      });
+        console.error("Failed to save vessel:", serverError);
+        toast({
+          title: 'Error',
+          description: serverError.message || 'Failed to save vessel. Please try again.',
+          variant: 'destructive',
+          });
     } finally {
-      setIsSaving(false);
+        setIsSaving(false);
     }
   }
 
@@ -570,7 +570,7 @@ export default function VesselsPage() {
             <p className="text-muted-foreground">
               Manage your vessels, view history, and track your service time.
             </p>
-          </div>
+                </div>
           <div className="flex flex-wrap items-center gap-2">
             <Dialog open={isAddPastVesselDialogOpen} onOpenChange={setIsAddPastVesselDialogOpen}>
               <DialogTrigger asChild>
@@ -580,16 +580,16 @@ export default function VesselsPage() {
                 </Button>
               </DialogTrigger>
             </Dialog>
-            <Dialog open={isFormOpen} onOpenChange={handleOpenChange}>
-              <DialogTrigger asChild>
-                <Button className="rounded-xl">
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  Add Vessel
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Add a New Vessel</DialogTitle>
+                <Dialog open={isFormOpen} onOpenChange={handleOpenChange}>
+                    <DialogTrigger asChild>
+              <Button className="rounded-xl">
+                            <PlusCircle className="mr-2 h-4 w-4" />
+                            Add Vessel
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                <DialogTitle>Add a New Vessel</DialogTitle>
                   <DialogDescription>
                     Add a vessel to start tracking your service time.
                     {!hasUnlimitedVessels && (
@@ -601,63 +601,63 @@ export default function VesselsPage() {
                       </span>
                     )}
                   </DialogDescription>
-                </DialogHeader>
-                <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-                    <FormField
-                      control={form.control}
-                      name="name"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Vessel Name</FormLabel>
+                        </DialogHeader>
+                        <Form {...form}>
+                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+                                <FormField
+                                    control={form.control}
+                                    name="name"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Vessel Name</FormLabel>
                           <FormControl><Input placeholder="e.g., M/Y Odyssey" {...field} className="rounded-lg" /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="type"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Vessel Type</FormLabel>
-                          <FormControl>
-                            <SearchableSelect
-                              options={vesselTypes}
-                              value={field.value}
-                              onValueChange={field.onChange}
-                              placeholder="Select a vessel type"
-                              searchPlaceholder="Search vessel types..."
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="officialNumber"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Official Number (Optional)</FormLabel>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="type"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Vessel Type</FormLabel>
+                                            <FormControl>
+                                                <SearchableSelect
+                                                    options={vesselTypes}
+                                                    value={field.value}
+                                                    onValueChange={field.onChange}
+                                                    placeholder="Select a vessel type"
+                                                    searchPlaceholder="Search vessel types..."
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="officialNumber"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Official Number (Optional)</FormLabel>
                           <FormControl><Input placeholder="e.g., IMO 1234567" {...field} className="rounded-lg" /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <DialogFooter className="pt-4">
-                      <DialogClose asChild>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <DialogFooter className="pt-4">
+                                    <DialogClose asChild>
                         <Button type="button" variant="ghost" className="rounded-xl">Cancel</Button>
-                      </DialogClose>
-                      <Button type="submit" disabled={isSaving} className="rounded-xl">
-                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Add Vessel
-                      </Button>
-                    </DialogFooter>
-                  </form>
-                </Form>
-              </DialogContent>
-            </Dialog>
+                                    </DialogClose>
+                    <Button type="submit" disabled={isSaving} className="rounded-xl">
+                                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Add Vessel
+                                    </Button>
+                                </DialogFooter>
+                            </form>
+                        </Form>
+                    </DialogContent>
+                </Dialog>
           </div>
         </div>
         
@@ -742,66 +742,66 @@ export default function VesselsPage() {
             ))}
           </div>
         ) : (
-          <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
+      <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
+        <CardContent className="p-0">
+                <div className="overflow-x-auto">
                 <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[50px]"></TableHead>
-                      <TableHead>Vessel Name</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Official Number</TableHead>
-                      <TableHead>Total Days Logged</TableHead>
-                      <TableHead>Status</TableHead>
+                    <TableHeader>
+                        <TableRow>
+                                <TableHead className="w-[50px]"></TableHead>
+                        <TableHead>Vessel Name</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Official Number</TableHead>
+                                <TableHead>Total Days Logged</TableHead>
+                        <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
                     {filteredVessels.map((vessel) => {
-                      const isCurrent = currentUserProfile?.activeVesselId === vessel.id;
-                      const logs = vesselStateLogs.get(vessel.id) || [];
-                      const totalDays = logs.length;
-                      const isExpanded = expandedVesselId === vessel.id;
-                      const vesselRaw = allVessels?.find(v => v.id === vessel.id);
+                            const isCurrent = currentUserProfile?.activeVesselId === vessel.id;
+                                const logs = vesselStateLogs.get(vessel.id) || [];
+                                const totalDays = logs.length;
+                                const isExpanded = expandedVesselId === vessel.id;
+                                const vesselRaw = allVessels?.find(v => v.id === vessel.id);
                       const vesselData = vesselRaw as any;
                       const hasPendingRequest = captaincyRequests.has(vessel.id);
 
-                      return (
-                        <React.Fragment key={vessel.id}>
-                          <TableRow 
-                            className="hover:bg-muted/30 transition-colors cursor-pointer"
-                            onClick={() => setExpandedVesselId(isExpanded ? null : vessel.id)}
-                          >
-                            <TableCell className="w-[50px]">
-                              <ChevronDown 
-                                className={cn(
-                                  "h-4 w-4 text-muted-foreground transition-transform duration-200",
-                                  isExpanded && "rotate-180"
-                                )}
-                              />
-                            </TableCell>
-                            <TableCell className="font-medium">
-                              {vessel.name}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="font-normal">
-                                {vesselTypes.find(t => t.value === vessel.type)?.label || vessel.type}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">{vessel.officialNumber || '—'}</TableCell>
-                            <TableCell className="font-medium">{totalDays}</TableCell>
-                            <TableCell>
-                              {isCurrent ? (
-                                <Badge variant="default" className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
-                                  Active
-                                </Badge>
-                              ) : (
-                                <Badge variant="secondary" className="font-normal">
-                                  Past
-                                </Badge>
-                              )}
-                            </TableCell>
+                            return (
+                                    <React.Fragment key={vessel.id}>
+                                        <TableRow 
+                                            className="hover:bg-muted/30 transition-colors cursor-pointer"
+                                            onClick={() => setExpandedVesselId(isExpanded ? null : vessel.id)}
+                                        >
+                                            <TableCell className="w-[50px]">
+                                                <ChevronDown 
+                                                    className={cn(
+                                                        "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                                                        isExpanded && "rotate-180"
+                                                    )}
+                                                />
+                                            </TableCell>
+                                    <TableCell className="font-medium">
+                                                {vessel.name}
+                                    </TableCell>
+                                    <TableCell>
+                                                <Badge variant="outline" className="font-normal">
+                                        {vesselTypes.find(t => t.value === vessel.type)?.label || vessel.type}
+                                                </Badge>
+                                    </TableCell>
+                                            <TableCell className="text-muted-foreground">{vessel.officialNumber || '—'}</TableCell>
+                                            <TableCell className="font-medium">{totalDays}</TableCell>
+                                    <TableCell>
+                                        {isCurrent ? (
+                                                    <Badge variant="default" className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
+                                                        Active
+                                                    </Badge>
+                                        ) : (
+                                                    <Badge variant="secondary" className="font-normal">
+                                                        Past
+                                                    </Badge>
+                                        )}
+                                    </TableCell>
                             <TableCell onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center gap-2">
                                 {!isCurrent && canResumeVessel && (
@@ -863,107 +863,107 @@ export default function VesselsPage() {
                                 </Button>
                               </div>
                             </TableCell>
-                          </TableRow>
-                          {isExpanded && (
-                            <TableRow>
+                                        </TableRow>
+                                        {isExpanded && (
+                                            <TableRow>
                               <TableCell colSpan={7} className="bg-background/40 p-0">
-                                <div className="px-6 py-6">
-                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                                    {/* Identification Section */}
-                                    <div className="space-y-4 pr-4 md:pr-6">
-                                      <h4 className="text-sm font-semibold text-foreground">Identification</h4>
-                                      <div className="space-y-3">
-                                        <div className="flex justify-between items-center py-1">
-                                          <span className="text-sm text-muted-foreground">IMO Number</span>
-                                          <span className="text-sm font-medium">{vessel.officialNumber || vesselData?.imo || '—'}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center py-1">
-                                          <span className="text-sm text-muted-foreground">MMSI</span>
-                                          <span className="text-sm font-medium">{vesselData?.mmsi || '—'}</span>
-                                        </div>
-                                        {vesselData?.call_sign && (
-                                          <div className="flex justify-between items-center py-1">
-                                            <span className="text-sm text-muted-foreground">Call Sign</span>
-                                            <span className="text-sm font-medium">{vesselData.call_sign}</span>
-                                          </div>
-                                        )}
-                                        {vesselData?.flag && (
-                                          <div className="flex justify-between items-center py-1">
-                                            <span className="text-sm text-muted-foreground">Flag</span>
-                                            <span className="text-sm font-medium">{vesselData.flag}</span>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
+                                                    <div className="px-6 py-6">
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                                                            {/* Identification Section */}
+                                                            <div className="space-y-4 pr-4 md:pr-6">
+                                                                <h4 className="text-sm font-semibold text-foreground">Identification</h4>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">IMO Number</span>
+                                                                        <span className="text-sm font-medium">{vessel.officialNumber || vesselData?.imo || '—'}</span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">MMSI</span>
+                                                                        <span className="text-sm font-medium">{vesselData?.mmsi || '—'}</span>
+                                                                    </div>
+                                                                    {vesselData?.call_sign && (
+                                                                        <div className="flex justify-between items-center py-1">
+                                                                            <span className="text-sm text-muted-foreground">Call Sign</span>
+                                                                            <span className="text-sm font-medium">{vesselData.call_sign}</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {vesselData?.flag && (
+                                                                        <div className="flex justify-between items-center py-1">
+                                                                            <span className="text-sm text-muted-foreground">Flag</span>
+                                                                            <span className="text-sm font-medium">{vesselData.flag}</span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
 
-                                    {/* Dimensions Section */}
-                                    <div className="space-y-4 pl-0 md:pl-4 md:border-l border-border/50 pr-4 md:pr-6 lg:pr-8">
-                                      <h4 className="text-sm font-semibold text-foreground">Dimensions</h4>
-                                      <div className="space-y-3">
-                                        <div className="flex justify-between items-center py-1">
-                                          <span className="text-sm text-muted-foreground">Length</span>
-                                          <span className="text-sm font-medium">
-                                            {vesselData?.length_m
-                                              ? `${vesselData.length_m} m`
-                                              : '—'}
-                                          </span>
-                                        </div>
-                                        {vesselData?.beam && (
-                                          <div className="flex justify-between items-center py-1">
-                                            <span className="text-sm text-muted-foreground">Beam</span>
-                                            <span className="text-sm font-medium">{vesselData.beam} m</span>
-                                          </div>
-                                        )}
-                                        {vesselData?.draft && (
-                                          <div className="flex justify-between items-center py-1">
-                                            <span className="text-sm text-muted-foreground">Draft</span>
-                                            <span className="text-sm font-medium">{vesselData.draft} m</span>
-                                          </div>
-                                        )}
-                                        <div className="flex justify-between items-center py-1">
-                                          <span className="text-sm text-muted-foreground">Gross Tonnage</span>
-                                          <span className="text-sm font-medium">
-                                            {vesselData?.gross_tonnage || vesselData?.grossTonnage 
-                                              ? `${vesselData?.gross_tonnage || vesselData?.grossTonnage} GT`
-                                              : '—'}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </div>
+                                                            {/* Dimensions Section */}
+                                                            <div className="space-y-4 pl-0 md:pl-4 md:border-l border-border/50 pr-4 md:pr-6 lg:pr-8">
+                                                                <h4 className="text-sm font-semibold text-foreground">Dimensions</h4>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">Length</span>
+                                                                        <span className="text-sm font-medium">
+                                                                            {vesselData?.length_m
+                                                                                ? `${vesselData.length_m} m`
+                                                                                : '—'}
+                                                                        </span>
+                                                                    </div>
+                                                                    {vesselData?.beam && (
+                                                                        <div className="flex justify-between items-center py-1">
+                                                                            <span className="text-sm text-muted-foreground">Beam</span>
+                                                                            <span className="text-sm font-medium">{vesselData.beam} m</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {vesselData?.draft && (
+                                                                        <div className="flex justify-between items-center py-1">
+                                                                            <span className="text-sm text-muted-foreground">Draft</span>
+                                                                            <span className="text-sm font-medium">{vesselData.draft} m</span>
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">Gross Tonnage</span>
+                                                                        <span className="text-sm font-medium">
+                                                                            {vesselData?.gross_tonnage || vesselData?.grossTonnage 
+                                                                                ? `${vesselData?.gross_tonnage || vesselData?.grossTonnage} GT`
+                                                                                : '—'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
 
-                                    {/* Vessel Information Section */}
-                                    <div className="space-y-4 pl-0 md:pl-4 md:border-l border-border/50">
-                                      <h4 className="text-sm font-semibold text-foreground">Information</h4>
-                                      <div className="space-y-3">
-                                        <div className="flex justify-between items-center py-1">
-                                          <span className="text-sm text-muted-foreground">Vessel Type</span>
-                                          <span className="text-sm font-medium">
-                                            {vesselTypes.find(t => t.value === vessel.type)?.label || vessel.type}
-                                          </span>
-                                        </div>
-                                        <div className="flex justify-between items-center py-1">
-                                          <span className="text-sm text-muted-foreground">Added to System</span>
-                                          <span className="text-sm font-medium">
-                                            {vesselData?.created_at 
-                                              ? format(new Date(vesselData.created_at), 'MMM d, yyyy')
-                                              : '—'}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </React.Fragment>
+                                                            {/* Vessel Information Section */}
+                                                            <div className="space-y-4 pl-0 md:pl-4 md:border-l border-border/50">
+                                                                <h4 className="text-sm font-semibold text-foreground">Information</h4>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">Vessel Type</span>
+                                                                        <span className="text-sm font-medium">
+                                                                            {vesselTypes.find(t => t.value === vessel.type)?.label || vessel.type}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center py-1">
+                                                                        <span className="text-sm text-muted-foreground">Added to System</span>
+                                                                        <span className="text-sm font-medium">
+                                                                            {vesselData?.created_at 
+                                                                                ? format(new Date(vesselData.created_at), 'MMM d, yyyy')
+                                                                                : '—'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                    </TableCell>
+                                </TableRow>
+                                        )}
+                                    </React.Fragment>
                       );
                     })}
-                  </TableBody>
+                    </TableBody>
                 </Table>
-              </div>
+                </div>
             </CardContent>
-          </Card>
+        </Card>
         )
       ) : (
         <Card className="rounded-xl border shadow-sm">
@@ -1184,3 +1184,4 @@ export default function VesselsPage() {
     </div>
   );
 }
+    

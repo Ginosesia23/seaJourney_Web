@@ -52,7 +52,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import { useSupabase, useUser } from "@/supabase"
-import { LogOut, Settings, Sparkles, Sun, Moon, Laptop } from "lucide-react"
+import { useDoc } from "@/supabase/database"
+import { LogOut, Sparkles, Sun, Moon, Laptop } from "lucide-react"
 import { useTheme } from "next-themes"
 import type { UserProfile } from "@/lib/types"
 
@@ -75,7 +76,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
   },
   {
     title: "Sea Time",
-    hideForRoles: ['vessel', 'admin'], // Hide entire section for vessel managers/admins (but not captains - they're crew members)
+    hideForRoles: ['admin'], // Only hide for admin, vessel role needs sea time tracking
     items: [
       { href: "/dashboard/current", label: "Current", icon: MapPin, disabled: false },
       { href: "/dashboard/calendar", label: "Calendar", icon: Calendar, disabled: false },
@@ -83,18 +84,19 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
   },
   {
     title: "Logbooks",
-    hideForRoles: ['vessel', 'admin'], // Hide entire section for vessel managers/admins (but not captains - they're crew members)
+    hideForRoles: ['admin'], // Only hide for admin
     items: [
       { href: "/dashboard/passage-logbook", label: "Passage Log", icon: Map, disabled: false },
-      { href: "/dashboard/bridge-watch-log", label: "Bridge Watch", icon: Navigation, disabled: false },
+      { href: "/dashboard/bridge-watch-log", label: "Bridge Watch", icon: Navigation, disabled: false, hideForRoles: ['vessel'] }, // Hide Bridge Watch for vessel role
     ]
   },
   {
     title: "Management",
     items: [
-      { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false },
-      { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false },
-      { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, requiredRole: "captain", disabled: false },
+      { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] }, // Hide for vessel role
+      { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false, hideForRoles: ['vessel'] }, // Hide Profile for vessel role
+      { href: "/dashboard/profile", label: "Vessel", icon: Ship, disabled: false, requiredRole: "vessel" }, // Show Vessel page for vessel role
+      { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, requiredRole: "captain", disabled: false }, // Captains and vessel roles can access
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false },
       { href: "/dashboard/testimonials", label: "Testimonials", icon: LifeBuoy, disabled: false, hideForRoles: ['vessel', 'admin'] },
     ]
@@ -136,12 +138,26 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
 
+  // Fetch vessel data if user is vessel role
+  const activeVesselId = userProfile ? ((userProfile as any).active_vessel_id || (userProfile as any).activeVesselId) : null;
+  const { data: vesselData } = useDoc<any>('vessels', (userProfile?.role === 'vessel' && activeVesselId) ? activeVesselId : null);
+  
   // Get display username and email from userProfile or user object
-  const displayUsername = userProfile?.username || user?.user_metadata?.username || user?.email?.split("@")[0] || "User";
+  // For vessel role, use vessel name instead of username
+  const displayUsername = React.useMemo(() => {
+    if (userProfile?.role === 'vessel' && vesselData?.name) {
+      return vesselData.name;
+    }
+    return userProfile?.username || user?.user_metadata?.username || user?.email?.split("@")[0] || "User";
+  }, [userProfile, vesselData, user]);
+  
   const userEmail = userProfile?.email || user?.email || "";
   
-  // Get initials - prefer firstName + lastName, then username, then email
+  // Get initials - prefer vessel name (first 2 chars), then firstName + lastName, then username, then email
   const getAvatarInitials = () => {
+    if (userProfile?.role === 'vessel' && vesselData?.name) {
+      return vesselData.name.substring(0, 2).toUpperCase();
+    }
     if (userProfile?.firstName && userProfile?.lastName) {
       return (userProfile.firstName[0] + userProfile.lastName[0]).toUpperCase();
     }
@@ -198,16 +214,30 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     // Show item if user has the required role or is admin
                     // Also allow captains to access items that require 'captain' or 'vessel' role
                     const userRole = userProfile?.role;
-                    if (userRole !== item.requiredRole && userRole !== "admin") {
-                      // Special case: captains can access vessel-required items, vessel managers can access captain-required items
-                      if (item.requiredRole === 'vessel' && userRole !== 'captain') {
+                    if (!userRole) return null;
+                    
+                    // Admin can access everything - check this first
+                    const isAdmin = userRole === 'admin';
+                    if (isAdmin) {
+                      // Admin has access - continue
+                    } else if (item.requiredRole === 'vessel') {
+                      // Vessel-required items: captains and vessel roles can access
+                      if (userRole !== 'vessel' && userRole !== 'captain') {
                         return null;
                       }
-                      if (item.requiredRole === 'captain' && userRole !== 'captain' && userRole !== 'vessel') {
+                    } else if (item.requiredRole === 'captain') {
+                      // Captain-required items: captains and vessel roles can access
+                      if (userRole !== 'captain' && userRole !== 'vessel') {
                         return null;
                       }
-                      // If none of the above conditions matched, hide the item
-                      if (userRole !== item.requiredRole) {
+                    } else if (item.requiredRole === 'admin') {
+                      // Only admins can access admin-required items (userRole is not admin here since isAdmin is false)
+                      return null;
+                    } else {
+                      // For any other required roles (shouldn't happen given our type, but handle it)
+                      // Only show if user has that exact role
+                      const requiredRole = item.requiredRole;
+                      if (userRole !== requiredRole) {
                         return null;
                       }
                     }
@@ -290,13 +320,9 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   <User className="mr-2 h-4 w-4" />
                   Profile
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push("/offers")}>
+                <DropdownMenuItem onClick={() => router.push("/dashboard/subscription")}>
                   <Sparkles className="mr-2 h-4 w-4" />
                   Subscription
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
                 </DropdownMenuItem>
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>

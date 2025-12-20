@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, differenceInDays, eachDayOfInterval, isSameDay, startOfDay, endOfDay, parse, isWithinInterval, startOfMonth, endOfMonth, getDaysInMonth, getDay, isSameMonth, isToday, isAfter, isBefore, addDays, subMonths } from 'date-fns';
+import { format, differenceInDays, eachDayOfInterval, isSameDay, startOfDay, endOfDay, parse, isWithinInterval, startOfMonth, endOfMonth, getDaysInMonth, getDay, isSameMonth, isToday, isAfter, isBefore, addDays, subMonths, startOfYear, endOfYear } from 'date-fns';
 import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -372,6 +372,24 @@ export default function CurrentPage() {
     const dateStr = format(date, 'yyyy-MM-dd');
     const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
 
+    // For vessel accounts, allow editing from the vessel's creation date
+    if (userProfile?.role === 'vessel') {
+      // Get vessel created_at date (vessel launch date)
+      const vesselData = vessels?.find(v => v.id === currentVessel.id);
+      if (vesselData && (vesselData as any).created_at) {
+        const vesselCreatedDate = startOfDay(new Date((vesselData as any).created_at));
+        if (isBefore(dateObj, vesselCreatedDate)) {
+          return {
+            valid: false,
+            reason: `You cannot change states before ${format(vesselCreatedDate, 'MMM d, yyyy')} (vessel launch date).`,
+          };
+        }
+      }
+      // No end date restriction for vessel accounts - they can edit any date from launch to present
+      return { valid: true };
+    }
+
+    // For crew/captain accounts, use assignment-based validation
     // Find the earliest assignment across ALL vessels (when user first joined any vessel)
     let earliestAssignment: VesselAssignment | null = null;
     if (vesselAssignments.length > 0) {
@@ -740,8 +758,8 @@ export default function CurrentPage() {
 
       // 2. Update user profile to set active vessel (only if no end date, meaning it's still active)
       if (isActiveService) {
-        await updateUserProfile(supabase, user.id, {
-          activeVesselId: data.vesselId,
+      await updateUserProfile(supabase, user.id, {
+        activeVesselId: data.vesselId,
         });
       }
 
@@ -1124,15 +1142,23 @@ export default function CurrentPage() {
   const { totalDaysByState, atSeaDays, standbyDays } = useMemo(() => {
     if (!stateLogs) return { totalDaysByState: [], atSeaDays: 0, standbyDays: 0 };
     
+    // Filter logs to current year only
+    const currentYearStart = startOfYear(new Date());
+    const currentYearEnd = endOfYear(new Date());
+    const yearLogs = stateLogs.filter(log => {
+      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+      return isWithinInterval(logDate, { start: currentYearStart, end: currentYearEnd });
+    });
+    
     let atSea = 0;
-    const stateCounts = stateLogs.reduce((acc, log) => {
+    const stateCounts = yearLogs.reduce((acc, log) => {
         acc[log.state] = (acc[log.state] || 0) + 1;
         if (log.state === 'underway') atSea++;
         return acc;
     }, {} as Record<DailyStatus, number>);
 
-    // Calculate MCA/PYA compliant standby days
-    const { totalStandbyDays } = calculateStandbyDays(stateLogs);
+    // Calculate MCA/PYA compliant standby days for current year only
+    const { totalStandbyDays } = calculateStandbyDays(yearLogs);
     const standby = totalStandbyDays;
 
     const chartData = vesselStates.map(stateInfo => ({
@@ -1223,7 +1249,7 @@ export default function CurrentPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-bold">{atSeaDays}</div>
-                        <p className="text-xs text-muted-foreground mt-1">days logged on {currentVessel.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">days logged this year on {currentVessel.name}</p>
                     </CardContent>
                 </Card>
                 <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
@@ -1235,7 +1261,7 @@ export default function CurrentPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-bold">{standbyDays}</div>
-                        <p className="text-xs text-muted-foreground mt-1">days logged on {currentVessel.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">days logged this year on {currentVessel.name}</p>
                     </CardContent>
                 </Card>
                 <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
@@ -1246,8 +1272,11 @@ export default function CurrentPage() {
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-bold">{stateLogs?.length || 0}</div>
-                        <p className="text-xs text-muted-foreground mt-1">days logged on {currentVessel.name}</p>
+                        <div className="text-3xl font-bold">{stateLogs ? stateLogs.filter(log => {
+                          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+                          return isWithinInterval(logDate, { start: startOfYear(new Date()), end: endOfYear(new Date()) });
+                        }).length : 0}</div>
+                        <p className="text-xs text-muted-foreground mt-1">total days logged this year on {currentVessel.name}</p>
                     </CardContent>
                 </Card>
             </div>
@@ -1331,7 +1360,7 @@ export default function CurrentPage() {
                     <p className="text-muted-foreground">
                       View and update your vessel status for {currentVessel.name}. Click dates to update states.
                     </p>
-                  </div>
+                            </div>
                   <div className="flex items-center gap-2">
                     <Button
                       variant={selectionMode === 'single' ? 'default' : 'outline'}
@@ -1341,7 +1370,7 @@ export default function CurrentPage() {
                     >
                       <MousePointer2 className="h-4 w-4 mr-2" />
                       Single
-                    </Button>
+                                    </Button>
                     <Button
                       variant={selectionMode === 'range' ? 'default' : 'outline'}
                       size="sm"
@@ -1354,15 +1383,15 @@ export default function CurrentPage() {
                       <CalendarDays className="h-4 w-4 mr-2" />
                       Range
                     </Button>
-                  </div>
-                </div>
+                        </div>
+                                    </div>
                 <Separator />
-              </div>
+                        </div>
 
               {/* Calendar Months Grid - Last 3 months */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {lastThreeMonths.map((month) => renderMonth(month))}
-              </div>
+                                            </div>
             </div>
 
             {/* State Change Dialog */}
@@ -1375,45 +1404,45 @@ export default function CurrentPage() {
               setIsDialogOpen(open);
             }}>
               <DialogContent className="rounded-xl">
-                <DialogHeader>
-                  <DialogTitle>
+                                <DialogHeader>
+                                    <DialogTitle>
                     {dateRange?.from && dateRange?.to 
                       ? `Update Status: ${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}`
                       : selectedDate
                         ? `Update Status: ${format(selectedDate, 'MMM d, yyyy')}`
-                        : 'Select Date Range'}
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="grid grid-cols-1 gap-3 py-4">
-                  {vesselStates.map((state) => {
-                    const StateIcon = state.icon;
+                                                : 'Select Date Range'}
+                                    </DialogTitle>
+                                </DialogHeader>
+                                    <div className="grid grid-cols-1 gap-3 py-4">
+                                {vesselStates.map((state) => {
+                                            const StateIcon = state.icon;
                     const isSelected = selectedState === state.value;
-                    return (
-                      <Button 
-                        key={state.value} 
+                                    return (
+                                                <Button 
+                                                    key={state.value} 
                         variant={isSelected ? "default" : "outline"} 
-                        className="justify-start gap-3 h-auto py-3 rounded-lg hover:bg-accent/50 transition-colors" 
+                                                    className="justify-start gap-3 h-auto py-3 rounded-lg hover:bg-accent/50 transition-colors" 
                         onClick={() => handleStateChange(state.value)}
                         disabled={isSaving}
-                      >
-                        <div 
-                          className="h-4 w-4 rounded-full shrink-0" 
-                          style={{ backgroundColor: state.color }}
-                        />
-                        <StateIcon className="h-4 w-4 shrink-0" />
-                        <span className="font-medium">{state.label}</span>
+                                                >
+                                                    <div 
+                                                        className="h-4 w-4 rounded-full shrink-0" 
+                                                        style={{ backgroundColor: state.color }}
+                                                    />
+                                                    <StateIcon className="h-4 w-4 shrink-0" />
+                                                    <span className="font-medium">{state.label}</span>
                         {isSelected && <span className="ml-auto text-xs">Current</span>}
-                      </Button>
-                    );
-                  })}
-                </div>
+                                     </Button>
+                                            );
+                                        })}
+                                </div>
                 {isSaving && (
                   <div className="flex items-center justify-center py-2">
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                   </div>
                 )}
-              </DialogContent>
-            </Dialog>
+                            </DialogContent>
+                        </Dialog>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <Card className="rounded-xl border shadow-sm">

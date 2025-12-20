@@ -22,6 +22,17 @@ export interface Vessel {
   name: string;
   type: string;
   officialNumber?: string;
+  imo?: string;
+  length_m?: number | null;
+  beam?: number | null;
+  draft?: number | null;
+  gross_tonnage?: number | null;
+  number_of_crew?: number | null;
+  build_year?: number | null;
+  flag_state?: string | null;
+  call_sign?: string | null;
+  mmsi?: string | null;
+  description?: string | null;
 }
 
 export type DailyStatus = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';
