@@ -77,7 +77,7 @@ export interface PassageLogExportData {
 function loadLogoImage(logoPath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-
+    
     img.onload = () => {
       try {
         const canvas = document.createElement('canvas');
@@ -95,7 +95,7 @@ function loadLogoImage(logoPath: string): Promise<string> {
         reject(new Error(`Failed to convert image to data URL: ${error}`));
       }
     };
-
+    
     img.onerror = () => {
       reject(
         new Error(
@@ -103,10 +103,10 @@ function loadLogoImage(logoPath: string): Promise<string> {
         ),
       );
     };
-
+    
     // Set src after handlers are attached
     img.src = logoPath;
-
+    
     // Handle case where image is already loaded (cached)
     if (img.complete) {
       img.onload(new Event('load') as any);
@@ -135,12 +135,12 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
     'dd MMMM yyyy',
   );
   const generatedDate = format(new Date(), 'dd MMMM yyyy');
-
+  
   // Get approved date - use signoff_used_at if approved, otherwise null
   const approvedDate =
     testimonial.status === 'approved' && testimonial.signoff_used_at
-      ? format(new Date(testimonial.signoff_used_at), 'dd MMMM yyyy')
-      : null;
+    ? format(new Date(testimonial.signoff_used_at), 'dd MMMM yyyy')
+    : null;
 
   // Professional color scheme
   const textDark: [number, number, number] = [30, 30, 30];
@@ -165,16 +165,16 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
   doc.rect(0, 0, pageWidth, headerHeight, 'F');
 
   let currentY = 12;
-
+  
   // Load and add PNG logo to PDF
   try {
     const logoPath = '/seajourney_logo_white.png';
     const logoDataURL = await loadLogoImage(logoPath);
-
+    
     const logoWidth = 45;
     const logoHeight = 12;
     const logoX = (pageWidth - logoWidth) / 2;
-
+    
     doc.addImage(logoDataURL, 'PNG', logoX, currentY, logoWidth, logoHeight);
     currentY += logoHeight + 8;
   } catch (error) {
@@ -203,7 +203,7 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
   doc.text('For submission to PYA / Nautilus / MCA', pageWidth / 2, currentY, {
     align: 'center',
   });
-
+  
   // Reset text color for content
   setTextColor(textDark);
   currentY = headerHeight + 15;
@@ -215,12 +215,12 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
     setTextColor(primaryBlue);
     doc.text(title, 14, currentY);
     currentY += 6;
-
+    
     setDrawColor(primaryBlue);
     doc.setLineWidth(0.5);
     doc.line(14, currentY - 2, 80, currentY - 2);
     currentY += 6;
-
+    
     setTextColor(textDark);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
@@ -484,7 +484,7 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
 
     const footerHeight = 35;
     const footerStartY = pageHeight - footerHeight;
-
+    
     setFillColor(headerColor);
     doc.rect(0, footerStartY, pageWidth, footerHeight, 'F');
 

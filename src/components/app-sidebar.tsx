@@ -63,10 +63,10 @@ type NavItem = {
   icon: React.ComponentType<any>;
   disabled?: boolean;
   requiredRole?: 'captain' | 'vessel' | 'admin';
-  hideForRoles?: ('vessel' | 'admin')[]; // Note: 'captain' is not included - captains are crew members with extra privileges
+  hideForRoles?: ('vessel' | 'admin' | 'captain')[]; // Roles for which this item should be hidden
 };
 
-const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vessel' | 'admin')[] }> = [
+const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vessel' | 'admin' | 'captain')[] }> = [
   {
     title: "General",
     items: [
@@ -95,10 +95,10 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] }, // Hide for vessel role
       { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false, hideForRoles: ['vessel'] }, // Hide Profile for vessel role
-      { href: "/dashboard/profile", label: "Vessel", icon: Ship, disabled: false, requiredRole: "vessel" }, // Show Vessel page for vessel role
+      { href: "/dashboard/profile", label: "Vessel", icon: Ship, disabled: false, requiredRole: "vessel", hideForRoles: ['captain'] }, // Show Vessel page for vessel role only (not captain)
       { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, requiredRole: "captain", disabled: false }, // Captains and vessel roles can access
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false },
-      { href: "/dashboard/testimonials", label: "Testimonials", icon: LifeBuoy, disabled: false, hideForRoles: ['vessel', 'admin'] },
+      { href: "/dashboard/testimonials", label: "Testimonials", icon: LifeBuoy, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'] },
     ]
   },
   {
@@ -118,6 +118,26 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const pathname = usePathname()
   const { supabase } = useSupabase()
   const { user } = useUser()
+
+  // Create admin-specific navGroups with updated Management section
+  const isAdmin = userProfile?.role === 'admin'
+  const adminNavGroups: typeof navGroups = navGroups.map(group => {
+    if (group.title === "Management") {
+      return {
+        ...group,
+        items: [
+          { href: "/dashboard/vessels", label: "Vessels", icon: Ship, disabled: false },
+          { href: "/dashboard/crew", label: "Users", icon: Users, disabled: false },
+          { href: "/dashboard/profile", label: "Account", icon: User, disabled: false },
+          { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, disabled: false },
+        ]
+      }
+    }
+    return group
+  })
+  
+  // Use admin navGroups for admin, regular navGroups for others
+  const displayNavGroups = isAdmin ? adminNavGroups : navGroups
   const router = useRouter()
   const { setTheme } = useTheme()
 
@@ -198,7 +218,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {navGroups.map((group) => {
+        {displayNavGroups.map((group) => {
           // Hide entire group if user role matches hideForRoles (captains are not hidden - they're crew members)
           if (group.hideForRoles && userProfile?.role && group.hideForRoles.includes(userProfile.role as 'vessel' | 'admin')) {
             return null;
@@ -243,8 +263,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     }
                   }
                   
-                  // Hide individual item if it's in hideForRoles (captains are not hidden - they're crew members)
-                  if ('hideForRoles' in item && item.hideForRoles && userProfile?.role && item.hideForRoles.includes(userProfile.role as 'vessel' | 'admin')) {
+                  // Hide individual item if it's in hideForRoles
+                  if ('hideForRoles' in item && item.hideForRoles && userProfile?.role && item.hideForRoles.includes(userProfile.role as 'vessel' | 'admin' | 'captain')) {
                     return null
                   }
                   
@@ -254,8 +274,11 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
 
                   const isActive = pathname === item.href
                   
+                  // Use a combination of href and label for unique keys (since two items can have the same href)
+                  const uniqueKey = `${item.href}-${item.label}`
+                  
                   return (
-                    <SidebarMenuItem key={item.href}>
+                    <SidebarMenuItem key={uniqueKey}>
                       <SidebarMenuButton tooltip={item.label} asChild isActive={isActive}>
                         <Link href={item.href}>
                           <item.icon />

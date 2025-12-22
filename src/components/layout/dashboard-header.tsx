@@ -7,7 +7,6 @@ import Logo from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import {
   Settings,
-  Search,
   LogOut,
   Sparkles,
   Menu,
@@ -30,13 +29,15 @@ import {
   DropdownMenuSubContent,
   DropdownMenuPortal
 } from '../ui/dropdown-menu';
-import { Input } from '../ui/input';
+import { Badge } from '../ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet';
 import DashboardSidebar from './dashboard-sidebar';
 import { useTheme } from 'next-themes';
+import { useMemo } from 'react';
 
 interface UserProfile {
-  role: 'crew' | 'vessel' | 'admin';
+  role?: 'crew' | 'captain' | 'vessel' | 'admin';
+  position?: string | null;
 }
 
 
@@ -57,6 +58,39 @@ export default function DashboardHeader({ userProfile }: { userProfile: UserProf
       .map((n) => n[0])
       .join('');
   };
+
+  const getRoleLabel = (role?: string) => {
+    switch (role) {
+      case 'crew':
+        return 'Crew';
+      case 'captain':
+        return 'Captain';
+      case 'vessel':
+        return 'Vessel Manager';
+      case 'admin':
+        return 'Admin';
+      default:
+        return role || 'User';
+    }
+  };
+
+  const getRoleBadgeClassName = (role?: string) => {
+    switch (role) {
+      case 'admin':
+        return 'bg-red-500/10 text-red-700 dark:bg-red-500/20 dark:text-red-400 border-red-500/20';
+      case 'vessel':
+        return 'bg-blue-500/10 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400 border-blue-500/20';
+      case 'captain':
+        return 'bg-purple-500/10 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400 border-purple-500/20';
+      case 'crew':
+        return 'bg-green-500/10 text-green-700 dark:bg-green-500/20 dark:text-green-400 border-green-500/20';
+      default:
+        return 'bg-gray-500/10 text-gray-700 dark:bg-gray-500/20 dark:text-gray-400 border-gray-500/20';
+    }
+  };
+
+  const roleLabel = useMemo(() => getRoleLabel(userProfile?.role), [userProfile?.role]);
+  const position = useMemo(() => (userProfile as any)?.position || null, [userProfile]);
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b bg-header px-4 text-header-foreground sm:px-6">
@@ -81,16 +115,20 @@ export default function DashboardHeader({ userProfile }: { userProfile: UserProf
         </div>
 
       <div className="flex-1 justify-center px-4 hidden sm:flex">
-        <form className="w-full max-w-md">
-            <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                    type="search"
-                    placeholder="Keyword search..."
-                    className="w-full rounded-lg bg-background/10 pl-8 text-header-foreground placeholder:text-muted-foreground md:w-full h-9 border-input focus-visible:ring-primary"
-                />
-            </div>
-        </form>
+        <div className="flex items-center gap-2">
+          <Badge 
+            variant="outline" 
+            className={`rounded-full px-4 py-1.5 text-sm font-medium border ${getRoleBadgeClassName(userProfile?.role)}`}
+          >
+            <span className="font-semibold">{roleLabel}</span>
+            {position && (
+              <>
+                <span className="mx-2 text-muted-foreground">•</span>
+                <span className="text-xs">{position}</span>
+              </>
+            )}
+          </Badge>
+        </div>
       </div>
 
       <div className="flex items-center gap-2">

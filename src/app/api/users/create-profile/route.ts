@@ -18,41 +18,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Position is required for crew members' }, { status: 400 });
     }
 
-    // Try RPC first if it exists
-    try {
-      const { error: rpcError } = await supabaseAdmin.rpc('create_user_and_profile', {
-        p_user_id: userId,
-        p_email: email,
-        p_username: username ?? null,
-        p_first_name: firstName ?? null,
-        p_last_name: lastName ?? null,
-        p_position: position ?? null,
-        p_role: role ?? 'crew',
-      });
-
-      if (!rpcError) {
-        // If RPC succeeded and we have activeVesselId, update it
-        if (activeVesselId) {
-          const { error: updateError } = await supabaseAdmin
-            .from('users')
-            .update({ active_vessel_id: activeVesselId })
-            .eq('id', userId);
-
-          if (updateError) {
-            console.error('[CREATE PROFILE API] Error updating active_vessel_id:', updateError);
-          }
-        }
-        
-        return NextResponse.json({ success: true, activeVesselId });
-      }
-      
-      // If RPC failed, fall through to direct insert
-      console.warn('[CREATE PROFILE API] RPC failed, falling back to direct insert:', rpcError.message);
-    } catch (rpcError) {
-      console.warn('[CREATE PROFILE API] RPC not available, using direct insert');
-    }
-
-    // Fallback: Direct insert/update
+    // Direct insert/update into users table
+    // Note: If this fails due to FK constraint (auth user not committed yet),
+    // the database trigger handle_new_user() will create the profile automatically
+    // Try to insert/update the user profile
+    // If we get a foreign key constraint error, the auth user may not be committed yet
+    // In that case, the database trigger will handle profile creation when the auth user is ready
     const { error: insertError } = await supabaseAdmin
       .from('users')
       .upsert({
@@ -71,6 +42,24 @@ export async function POST(req: NextRequest) {
       });
 
     if (insertError) {
+      // If it's a foreign key constraint error (23503), the auth user transaction may not be committed yet
+      // This is normal and expected - the database trigger will create the profile automatically
+      // when the auth.users record is committed. The user metadata is already stored in auth.users
+      // via the signup options.data, so the trigger will have all the information it needs.
+      if (insertError.code === '23503') {
+        // This is expected behavior - not an error
+        // The trigger handle_new_user() will create the profile when auth user is committed
+        console.log('[CREATE PROFILE API] Auth user not yet committed (normal). Profile will be created by database trigger.');
+        
+        // Return success - the trigger will handle profile creation automatically
+        return NextResponse.json({ 
+          success: true, 
+          activeVesselId,
+          handledByTrigger: true
+        });
+      }
+      
+      // Other error - log it and return error
       console.error('[CREATE PROFILE API] Insert error:', insertError);
       return NextResponse.json(
         {

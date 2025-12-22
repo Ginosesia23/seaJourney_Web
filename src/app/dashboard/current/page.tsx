@@ -6,11 +6,12 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInDays, eachDayOfInterval, isSameDay, startOfDay, endOfDay, parse, isWithinInterval, startOfMonth, endOfMonth, getDaysInMonth, getDay, isSameMonth, isToday, isAfter, isBefore, addDays, subMonths, startOfYear, endOfYear } from 'date-fns';
-import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect } from 'lucide-react';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, Check } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -68,6 +69,34 @@ const addVesselSchema = z.object({
 });
 type AddVesselFormValues = z.infer<typeof addVesselSchema>;
 
+// Maritime position options
+const POSITION_OPTIONS = [
+  'Captain / Master',
+  'Chief Officer / First Mate',
+  'Second Officer',
+  'Third Officer',
+  '3rd Officer',
+  'Officer of the Watch (OOW)',
+  'Deck Officer',
+  'Lead Deckhand',
+  'Deckhand',
+  'Able Seaman (AB)',
+  'Bosun',
+  'Cadet',
+  'Chief Engineer',
+  'First Engineer / Second Engineer',
+  'Third Engineer',
+  'Engineer',
+  'Electrician',
+  'Chef / Cook',
+  'Head Housekeeper',
+  'Chief Steward / Stewardess',
+  '2nd Steward / Stewardess',
+  'Steward / Stewardess',
+  'Interior Crew',
+  'Other',
+] as const;
+
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
     { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
     { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
@@ -86,6 +115,13 @@ export default function CurrentPage() {
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
   const [isAddVesselDialogOpen, setIsAddVesselDialogOpen] = useState(false);
   const [isSavingVessel, setIsSavingVessel] = useState(false);
+  // Unified vessel search (used by both crew and captains)
+  const [vesselSearchTerm, setVesselSearchTerm] = useState('');
+  const [vesselSearchResults, setVesselSearchResults] = useState<Array<{ id: string; name: string; type: string }>>([]);
+  const [isSearchingVessels, setIsSearchingVessels] = useState(false);
+  const [isVesselSearchOpen, setIsVesselSearchOpen] = useState(false);
+  const [selectedVesselForAction, setSelectedVesselForAction] = useState<{ id: string; name: string; type: string } | null>(null);
+  const [isRequestingCaptaincy, setIsRequestingCaptaincy] = useState(false);
   const [isSavingNotes, setIsSavingNotes] = useState(false);
   const [notes, setNotes] = useState('');
 
@@ -93,7 +129,7 @@ export default function CurrentPage() {
   const { supabase } = useSupabase();
   const { toast } = useToast();
 
-  const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
+  const { data: userProfileRaw, isLoading: isLoadingProfile, forceRefetch: refetchUserProfile } = useDoc<UserProfile>('users', user?.id);
   
   // Transform user profile to handle both snake_case (from DB) and camelCase (from types)
   const userProfile = useMemo(() => {
@@ -118,6 +154,7 @@ export default function CurrentPage() {
       activeVesselId: activeVesselId || undefined,
       firstName: (userProfileRaw as any).first_name || (userProfileRaw as any).firstName,
       lastName: (userProfileRaw as any).last_name || (userProfileRaw as any).lastName,
+      position: (userProfileRaw as any).position || undefined,
       profilePicture: (userProfileRaw as any).profile_picture || (userProfileRaw as any).profilePicture,
       bio: (userProfileRaw as any).bio,
       registrationDate: (userProfileRaw as any).registration_date || (userProfileRaw as any).registrationDate,
@@ -198,7 +235,96 @@ export default function CurrentPage() {
   const [isFillingGaps, setIsFillingGaps] = useState(false);
   const gapFilledRef = useRef<string | null>(null); // Track if we've already filled gaps for this vessel/date combo
 
+  // Check if captain has approved captaincy for current vessel and find vessel account user
+  const [vesselAccountUserId, setVesselAccountUserId] = useState<string | null>(null);
+  
+  useEffect(() => {
+    const checkCaptaincyAndFindVesselAccount = async () => {
+      if (!currentVessel || !user?.id) {
+        setVesselAccountUserId(null);
+        return;
+      }
+
+      // Only check for captains
+      if (userProfile?.role !== 'captain') {
+        setVesselAccountUserId(null);
+        return;
+      }
+
+      try {
+        // Check if captain has approved captaincy
+        const { data: captaincyData, error: captaincyError } = await supabase
+          .from('vessel_claim_requests')
+          .select('id, status')
+          .eq('requested_by', user.id)
+          .eq('vessel_id', currentVessel.id)
+          .eq('status', 'approved')
+          .maybeSingle();
+
+        if (captaincyError || !captaincyData) {
+          console.log('[CURRENT PAGE] No approved captaincy found:', {
+            captaincyError,
+            captaincyData,
+            vesselId: currentVessel.id,
+            userId: user.id
+          });
+          setVesselAccountUserId(null);
+          return;
+        }
+        
+        console.log('[CURRENT PAGE] Approved captaincy found, searching for vessel account:', {
+          vesselId: currentVessel.id,
+          captaincyRequestId: captaincyData.id
+        });
+
+        // Use vessel_manager_id from the vessel record (preferred method)
+        const vesselManagerId = (currentVessel as any).vessel_manager_id || (currentVessel as any).vesselManagerId;
+        
+        if (vesselManagerId) {
+          console.log('[CURRENT PAGE] Found vessel_manager_id from vessel record:', vesselManagerId);
+          setVesselAccountUserId(vesselManagerId);
+        } else {
+          // Fallback: Find the vessel account user (user with role='vessel' and active_vessel_id matching this vessel)
+          console.log('[CURRENT PAGE] No vessel_manager_id found, searching for vessel account user with:', {
+            role: 'vessel',
+            active_vessel_id: currentVessel.id
+          });
+          
+          const { data: vesselAccount, error: vesselAccountError } = await supabase
+            .from('users')
+            .select('id, role, active_vessel_id, email')
+            .eq('role', 'vessel')
+            .eq('active_vessel_id', currentVessel.id)
+            .limit(1)
+            .maybeSingle();
+
+          if (vesselAccountError) {
+            console.error('[CURRENT PAGE] Error finding vessel account:', vesselAccountError);
+            setVesselAccountUserId(null);
+          } else if (vesselAccount) {
+            console.log('[CURRENT PAGE] Found vessel account user via fallback search:', {
+              vesselAccountId: vesselAccount.id,
+              vesselId: currentVessel.id,
+              email: vesselAccount.email
+            });
+            setVesselAccountUserId(vesselAccount.id);
+          } else {
+            console.log('[CURRENT PAGE] No vessel account found for vessel:', currentVessel.id);
+            setVesselAccountUserId(null);
+          }
+        }
+      } catch (error) {
+        console.error('[CURRENT PAGE] Exception checking captaincy/vessel account:', error);
+        setVesselAccountUserId(null);
+      }
+    };
+
+    checkCaptaincyAndFindVesselAccount();
+  }, [currentVessel?.id, user?.id, userProfile?.role, supabase]);
+
   // Fetch state logs using the query function for proper transformation
+  // For approved captains, fetch logs from vessel account user only (or all vessel logs if no account exists)
+  // For others, fetch only their own logs
   useEffect(() => {
     if (!currentVessel || !user?.id) {
       setStateLogs([]);
@@ -208,19 +334,175 @@ export default function CurrentPage() {
     }
 
     setIsLoadingLogs(true);
-    getVesselStateLogs(supabase, currentVessel.id, user.id)
-      .then((logs) => {
+    
+    const fetchLogs = async () => {
+      // If captain has approved captaincy, fetch vessel account logs (or all vessel logs if no account exists)
+      // Otherwise, fetch only logs for this user
+      let userIdToFetch: string | undefined = user.id;
+      
+      // Check if this is an approved captain
+      if (userProfile?.role === 'captain') {
+        try {
+          // Check for approved captaincy
+          const { data: captaincyData } = await supabase
+            .from('vessel_claim_requests')
+            .select('id')
+            .eq('requested_by', user.id)
+            .eq('vessel_id', currentVessel.id)
+            .eq('status', 'approved')
+            .maybeSingle();
+          
+          if (captaincyData) {
+            // Approved captain - use vessel_manager_id from vessel record (preferred method)
+            // Check both snake_case and camelCase to handle any transformation
+            const vesselManagerId = (currentVessel as any).vessel_manager_id || (currentVessel as any).vesselManagerId;
+            
+            console.log('[CURRENT PAGE] Approved captain - checking vessel_manager_id:', {
+              vesselId: currentVessel.id,
+              vesselManagerId,
+              vesselAccountUserId,
+              vesselKeys: Object.keys(currentVessel),
+              vesselRecord: currentVessel
+            });
+            
+            if (vesselManagerId) {
+              // First, verify if logs exist for this vessel_manager_id
+              // If not, check what user_ids actually have logs for this vessel
+              try {
+                const { data: logsForManager } = await supabase
+                  .from('daily_state_logs')
+                  .select('user_id, date, state')
+                  .eq('vessel_id', currentVessel.id)
+                  .eq('user_id', vesselManagerId)
+                  .limit(5);
+                
+                console.log('[CURRENT PAGE] Logs for vessel_manager_id:', {
+                  vesselManagerId,
+                  logsCount: logsForManager?.length || 0,
+                  logs: logsForManager
+                });
+                
+                // If no logs found for vessel_manager_id, check what user_ids have logs for this vessel
+                if (!logsForManager || logsForManager.length === 0) {
+                  const { data: allLogsForVessel } = await supabase
+                    .from('daily_state_logs')
+                    .select('user_id, date, state')
+                    .eq('vessel_id', currentVessel.id)
+                    .limit(10);
+                  
+                  console.log('[CURRENT PAGE] No logs found for vessel_manager_id. All logs for this vessel:', {
+                    totalLogs: allLogsForVessel?.length || 0,
+                    userIds: allLogsForVessel?.map(l => l.user_id) || [],
+                    uniqueUserIds: [...new Set(allLogsForVessel?.map(l => l.user_id) || [])],
+                    logs: allLogsForVessel
+                  });
+                  
+                  // If we found logs with a different user_id, use that instead
+                  if (allLogsForVessel && allLogsForVessel.length > 0) {
+                    const actualUserId = allLogsForVessel[0].user_id;
+                    console.log('[CURRENT PAGE] Found logs with different user_id, using that:', actualUserId);
+                    userIdToFetch = actualUserId;
+                  } else {
+                    userIdToFetch = vesselManagerId; // Use vessel_manager_id even if no logs found yet
+                  }
+                } else {
+                  userIdToFetch = vesselManagerId;
+                }
+              } catch (verifyError) {
+                console.error('[CURRENT PAGE] Error verifying logs for vessel_manager_id:', verifyError);
+                userIdToFetch = vesselManagerId; // Fall back to vessel_manager_id
+              }
+              
+              console.log('[CURRENT PAGE] Using vessel_manager_id from vessel record:', userIdToFetch);
+            } else if (vesselAccountUserId) {
+              // Fallback to vesselAccountUserId if vessel_manager_id not available
+              userIdToFetch = vesselAccountUserId;
+              console.log('[CURRENT PAGE] Using vesselAccountUserId from state:', vesselAccountUserId);
+            } else {
+              // Last resort: try to find which user has logs for this vessel
+              try {
+                const { data: logsData } = await supabase
+                  .from('daily_state_logs')
+                  .select('user_id')
+                  .eq('vessel_id', currentVessel.id)
+                  .limit(1)
+                  .maybeSingle();
+                
+                if (logsData?.user_id) {
+                  console.log('[CURRENT PAGE] Found logs with user_id, using that:', logsData.user_id);
+                  userIdToFetch = logsData.user_id;
+                  
+                  // Also update the vessel record with this user_id as vessel_manager_id for future queries
+                  // (This is a one-time backfill, done silently)
+                  try {
+                    await supabase
+                      .from('vessels')
+                      .update({ vessel_manager_id: logsData.user_id })
+                      .eq('id', currentVessel.id);
+                    console.log('[CURRENT PAGE] Updated vessel_manager_id for vessel:', currentVessel.id);
+                  } catch (updateError) {
+                    console.error('[CURRENT PAGE] Could not update vessel_manager_id (non-critical):', updateError);
+                  }
+                } else {
+                  // No logs found yet, but approved captain - fetch all logs for vessel (no filter)
+                  console.log('[CURRENT PAGE] No logs found for vessel, will fetch all logs for vessel');
+                  userIdToFetch = undefined;
+                }
+              } catch (logSearchError) {
+                console.error('[CURRENT PAGE] Error searching for logs:', logSearchError);
+                // Fall back to fetching all logs for vessel
+                userIdToFetch = undefined;
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[CURRENT PAGE] Error checking captaincy in fetchLogs:', e);
+        }
+      }
+      
+      const vesselManagerId = (currentVessel as any).vessel_manager_id || (currentVessel as any).vesselManagerId;
+      
+      console.log('[CURRENT PAGE] Fetching state logs:', {
+        vesselId: currentVessel.id,
+        userIdToFetch: userIdToFetch || 'ALL (no filter)',
+        vesselManagerId,
+        vesselAccountUserId,
+        currentUserId: user.id,
+        userRole: userProfile?.role
+      });
+      
+      try {
+        const logs = await getVesselStateLogs(supabase, currentVessel.id, userIdToFetch);
+        console.log('[CURRENT PAGE] State logs fetched:', {
+          logsCount: logs.length,
+          userIdToFetch: userIdToFetch || 'ALL',
+          vesselId: currentVessel.id,
+          firstFewLogs: logs.slice(0, 5)
+        });
+        
+        // If no logs found and we're using a specific userId, check if RLS might be blocking
+        if (logs.length === 0 && userIdToFetch) {
+          console.warn('[CURRENT PAGE] No logs found. Possible RLS issue?', {
+            userIdToFetch,
+            vesselId: currentVessel.id,
+            currentUserId: user.id,
+            userRole: userProfile?.role
+          });
+        }
+        
         setStateLogs(logs);
         setIsLoadingLogs(false);
         gapFilledRef.current = null; // Reset when new logs are loaded
-      })
-      .catch((error) => {
-        console.error('Error fetching state logs:', error);
+      } catch (error) {
+        console.error('[CURRENT PAGE] Error fetching state logs:', error);
         setStateLogs([]);
         setIsLoadingLogs(false);
         gapFilledRef.current = null;
-      });
-  }, [currentVessel?.id, user?.id, supabase]);
+      }
+    };
+    
+    fetchLogs();
+  }, [currentVessel?.id, user?.id, vesselAccountUserId, userProfile?.role, supabase]);
 
   // Fetch vessel assignments for date validation
   useEffect(() => {
@@ -308,7 +590,8 @@ export default function CurrentPage() {
       const { lastLoggedDate, lastLoggedState, missingDays } = findMissingDays(stateLogs);
 
       // If there are missing days and we have a last logged state, fill them
-      if (missingDays.length > 0 && lastLoggedState) {
+      // Skip auto-fill for approved captains viewing vessel account logs (view-only)
+      if (missingDays.length > 0 && lastLoggedState && !vesselAccountUserId) {
         setIsFillingGaps(true);
         
         try {
@@ -328,7 +611,9 @@ export default function CurrentPage() {
           gapFilledRef.current = checkKey;
 
           // Refresh state logs to show the newly created entries
-          const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
+          // Use vesselAccountUserId if captain is viewing vessel account logs, otherwise user.id
+          const userIdToFetch = vesselAccountUserId || user.id;
+          const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, userIdToFetch);
           setStateLogs(updatedLogs);
         } catch (error: any) {
           console.error('Error filling missing days:', error);
@@ -347,13 +632,117 @@ export default function CurrentPage() {
   
   const startServiceForm = useForm<StartServiceFormValues>({
     resolver: zodResolver(startServiceSchema),
-    defaultValues: { vesselId: '', position: '', startDate: undefined, endDate: undefined, initialState: 'underway' },
+    defaultValues: { 
+      vesselId: '', 
+      position: userProfile?.position || '', 
+      startDate: undefined, 
+      endDate: undefined, 
+      initialState: 'underway' 
+    },
   });
+
+  // Update position field when userProfile changes
+  useEffect(() => {
+    if (userProfile?.position) {
+      startServiceForm.setValue('position', userProfile.position);
+    }
+  }, [userProfile?.position, startServiceForm]);
 
   const addVesselForm = useForm<AddVesselFormValues>({
     resolver: zodResolver(addVesselSchema),
     defaultValues: { name: '', type: undefined, officialNumber: '' },
   });
+
+  // Check if user is captain
+  const isCaptain = useMemo(() => {
+    return userProfile?.role === 'captain';
+  }, [userProfile?.role]);
+
+  // Unified vessel search (works for both crew and captains)
+  useEffect(() => {
+    const searchVessels = async () => {
+      if (!vesselSearchTerm || vesselSearchTerm.length < 2) {
+        setVesselSearchResults([]);
+        return;
+      }
+
+      setIsSearchingVessels(true);
+      try {
+        const response = await fetch('/api/vessels/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ searchTerm: vesselSearchTerm }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setVesselSearchResults(data.vessels || []);
+        } else {
+          setVesselSearchResults([]);
+        }
+      } catch (error) {
+        console.error('Error searching vessels:', error);
+        setVesselSearchResults([]);
+      } finally {
+        setIsSearchingVessels(false);
+      }
+    };
+
+    const timeoutId = setTimeout(searchVessels, 300); // Debounce
+    return () => clearTimeout(timeoutId);
+  }, [vesselSearchTerm]);
+
+  // Handler to request captaincy for looked up vessel
+  const handleRequestCaptaincyFromLookup = async () => {
+    if (!selectedVesselForAction || !user?.id) return;
+    
+    setIsRequestingCaptaincy(true);
+    
+    try {
+      const response = await fetch('/api/vessel-claim-requests/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vesselId: selectedVesselForAction.id,
+          requestedRole: 'captain',
+          userId: user.id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (result.code === '23505') { // Unique violation
+          toast({
+            title: 'Request Already Exists',
+            description: 'You have already submitted a captaincy request for this vessel.',
+            variant: 'destructive',
+          });
+        } else {
+          throw new Error(result.message || result.error || 'Failed to submit captaincy request');
+        }
+      } else {
+        toast({
+          title: 'Captaincy Request Submitted',
+          description: `Your request for captaincy of "${selectedVesselForAction.name}" has been submitted and is pending approval.`,
+        });
+        
+        // Reset search state
+        setVesselSearchTerm('');
+        setVesselSearchResults([]);
+        setSelectedVesselForAction(null);
+      }
+    } catch (error: any) {
+      console.error('Error requesting captaincy:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to submit captaincy request. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRequestingCaptaincy(false);
+    }
+  };
 
    // Find the most recent service record date for the current vessel
   const mostRecentServiceDate = useMemo(() => {
@@ -495,6 +884,16 @@ export default function CurrentPage() {
         title: 'No Active Vessel',
         description: 'Please set an active vessel first.',
         variant: 'destructive',
+      });
+      return;
+    }
+    
+    // For approved captains viewing vessel account logs, prevent editing
+    if (vesselAccountUserId) {
+      toast({
+        title: 'View Only',
+        description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
+        variant: 'default',
       });
       return;
     }
@@ -647,10 +1046,22 @@ export default function CurrentPage() {
         return;
       }
 
+      // For approved captains viewing vessel account logs, they should not be able to edit
+      // They can only view the vessel account's logs
+      if (vesselAccountUserId) {
+        toast({
+          title: 'Cannot Edit',
+          description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
       await updateStateLogsBatch(supabase, user.id, currentVessel.id, logs);
       
       // Refresh state logs
-      const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
+      const userIdToFetch = vesselAccountUserId || user.id;
+      const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, userIdToFetch);
       setStateLogs(updatedLogs);
       
       setIsDialogOpen(false);
@@ -781,8 +1192,17 @@ export default function CurrentPage() {
         description: message 
       });
       
-      // Reset form on success - data will refresh automatically via realtime subscriptions
+      // Reset form on success
       startServiceForm.reset();
+      
+      // Force refresh user profile to get updated activeVesselId
+      // This will trigger the page to show the active service UI instead of the form
+      if (isActiveService) {
+        // Small delay to ensure database write is committed
+        setTimeout(() => {
+          refetchUserProfile();
+        }, 500);
+      }
     } catch (error: any) {
       console.error('Error starting service:', error);
       toast({
@@ -798,14 +1218,20 @@ export default function CurrentPage() {
     setIsSavingVessel(true);
 
     try {
-      await createVessel(supabase, {
+      const newVessel = await createVessel(supabase, {
         name: data.name,
         type: data.type,
         officialNumber: data.officialNumber,
       });
-            addVesselForm.reset();
-            setIsAddVesselDialogOpen(false);
-      toast({ title: 'Vessel Added', description: `${data.name} has been added.` });
+      
+      // Set the newly created vessel as selected in the form
+      startServiceForm.setValue('vesselId', newVessel.id);
+      
+      addVesselForm.reset();
+      setIsAddVesselDialogOpen(false);
+      setVesselSearchTerm(''); // Clear search term
+      setIsVesselSearchOpen(false); // Close search popover
+      toast({ title: 'Vessel Added', description: `${data.name} has been added and selected.` });
     } catch (error: any) {
       console.error('Error adding vessel:', error);
       toast({
@@ -814,7 +1240,7 @@ export default function CurrentPage() {
         variant: 'destructive',
       });
     } finally {
-            setIsSavingVessel(false);
+      setIsSavingVessel(false);
     }
   }
 
@@ -827,8 +1253,22 @@ export default function CurrentPage() {
       state: state,
     }));
     
+    // For approved captains viewing vessel account logs, they should not be able to edit
+    if (vesselAccountUserId) {
+      toast({
+        title: 'Cannot Edit',
+        description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     try {
       await updateStateLogsBatch(supabase, user.id, currentVessel.id, logs);
+      // Refresh logs after update
+      const userIdToFetch = vesselAccountUserId || user.id;
+      const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, userIdToFetch);
+      setStateLogs(updatedLogs);
     setIsStatusDialogOpen(false);
     setDateRange(undefined);
     } catch (error) {
@@ -843,13 +1283,25 @@ export default function CurrentPage() {
 
   const handleTodayStateChange = async (state: DailyStatus) => {
     if (!currentVessel || !user?.id) return;
+    
+    // For approved captains viewing vessel account logs, they should not be able to edit
+    if (vesselAccountUserId) {
+      toast({
+        title: 'Cannot Edit',
+        description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     const todayKey = format(new Date(), 'yyyy-MM-dd');
     
     try {
       await updateStateLogsBatch(supabase, user.id, currentVessel.id, [{ date: todayKey, state }]);
       
       // Refresh state logs to show the updated value
-      const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
+      const userIdToFetch = vesselAccountUserId || user.id;
+      const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, userIdToFetch);
       setStateLogs(updatedLogs);
       
       toast({ 
@@ -1118,10 +1570,21 @@ export default function CurrentPage() {
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
       
-      // End the vessel assignment (set end_date to today)
-      await endVesselAssignment(supabase, user.id, currentVessel.id, today);
+      // Try to end the vessel assignment if it exists
+      try {
+        await endVesselAssignment(supabase, user.id, currentVessel.id, today);
+      } catch (assignmentError: any) {
+        // If no assignment exists, that's okay - just clear the active vessel ID
+        // This can happen if the assignment wasn't created properly or was already ended
+        if (assignmentError.message?.includes('No active assignment')) {
+          console.log('[CURRENT PAGE] No active assignment found, clearing active_vessel_id only');
+        } else {
+          // Re-throw if it's a different error
+          throw assignmentError;
+        }
+      }
       
-      // Update user profile to clear active vessel
+      // Update user profile to clear active vessel (always do this)
       await updateUserProfile(supabase, user.id, {
         activeVesselId: null,
       });
@@ -1140,7 +1603,15 @@ export default function CurrentPage() {
   const serviceDate = mostRecentServiceDate;
   
   const { totalDaysByState, atSeaDays, standbyDays } = useMemo(() => {
-    if (!stateLogs) return { totalDaysByState: [], atSeaDays: 0, standbyDays: 0 };
+    console.log('[CURRENT PAGE] Calculating stats from stateLogs:', {
+      stateLogsCount: stateLogs?.length || 0,
+      stateLogs: stateLogs?.slice(0, 5) || []
+    });
+    
+    if (!stateLogs || stateLogs.length === 0) {
+      console.log('[CURRENT PAGE] No state logs available for stats calculation');
+      return { totalDaysByState: [], atSeaDays: 0, standbyDays: 0 };
+    }
     
     // Filter logs to current year only
     const currentYearStart = startOfYear(new Date());
@@ -1148,6 +1619,11 @@ export default function CurrentPage() {
     const yearLogs = stateLogs.filter(log => {
       const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
       return isWithinInterval(logDate, { start: currentYearStart, end: currentYearEnd });
+    });
+    
+    console.log('[CURRENT PAGE] Filtered to current year logs:', {
+      yearLogsCount: yearLogs.length,
+      currentYear: new Date().getFullYear()
     });
     
     let atSea = 0;
@@ -1479,44 +1955,390 @@ export default function CurrentPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          <Card className="rounded-xl border shadow-sm">
-          <CardHeader>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Ship className="h-5 w-5 text-primary" />
+          {/* Unified Vessel Service Card - Adapts to Role */}
+          <Card className="rounded-xl border shadow-sm bg-gradient-to-br from-background to-muted/20">
+            <CardHeader className="pb-4">
+                <div className="flex items-start gap-4">
+                  <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center border border-primary/20">
+                    {isCaptain ? (
+                      <Search className="h-6 w-6 text-primary" />
+                    ) : (
+                      <Ship className="h-6 w-6 text-primary" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle className="text-2xl mb-1">
+                      {isCaptain ? 'Request Vessel Captaincy' : 'Start a New Sea Service'}
+                    </CardTitle>
+                    <CardDescription className="text-base">
+                      {isCaptain 
+                        ? 'Search for a vessel and request captaincy to manage its sea time logs and crew.'
+                        : 'Search for a vessel and record your sea service dates. Leave end date empty for an active service, or fill both dates to add a past service.'
+                      }
+                    </CardDescription>
+                  </div>
                 </div>
-                <div>
-            <CardTitle>Start a New Sea Service</CardTitle>
-                  <CardDescription className="mt-1">Record your sea service dates. Leave end date empty for an active service, or fill both dates to add a past service.</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-2">
+              {isCaptain ? (
+                <div className="space-y-6">
+                  <div className="space-y-3">
+                    <Label className="text-base font-semibold">Search for Vessel</Label>
+                    <Popover open={isVesselSearchOpen} onOpenChange={setIsVesselSearchOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className={cn(
+                            "w-full justify-between h-12 text-base font-medium",
+                            !selectedVesselForAction && "text-muted-foreground"
+                          )}
+                          disabled={isLoadingVessels}
+                        >
+                          {selectedVesselForAction
+                            ? selectedVesselForAction.name
+                            : vesselSearchTerm || "Type vessel name to search..."}
+                          <ChevronsUpDown className="ml-2 h-5 w-5 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                        <div className="p-2 border-b bg-muted/30">
+                          <Input
+                            placeholder="Search vessels..."
+                            value={vesselSearchTerm}
+                            onChange={(e) => {
+                              setVesselSearchTerm(e.target.value);
+                              if (!isVesselSearchOpen) setIsVesselSearchOpen(true);
+                            }}
+                            className="h-10 bg-background"
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                setIsVesselSearchOpen(false);
+                              }
+                            }}
+                          />
+                        </div>
+                        <div className="max-h-[300px] overflow-auto p-1">
+                          {isSearchingVessels ? (
+                            <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                              <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
+                              Searching...
+                            </div>
+                          ) : vesselSearchResults.length > 0 ? (
+                            vesselSearchResults.map((vessel) => (
+                              <button
+                                key={vessel.id}
+                                onClick={() => {
+                                  setSelectedVesselForAction(vessel);
+                                  setIsVesselSearchOpen(false);
+                                  setVesselSearchTerm('');
+                                }}
+                                className={cn(
+                                  "relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground transition-colors",
+                                  selectedVesselForAction?.id === vessel.id && "bg-accent"
+                                )}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-3 h-4 w-4 shrink-0",
+                                    selectedVesselForAction?.id === vessel.id ? "opacity-100" : "opacity-0"
+                                  )}
+                                />
+                                <div className="flex-1 text-left">
+                                  <div className="font-medium">{vessel.name}</div>
+                                  <div className="text-xs text-muted-foreground">{vessel.type}</div>
+                                </div>
+                              </button>
+                            ))
+                          ) : vesselSearchTerm.length >= 2 ? (
+                            <div className="px-2 py-1">
+                              <button
+                                onClick={() => {
+                                  addVesselForm.setValue('name', vesselSearchTerm);
+                                  setIsVesselSearchOpen(false);
+                                  setIsAddVesselDialogOpen(true);
+                                }}
+                                className="relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary border border-dashed border-primary/50 transition-colors"
+                              >
+                                <PlusCircle className="mr-3 h-4 w-4 text-primary shrink-0" />
+                                <span className="font-medium">Create new vessel: <span className="text-primary">{vesselSearchTerm}</span></span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                              Type at least 2 characters to search vessels
+                            </div>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    <Dialog open={isAddVesselDialogOpen} onOpenChange={(open) => {
+                      setIsAddVesselDialogOpen(open);
+                      if (!open) {
+                        setVesselSearchTerm('');
+                        setVesselSearchResults([]);
+                      }
+                    }}>
+                      <DialogTrigger asChild>
+                        <Button 
+                          type="button"
+                          variant="ghost" 
+                          size="sm"
+                          className="w-full text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            setVesselSearchTerm('');
+                            setIsVesselSearchOpen(false);
+                          }}
+                        >
+                          <PlusCircle className="mr-2 h-4 w-4" />
+                          Create New Vessel
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-[500px]">
+                        <DialogHeader>
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                              <Ship className="h-5 w-5 text-primary" />
+                            </div>
+                            <DialogTitle>Add a New Vessel</DialogTitle>
+                          </div>
+                        </DialogHeader>
+                        <Form {...addVesselForm}>
+                          <form onSubmit={addVesselForm.handleSubmit(onAddVesselSubmit)} className="space-y-4">
+                            <FormField 
+                              control={addVesselForm.control} 
+                              name="name" 
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Vessel Name</FormLabel>
+                                  <FormControl>
+                                    <Input placeholder="e.g., M/Y Odyssey" {...field} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )} 
+                            />
+                            <FormField 
+                              control={addVesselForm.control} 
+                              name="type" 
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Vessel Type</FormLabel>
+                                  <FormControl>
+                                    <SearchableSelect
+                                      options={vesselTypes}
+                                      value={field.value}
+                                      onValueChange={field.onChange}
+                                      placeholder="Select a vessel type"
+                                      searchPlaceholder="Search vessel types..."
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )} 
+                            />
+                            <FormField 
+                              control={addVesselForm.control} 
+                              name="officialNumber" 
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Official Number (Optional)</FormLabel>
+                                  <FormControl>
+                                    <Input placeholder="e.g., IMO 1234567" {...field} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )} 
+                            />
+                            <DialogFooter className="pt-4 gap-2">
+                              <DialogClose asChild>
+                                <Button type="button" variant="ghost" className="rounded-lg">Cancel</Button>
+                              </DialogClose>
+                              <Button type="submit" disabled={isSavingVessel} className="rounded-lg">
+                                {isSavingVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Save Vessel
+                              </Button>
+                            </DialogFooter>
+                          </form>
+                        </Form>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+
+                  {selectedVesselForAction && (
+                    <div className="rounded-xl border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10 p-6 space-y-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="h-14 w-14 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/30">
+                            <Ship className="h-7 w-7 text-primary" />
+                          </div>
+                          <div>
+                            <h3 className="text-xl font-bold">{selectedVesselForAction.name}</h3>
+                            <p className="text-sm text-muted-foreground mt-1">{selectedVesselForAction.type}</p>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedVesselForAction(null);
+                            setVesselSearchTerm('');
+                          }}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          Change
+                        </Button>
+                      </div>
+                      <Separator />
+                      <Button
+                        type="button"
+                        onClick={handleRequestCaptaincyFromLookup}
+                        disabled={isRequestingCaptaincy}
+                        className="w-full h-12 text-base font-semibold"
+                        size="lg"
+                      >
+                        {isRequestingCaptaincy ? (
+                          <>
+                            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                            Submitting Request...
+                          </>
+                        ) : (
+                          <>
+                            <UserPlus className="mr-2 h-5 w-5" />
+                            Request Captaincy
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
                 </div>
-              </div>
-          </CardHeader>
-          <CardContent>
-            <Form {...startServiceForm}>
-              <form onSubmit={startServiceForm.handleSubmit(onStartServiceSubmit)} className="space-y-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="space-y-6">
-                <FormField
-                  control={startServiceForm.control}
-                  name="vesselId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Vessel</FormLabel>
+              ) : (
+                <Form {...startServiceForm}>
+                  <form onSubmit={startServiceForm.handleSubmit(onStartServiceSubmit)} className="space-y-6">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="space-y-6">
+                      <FormField
+                        control={startServiceForm.control}
+                        name="vesselId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-base font-semibold">Vessel</FormLabel>
                       <div className="flex gap-2">
-                        <Select onValueChange={field.onChange} value={field.value} disabled={isLoadingVessels}>
+                      <Popover open={isVesselSearchOpen} onOpenChange={setIsVesselSearchOpen}>
+                        <PopoverTrigger asChild>
                           <FormControl>
-                            <SelectTrigger><SelectValue placeholder={isLoadingVessels ? "Loading vessels..." : "Select the vessel you're on"} /></SelectTrigger>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              className={cn(
+                                "w-full justify-between font-medium",
+                                !field.value && "text-muted-foreground"
+                              )}
+                              disabled={isLoadingVessels}
+                            >
+                              {field.value
+                                ? vessels?.find((v) => v.id === field.value)?.name || 'Select vessel...'
+                                : vesselSearchTerm || "Search for a vessel..."}
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
                           </FormControl>
-                          <SelectContent>
-                            {vessels?.map(vessel => (<SelectItem key={vessel.id} value={vessel.id}>{vessel.name}</SelectItem>))}
-                          </SelectContent>
-                        </Select>
-                        <Dialog open={isAddVesselDialogOpen} onOpenChange={setIsAddVesselDialogOpen}>
-                                <DialogTrigger asChild>
-                                  <Button variant="outline" size="icon" className="shrink-0 rounded-lg">
-                                    <PlusCircle className="h-4 w-4" />
-                                  </Button>
-                                </DialogTrigger>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                          <div className="p-2 border-b bg-muted/30">
+                            <Input
+                              placeholder="Search vessels..."
+                              value={vesselSearchTerm}
+                              onChange={(e) => {
+                                setVesselSearchTerm(e.target.value);
+                                if (!isVesselSearchOpen) setIsVesselSearchOpen(true);
+                              }}
+                              className="h-9 bg-background"
+                              onKeyDown={(e) => {
+                                if (e.key === "Escape") {
+                                  setIsVesselSearchOpen(false);
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="max-h-[300px] overflow-auto p-1">
+                            {isSearchingVessels ? (
+                              <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
+                                Searching...
+                              </div>
+                            ) : vesselSearchResults.length > 0 ? (
+                              vesselSearchResults.map((vessel) => (
+                                <button
+                                  key={vessel.id}
+                                  onClick={() => {
+                                    field.onChange(vessel.id);
+                                    setIsVesselSearchOpen(false);
+                                    setVesselSearchTerm('');
+                                  }}
+                                  className={cn(
+                                    "relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground transition-colors",
+                                    field.value === vessel.id && "bg-accent"
+                                  )}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-3 h-4 w-4 shrink-0",
+                                      field.value === vessel.id ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  <div className="flex-1 text-left">
+                                    <div className="font-medium">{vessel.name}</div>
+                                    <div className="text-xs text-muted-foreground">{vessel.type}</div>
+                                  </div>
+                                </button>
+                              ))
+                            ) : vesselSearchTerm.length >= 2 ? (
+                              <div className="px-2 py-1">
+                                <button
+                                  onClick={() => {
+                                    // Pre-fill the add vessel dialog and open it
+                                    addVesselForm.setValue('name', vesselSearchTerm);
+                                    setIsVesselSearchOpen(false);
+                                    setIsAddVesselDialogOpen(true);
+                                  }}
+                                  className="relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary border border-dashed border-primary/50 transition-colors"
+                                >
+                                  <PlusCircle className="mr-3 h-4 w-4 text-primary shrink-0" />
+                                  <span className="font-medium">Create new vessel: <span className="text-primary">{vesselSearchTerm}</span></span>
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                                Type at least 2 characters to search vessels
+                              </div>
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                      <Dialog open={isAddVesselDialogOpen} onOpenChange={(open) => {
+                        setIsAddVesselDialogOpen(open);
+                        if (!open) {
+                          // Reset search when dialog closes
+                          setVesselSearchTerm('');
+                          setVesselSearchResults([]);
+                        }
+                      }}>
+                        <DialogTrigger asChild>
+                          <Button 
+                            type="button"
+                            variant="outline" 
+                            size="icon" 
+                            className="ml-2 shrink-0 rounded-lg"
+                            onClick={() => {
+                              // Clear the vessel search term when opening add dialog
+                              setVesselSearchTerm('');
+                              setIsVesselSearchOpen(false);
+                            }}
+                          >
+                            <PlusCircle className="h-4 w-4" />
+                          </Button>
+                        </DialogTrigger>
                                 <DialogContent className="sm:max-w-[500px]">
                                   <DialogHeader>
                                     <div className="flex items-center gap-3 mb-2">
@@ -1526,64 +2348,64 @@ export default function CurrentPage() {
                                       <DialogTitle>Add a New Vessel</DialogTitle>
                                     </div>
                                   </DialogHeader>
-                                <Form {...addVesselForm}>
-                                    <form onSubmit={addVesselForm.handleSubmit(onAddVesselSubmit)} className="space-y-4">
-                                      <FormField 
-                                        control={addVesselForm.control} 
-                                        name="name" 
-                                        render={({ field }) => (
-                                          <FormItem>
-                                            <FormLabel>Vessel Name</FormLabel>
-                                            <FormControl>
-                                              <Input placeholder="e.g., M/Y Odyssey" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                          </FormItem>
-                                        )} 
-                                      />
-                                      <FormField 
-                                        control={addVesselForm.control} 
-                                        name="type" 
-                                        render={({ field }) => (
-                                          <FormItem>
-                                            <FormLabel>Vessel Type</FormLabel>
-                                            <FormControl>
-                                              <SearchableSelect
-                                                options={vesselTypes}
-                                                value={field.value}
-                                                onValueChange={field.onChange}
-                                                placeholder="Select a vessel type"
-                                                searchPlaceholder="Search vessel types..."
-                                              />
-                                            </FormControl>
-                                            <FormMessage />
-                                          </FormItem>
-                                        )} 
-                                      />
-                                      <FormField 
-                                        control={addVesselForm.control} 
-                                        name="officialNumber" 
-                                        render={({ field }) => (
-                                          <FormItem>
-                                            <FormLabel>Official Number (Optional)</FormLabel>
-                                            <FormControl>
-                                              <Input placeholder="e.g., IMO 1234567" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                          </FormItem>
-                                        )} 
-                                      />
-                                      <DialogFooter className="pt-4 gap-2">
-                                        <DialogClose asChild>
-                                          <Button type="button" variant="ghost" className="rounded-lg">Cancel</Button>
-                                        </DialogClose>
-                                        <Button type="submit" disabled={isSavingVessel} className="rounded-lg">
-                                          {isSavingVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                          Save Vessel
-                                        </Button>
+                                  <Form {...addVesselForm}>
+                                      <form onSubmit={addVesselForm.handleSubmit(onAddVesselSubmit)} className="space-y-4">
+                                        <FormField 
+                                          control={addVesselForm.control} 
+                                          name="name" 
+                                          render={({ field }) => (
+                                            <FormItem>
+                                              <FormLabel>Vessel Name</FormLabel>
+                                              <FormControl>
+                                                <Input placeholder="e.g., M/Y Odyssey" {...field} />
+                                              </FormControl>
+                                              <FormMessage />
+                                            </FormItem>
+                                          )} 
+                                        />
+                                        <FormField 
+                                          control={addVesselForm.control} 
+                                          name="type" 
+                                          render={({ field }) => (
+                                            <FormItem>
+                                              <FormLabel>Vessel Type</FormLabel>
+                                              <FormControl>
+                                                <SearchableSelect
+                                                  options={vesselTypes}
+                                                  value={field.value}
+                                                  onValueChange={field.onChange}
+                                                  placeholder="Select a vessel type"
+                                                  searchPlaceholder="Search vessel types..."
+                                                />
+                                              </FormControl>
+                                              <FormMessage />
+                                            </FormItem>
+                                          )} 
+                                        />
+                                        <FormField 
+                                          control={addVesselForm.control} 
+                                          name="officialNumber" 
+                                          render={({ field }) => (
+                                            <FormItem>
+                                              <FormLabel>Official Number (Optional)</FormLabel>
+                                              <FormControl>
+                                                <Input placeholder="e.g., IMO 1234567" {...field} />
+                                              </FormControl>
+                                              <FormMessage />
+                                            </FormItem>
+                                          )} 
+                                        />
+                                        <DialogFooter className="pt-4 gap-2">
+                                          <DialogClose asChild>
+                                            <Button type="button" variant="ghost" className="rounded-lg">Cancel</Button>
+                                          </DialogClose>
+                                          <Button type="submit" disabled={isSavingVessel} className="rounded-lg">
+                                            {isSavingVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                            Save Vessel
+                                          </Button>
                                         </DialogFooter>
-                                    </form>
-                                </Form>
+                                      </form>
+                                    </Form>
                             </DialogContent>
                         </Dialog>
                       </div>
@@ -1596,11 +2418,27 @@ export default function CurrentPage() {
                         name="position" 
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Your Position/Role (Optional)</FormLabel>
-                            <FormControl>
-                              <Input placeholder="e.g., Deckhand, 2nd Engineer" {...field} />
-                            </FormControl>
+                            <FormLabel className="text-base font-semibold">Your Position/Role</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value || ''}>
+                              <FormControl>
+                                <SelectTrigger className="rounded-lg">
+                                  <SelectValue placeholder="Select your position..." />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent className="rounded-lg">
+                                {POSITION_OPTIONS.map((position) => (
+                                  <SelectItem key={position} value={position}>
+                                    {position}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                             <FormMessage />
+                            <p className="text-xs text-muted-foreground">
+                              {userProfile?.position 
+                                ? `Pre-filled from your profile. Update if you've changed position.`
+                                : 'Select your current position on this vessel'}
+                            </p>
                           </FormItem>
                         )} 
                       />
@@ -1697,15 +2535,20 @@ export default function CurrentPage() {
                       />
                     </div>
                   </div>
-                  <Separator />
-                  <Button type="submit" className="w-full rounded-lg" size="lg">Start Tracking</Button>
-              </form>
-            </Form>
+                      <Separator />
+                      <Button type="submit" className="w-full rounded-lg h-12 text-base font-semibold" size="lg">
+                        <Ship className="mr-2 h-5 w-5" />
+                        Start Tracking
+                      </Button>
+                    </form>
+                  </Form>
+                )}
           </CardContent>
         </Card>
         
-        {/* Info Card: How to Add Past Services */}
-        <Card className="rounded-xl border shadow-sm bg-muted/30">
+        {!isCaptain && (
+          /* Info Card: How to Add Past Services - Only for Crew */
+          <Card className="rounded-xl border shadow-sm bg-muted/30">
           <CardContent className="pt-6">
             <div className="flex items-start gap-4">
               <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
@@ -1727,6 +2570,7 @@ export default function CurrentPage() {
             </div>
           </CardContent>
         </Card>
+        )}
         </div>
       )}
     </div>

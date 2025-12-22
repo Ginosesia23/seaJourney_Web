@@ -89,7 +89,7 @@ export default function VesselsPage() {
   const [isSavingPastVessel, setIsSavingPastVessel] = useState(false);
   const [requestingCaptaincyVesselId, setRequestingCaptaincyVesselId] = useState<string | null>(null);
   const [isRequestingCaptaincy, setIsRequestingCaptaincy] = useState(false);
-  const [captaincyRequests, setCaptaincyRequests] = useState<Map<string, { id: string; status: string }>>(new Map());
+  const [captaincyRequests, setCaptaincyRequests] = useState<Map<string, { id: string; status: string; created_at?: string }>>(new Map());
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -150,12 +150,17 @@ export default function VesselsPage() {
   }, [currentUserProfile]);
 
   // Fetch state logs and sea service for each vessel
+  // For admins, we don't need to fetch logs for all vessels (they see all vessels regardless)
+  // For non-admins, fetch logs to filter which vessels to show
   useEffect(() => {
     if (allVessels && user?.id) {
       const fetchData = async () => {
-      const newLogs = new Map<string, StateLog[]>();
+        const newLogs = new Map<string, StateLog[]>();
         const serviceRecords: SeaServiceRecord[] = [];
         
+        // For admins, we can skip fetching logs (they see all vessels anyway)
+        // But we still fetch for display purposes if needed
+        // For now, let's still fetch but it's optional for admins
         await Promise.all(allVessels.map(async (vessel) => {
           const [logs, seaService] = await Promise.all([
             getVesselStateLogs(supabase, vessel.id, user.id),
@@ -163,7 +168,7 @@ export default function VesselsPage() {
           ]);
           
           if (logs && logs.length > 0) {
-          newLogs.set(vessel.id, logs);
+            newLogs.set(vessel.id, logs);
           }
           if (seaService && seaService.length > 0) {
             serviceRecords.push(...seaService);
@@ -178,42 +183,122 @@ export default function VesselsPage() {
   }, [allVessels, user?.id, supabase]);
 
   // Fetch captaincy requests for vessels (if user is captain)
-  useEffect(() => {
-    if (isCaptain && user?.id && allVessels) {
-      const fetchCaptaincyRequests = async () => {
-        const requestsMap = new Map<string, { id: string; status: string }>();
-        // Fetch pending requests for vessels user has logged time on
-        for (const vessel of allVessels) {
-          if (vesselStateLogs.has(vessel.id)) {
-            const { data } = await supabase
-              .from('vessel_captaincy')
-              .select('id, status')
-              .eq('vessel_id', vessel.id)
-              .eq('user_id', user.id)
-              .eq('status', 'pending')
-              .maybeSingle();
-            
-            if (data) {
-              requestsMap.set(vessel.id, { id: data.id, status: data.status });
-            }
-          }
+  // Fetch ALL requests for this captain, not just for vessels they've logged time on
+  const fetchCaptaincyRequests = useCallback(async () => {
+    if (!isCaptain || !user?.id) {
+      console.log('[CAPTAINCY REQUESTS] Skipping fetch:', { isCaptain, userId: user?.id });
+      setCaptaincyRequests(new Map());
+      return;
+    }
+    
+    console.log('[CAPTAINCY REQUESTS] Fetching all requests for captain user:', user.id);
+    
+    // Query ALL requests for this captain user - RLS will ensure they only see their own
+    const { data: allRequests, error } = await supabase
+      .from('vessel_claim_requests')
+      .select('id, vessel_id, status, created_at')
+      .eq('requested_by', user.id)
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('[CAPTAINCY REQUESTS] Error fetching requests:', error);
+      setCaptaincyRequests(new Map());
+      return;
+    }
+    
+    // Create a map of vessel_id -> { id, status }
+    // For each vessel, keep only the most recent request
+    const requestsMap = new Map<string, { id: string; status: string; created_at?: string }>();
+    
+    if (allRequests && allRequests.length > 0) {
+      console.log('[CAPTAINCY REQUESTS] Raw requests from DB:', allRequests);
+      // Group by vessel_id and keep the most recent one for each vessel
+      const vesselRequestMap = new Map<string, typeof allRequests[0]>();
+      for (const request of allRequests) {
+        console.log('[CAPTAINCY REQUESTS] Processing request:', request);
+        const existing = vesselRequestMap.get(request.vessel_id);
+        if (!existing || new Date(request.created_at || 0) > new Date(existing.created_at || 0)) {
+          vesselRequestMap.set(request.vessel_id, request);
         }
-        setCaptaincyRequests(requestsMap);
-      };
+      }
+      
+      console.log('[CAPTAINCY REQUESTS] Grouped by vessel:', Array.from(vesselRequestMap.entries()));
+      
+      // Convert to the format expected by the component
+      for (const [vesselId, request] of vesselRequestMap.entries()) {
+        requestsMap.set(vesselId, { 
+          id: request.id, 
+          status: request.status,
+          created_at: request.created_at 
+        });
+      }
+    } else {
+      console.log('[CAPTAINCY REQUESTS] No requests found in database');
+    }
+    
+    console.log('[CAPTAINCY REQUESTS] Final requests map:', Array.from(requestsMap.entries()));
+    console.log('[CAPTAINCY REQUESTS] Total requests found:', requestsMap.size);
+    setCaptaincyRequests(requestsMap);
+  }, [isCaptain, user?.id, supabase]);
+
+  useEffect(() => {
+    fetchCaptaincyRequests();
+  }, [fetchCaptaincyRequests]);
+
+  // Refetch requests when allVessels changes (to catch new vessels)
+  useEffect(() => {
+    if (isCaptain && allVessels && allVessels.length > 0) {
       fetchCaptaincyRequests();
     }
-  }, [isCaptain, user?.id, allVessels, vesselStateLogs, supabase]);
+  }, [allVessels, isCaptain, fetchCaptaincyRequests]);
 
-  // Filter vessels to only show ones the user has logged time on, and sort to show current vessel first
+  // Check if user is admin
+  const isAdmin = useMemo(() => {
+    return currentUserProfile?.role === 'admin';
+  }, [currentUserProfile?.role]);
+
+  // Filter vessels to only show ones the user has logged time on (except for admins who see all, and captains who also see vessels with requests)
+  // Sort to show current vessel first
   const vessels = useMemo(() => {
-    if (!allVessels) return [];
-    const filtered = allVessels.filter(vessel => {
-      const logs = vesselStateLogs.get(vessel.id) || [];
-      return logs.length > 0; // Only show vessels with logged days
+    if (!allVessels) {
+      console.log('[VESSELS PAGE] No allVessels yet');
+      return [];
+    }
+    
+    console.log('[VESSELS PAGE] Filtering vessels:', {
+      isAdmin,
+      isCaptain,
+      allVesselsCount: allVessels.length,
+      vesselStateLogsSize: vesselStateLogs.size,
+      captaincyRequestsSize: captaincyRequests.size,
+      role: currentUserProfile?.role
     });
     
+    let filtered: Vessel[];
+    if (isAdmin) {
+      // Admins see all vessels
+      console.log('[VESSELS PAGE] Admin user - showing all vessels:', allVessels.length);
+      filtered = allVessels;
+    } else if (isCaptain) {
+      // Captains: show vessels with logged days OR vessels with captaincy requests
+      filtered = allVessels.filter(vessel => {
+        const logs = vesselStateLogs.get(vessel.id) || [];
+        const hasLogs = logs.length > 0;
+        const hasRequest = captaincyRequests.has(vessel.id);
+        return hasLogs || hasRequest;
+      });
+      console.log('[VESSELS PAGE] Captain - filtered to vessels with logs or requests:', filtered.length);
+    } else {
+      // Other roles: only show vessels with logged days
+      filtered = allVessels.filter(vessel => {
+        const logs = vesselStateLogs.get(vessel.id) || [];
+        return logs.length > 0;
+      });
+      console.log('[VESSELS PAGE] Non-admin/captain - filtered to vessels with logs:', filtered.length);
+    }
+    
     // Sort to show current/active vessel at the top
-    return filtered.sort((a, b) => {
+    const sorted = filtered.sort((a, b) => {
       const aIsCurrent = currentUserProfile?.activeVesselId === a.id;
       const bIsCurrent = currentUserProfile?.activeVesselId === b.id;
       
@@ -224,7 +309,26 @@ export default function VesselsPage() {
       // If both are current or both are not, maintain original order (most recent first based on created_at)
       return 0;
     });
-  }, [allVessels, vesselStateLogs, currentUserProfile]);
+    
+    console.log('[VESSELS PAGE] Final vessels count:', sorted.length);
+    
+    // Debug: Log vessels with captaincy requests
+    if (isCaptain && captaincyRequests.size > 0) {
+      console.log('[VESSELS PAGE] Vessels with captaincy requests:', Array.from(captaincyRequests.keys()));
+      console.log('[VESSELS PAGE] Filtered vessels IDs:', sorted.map(v => v.id));
+      
+      // Check if any vessels with requests are missing from filtered list
+      for (const [vesselId, request] of captaincyRequests.entries()) {
+        const vesselInFiltered = sorted.some(v => v.id === vesselId);
+        if (!vesselInFiltered) {
+          const vesselInAll = allVessels?.some(v => v.id === vesselId);
+          console.warn(`[VESSELS PAGE] Vessel ${vesselId} (request status: ${request.status}) not in filtered list. In allVessels: ${vesselInAll}`);
+        }
+      }
+    }
+    
+    return sorted;
+  }, [allVessels, vesselStateLogs, currentUserProfile, isAdmin, isCaptain, captaincyRequests]);
 
   const filteredVessels = useMemo(() => {
     if (!searchTerm) return vessels;
@@ -258,10 +362,13 @@ export default function VesselsPage() {
     });
   }, [filteredVessels, allSeaService, vesselStateLogs, currentUserProfile]);
 
-  // Count vessels user has logged time on
+  // Count vessels user has logged time on (or all vessels for admins)
   const vesselCount = useMemo(() => {
+    if (isAdmin && allVessels) {
+      return allVessels.length;
+    }
     return vesselStateLogs.size;
-  }, [vesselStateLogs]);
+  }, [vesselStateLogs, isAdmin, allVessels]);
 
   // Check vessel limit based on subscription tier
   const hasUnlimitedVessels = useMemo(() => {
@@ -277,7 +384,23 @@ export default function VesselsPage() {
   // Check if user can resume a vessel (only if no active vessel)
   const canResumeVessel = !currentUserProfile?.activeVesselId;
 
-  const isLoading = isLoadingVessels || isLoadingProfile || (vessels && vesselStateLogs.size === 0 && vessels.length > 0);
+  // Loading state: for admins, only wait for vessels and profile to load (not state logs)
+  // For non-admins, wait for state logs to determine which vessels to show
+  // For captains, we show vessels with requests even if they don't have logs, so don't wait for logs
+  const isLoading = isLoadingVessels || isLoadingProfile || 
+    (!isAdmin && !isCaptain && allVessels && allVessels.length > 0 && vesselStateLogs.size === 0);
+  
+  console.log('[VESSELS PAGE] Loading state:', {
+    isLoading,
+    isLoadingVessels,
+    isLoadingProfile,
+    isAdmin,
+    isCaptain,
+    allVesselsLength: allVessels?.length,
+    vesselStateLogsSize: vesselStateLogs.size,
+    vesselsLength: vessels?.length,
+    filteredVesselsLength: filteredVessels?.length
+  });
   
   const handleOpenChange = (open: boolean) => {
     if(!open) {
@@ -514,41 +637,61 @@ export default function VesselsPage() {
     setIsRequestingCaptaincy(true);
     
     try {
-      const { data, error } = await supabase
-        .from('vessel_captaincy')
-        .insert({
-          vessel_id: vesselId,
-          user_id: user.id,
-          status: 'pending',
-        })
-        .select()
-        .single();
+      // Use API route to bypass RLS and avoid recursion issues
+      const response = await fetch('/api/vessel-claim-requests/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vesselId,
+          requestedRole: 'captain',
+          userId: user.id, // Pass userId from authenticated user
+        }),
+      });
 
-      if (error) {
-        if (error.code === '23505') { // Unique violation
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (result.code === '23505') { // Unique violation
           toast({
             title: 'Request Already Exists',
             description: 'You have already submitted a captaincy request for this vessel.',
             variant: 'destructive',
           });
         } else {
-          throw error;
+          throw new Error(result.message || result.error || 'Failed to submit captaincy request');
         }
       } else {
+        const data = result.request;
+        console.log('[CAPTAINCY REQUEST] Successfully created request:', data);
+        console.log('[CAPTAINCY REQUEST] Request status:', data.status, 'vesselId:', vesselId);
         toast({
           title: 'Captaincy Request Submitted',
           description: 'Your request for vessel captaincy has been submitted and is pending approval.',
         });
         
-        // Update local state
+        // Update local state immediately with the correct status
         setCaptaincyRequests(prev => {
           const newMap = new Map(prev);
-          newMap.set(vesselId, { id: data.id, status: data.status });
+          // Ensure status is lowercase to match our checks
+          const status = (data.status || 'pending').toLowerCase();
+          newMap.set(vesselId, { id: data.id, status });
+          console.log('[CAPTAINCY REQUEST] Updated local state. Map now has:', Array.from(newMap.entries()));
+          console.log('[CAPTAINCY REQUEST] For vessel', vesselId, 'status is:', status);
           return newMap;
         });
+        
+        // Refetch after a brief delay to ensure database is updated
+        setTimeout(() => {
+          console.log('[CAPTAINCY REQUEST] Refetching requests after creation...');
+          fetchCaptaincyRequests();
+        }, 300);
       }
     } catch (error: any) {
       console.error('Error requesting captaincy:', error);
+      console.error('Error details:', {
+        message: error.message,
+        error,
+      });
       toast({
         title: 'Error',
         description: error.message || 'Failed to submit captaincy request. Please try again.',
@@ -558,7 +701,7 @@ export default function VesselsPage() {
       setIsRequestingCaptaincy(false);
       setRequestingCaptaincyVesselId(null);
     }
-  }, [user?.id, isCaptain, supabase, toast]);
+  }, [user?.id, isCaptain, toast, fetchCaptaincyRequests]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -726,7 +869,11 @@ export default function VesselsPage() {
             </CardContent>
           </Card>
         )
-      ) : filteredVessels.length > 0 ? (
+      ) : (() => {
+        console.log('[VESSELS PAGE RENDER] filteredVessels.length:', filteredVessels.length, 'filteredVessels:', filteredVessels);
+        console.log('[VESSELS PAGE RENDER] isLoading:', isLoading, 'isLoadingVessels:', isLoadingVessels, 'isLoadingProfile:', isLoadingProfile);
+        return filteredVessels.length > 0;
+      })() ? (
         layout === 'card' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {vesselSummaries.map(vessel => (
@@ -758,14 +905,52 @@ export default function VesselsPage() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                    {filteredVessels.map((vessel) => {
+                    {(() => {
+                      console.log('[VESSELS TABLE RENDER] About to map filteredVessels. Length:', filteredVessels.length);
+                      console.log('[VESSELS TABLE RENDER] filteredVessels:', filteredVessels);
+                      return filteredVessels.map((vessel) => {
+                        console.log('[VESSELS TABLE RENDER] Mapping vessel:', vessel.id, vessel.name);
                             const isCurrent = currentUserProfile?.activeVesselId === vessel.id;
                                 const logs = vesselStateLogs.get(vessel.id) || [];
                                 const totalDays = logs.length;
                                 const isExpanded = expandedVesselId === vessel.id;
                                 const vesselRaw = allVessels?.find(v => v.id === vessel.id);
                       const vesselData = vesselRaw as any;
-                      const hasPendingRequest = captaincyRequests.has(vessel.id);
+                      const request = captaincyRequests.get(vessel.id);
+                      // Normalize status to lowercase for comparison (handle both string and null/undefined)
+                      const requestStatus = request?.status ? String(request.status).toLowerCase().trim() : null;
+                      const hasPendingRequest = requestStatus === 'pending';
+                      const hasApprovedRequest = requestStatus === 'approved';
+                      const hasRejectedRequest = requestStatus === 'rejected';
+                      
+                      // Debug logging for captains - always log to help debug
+                      if (isCaptain) {
+                        console.log('[VESSEL ROW]', {
+                          vesselName: vessel.name,
+                          vesselId: vessel.id,
+                          request: request,
+                          requestStatus: requestStatus,
+                          hasPendingRequest,
+                          hasApprovedRequest,
+                          hasRejectedRequest,
+                          isCaptain: isCaptain,
+                          allRequestsKeys: Array.from(captaincyRequests.keys()),
+                          allRequestsEntries: Array.from(captaincyRequests.entries()),
+                          requestForThisVessel: captaincyRequests.get(vessel.id)
+                        });
+                        
+                        // Log specifically for the vessel with the approved request
+                        if (vessel.id === '29b6fa31-08ed-41e1-81b9-999e59926a31') {
+                          console.log('[VESSEL ROW DEBUG] Vessel with approved request:', {
+                            vesselId: vessel.id,
+                            vesselName: vessel.name,
+                            requestFromMap: captaincyRequests.get(vessel.id),
+                            requestStatus: requestStatus,
+                            hasApprovedRequest,
+                            willRenderBadge: isCaptain && hasApprovedRequest
+                          });
+                        }
+                      }
 
                             return (
                                     <React.Fragment key={vessel.id}>
@@ -790,21 +975,41 @@ export default function VesselsPage() {
                                                 </Badge>
                                     </TableCell>
                                             <TableCell className="text-muted-foreground">{vessel.officialNumber || '—'}</TableCell>
-                                            <TableCell className="font-medium">{totalDays}</TableCell>
+                                            <TableCell className="font-medium">{totalDays || (isCaptain && request ? '0' : '—')}</TableCell>
                                     <TableCell>
-                                        {isCurrent ? (
-                                                    <Badge variant="default" className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
-                                                        Active
-                                                    </Badge>
-                                        ) : (
-                                                    <Badge variant="secondary" className="font-normal">
-                                                        Past
-                                                    </Badge>
-                                        )}
+                                        <div className="flex flex-col gap-1">
+                                          {isCurrent ? (
+                                                      <Badge variant="default" className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400 w-fit">
+                                                          Active
+                                                      </Badge>
+                                          ) : !request ? (
+                                                      <Badge variant="secondary" className="font-normal w-fit">
+                                                          Past
+                                                      </Badge>
+                                          ) : null}
+                                          {isCaptain && hasPendingRequest && (
+                                            <Badge variant="secondary" className="text-xs w-fit">
+                                              <ShieldCheck className="mr-1 h-3 w-3" />
+                                              Request Pending
+                                            </Badge>
+                                          )}
+                                          {isCaptain && hasApprovedRequest && (
+                                            <Badge variant="default" className="text-xs w-fit bg-green-600 hover:bg-green-700 text-white border-0">
+                                              <ShieldCheck className="mr-1 h-3 w-3" />
+                                              Captaincy Approved
+                                            </Badge>
+                                          )}
+                                          {isCaptain && hasRejectedRequest && (
+                                            <Badge variant="destructive" className="text-xs w-fit">
+                                              <ShieldCheck className="mr-1 h-3 w-3" />
+                                              Request Rejected
+                                            </Badge>
+                                          )}
+                                        </div>
                                     </TableCell>
                             <TableCell onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center gap-2">
-                                {!isCurrent && canResumeVessel && (
+                                {!isCurrent && canResumeVessel && !request && (
                                   <Button
                                     onClick={() => handleResumeVessel(vessel.id)}
                                     disabled={resumingVesselId === vessel.id}
@@ -825,7 +1030,7 @@ export default function VesselsPage() {
                                     )}
                                   </Button>
                                 )}
-                                {isCaptain && !hasPendingRequest && (
+                                {isCaptain && !hasPendingRequest && !hasApprovedRequest && !hasRejectedRequest && (
                                   <Button
                                     onClick={() => handleRequestCaptaincy(vessel.id)}
                                     disabled={isRequestingCaptaincy && requestingCaptaincyVesselId === vessel.id}
@@ -846,11 +1051,6 @@ export default function VesselsPage() {
                                       </>
                                     )}
                                   </Button>
-                                )}
-                                {isCaptain && hasPendingRequest && (
-                                  <Badge variant="outline" className="text-xs">
-                                    Request Pending
-                                  </Badge>
                                 )}
                                 <Button
                                   onClick={() => setVesselToDelete({ id: vessel.id, name: vessel.name })}
@@ -958,7 +1158,8 @@ export default function VesselsPage() {
                                         )}
                                     </React.Fragment>
                       );
-                    })}
+                    });
+                    })()}
                     </TableBody>
                 </Table>
                 </div>
@@ -975,7 +1176,9 @@ export default function VesselsPage() {
             <p className="text-sm text-muted-foreground max-w-md">
               {searchTerm 
                 ? `No vessels match "${searchTerm}". Try adjusting your search.`
-                : "You haven't logged any vessel time yet. Start by adding a vessel and logging your first service."}
+                : isAdmin
+                  ? "No vessels found in the system."
+                  : "You haven't logged any vessel time yet. Start by adding a vessel and logging your first service."}
             </p>
           </CardContent>
         </Card>

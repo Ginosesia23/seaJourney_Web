@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useMemo } from "react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
 import {
@@ -15,9 +16,9 @@ import { Separator } from "@/components/ui/separator"
 import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
-import { Input } from "@/components/ui/input"
-import { Search } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import type { UserProfile } from "@/lib/types"
 
 // Map route paths to breadcrumb labels
 const routeLabels: Record<string, string> = {
@@ -63,9 +64,46 @@ function getBreadcrumbs(pathname: string) {
   return breadcrumbs
 }
 
-export function SiteHeader({ className, ...props }: React.ComponentProps<"header">) {
+interface SiteHeaderProps extends React.ComponentProps<"header"> {
+  userProfile?: UserProfile | null;
+}
+
+export function SiteHeader({ className, userProfile, ...props }: SiteHeaderProps) {
   const pathname = usePathname()
   const breadcrumbs = getBreadcrumbs(pathname)
+
+  const getRoleLabel = (role?: string) => {
+    switch (role) {
+      case 'crew':
+        return 'Crew';
+      case 'captain':
+        return 'Captain';
+      case 'vessel':
+        return 'Vessel Manager';
+      case 'admin':
+        return 'Admin';
+      default:
+        return role || 'User';
+    }
+  };
+
+  const getRoleBadgeClassName = (role?: string) => {
+    switch (role) {
+      case 'admin':
+        return 'bg-red-500/10 text-red-700 dark:bg-red-500/20 dark:text-red-400 border-red-500/20';
+      case 'vessel':
+        return 'bg-blue-500/10 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400 border-blue-500/20';
+      case 'captain':
+        return 'bg-purple-500/10 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400 border-purple-500/20';
+      case 'crew':
+        return 'bg-green-500/10 text-green-700 dark:bg-green-500/20 dark:text-green-400 border-green-500/20';
+      default:
+        return 'bg-gray-500/10 text-gray-700 dark:bg-gray-500/20 dark:text-gray-400 border-gray-500/20';
+    }
+  };
+
+  const roleLabel = useMemo(() => getRoleLabel(userProfile?.role), [userProfile?.role]);
+  const position = useMemo(() => (userProfile as any)?.position || null, [userProfile]);
 
   return (
     <header
@@ -99,16 +137,22 @@ export function SiteHeader({ className, ...props }: React.ComponentProps<"header
           </BreadcrumbList>
         </Breadcrumb>
       </div>
-      <div className="ml-auto flex items-center gap-2 px-4">
-        <form className="relative hidden sm:block">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Search..."
-            className="w-full max-w-sm rounded-lg bg-background pl-8 h-9"
-          />
-        </form>
-      </div>
+      {userProfile && (
+        <div className="ml-auto flex items-center gap-2 px-4">
+          <Badge 
+            variant="outline" 
+            className={`rounded-full px-4 py-1.5 text-sm font-medium border hidden sm:flex ${getRoleBadgeClassName(userProfile?.role)}`}
+          >
+            <span className="font-semibold">{roleLabel}</span>
+            {position && (
+              <>
+                <span className="mx-2 text-muted-foreground">•</span>
+                <span className="text-xs">{position}</span>
+              </>
+            )}
+          </Badge>
+        </div>
+      )}
     </header>
   )
 }

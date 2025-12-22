@@ -270,16 +270,9 @@ function VesselSignupPageInner() {
 
         vesselId = data.vesselId;
         
-        // Update is_official to true since vessel role user is taking control
-        try {
-          const updateResponse = await fetch('/api/vessels/update-official', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              vesselId: vesselId,
-              isOfficial: true,
-            }),
-          });
+        // Update is_official and vessel_manager_id since vessel role user is taking control
+        // But we need the user ID first - we'll update this after user creation
+        // For now, just update is_official, and we'll set vessel_manager_id after profile creation
           
           if (!updateResponse.ok) {
             const updateError = await updateResponse.json();
@@ -310,6 +303,7 @@ function VesselSignupPageInner() {
             type: data.vesselType,
             officialNumber: data.officialNumber || null,
             isOfficial: true, // Vessel role user creating/taking control
+            vesselManagerId: authData.user.id, // Set the vessel manager ID
           }),
         });
 
@@ -406,6 +400,29 @@ function VesselSignupPageInner() {
             console.error('[VESSEL SIGNUP] Error updating active_vessel_id:', updateError);
           }
         }
+        
+        // Update vessel's vessel_manager_id to point to this user
+        try {
+          const updateVesselResponse = await fetch('/api/vessels/update', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              vesselId: vesselId,
+              updates: {
+                vessel_manager_id: authData.user.id,
+              },
+            }),
+          });
+          
+          if (!updateVesselResponse.ok) {
+            const updateVesselError = await updateVesselResponse.json();
+            console.error('[VESSEL SIGNUP] Error updating vessel_manager_id:', updateVesselError);
+          } else {
+            console.log('[VESSEL SIGNUP] Successfully set vessel_manager_id for vessel:', vesselId);
+          }
+        } catch (updateVesselError) {
+          console.error('[VESSEL SIGNUP] Error updating vessel_manager_id:', updateVesselError);
+        }
       } catch (profileError: any) {
         console.error('[VESSEL SIGNUP] Error calling profile creation API:', profileError);
         // Try to update active_vessel_id directly as fallback
@@ -417,6 +434,26 @@ function VesselSignupPageInner() {
           
           if (updateError) {
             console.error('[VESSEL SIGNUP] Error updating user profile:', updateError);
+          }
+          
+          // Also update vessel_manager_id in fallback
+          try {
+            const updateVesselResponse = await fetch('/api/vessels/update', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                vesselId: vesselId,
+                updates: {
+                  vessel_manager_id: authData.user.id,
+                },
+              }),
+            });
+            
+            if (!updateVesselResponse.ok) {
+              console.error('[VESSEL SIGNUP] Error updating vessel_manager_id in fallback');
+            }
+          } catch (e) {
+            console.error('[VESSEL SIGNUP] Error updating vessel_manager_id in fallback:', e);
           }
         } catch (updateError) {
           console.error('[VESSEL SIGNUP] Fallback update failed:', updateError);

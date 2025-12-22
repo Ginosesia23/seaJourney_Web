@@ -23,6 +23,7 @@ export interface Vessel {
   type: string;
   officialNumber?: string;
   imo?: string;
+  vesselManagerId?: string | null;
   length_m?: number | null;
   beam?: number | null;
   draft?: number | null;
@@ -156,13 +157,19 @@ export interface VesselAssignment {
     updatedAt?: string;                // ISO timestamp
 }
 
-export interface VesselCaptaincy {
+export interface VesselClaimRequest {
     id: string;                        // uuid PK
-    vesselId: string;                  // uuid FK → vessels.id
-    userId: string;                    // uuid FK → auth.users.id
-    status: 'pending' | 'approved' | 'rejected';
-    createdAt?: string;                // ISO timestamp
-    updatedAt?: string;                // ISO timestamp
+    vessel_id: string;                 // uuid FK → vessels.id
+    requested_by: string;              // uuid FK → auth.users.id
+    requested_role: string;            // text - role being requested (e.g., 'captain')
+    status: string;                    // text - 'pending', 'approved', 'rejected'
+    verification_method?: string | null; // text - method used for verification
+    verification_payload?: any;        // jsonb - verification data
+    reviewed_by?: string | null;       // uuid FK → auth.users.id
+    reviewed_at?: string | null;       // timestamp with time zone
+    review_notes?: string | null;      // text
+    created_at?: string;               // timestamp with time zone
+    updated_at?: string;               // timestamp with time zone
 }
 
 

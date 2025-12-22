@@ -127,7 +127,7 @@ useEffect(() => {
     >
       <AppSidebar variant="inset" userProfile={userProfile} />
       <SidebarInset className="flex flex-col h-svh overflow-hidden">
-        <SiteHeader className="shrink-0" />
+        <SiteHeader className="shrink-0" userProfile={userProfile} />
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-content-background">
           <div className={cn(
             'flex-1 overflow-y-auto overscroll-contain',

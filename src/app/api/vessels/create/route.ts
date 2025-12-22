@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, type, officialNumber, isOfficial } = body;
+    const { name, type, officialNumber, isOfficial, vesselManagerId } = body;
 
     if (!name || !type) {
       return NextResponse.json(
@@ -33,13 +33,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // If vessel already exists, update is_official if vessel role user is taking control
+    // If vessel already exists, update is_official and vessel_manager_id if vessel role user is taking control
     if (existingVessel) {
       if (isOfficial === true) {
-        // Vessel role user is taking control - update is_official to true
+        // Vessel role user is taking control - update is_official to true and set vessel_manager_id
+        const updateData: any = { is_official: true };
+        if (vesselManagerId) {
+          updateData.vessel_manager_id = vesselManagerId;
+        }
+        
         const { data: updatedVessel, error: updateError } = await supabaseAdmin
           .from('vessels')
-          .update({ is_official: true })
+          .update(updateData)
           .eq('id', existingVessel.id)
           .select()
           .single();
@@ -84,6 +89,11 @@ export async function POST(req: NextRequest) {
     // Only set is_official if the column exists and we have a value
     if (isOfficialValue !== undefined) {
       insertData.is_official = isOfficialValue;
+    }
+    
+    // Set vessel_manager_id if provided (when vessel role user creates the vessel)
+    if (vesselManagerId) {
+      insertData.vessel_manager_id = vesselManagerId;
     }
     
     const { data: newVessel, error: insertError } = await supabaseAdmin

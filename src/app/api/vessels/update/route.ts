@@ -36,6 +36,7 @@ export async function PUT(req: NextRequest) {
     if (updates.call_sign !== undefined) updateData.call_sign = updates.call_sign?.trim() || null;
     if (updates.mmsi !== undefined) updateData.mmsi = updates.mmsi?.trim() || null;
     if (updates.description !== undefined) updateData.description = updates.description?.trim() || null;
+    if (updates.vessel_manager_id !== undefined) updateData.vessel_manager_id = updates.vessel_manager_id || null;
 
     // Update the vessel
     const { data, error } = await supabaseAdmin

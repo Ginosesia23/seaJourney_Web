@@ -81,7 +81,85 @@ export default function CalendarPage() {
     return vessels.find(v => v.id === activeVesselId);
   }, [vessels, userProfile]);
 
+  // Check if captain has approved captaincy for current vessel and find vessel account user
+  const [vesselAccountUserId, setVesselAccountUserId] = useState<string | null>(null);
+  
+  useEffect(() => {
+    const checkCaptaincyAndFindVesselAccount = async () => {
+      if (!currentVessel || !user?.id) {
+        setVesselAccountUserId(null);
+        return;
+      }
+
+      // Only check for captains
+      if (userProfile?.role !== 'captain') {
+        setVesselAccountUserId(null);
+        return;
+      }
+
+      try {
+        // Check if captain has approved captaincy
+        const { data: captaincyData, error: captaincyError } = await supabase
+          .from('vessel_claim_requests')
+          .select('id, status')
+          .eq('requested_by', user.id)
+          .eq('vessel_id', currentVessel.id)
+          .eq('status', 'approved')
+          .maybeSingle();
+
+        if (captaincyError || !captaincyData) {
+          setVesselAccountUserId(null);
+          return;
+        }
+
+        // Use vessel_manager_id from the vessel record (preferred method)
+        const vesselManagerId = (currentVessel as any).vessel_manager_id || (currentVessel as any).vesselManagerId;
+        
+        if (vesselManagerId) {
+          console.log('[CALENDAR PAGE] Found vessel_manager_id from vessel record:', vesselManagerId);
+          setVesselAccountUserId(vesselManagerId);
+        } else {
+          // Fallback: Find the vessel account user (user with role='vessel' and active_vessel_id matching this vessel)
+          console.log('[CALENDAR PAGE] No vessel_manager_id found, searching for vessel account user with:', {
+            role: 'vessel',
+            active_vessel_id: currentVessel.id
+          });
+          
+          const { data: vesselAccount, error: vesselAccountError } = await supabase
+            .from('users')
+            .select('id, role, active_vessel_id, email')
+            .eq('role', 'vessel')
+            .eq('active_vessel_id', currentVessel.id)
+            .limit(1)
+            .maybeSingle();
+
+          if (vesselAccountError) {
+            console.error('[CALENDAR PAGE] Error finding vessel account:', vesselAccountError);
+            setVesselAccountUserId(null);
+          } else if (vesselAccount) {
+            console.log('[CALENDAR PAGE] Found vessel account user via fallback search:', {
+              vesselAccountId: vesselAccount.id,
+              vesselId: currentVessel.id,
+              email: vesselAccount.email
+            });
+            setVesselAccountUserId(vesselAccount.id);
+          } else {
+            console.log('[CALENDAR PAGE] No vessel account found for vessel:', currentVessel.id);
+            setVesselAccountUserId(null);
+          }
+        }
+      } catch (error) {
+        console.error('[CALENDAR PAGE] Exception checking captaincy/vessel account:', error);
+        setVesselAccountUserId(null);
+      }
+    };
+
+    checkCaptaincyAndFindVesselAccount();
+  }, [currentVessel?.id, user?.id, userProfile?.role, supabase]);
+
   // Fetch state logs for current vessel
+  // For approved captains, fetch logs from vessel account user only (using vessel_manager_id)
+  // For others, fetch only their own logs
   useEffect(() => {
     if (!currentVessel || !user?.id) {
       setStateLogs([]);
@@ -90,17 +168,90 @@ export default function CalendarPage() {
     }
 
     setIsLoadingLogs(true);
-    getVesselStateLogs(supabase, currentVessel.id, user.id)
-      .then((logs) => {
+    
+    const fetchLogs = async () => {
+      // If captain has approved captaincy, fetch vessel account logs (using vessel_manager_id)
+      // Otherwise, fetch only logs for this user
+      let userIdToFetch: string | undefined = user.id;
+      
+      // Check if this is an approved captain
+      if (userProfile?.role === 'captain') {
+        try {
+          // Check for approved captaincy
+          const { data: captaincyData } = await supabase
+            .from('vessel_claim_requests')
+            .select('id')
+            .eq('requested_by', user.id)
+            .eq('vessel_id', currentVessel.id)
+            .eq('status', 'approved')
+            .maybeSingle();
+          
+          if (captaincyData) {
+            // Approved captain - use vessel_manager_id from vessel record (preferred method)
+            const vesselManagerId = (currentVessel as any).vessel_manager_id || (currentVessel as any).vesselManagerId;
+            
+            if (vesselManagerId) {
+              userIdToFetch = vesselManagerId;
+              console.log('[CALENDAR PAGE] Using vessel_manager_id from vessel record:', vesselManagerId);
+            } else if (vesselAccountUserId) {
+              // Fallback to vesselAccountUserId if vessel_manager_id not available
+              userIdToFetch = vesselAccountUserId;
+              console.log('[CALENDAR PAGE] Using vesselAccountUserId from state:', vesselAccountUserId);
+            } else {
+              // Last resort: try to find which user has logs for this vessel
+              try {
+                const { data: logsData } = await supabase
+                  .from('daily_state_logs')
+                  .select('user_id')
+                  .eq('vessel_id', currentVessel.id)
+                  .limit(1)
+                  .maybeSingle();
+                
+                if (logsData?.user_id) {
+                  console.log('[CALENDAR PAGE] Found logs with user_id, using that:', logsData.user_id);
+                  userIdToFetch = logsData.user_id;
+                } else {
+                  // No logs found yet, but approved captain - fetch all logs for vessel (no filter)
+                  console.log('[CALENDAR PAGE] No logs found for vessel, will fetch all logs for vessel');
+                  userIdToFetch = undefined;
+                }
+              } catch (logSearchError) {
+                console.error('[CALENDAR PAGE] Error searching for logs:', logSearchError);
+                // Fall back to fetching all logs for vessel
+                userIdToFetch = undefined;
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[CALENDAR PAGE] Error checking captaincy in fetchLogs:', e);
+        }
+      }
+      
+      console.log('[CALENDAR PAGE] Fetching state logs:', {
+        vesselId: currentVessel.id,
+        userIdToFetch: userIdToFetch || 'ALL (no filter)',
+        currentUserId: user.id,
+        userRole: userProfile?.role
+      });
+      
+      try {
+        const logs = await getVesselStateLogs(supabase, currentVessel.id, userIdToFetch);
+        console.log('[CALENDAR PAGE] State logs fetched:', {
+          logsCount: logs.length,
+          userIdToFetch: userIdToFetch || 'ALL',
+          vesselId: currentVessel.id
+        });
         setStateLogs(logs);
         setIsLoadingLogs(false);
-      })
-      .catch((error) => {
-        console.error('Error fetching state logs:', error);
+      } catch (error) {
+        console.error('[CALENDAR PAGE] Error fetching state logs:', error);
         setStateLogs([]);
         setIsLoadingLogs(false);
-      });
-  }, [currentVessel?.id, user?.id, supabase]);
+      }
+    };
+    
+    fetchLogs();
+  }, [currentVessel?.id, user?.id, userProfile?.role, vesselAccountUserId, supabase]);
 
   // Fetch vessel assignments to determine valid date ranges
   useEffect(() => {
@@ -296,6 +447,16 @@ export default function CalendarPage() {
       return;
     }
     
+    // For approved captains viewing vessel account logs, prevent editing
+    if (vesselAccountUserId) {
+      toast({
+        title: 'View Only',
+        description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
+        variant: 'default',
+      });
+      return;
+    }
+    
     // Check if date is in the future
     const today = startOfDay(new Date());
     const clickedDate = startOfDay(date);
@@ -473,10 +634,22 @@ export default function CalendarPage() {
         return;
       }
 
+      // For approved captains viewing vessel account logs, they should not be able to edit
+      if (vesselAccountUserId) {
+        toast({
+          title: 'Cannot Edit',
+          description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
+          variant: 'destructive',
+        });
+        setIsSaving(false);
+        return;
+      }
+      
       await updateStateLogsBatch(supabase, user.id, currentVessel.id, logs);
       
       // Refresh state logs
-      const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
+      const userIdToFetch = vesselAccountUserId || user.id;
+      const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, userIdToFetch);
       setStateLogs(updatedLogs);
       
       setIsDialogOpen(false);
