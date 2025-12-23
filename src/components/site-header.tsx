@@ -141,6 +141,12 @@ export function SiteHeader({ className, userProfile, ...props }: SiteHeaderProps
         <div className="ml-auto flex items-center gap-2 px-4">
           <Badge 
             variant="outline" 
+            className="rounded-full px-3 py-1.5 text-sm font-medium border-orange-500/30 bg-orange-500/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400"
+          >
+            BETA
+          </Badge>
+          <Badge 
+            variant="outline" 
             className={`rounded-full px-4 py-1.5 text-sm font-medium border hidden sm:flex ${getRoleBadgeClassName(userProfile?.role)}`}
           >
             <span className="font-semibold">{roleLabel}</span>

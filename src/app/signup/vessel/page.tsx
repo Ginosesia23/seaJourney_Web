@@ -270,9 +270,19 @@ function VesselSignupPageInner() {
 
         vesselId = data.vesselId;
         
-        // Update is_official and vessel_manager_id since vessel role user is taking control
-        // But we need the user ID first - we'll update this after user creation
-        // For now, just update is_official, and we'll set vessel_manager_id after profile creation
+        // Update is_official since vessel role user is taking control
+        // We'll set vessel_manager_id after profile creation (below)
+        try {
+          const updateResponse = await fetch('/api/vessels/update', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              vesselId: vesselId,
+              updates: {
+                is_official: true,
+              },
+            }),
+          });
           
           if (!updateResponse.ok) {
             const updateError = await updateResponse.json();

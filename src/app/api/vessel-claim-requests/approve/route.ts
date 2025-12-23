@@ -168,6 +168,52 @@ export async function POST(req: NextRequest) {
       console.log('[APPROVE CAPTAINCY API] Updated captain active_vessel_id:', captainUserId, 'vessel:', vesselId);
     }
 
+    // 9. Handle vessel_signing_authorities table
+    // End any existing active primary signing authorities for this vessel (to satisfy the unique constraint)
+    const { data: existingActivePrimary, error: existingCheckError } = await supabaseAdmin
+      .from('vessel_signing_authorities')
+      .select('id')
+      .eq('vessel_id', vesselId)
+      .eq('is_primary', true)
+      .is('end_date', null);
+
+    if (existingCheckError) {
+      console.error('[APPROVE CAPTAINCY API] Error checking existing signing authorities:', existingCheckError);
+    } else if (existingActivePrimary && existingActivePrimary.length > 0) {
+      // End existing active primary signing authorities
+      const { error: endExistingError } = await supabaseAdmin
+        .from('vessel_signing_authorities')
+        .update({ end_date: today })
+        .eq('vessel_id', vesselId)
+        .eq('is_primary', true)
+        .is('end_date', null);
+
+      if (endExistingError) {
+        console.error('[APPROVE CAPTAINCY API] Error ending existing signing authorities:', endExistingError);
+      } else {
+        console.log('[APPROVE CAPTAINCY API] Ended', existingActivePrimary.length, 'existing active primary signing authorities for vessel:', vesselId);
+      }
+    }
+
+    // Insert new signing authority record for the approved captain
+    const { error: signingAuthorityError } = await supabaseAdmin
+      .from('vessel_signing_authorities')
+      .insert({
+        vessel_id: vesselId,
+        captain_user_id: captainUserId,
+        start_date: today,
+        end_date: null, // Active (current)
+        is_primary: true, // Primary signing authority
+      });
+
+    if (signingAuthorityError) {
+      console.error('[APPROVE CAPTAINCY API] Error creating signing authority:', signingAuthorityError);
+      // Don't fail the approval if signing authority creation fails - log and continue
+      // The request is already approved, vessel assignment created, etc.
+    } else {
+      console.log('[APPROVE CAPTAINCY API] Created signing authority for captain:', captainUserId, 'vessel:', vesselId);
+    }
+
     return NextResponse.json({
       success: true,
       requestId,

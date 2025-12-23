@@ -22,10 +22,302 @@ import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments } from '@/supabase/database/queries';
 import { format, parse, differenceInDays, isAfter } from 'date-fns';
-import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit } from 'lucide-react';
+import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit, Shield, FileText, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import type { VesselAssignment, Vessel, UserProfile } from '@/lib/types';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+
+function CaptainRoleApplicationCard({ userProfile, userId }: { userProfile: UserProfile | null; userId?: string }) {
+  const { supabase } = useSupabase();
+  const { toast } = useToast();
+  const [isApplicationDialogOpen, setIsApplicationDialogOpen] = useState(false);
+  const [existingApplication, setExistingApplication] = useState<any>(null);
+  const [isLoadingApplication, setIsLoadingApplication] = useState(true);
+  const [documentUrls, setDocumentUrls] = useState<string[]>(['']);
+  const [notes, setNotes] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Check if user should see this card
+  const shouldShowCard = useMemo(() => {
+    if (!userProfile) return false;
+    const position = ((userProfile as any).position || '').toLowerCase();
+    const hasCaptainPosition = position.includes('captain');
+    const isNotCaptain = userProfile.role !== 'captain';
+    return hasCaptainPosition && isNotCaptain;
+  }, [userProfile]);
+
+  // Fetch existing application
+  useEffect(() => {
+    if (!shouldShowCard || !userId) {
+      setIsLoadingApplication(false);
+      return;
+    }
+
+    const fetchApplication = async () => {
+      setIsLoadingApplication(true);
+      try {
+        const { data, error } = await supabase
+          .from('captain_role_applications')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          console.error('[CAPTAIN ROLE APPLICATION] Error fetching application:', error);
+        } else {
+          setExistingApplication(data || null);
+        }
+      } catch (error) {
+        console.error('[CAPTAIN ROLE APPLICATION] Exception fetching application:', error);
+      } finally {
+        setIsLoadingApplication(false);
+      }
+    };
+
+    fetchApplication();
+  }, [shouldShowCard, userId, supabase]);
+
+  const handleAddDocumentUrl = () => {
+    setDocumentUrls([...documentUrls, '']);
+  };
+
+  const handleRemoveDocumentUrl = (index: number) => {
+    setDocumentUrls(documentUrls.filter((_, i) => i !== index));
+  };
+
+  const handleDocumentUrlChange = (index: number, value: string) => {
+    const newUrls = [...documentUrls];
+    newUrls[index] = value;
+    setDocumentUrls(newUrls);
+  };
+
+  const handleSubmitApplication = async () => {
+    if (!userId) return;
+
+    // Filter out empty URLs
+    const validDocuments = documentUrls.filter(url => url.trim() !== '');
+
+    if (validDocuments.length === 0) {
+      toast({
+        title: 'Documents Required',
+        description: 'Please provide at least one supporting document URL.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch('/api/captain-role-applications/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          supportingDocuments: validDocuments,
+          notes: notes.trim() || null,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to submit application');
+      }
+
+      toast({
+        title: 'Application Submitted',
+        description: 'Your captain role application has been submitted for review.',
+      });
+
+      // Refresh application status
+      const { data: newApplication } = await supabase
+        .from('captain_role_applications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      setExistingApplication(newApplication);
+      setIsApplicationDialogOpen(false);
+      setDocumentUrls(['']);
+      setNotes('');
+    } catch (error: any) {
+      console.error('[CAPTAIN ROLE APPLICATION] Error submitting:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to submit application. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!shouldShowCard || isLoadingApplication) {
+    return null;
+  }
+
+  const hasPendingApplication = existingApplication?.status === 'pending';
+  const hasApprovedApplication = existingApplication?.status === 'approved';
+  const hasRejectedApplication = existingApplication?.status === 'rejected';
+
+  return (
+    <Card className="rounded-xl border">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Shield className="h-5 w-5" />
+          Captain Role Application
+        </CardTitle>
+        <CardDescription>
+          Apply for the captain role to access vessel management features
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {hasPendingApplication && (
+          <div className="flex items-center gap-3 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+            <Clock className="h-5 w-5 text-yellow-600" />
+            <div className="flex-1">
+              <p className="font-medium text-yellow-900 dark:text-yellow-100">Application Pending Review</p>
+              <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                Your application is being reviewed by an administrator.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {hasApprovedApplication && (
+          <div className="flex items-center gap-3 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+            <CheckCircle2 className="h-5 w-5 text-green-600" />
+            <div className="flex-1">
+              <p className="font-medium text-green-900 dark:text-green-100">Application Approved</p>
+              <p className="text-sm text-green-700 dark:text-green-300">
+                Your captain role has been approved. You now have access to captain features.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {hasRejectedApplication && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+              <XCircle className="h-5 w-5 text-red-600" />
+              <div className="flex-1">
+                <p className="font-medium text-red-900 dark:text-red-100">Application Rejected</p>
+                {existingApplication.rejection_reason && (
+                  <p className="text-sm text-red-700 dark:text-red-300 mt-1">
+                    Reason: {existingApplication.rejection_reason}
+                  </p>
+                )}
+              </div>
+            </div>
+            {!hasPendingApplication && (
+              <Button onClick={() => setIsApplicationDialogOpen(true)} variant="outline">
+                Submit New Application
+              </Button>
+            )}
+          </div>
+        )}
+
+        {!existingApplication && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Submit supporting documents (certificates, licenses, etc.) to apply for the captain role.
+            </p>
+            <Button onClick={() => setIsApplicationDialogOpen(true)}>
+              <FileText className="h-4 w-4 mr-2" />
+              Submit Application
+            </Button>
+          </div>
+        )}
+
+        <Dialog open={isApplicationDialogOpen} onOpenChange={setIsApplicationDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Captain Role Application</DialogTitle>
+              <DialogDescription>
+                Provide supporting documents (URLs to certificates, licenses, or other relevant documents) to apply for the captain role.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Supporting Documents (URLs)</Label>
+                {documentUrls.map((url, index) => (
+                  <div key={index} className="flex gap-2">
+                    <Input
+                      type="url"
+                      placeholder="https://example.com/document.pdf"
+                      value={url}
+                      onChange={(e) => handleDocumentUrlChange(index, e.target.value)}
+                    />
+                    {documentUrls.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleRemoveDocumentUrl(index)}
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddDocumentUrl}
+                  className="w-full"
+                >
+                  Add Another Document
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="notes">Additional Notes (Optional)</Label>
+                <Textarea
+                  id="notes"
+                  placeholder="Any additional information you'd like to provide..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={4}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsApplicationDialogOpen(false);
+                  setDocumentUrls(['']);
+                  setNotes('');
+                }}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleSubmitApplication} disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  'Submit Application'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardContent>
+    </Card>
+  );
+}
 
 function CareerTab({ userId }: { userId?: string }) {
   const { supabase } = useSupabase();
@@ -717,16 +1009,21 @@ export default function ProfilePage() {
 
         {/* Information Tab */}
         <TabsContent value="information" className="mt-6">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* Left Column - User Info and Subscription Cards */}
-            <div className="lg:col-span-1 space-y-6">
-              <UserInfoCard userId={user?.id} />
-              <SubscriptionCard />
-            </div>
+          <div className="space-y-6">
+            {/* Captain Role Application Card - Full width at top for visibility */}
+            <CaptainRoleApplicationCard userProfile={userProfile} userId={user?.id} />
             
-            {/* Right Column - User Profile Card - Takes 2/3 of width on large screens */}
-            <div className="lg:col-span-2">
-              <UserProfileCard />
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+              {/* Left Column - User Info and Subscription Cards */}
+              <div className="lg:col-span-1 space-y-6">
+                <UserInfoCard userId={user?.id} />
+                <SubscriptionCard />
+              </div>
+              
+              {/* Right Column - User Profile Card - Takes 2/3 of width on large screens */}
+              <div className="lg:col-span-2">
+                <UserProfileCard />
+              </div>
             </div>
           </div>
         </TabsContent>

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { PlusCircle, Loader2, Ship, ChevronDown, Search, LayoutGrid, List, PlayCircle, Trash2, CalendarIcon, ShieldCheck } from 'lucide-react';
+import { PlusCircle, Loader2, Ship, ChevronDown, Search, LayoutGrid, List, PlayCircle, Trash2, CalendarIcon, ShieldCheck, ChevronsUpDown, Check } from 'lucide-react';
 import { format, eachDayOfInterval, startOfDay, endOfDay, parse } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -75,8 +75,6 @@ const vesselStates: { value: DailyStatus; label: string; color: string }[] = [
 
 export default function VesselsPage() {
   const router = useRouter();
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [vesselStateLogs, setVesselStateLogs] = useState<Map<string, StateLog[]>>(new Map());
   const [allSeaService, setAllSeaService] = useState<SeaServiceRecord[]>([]);
   const [expandedVesselId, setExpandedVesselId] = useState<string | null>(null);
@@ -90,19 +88,16 @@ export default function VesselsPage() {
   const [requestingCaptaincyVesselId, setRequestingCaptaincyVesselId] = useState<string | null>(null);
   const [isRequestingCaptaincy, setIsRequestingCaptaincy] = useState(false);
   const [captaincyRequests, setCaptaincyRequests] = useState<Map<string, { id: string; status: string; created_at?: string }>>(new Map());
+  const [vesselSearchTerm, setVesselSearchTerm] = useState('');
+  const [vesselSearchResults, setVesselSearchResults] = useState<Array<{ id: string; name: string; type: string }>>([]);
+  const [isSearchingVessels, setIsSearchingVessels] = useState(false);
+  const [isVesselSearchOpen, setIsVesselSearchOpen] = useState(false);
+  const [isAddVesselDialogOpen, setIsAddVesselDialogOpen] = useState(false);
+  const [isSavingVessel, setIsSavingVessel] = useState(false);
 
   const { user } = useUser();
   const { supabase } = useSupabase();
   const { toast } = useToast();
-
-  const form = useForm<VesselFormValues>({
-    resolver: zodResolver(vesselSchema),
-    defaultValues: {
-      name: '',
-      type: undefined,
-      officialNumber: '',
-    },
-  });
 
   const pastVesselForm = useForm<PastVesselFormValues>({
     resolver: zodResolver(pastVesselSchema),
@@ -113,6 +108,47 @@ export default function VesselsPage() {
       initialState: 'underway' 
     },
   });
+
+  const addVesselForm = useForm<VesselFormValues>({
+    resolver: zodResolver(vesselSchema),
+    defaultValues: {
+      name: '',
+      type: undefined,
+      officialNumber: '',
+    },
+  });
+
+  // Handler to create new vessel from search
+  async function handleCreateVesselFromSearch(data: VesselFormValues) {
+    if (!user?.id) return;
+    setIsSavingVessel(true);
+
+    try {
+      const newVessel = await createVessel(supabase, {
+        name: data.name,
+        type: data.type,
+        officialNumber: data.officialNumber,
+      });
+      
+      // Set the newly created vessel as selected in the form
+      pastVesselForm.setValue('vesselId', newVessel.id);
+      
+      addVesselForm.reset();
+      setIsAddVesselDialogOpen(false);
+      setVesselSearchTerm(''); // Clear search term
+      setIsVesselSearchOpen(false); // Close search popover
+      toast({ title: 'Vessel Added', description: `${data.name} has been added and selected.` });
+    } catch (error: any) {
+      console.error('Error adding vessel:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to add vessel. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingVessel(false);
+    }
+  }
 
   // Query all vessels (vessels are shared, not owned by users)
   const { data: allVessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
@@ -251,6 +287,40 @@ export default function VesselsPage() {
       fetchCaptaincyRequests();
     }
   }, [allVessels, isCaptain, fetchCaptaincyRequests]);
+
+  // Search vessels when search term changes
+  useEffect(() => {
+    const searchVessels = async () => {
+      if (!vesselSearchTerm || vesselSearchTerm.length < 2) {
+        setVesselSearchResults([]);
+        return;
+      }
+
+      setIsSearchingVessels(true);
+      try {
+        const response = await fetch('/api/vessels/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ searchTerm: vesselSearchTerm }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setVesselSearchResults(data.vessels || []);
+        } else {
+          setVesselSearchResults([]);
+        }
+      } catch (error) {
+        console.error('Error searching vessels:', error);
+        setVesselSearchResults([]);
+      } finally {
+        setIsSearchingVessels(false);
+      }
+    };
+
+    const timeoutId = setTimeout(searchVessels, 300); // Debounce
+    return () => clearTimeout(timeoutId);
+  }, [vesselSearchTerm]);
 
   // Check if user is admin
   const isAdmin = useMemo(() => {
@@ -402,48 +472,6 @@ export default function VesselsPage() {
     filteredVesselsLength: filteredVessels?.length
   });
   
-  const handleOpenChange = (open: boolean) => {
-    if(!open) {
-        form.reset({ name: '', type: '', officialNumber: ''});
-    }
-    setIsFormOpen(open);
-  }
-
-  async function onSubmit(data: VesselFormValues) {
-    if (!user?.id) return;
-
-    // Check vessel limit for Standard tier
-    if (!canAddVessel) {
-      toast({
-        title: 'Vessel Limit Reached',
-        description: `Standard tier allows up to ${vesselLimit} vessels. Upgrade to Premium or Pro for unlimited vessels.`,
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setIsSaving(true);
-    
-    try {
-            await createVessel(supabase, {
-              name: data.name,
-              type: data.type,
-              officialNumber: data.officialNumber,
-            });
-            toast({ title: 'Vessel Added', description: `${data.name} has been added.` });
-        form.reset();
-        handleOpenChange(false);
-    } catch (serverError: any) {
-        console.error("Failed to save vessel:", serverError);
-        toast({
-          title: 'Error',
-          description: serverError.message || 'Failed to save vessel. Please try again.',
-          variant: 'destructive',
-          });
-    } finally {
-        setIsSaving(false);
-    }
-  }
 
   // Handler to resume a past vessel
   const handleResumeVessel = useCallback(async (vesselId: string) => {
@@ -715,92 +743,20 @@ export default function VesselsPage() {
             </p>
                 </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Dialog open={isAddPastVesselDialogOpen} onOpenChange={setIsAddPastVesselDialogOpen}>
+            <Dialog open={isAddPastVesselDialogOpen} onOpenChange={(open) => {
+              setIsAddPastVesselDialogOpen(open);
+              if (!open) {
+                setVesselSearchTerm('');
+                setIsVesselSearchOpen(false);
+              }
+            }}>
               <DialogTrigger asChild>
-                <Button variant="outline" className="rounded-xl">
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  Add Past Vessel
+                <Button className="rounded-xl">
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Add Vessel Service
                 </Button>
               </DialogTrigger>
             </Dialog>
-                <Dialog open={isFormOpen} onOpenChange={handleOpenChange}>
-                    <DialogTrigger asChild>
-              <Button className="rounded-xl">
-                            <PlusCircle className="mr-2 h-4 w-4" />
-                            Add Vessel
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                        <DialogHeader>
-                <DialogTitle>Add a New Vessel</DialogTitle>
-                  <DialogDescription>
-                    Add a vessel to start tracking your service time.
-                    {!hasUnlimitedVessels && (
-                      <span className="block mt-1 text-sm">
-                        {vesselCount >= vesselLimit 
-                          ? `You've reached the limit of ${vesselLimit} vessels for Standard tier. Upgrade to Premium or Pro for unlimited vessels.`
-                          : `You can add ${vesselLimit - vesselCount} more vessel${vesselLimit - vesselCount === 1 ? '' : 's'}.`
-                        }
-                      </span>
-                    )}
-                  </DialogDescription>
-                        </DialogHeader>
-                        <Form {...form}>
-                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-                                <FormField
-                                    control={form.control}
-                                    name="name"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Vessel Name</FormLabel>
-                          <FormControl><Input placeholder="e.g., M/Y Odyssey" {...field} className="rounded-lg" /></FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="type"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Vessel Type</FormLabel>
-                                            <FormControl>
-                                                <SearchableSelect
-                                                    options={vesselTypes}
-                                                    value={field.value}
-                                                    onValueChange={field.onChange}
-                                                    placeholder="Select a vessel type"
-                                                    searchPlaceholder="Search vessel types..."
-                                                />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="officialNumber"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Official Number (Optional)</FormLabel>
-                          <FormControl><Input placeholder="e.g., IMO 1234567" {...field} className="rounded-lg" /></FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <DialogFooter className="pt-4">
-                                    <DialogClose asChild>
-                        <Button type="button" variant="ghost" className="rounded-xl">Cancel</Button>
-                                    </DialogClose>
-                    <Button type="submit" disabled={isSaving} className="rounded-xl">
-                                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Add Vessel
-                                    </Button>
-                                </DialogFooter>
-                            </form>
-                        </Form>
-                    </DialogContent>
-                </Dialog>
           </div>
         </div>
         
@@ -881,7 +837,7 @@ export default function VesselsPage() {
                 key={vessel.id} 
                 vesselSummary={vessel}
                 onResumeService={handleResumeVessel}
-                showResumeButton={!vessel.isCurrent && canResumeVessel}
+                showResumeButton={!isAdmin && !vessel.isCurrent && canResumeVessel}
                 isResuming={resumingVesselId === vessel.id}
                 onDelete={(vesselId, vesselName) => setVesselToDelete({ id: vesselId, name: vesselName })}
                 showDeleteButton={true}
@@ -1009,7 +965,7 @@ export default function VesselsPage() {
                                     </TableCell>
                             <TableCell onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center gap-2">
-                                {!isCurrent && canResumeVessel && !request && (
+                                {!isAdmin && !isCurrent && canResumeVessel && !request && (
                                   <Button
                                     onClick={() => handleResumeVessel(vessel.id)}
                                     disabled={resumingVesselId === vessel.id}
@@ -1030,7 +986,7 @@ export default function VesselsPage() {
                                     )}
                                   </Button>
                                 )}
-                                {isCaptain && !hasPendingRequest && !hasApprovedRequest && !hasRejectedRequest && (
+                                {!isAdmin && isCaptain && !hasPendingRequest && !hasApprovedRequest && !hasRejectedRequest && (
                                   <Button
                                     onClick={() => handleRequestCaptaincy(vessel.id)}
                                     disabled={isRequestingCaptaincy && requestingCaptaincyVesselId === vessel.id}
@@ -1185,12 +1141,18 @@ export default function VesselsPage() {
       )}
 
       {/* Add Past Vessel Dialog */}
-      <Dialog open={isAddPastVesselDialogOpen} onOpenChange={setIsAddPastVesselDialogOpen}>
+      <Dialog open={isAddPastVesselDialogOpen} onOpenChange={(open) => {
+        setIsAddPastVesselDialogOpen(open);
+        if (!open) {
+          setVesselSearchTerm('');
+          setIsVesselSearchOpen(false);
+        }
+      }}>
         <DialogContent className="sm:max-w-[600px] rounded-xl">
           <DialogHeader>
-            <DialogTitle>Add Past Vessel</DialogTitle>
+            <DialogTitle>Add Vessel Service</DialogTitle>
             <DialogDescription>
-              Add historical vessel service by selecting dates and initial state.
+              Add vessel service by selecting a vessel, dates, and initial state. Leave end date empty for active service.
             </DialogDescription>
           </DialogHeader>
           <Form {...pastVesselForm}>
@@ -1200,24 +1162,100 @@ export default function VesselsPage() {
                   <FormField
                     control={pastVesselForm.control}
                     name="vesselId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vessel</FormLabel>
-                        <FormControl>
-                          <Select onValueChange={field.onChange} value={field.value} disabled={isLoadingVessels}>
-                            <SelectTrigger className="rounded-lg">
-                              <SelectValue placeholder={isLoadingVessels ? "Loading vessels..." : "Select vessel"} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {allVessels?.map(vessel => (
-                                <SelectItem key={vessel.id} value={vessel.id}>{vessel.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                    render={({ field }) => {
+                      const selectedVessel = allVessels?.find(v => v.id === field.value);
+                      return (
+                        <FormItem>
+                          <FormLabel>Vessel</FormLabel>
+                          <FormControl>
+                            <Popover open={isVesselSearchOpen} onOpenChange={setIsVesselSearchOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  role="combobox"
+                                  className={cn(
+                                    "w-full justify-between rounded-lg",
+                                    !field.value && "text-muted-foreground"
+                                  )}
+                                  disabled={isLoadingVessels}
+                                >
+                                  {field.value
+                                    ? selectedVessel?.name || "Select vessel..."
+                                    : "Search for a vessel..."}
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                                <div className="p-2 border-b bg-muted/30">
+                                  <Input
+                                    placeholder="Search vessels..."
+                                    value={vesselSearchTerm}
+                                    onChange={(e) => {
+                                      setVesselSearchTerm(e.target.value);
+                                      setIsVesselSearchOpen(true);
+                                    }}
+                                    className="h-9 bg-background"
+                                    autoFocus
+                                  />
+                                </div>
+                                <div className="max-h-[300px] overflow-y-auto">
+                                  {isSearchingVessels ? (
+                                    <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                                      Searching...
+                                    </div>
+                                  ) : vesselSearchResults.length > 0 ? (
+                                    vesselSearchResults.map((vessel) => (
+                                      <button
+                                        key={vessel.id}
+                                        onClick={() => {
+                                          field.onChange(vessel.id);
+                                          setIsVesselSearchOpen(false);
+                                          setVesselSearchTerm('');
+                                        }}
+                                        className="relative flex w-full cursor-pointer select-none items-center rounded-sm px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            field.value === vessel.id ? "opacity-100" : "opacity-0"
+                                          )}
+                                        />
+                                        <div className="flex-1">
+                                          <div className="font-medium">{vessel.name}</div>
+                                          {vessel.type && (
+                                            <div className="text-xs text-muted-foreground">{vessel.type}</div>
+                                          )}
+                                        </div>
+                                      </button>
+                                    ))
+                                  ) : vesselSearchTerm.length >= 2 ? (
+                                    <div className="px-2 py-1">
+                                      <button
+                                        onClick={() => {
+                                          // Pre-fill the add vessel dialog and open it
+                                          addVesselForm.setValue('name', vesselSearchTerm);
+                                          setIsVesselSearchOpen(false);
+                                          setIsAddVesselDialogOpen(true);
+                                        }}
+                                        className="relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary border border-dashed border-primary/50 transition-colors"
+                                      >
+                                        <PlusCircle className="mr-2 h-4 w-4 text-primary" />
+                                        <span className="font-medium">Create new vessel: <span className="text-primary">{vesselSearchTerm}</span></span>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                                      Type at least 2 characters to search vessels
+                                    </div>
+                                  )}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
                   />
                   <FormField
                     control={pastVesselForm.control}
@@ -1341,6 +1379,84 @@ export default function VesselsPage() {
                 <Button type="submit" disabled={isSavingPastVessel} className="rounded-lg">
                   {isSavingPastVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Add Past Vessel
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Vessel Dialog (from search) */}
+      <Dialog open={isAddVesselDialogOpen} onOpenChange={setIsAddVesselDialogOpen}>
+        <DialogContent className="sm:max-w-[500px] rounded-xl">
+          <DialogHeader>
+            <DialogTitle>Create New Vessel</DialogTitle>
+            <DialogDescription>
+              Create a new vessel to add to your service history.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...addVesselForm}>
+            <form onSubmit={addVesselForm.handleSubmit(handleCreateVesselFromSearch)} className="space-y-4 py-4">
+              <FormField
+                control={addVesselForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Vessel Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., M/Y Odyssey" {...field} className="rounded-lg" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={addVesselForm.control}
+                name="type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Vessel Type</FormLabel>
+                    <FormControl>
+                      <SearchableSelect
+                        options={vesselTypes}
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="Select a vessel type"
+                        searchPlaceholder="Search vessel types..."
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={addVesselForm.control}
+                name="officialNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Official Number (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., IMO 1234567" {...field} className="rounded-lg" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter className="pt-4 gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setIsAddVesselDialogOpen(false);
+                    addVesselForm.reset();
+                  }}
+                  className="rounded-xl"
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isSavingVessel} className="rounded-xl">
+                  {isSavingVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Create Vessel
                 </Button>
               </DialogFooter>
             </form>

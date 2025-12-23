@@ -282,12 +282,17 @@ export default function TestimonialsPage() {
       official_reference: '',
       notes: '',
     },
+    mode: 'onChange',
   });
 
   // Watch vessel_id and date range to calculate day counts
   const watchedVesselId = form.watch('vessel_id');
   const watchedStartDate = form.watch('start_date');
   const watchedEndDate = form.watch('end_date');
+  
+  // Track active captain for selected vessel
+  const [activeCaptain, setActiveCaptain] = useState<{ id: string; email: string; name?: string } | null>(null);
+  const [isCheckingCaptain, setIsCheckingCaptain] = useState(false);
 
   // Fetch user profile
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -340,6 +345,110 @@ export default function TestimonialsPage() {
 
   // Fetch vessel assignments and state logs for selected vessel
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
+  
+  // Check for active captain when vessel is selected
+  useEffect(() => {
+    if (!watchedVesselId) {
+      setActiveCaptain(null);
+      form.setValue('captain_email', '', { shouldValidate: false });
+      return;
+    }
+
+    let isCancelled = false;
+    
+    const checkActiveCaptain = async () => {
+      setIsCheckingCaptain(true);
+      console.log('[TESTIMONIALS] Checking for active captain for vessel:', watchedVesselId);
+      
+      try {
+        // Check for active signing authority (primary captain) for this vessel
+        // This is the source of truth for who can sign testimonials
+        const { data: signingAuthority, error: signingAuthorityError } = await supabase
+          .from('vessel_signing_authorities')
+          .select('captain_user_id, is_primary')
+          .eq('vessel_id', watchedVesselId)
+          .eq('is_primary', true)
+          .is('end_date', null)
+          .limit(1)
+          .maybeSingle();
+
+        console.log('[TESTIMONIALS] Signing authority query result:', { signingAuthority, signingAuthorityError });
+
+        if (isCancelled) return;
+
+        if (signingAuthorityError) {
+          console.error('[TESTIMONIALS] Error querying for signing authority:', {
+            error: signingAuthorityError,
+            code: signingAuthorityError.code,
+            message: signingAuthorityError.message,
+            details: signingAuthorityError.details,
+            hint: signingAuthorityError.hint,
+          });
+          setActiveCaptain(null);
+          form.setValue('captain_email', '', { shouldValidate: false });
+          return;
+        }
+
+        if (!signingAuthority || !signingAuthority.captain_user_id) {
+          console.log('[TESTIMONIALS] No active signing authority found for vessel:', watchedVesselId);
+          setActiveCaptain(null);
+          form.setValue('captain_email', '', { shouldValidate: false });
+          return;
+        }
+
+        // Fetch captain's user profile to get email and name
+        const { data: captainProfile, error: profileError } = await supabase
+          .from('users')
+          .select('id, email, first_name, last_name')
+          .eq('id', signingAuthority.captain_user_id)
+          .maybeSingle();
+
+        console.log('[TESTIMONIALS] Captain profile query result:', { captainProfile, profileError });
+
+        if (isCancelled) return;
+
+        if (profileError || !captainProfile || !captainProfile.email) {
+          console.log('[TESTIMONIALS] No captain profile or email found:', profileError);
+          setActiveCaptain(null);
+          form.setValue('captain_email', '', { shouldValidate: false });
+          return;
+        }
+
+        const captainName = captainProfile.first_name || captainProfile.last_name
+          ? `${captainProfile.first_name || ''} ${captainProfile.last_name || ''}`.trim()
+          : '';
+
+        if (isCancelled) return;
+
+        console.log('[TESTIMONIALS] Active captain found:', { id: captainProfile.id, email: captainProfile.email, name: captainName });
+
+        setActiveCaptain({
+          id: captainProfile.id,
+          email: captainProfile.email,
+          name: captainName || undefined,
+        });
+
+        // Auto-fill form with captain's email
+        form.setValue('captain_email', captainProfile.email, { shouldValidate: false });
+        console.log('[TESTIMONIALS] Set form captain_email to:', captainProfile.email);
+      } catch (error) {
+        if (isCancelled) return;
+        console.error('[TESTIMONIALS] Error checking for active captain:', error);
+        setActiveCaptain(null);
+        form.setValue('captain_email', '', { shouldValidate: false });
+      } finally {
+        if (!isCancelled) {
+          setIsCheckingCaptain(false);
+        }
+      }
+    };
+
+    checkActiveCaptain();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [watchedVesselId, supabase, form]);
   
   useEffect(() => {
     if (watchedVesselId && user?.id) {
@@ -702,8 +811,9 @@ export default function TestimonialsPage() {
         throw insertError;
       }
 
-      // Send email to captain if captain_email is provided
-      if (data.captain_email && initialStatus === 'pending_captain') {
+      // Send email to captain if captain_email is provided AND there's no active captain
+      // If there's an active captain, the testimonial will appear in their inbox automatically
+      if (data.captain_email && initialStatus === 'pending_captain' && !activeCaptain) {
         const vesselName = vessels.find(v => v.id === data.vessel_id)?.name || 'Unknown Vessel';
         
         await requestCaptainSignoff(
@@ -714,6 +824,12 @@ export default function TestimonialsPage() {
           },
           toast
         );
+      } else if (activeCaptain && data.captain_email) {
+        // Active captain found - testimonial goes to inbox, no email needed
+        toast({
+          title: 'Testimonial Request Sent',
+          description: 'Your testimonial request has been sent to the captain\'s inbox. They will be notified.',
+        });
       } else {
         toast({
           title: 'Testimonial Created',
@@ -723,6 +839,7 @@ export default function TestimonialsPage() {
 
 
       form.reset();
+      setActiveCaptain(null); // Clear active captain when dialog closes
       setIsDialogOpen(false);
       
       // Refresh testimonials list
@@ -1118,105 +1235,87 @@ export default function TestimonialsPage() {
                                     </div>
                   )}
 
-                  <FormField
-                    control={form.control}
-                    name="captain_email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Captain Email (Optional)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="email"
-                            placeholder="captain@vessel.com"
-                            className="rounded-xl"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          If provided, the captain will receive an email to sign off on this testimonial.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {/* Show different UI based on whether there's an active captain */}
+                  {isCheckingCaptain ? (
+                    <div className="p-4 bg-muted/50 border border-border rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        <div>
+                          <p className="text-sm font-medium">Checking for active captain...</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Searching for approved captaincy on this vessel</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : activeCaptain ? (
+                    <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start gap-4">
+                          <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0">
+                            <CheckCircle2 className="h-6 w-6 text-primary" />
+                          </div>
+                          <div className="flex-1 space-y-2">
+                            <div>
+                              <h3 className="text-lg font-semibold">Active Captain Found</h3>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                This vessel has an active captain on SeaJourney. Your testimonial request will be sent directly to the captain's inbox.
+                              </p>
+                            </div>
+                            <div className="pt-2 border-t border-primary/20">
+                              <div className="flex items-center gap-2 text-sm">
+                                <Mail className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-muted-foreground">Captain Email:</span>
+                                <span className="font-medium">{activeCaptain.email}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Hidden field to store captain email for form submission */}
+                        <FormField
+                          control={form.control}
+                          name="captain_email"
+                          render={({ field }) => (
+                            <input type="hidden" {...field} />
+                          )}
+                        />
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <FormField
+                      control={form.control}
+                      name="captain_email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Captain Email {isCheckingCaptain ? '(Checking...)' : '(Optional)'}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="email"
+                              placeholder="captain@vessel.com"
+                              className="rounded-xl"
+                              {...field}
+                              disabled={isCheckingCaptain}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {isCheckingCaptain 
+                              ? 'Checking for active captain...'
+                              : 'If provided, the captain will receive an email to sign off on this testimonial. If this vessel has an active captain on SeaJourney, it will be filled automatically.'}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
-                  <FormField
-                    control={form.control}
-                    name="captain_name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Captain Name (Optional)</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="Captain's full name"
-                            className="rounded-xl"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="official_body"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Official Body (Optional)</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="e.g., MCA, USCG"
-                            className="rounded-xl"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="official_reference"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Official Reference (Optional)</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="Reference number"
-                            className="rounded-xl"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="notes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Notes (Optional)</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="Additional notes"
-                            className="rounded-xl"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
 
                   <DialogFooter>
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setIsDialogOpen(false)}
+                      onClick={() => {
+                        form.reset();
+                        setActiveCaptain(null);
+                        setIsDialogOpen(false);
+                      }}
                       className="rounded-xl"
                     >
                       Cancel
@@ -1233,8 +1332,19 @@ export default function TestimonialsPage() {
                         </>
                       ) : (
                         <>
-                          <Mail className="mr-2 h-4 w-4" />
-                          {form.watch('captain_email') ? 'Send Request' : 'Save as Draft'}
+                          {activeCaptain ? (
+                            <>
+                              <Mail className="mr-2 h-4 w-4" />
+                              Send to Captain's Inbox
+                            </>
+                          ) : form.watch('captain_email') ? (
+                            <>
+                              <Mail className="mr-2 h-4 w-4" />
+                              Send Request
+                            </>
+                          ) : (
+                            'Save as Draft'
+                          )}
                         </>
                       )}
                     </Button>

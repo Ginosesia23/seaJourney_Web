@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, CheckCircle2, XCircle, Ship, Calendar, User, Mail, AlertCircle, Clock } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Ship, Calendar, User, Mail, AlertCircle, Clock, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,11 +22,14 @@ export default function InboxPage() {
   const { toast } = useToast();
   const [testimonials, setTestimonials] = useState<(Testimonial & { user?: { email: string; first_name?: string; last_name?: string; username?: string } })[]>([]);
   const [captaincyRequests, setCaptaincyRequests] = useState<(VesselClaimRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } })[]>([]);
+  const [captainRoleApplications, setCaptainRoleApplications] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTestimonial, setSelectedTestimonial] = useState<(Testimonial & { user?: { email: string; first_name?: string; last_name?: string; username?: string } }) | null>(null);
   const [selectedCaptaincyRequest, setSelectedCaptaincyRequest] = useState<(VesselClaimRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } }) | null>(null);
+  const [selectedCaptainRoleApplication, setSelectedCaptainRoleApplication] = useState<any | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isCaptaincyDialogOpen, setIsCaptaincyDialogOpen] = useState(false);
+  const [isCaptainRoleDialogOpen, setIsCaptainRoleDialogOpen] = useState(false);
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -72,13 +75,13 @@ export default function InboxPage() {
       try {
         const userIsAdmin = userProfile?.role?.toLowerCase() === 'admin';
         
-        // For admins: only fetch captaincy requests (testimonials are vessel-specific)
+        // For admins: fetch captaincy requests and captain role applications (testimonials are vessel-specific)
         // For captains/vessel managers: only fetch testimonials addressed to them
         if (userIsAdmin) {
-          // Admins only see captaincy requests
-          console.log('[INBOX] Fetching captaincy requests for admin user:', user?.id);
+          // Admins see captaincy requests and captain role applications
+          console.log('[INBOX] Fetching captaincy requests and captain role applications for admin user:', user?.id);
           
-          // First, fetch the captaincy requests without joins (to avoid RLS issues)
+          // Fetch captaincy requests
           const { data: captaincyData, error: captaincyError } = await supabase
             .from('vessel_claim_requests')
             .select('*')
@@ -89,22 +92,8 @@ export default function InboxPage() {
 
           if (captaincyError) {
             console.error('[INBOX] Error fetching pending captaincy requests:', captaincyError);
-            console.error('[INBOX] Error details:', {
-              code: captaincyError.code,
-              message: captaincyError.message,
-              details: captaincyError.details,
-              hint: captaincyError.hint,
-            });
-            toast({
-              title: 'Error',
-              description: `Failed to load pending requests: ${captaincyError.message || 'Unknown error'}`,
-              variant: 'destructive',
-            });
             setCaptaincyRequests([]);
           } else if (captaincyData && captaincyData.length > 0) {
-            console.log('[INBOX] Found', captaincyData.length, 'captaincy requests, fetching user and vessel details...');
-            
-            // Fetch user profiles and vessel details separately
             const captaincyRequestsWithDetails = await Promise.all(
               captaincyData.map(async (request) => {
                 const [userResult, vesselResult] = await Promise.all([
@@ -127,13 +116,46 @@ export default function InboxPage() {
                 };
               })
             );
-
-            console.log('[INBOX] Final captaincy requests with details:', captaincyRequestsWithDetails);
             setCaptaincyRequests(captaincyRequestsWithDetails as any);
           } else {
-            console.log('[INBOX] No pending captaincy requests found');
             setCaptaincyRequests([]);
           }
+
+          // Fetch captain role applications - explicitly select all fields including supporting_documents
+          const { data: applicationsData, error: applicationsError } = await supabase
+            .from('captain_role_applications')
+            .select('id, user_id, status, supporting_documents, notes, reviewed_by, reviewed_at, rejection_reason, created_at, updated_at')
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false });
+
+          console.log('[INBOX] Captain role applications query result:', { applicationsData, applicationsError });
+
+          if (applicationsError) {
+            console.error('[INBOX] Error fetching captain role applications:', applicationsError);
+            setCaptainRoleApplications([]);
+          } else if (applicationsData && applicationsData.length > 0) {
+            const applicationsWithDetails = await Promise.all(
+              applicationsData.map(async (application) => {
+                console.log('[INBOX] Processing application:', { id: application.id, supporting_documents: application.supporting_documents });
+                
+                const userResult = await supabase
+                  .from('users')
+                  .select('email, first_name, last_name, username, position')
+                  .eq('id', application.user_id)
+                  .maybeSingle();
+
+                return {
+                  ...application,
+                  user: userResult.data || undefined,
+                };
+              })
+            );
+            console.log('[INBOX] Final applications with details:', applicationsWithDetails);
+            setCaptainRoleApplications(applicationsWithDetails);
+          } else {
+            setCaptainRoleApplications([]);
+          }
+
           // Set testimonials to empty for admins
           setTestimonials([]);
         } else {
@@ -316,6 +338,116 @@ export default function InboxPage() {
     setIsCaptaincyDialogOpen(true);
   };
 
+  const openCaptainRoleActionDialog = (application: any, actionType: 'approve' | 'reject') => {
+    console.log('[INBOX] Opening captain role dialog with application:', {
+      id: application.id,
+      supporting_documents: application.supporting_documents,
+      supporting_documents_type: typeof application.supporting_documents,
+      is_array: Array.isArray(application.supporting_documents),
+      length: application.supporting_documents?.length,
+      full_application: application,
+    });
+    setSelectedCaptainRoleApplication(application);
+    setAction(actionType);
+    setRejectionReason('');
+    setIsCaptainRoleDialogOpen(true);
+  };
+
+  const handleApproveCaptainRole = async () => {
+    if (!selectedCaptainRoleApplication || !userProfile?.id) return;
+
+    setIsProcessing(true);
+    try {
+      const response = await fetch('/api/captain-role-applications/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          applicationId: selectedCaptainRoleApplication.id,
+          reviewedBy: userProfile.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to approve application');
+      }
+
+      toast({
+        title: 'Application Approved',
+        description: 'The captain role has been granted to the user.',
+      });
+
+      // Remove from list and refresh
+      setCaptainRoleApplications(prev => prev.filter(a => a.id !== selectedCaptainRoleApplication.id));
+      setIsCaptainRoleDialogOpen(false);
+      setSelectedCaptainRoleApplication(null);
+      setAction(null);
+    } catch (error: any) {
+      console.error('Error approving captain role application:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to approve application. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRejectCaptainRole = async () => {
+    if (!selectedCaptainRoleApplication || !userProfile?.id) return;
+
+    if (!rejectionReason.trim()) {
+      toast({
+        title: 'Rejection Reason Required',
+        description: 'Please provide a reason for rejecting this application.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const response = await fetch('/api/captain-role-applications/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          applicationId: selectedCaptainRoleApplication.id,
+          reviewedBy: userProfile.id,
+          rejectionReason: rejectionReason.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to reject application');
+      }
+
+      toast({
+        title: 'Application Rejected',
+        description: 'The application has been rejected.',
+      });
+
+      // Remove from list
+      setCaptainRoleApplications(prev => prev.filter(a => a.id !== selectedCaptainRoleApplication.id));
+      setIsCaptainRoleDialogOpen(false);
+      setSelectedCaptainRoleApplication(null);
+      setAction(null);
+      setRejectionReason('');
+    } catch (error: any) {
+      console.error('Error rejecting captain role application:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to reject application. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleApproveCaptaincy = async () => {
     if (!selectedCaptaincyRequest || !user?.id) return;
 
@@ -446,9 +578,9 @@ export default function InboxPage() {
                 : 'Review and respond to testimonial sign-off requests from crew members'}
             </p>
           </div>
-          {(testimonials.length > 0 || captaincyRequests.length > 0) && (
+          {(testimonials.length > 0 || captaincyRequests.length > 0 || captainRoleApplications.length > 0) && (
             <Badge variant="secondary" className="text-sm">
-              {testimonials.length + captaincyRequests.length} pending request{(testimonials.length + captaincyRequests.length) !== 1 ? 's' : ''}
+              {testimonials.length + captaincyRequests.length + captainRoleApplications.length} pending request{(testimonials.length + captaincyRequests.length + captainRoleApplications.length) !== 1 ? 's' : ''}
             </Badge>
           )}
         </div>
@@ -462,7 +594,7 @@ export default function InboxPage() {
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </CardContent>
         </Card>
-      ) : (isAdmin && captaincyRequests.length === 0) || (!isAdmin && testimonials.length === 0) ? (
+      ) : (isAdmin && captaincyRequests.length === 0 && captainRoleApplications.length === 0) || (!isAdmin && testimonials.length === 0) ? (
         <Card className="rounded-xl border">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Mail className="h-12 w-12 text-muted-foreground mb-4" />
@@ -476,6 +608,159 @@ export default function InboxPage() {
         </Card>
       ) : (
         <div className="flex flex-col gap-6">
+          {/* Captain Role Applications Section (Admin only) */}
+          {isAdmin && captainRoleApplications.length > 0 && (
+            <Card className="rounded-xl border shadow-sm">
+              <CardHeader>
+                <CardTitle>Captain Role Applications</CardTitle>
+                <CardDescription>Review and approve applications from users requesting the captain role</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Applicant</TableHead>
+                        <TableHead>Position</TableHead>
+                        <TableHead>Submitted</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {captainRoleApplications.map((application) => (
+                        <TableRow key={application.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <User className="h-4 w-4 text-muted-foreground" />
+                              <div>
+                                <div>{getUserName(application)}</div>
+                                {(application.user as any)?.email && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {(application.user as any).email}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{(application.user as any)?.position || 'N/A'}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Clock className="h-4 w-4" />
+                              {format(new Date(application.created_at || new Date()), 'MMM d, yyyy')}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                onClick={() => openCaptainRoleActionDialog(application, 'approve')}
+                                size="sm"
+                                className="rounded-lg bg-green-600 hover:bg-green-700"
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-2" />
+                                Approve
+                              </Button>
+                              <Button
+                                onClick={() => openCaptainRoleActionDialog(application, 'reject')}
+                                size="sm"
+                                variant="destructive"
+                                className="rounded-lg"
+                              >
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Reject
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Captaincy Requests Section (Admin only) */}
+          {isAdmin && captaincyRequests.length > 0 && (
+            <Card className="rounded-xl border shadow-sm">
+              <CardHeader>
+                <CardTitle>Vessel Captaincy Requests</CardTitle>
+                <CardDescription>Review and approve captaincy requests for vessels</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Requested By</TableHead>
+                        <TableHead>Vessel</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Requested</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {captaincyRequests.map((request) => (
+                        <TableRow key={request.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <User className="h-4 w-4 text-muted-foreground" />
+                              <div>
+                                <div>{getUserName(request as any)}</div>
+                                {(request.user as any)?.email && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {(request.user as any).email}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Ship className="h-4 w-4 text-muted-foreground" />
+                              {(request.vessel as any)?.name || getVesselName(request.vessel_id)}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{request.requested_role || 'captain'}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Clock className="h-4 w-4" />
+                              {format(new Date(request.created_at || new Date()), 'MMM d, yyyy')}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                onClick={() => openCaptaincyActionDialog(request, 'approve')}
+                                size="sm"
+                                className="rounded-lg bg-green-600 hover:bg-green-700"
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-2" />
+                                Approve
+                              </Button>
+                              <Button
+                                onClick={() => openCaptaincyActionDialog(request, 'reject')}
+                                size="sm"
+                                variant="destructive"
+                                className="rounded-lg"
+                              >
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Reject
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Testimonials Section */}
           {testimonials.length > 0 && (
             <Card className="rounded-xl border shadow-sm">
@@ -717,6 +1002,154 @@ export default function InboxPage() {
             </Button>
             <Button
               onClick={action === 'approve' ? handleApprove : handleReject}
+              disabled={isProcessing}
+              className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                action === 'approve' ? 'Approve' : 'Reject'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Captain Role Application Action Dialog */}
+      <Dialog open={isCaptainRoleDialogOpen} onOpenChange={setIsCaptainRoleDialogOpen}>
+        <DialogContent className="rounded-xl max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {action === 'approve' ? 'Approve Captain Role Application' : 'Reject Captain Role Application'}
+            </DialogTitle>
+            <DialogDescription>
+              {action === 'approve' 
+                ? 'Are you sure you want to approve this application and grant the captain role?'
+                : 'Please provide a reason for rejecting this application.'}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedCaptainRoleApplication && (
+            <div className="space-y-4 py-4">
+              {console.log('[INBOX] Rendering dialog with selectedCaptainRoleApplication:', {
+                id: selectedCaptainRoleApplication.id,
+                supporting_documents: selectedCaptainRoleApplication.supporting_documents,
+                supporting_documents_type: typeof selectedCaptainRoleApplication.supporting_documents,
+                is_array: Array.isArray(selectedCaptainRoleApplication.supporting_documents),
+                length: selectedCaptainRoleApplication.supporting_documents?.length,
+              })}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Applicant:</span>
+                  <span className="font-medium">{getUserName(selectedCaptainRoleApplication)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Email:</span>
+                  <span className="font-medium">{(selectedCaptainRoleApplication.user as any)?.email || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Position:</span>
+                  <span className="font-medium">{(selectedCaptainRoleApplication.user as any)?.position || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Submitted:</span>
+                  <span className="font-medium">
+                    {format(new Date(selectedCaptainRoleApplication.created_at || new Date()), 'MMM d, yyyy')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Supporting Documents - Always show this section */}
+              <div className="space-y-2">
+                <Label>Supporting Documents</Label>
+                {(() => {
+                  // Handle both snake_case and camelCase field names, and ensure it's an array
+                  const docs = (selectedCaptainRoleApplication.supporting_documents || 
+                               (selectedCaptainRoleApplication as any).supportingDocuments) || [];
+                  const documentsArray = Array.isArray(docs) ? docs : [];
+                  
+                  console.log('[INBOX] Supporting documents check:', {
+                    raw: selectedCaptainRoleApplication.supporting_documents,
+                    camelCase: (selectedCaptainRoleApplication as any).supportingDocuments,
+                    docs,
+                    documentsArray,
+                    length: documentsArray.length,
+                    isArray: Array.isArray(docs),
+                  });
+                  
+                  if (documentsArray.length > 0) {
+                    return (
+                      <div className="space-y-2 max-h-64 overflow-y-auto border rounded-lg p-4 bg-muted/30">
+                        {documentsArray.map((doc: string, index: number) => {
+                          const docUrl = typeof doc === 'string' ? doc : String(doc);
+                          return (
+                            <div key={index} className="flex items-start gap-2 p-2 rounded-lg bg-background border hover:bg-muted/50 transition-colors">
+                              <FileText className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                              <a 
+                                href={docUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 hover:underline break-all text-sm flex-1"
+                              >
+                                {docUrl}
+                              </a>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <div className="border rounded-lg p-4 bg-muted/30 text-sm text-muted-foreground italic">
+                        No supporting documents provided
+                      </div>
+                    );
+                  }
+                })()}
+              </div>
+
+              {/* Notes */}
+              {selectedCaptainRoleApplication.notes && (
+                <div className="space-y-2">
+                  <Label>Additional Notes</Label>
+                  <div className="text-sm text-muted-foreground border rounded-lg p-3 bg-muted/50">
+                    {selectedCaptainRoleApplication.notes}
+                  </div>
+                </div>
+              )}
+
+              {action === 'reject' && (
+                <div className="space-y-2">
+                  <Label htmlFor="captain-role-rejection-reason">Rejection Reason *</Label>
+                  <Textarea
+                    id="captain-role-rejection-reason"
+                    placeholder="Please provide a reason for rejecting this application..."
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    className="rounded-lg min-h-[100px]"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsCaptainRoleDialogOpen(false);
+                setSelectedCaptainRoleApplication(null);
+                setAction(null);
+                setRejectionReason('');
+              }}
+              disabled={isProcessing}
+              className="rounded-xl"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={action === 'approve' ? handleApproveCaptainRole : handleRejectCaptainRole}
               disabled={isProcessing}
               className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
             >
