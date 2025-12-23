@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
@@ -45,7 +46,7 @@ const testimonialSchema = z.object({
   vessel_id: z.string().min(1, 'Please select a vessel.'),
   start_date: z.date({ required_error: 'A start date is required.' }),
   end_date: z.date({ required_error: 'An end date is required.' }),
-  captain_email: z.string().email('Please enter a valid email address.').optional(),
+  captain_email: z.string().email('Please enter a valid email address.').optional().or(z.literal('')),
   captain_name: z.string().optional(),
   official_body: z.string().optional(),
   official_reference: z.string().optional(),
@@ -228,12 +229,24 @@ async function requestCaptainSignoff(
 function calculateDayCounts(stateLogs: StateLog[], startDate: string, endDate: string) {
   const start = parse(startDate, 'yyyy-MM-dd', new Date());
   const end = parse(endDate, 'yyyy-MM-dd', new Date());
-  const dateRange = eachDayOfInterval({ start, end });
   
-  // Filter logs to the date range
+  console.log('[calculateDayCounts] Input:', {
+    totalLogs: stateLogs.length,
+    startDate,
+    endDate,
+    firstFewLogs: stateLogs.slice(0, 5).map(l => ({ date: l.date, state: l.state }))
+  });
+  
+  // Filter logs to the date range (inclusive)
   const rangeLogs = stateLogs.filter(log => {
     const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
-    return isWithinInterval(logDate, { start, end });
+    const isInRange = logDate >= start && logDate <= end;
+    return isInRange;
+  });
+  
+  console.log('[calculateDayCounts] Filtered logs in range:', {
+    totalInRange: rangeLogs.length,
+    firstFewInRange: rangeLogs.slice(0, 5).map(l => ({ date: l.date, state: l.state }))
   });
   
   // Calculate individual day counts
@@ -242,6 +255,7 @@ function calculateDayCounts(stateLogs: StateLog[], startDate: string, endDate: s
   const leaveDays = rangeLogs.filter(log => log.state === 'on-leave').length;
   
   // Calculate standby days using the standby calculation function
+  // Standby includes 'at-anchor' and 'in-port' states
   const { totalStandbyDays } = calculateStandbyDays(rangeLogs);
   const standbyDays = totalStandbyDays;
   
@@ -249,13 +263,17 @@ function calculateDayCounts(stateLogs: StateLog[], startDate: string, endDate: s
   // The constraint likely requires: total_days = at_sea_days + standby_days + yard_days + leave_days
   const totalDays = atSeaDays + standbyDays + yardDays + leaveDays;
   
-  return {
+  const result = {
     total_days: totalDays,
     at_sea_days: atSeaDays,
     standby_days: standbyDays,
     yard_days: yardDays,
     leave_days: leaveDays,
   };
+  
+  console.log('[calculateDayCounts] Result:', result);
+  
+  return result;
 }
 
 export default function TestimonialsPage() {
@@ -285,13 +303,16 @@ export default function TestimonialsPage() {
     mode: 'onChange',
   });
 
+  // State to track if user wants to select a different vessel
+  const [useDifferentVessel, setUseDifferentVessel] = useState(false);
+
   // Watch vessel_id and date range to calculate day counts
   const watchedVesselId = form.watch('vessel_id');
   const watchedStartDate = form.watch('start_date');
   const watchedEndDate = form.watch('end_date');
   
-  // Track active captain for selected vessel
-  const [activeCaptain, setActiveCaptain] = useState<{ id: string; email: string; name?: string } | null>(null);
+  // Track active captain for selected vessel (just the ID - profile fetched in inbox)
+  const [activeCaptain, setActiveCaptain] = useState<{ id: string } | null>(null);
   const [isCheckingCaptain, setIsCheckingCaptain] = useState(false);
 
   // Fetch user profile
@@ -343,6 +364,45 @@ export default function TestimonialsPage() {
     });
   }, [allVessels, vesselStateLogs]);
 
+  // Get current active vessel
+  const currentVessel = useMemo(() => {
+    if (!userProfile?.activeVesselId || !vessels.length) return null;
+    return vessels.find(v => v.id === userProfile.activeVesselId) || null;
+  }, [userProfile?.activeVesselId, vessels]);
+
+  // Auto-select current vessel when dialog opens and trigger captain check
+  useEffect(() => {
+    if (isDialogOpen && currentVessel && !useDifferentVessel) {
+      // Always set current vessel when dialog opens (unless user selected different)
+      const currentValue = form.getValues('vessel_id');
+      if (currentValue !== currentVessel.id) {
+        form.setValue('vessel_id', currentVessel.id, { shouldValidate: false });
+        console.log('[TESTIMONIALS] Auto-selected current vessel:', currentVessel.name);
+      }
+    }
+  }, [isDialogOpen, currentVessel, useDifferentVessel, form]);
+
+  // Also check for captain when current vessel is auto-selected
+  useEffect(() => {
+    if (isDialogOpen && currentVessel && !useDifferentVessel && watchedVesselId === currentVessel.id && !activeCaptain && !isCheckingCaptain) {
+      // Trigger captain check by ensuring watchedVesselId is set
+      // This will trigger the main captain check useEffect
+      console.log('[TESTIMONIALS] Current vessel selected, captain check should trigger automatically');
+    }
+  }, [isDialogOpen, currentVessel, watchedVesselId, activeCaptain, isCheckingCaptain, useDifferentVessel]);
+
+  // Reset form and useDifferentVessel when dialog closes
+  useEffect(() => {
+    if (!isDialogOpen) {
+      // Small delay to allow dialog close animation
+      setTimeout(() => {
+        form.reset();
+        setActiveCaptain(null);
+        setUseDifferentVessel(false);
+      }, 150);
+    }
+  }, [isDialogOpen, form]);
+
   // Fetch vessel assignments and state logs for selected vessel
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
   
@@ -390,47 +450,36 @@ export default function TestimonialsPage() {
         }
 
         if (!signingAuthority || !signingAuthority.captain_user_id) {
-          console.log('[TESTIMONIALS] No active signing authority found for vessel:', watchedVesselId);
+          console.log('[TESTIMONIALS] No active signing authority found for vessel:', {
+            vesselId: watchedVesselId,
+            signingAuthority: signingAuthority,
+            hasCaptainUserId: !!signingAuthority?.captain_user_id
+          });
           setActiveCaptain(null);
           form.setValue('captain_email', '', { shouldValidate: false });
           return;
         }
 
-        // Fetch captain's user profile to get email and name
-        const { data: captainProfile, error: profileError } = await supabase
-          .from('users')
-          .select('id, email, first_name, last_name')
-          .eq('id', signingAuthority.captain_user_id)
-          .maybeSingle();
-
-        console.log('[TESTIMONIALS] Captain profile query result:', { captainProfile, profileError });
-
-        if (isCancelled) return;
-
-        if (profileError || !captainProfile || !captainProfile.email) {
-          console.log('[TESTIMONIALS] No captain profile or email found:', profileError);
-          setActiveCaptain(null);
-          form.setValue('captain_email', '', { shouldValidate: false });
-          return;
-        }
-
-        const captainName = captainProfile.first_name || captainProfile.last_name
-          ? `${captainProfile.first_name || ''} ${captainProfile.last_name || ''}`.trim()
-          : '';
-
-        if (isCancelled) return;
-
-        console.log('[TESTIMONIALS] Active captain found:', { id: captainProfile.id, email: captainProfile.email, name: captainName });
-
-        setActiveCaptain({
-          id: captainProfile.id,
-          email: captainProfile.email,
-          name: captainName || undefined,
+        console.log('[TESTIMONIALS] Found signing authority:', {
+          vesselId: watchedVesselId,
+          captainUserId: signingAuthority.captain_user_id,
+          isPrimary: signingAuthority.is_primary
         });
 
-        // Auto-fill form with captain's email
-        form.setValue('captain_email', captainProfile.email, { shouldValidate: false });
-        console.log('[TESTIMONIALS] Set form captain_email to:', captainProfile.email);
+        if (isCancelled) return;
+
+        // We only need the captain's user ID - no need to fetch profile
+        // The captain's info can be fetched when they view their inbox
+        console.log('[TESTIMONIALS] Active captain found - user ID:', signingAuthority.captain_user_id);
+
+        // Set active captain with just the ID - profile will be fetched when captain views inbox
+        setActiveCaptain({
+          id: signingAuthority.captain_user_id,
+        });
+
+        // Don't set captain_email - we're using captain_user_id for inbox matching
+        form.setValue('captain_email', '', { shouldValidate: false });
+        console.log('[TESTIMONIALS] Using captain_user_id for inbox matching, no email needed');
       } catch (error) {
         if (isCancelled) return;
         console.error('[TESTIMONIALS] Error checking for active captain:', error);
@@ -453,15 +502,32 @@ export default function TestimonialsPage() {
   useEffect(() => {
     if (watchedVesselId && user?.id) {
       const fetchData = async () => {
-        const [logs, assignments] = await Promise.all([
-          getVesselStateLogs(supabase, watchedVesselId, user.id),
-          getVesselAssignments(supabase, user.id)
-        ]);
-        setSelectedVesselLogs(logs);
+        console.log('[TESTIMONIALS] Fetching logs for vessel:', {
+          vesselId: watchedVesselId,
+          userId: user.id
+        });
         
-        // Filter assignments for this vessel
-        const vesselAssignments = assignments.filter(a => a.vesselId === watchedVesselId);
-        setVesselAssignments(vesselAssignments);
+        try {
+          const [logs, assignments] = await Promise.all([
+            getVesselStateLogs(supabase, watchedVesselId, user.id),
+            getVesselAssignments(supabase, user.id)
+          ]);
+          
+          console.log('[TESTIMONIALS] Fetched logs:', {
+            count: logs.length,
+            firstFew: logs.slice(0, 5).map(l => ({ date: l.date, state: l.state }))
+          });
+          
+          setSelectedVesselLogs(logs);
+          
+          // Filter assignments for this vessel
+          const vesselAssignments = assignments.filter(a => a.vesselId === watchedVesselId);
+          setVesselAssignments(vesselAssignments);
+        } catch (error) {
+          console.error('[TESTIMONIALS] Error fetching logs:', error);
+          setSelectedVesselLogs([]);
+          setVesselAssignments([]);
+        }
       };
       fetchData();
     } else {
@@ -743,8 +809,67 @@ export default function TestimonialsPage() {
       const startDateStr = format(data.start_date, 'yyyy-MM-dd');
       const endDateStr = format(data.end_date, 'yyyy-MM-dd');
 
+      // Always fetch fresh logs to ensure we have the latest data
+      // This ensures logs are available even if dates were manually selected before logs finished loading
+      console.log('[TESTIMONIALS] Fetching logs for submission:', {
+        vesselId: data.vessel_id,
+        userId: user.id,
+        selectedVesselLogsCount: selectedVesselLogs.length
+      });
+      
+      let logsToUse: StateLog[];
+      try {
+        logsToUse = await getVesselStateLogs(supabase, data.vessel_id, user.id);
+        console.log('[TESTIMONIALS] Fetched logs for submission:', {
+          count: logsToUse.length,
+          firstFew: logsToUse.slice(0, 5).map(l => ({ date: l.date, state: l.state }))
+        });
+        
+        // Update selectedVesselLogs state for UI consistency
+        if (logsToUse.length > 0) {
+          setSelectedVesselLogs(logsToUse);
+        }
+      } catch (error: any) {
+        console.error('[TESTIMONIALS] Error fetching logs for submission:', {
+          error,
+          message: error?.message,
+          code: error?.code,
+          details: error?.details
+        });
+        toast({
+          title: 'Error',
+          description: error?.message || 'Failed to fetch vessel logs. Please ensure you have logged time on this vessel.',
+          variant: 'destructive',
+        });
+        setIsSaving(false);
+        return;
+      }
+      
+      if (!logsToUse || logsToUse.length === 0) {
+        toast({
+          title: 'No Logs Found',
+          description: 'No logged dates found for this vessel. Please ensure you have logged time on this vessel before requesting a testimonial.',
+          variant: 'destructive',
+        });
+        setIsSaving(false);
+        return;
+      }
+
+      console.log('[TESTIMONIALS] Calculating day counts with logs:', {
+        logCount: logsToUse.length,
+        dateRange: { start: startDateStr, end: endDateStr },
+        logsInRange: logsToUse.filter(log => {
+          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+          const start = parse(startDateStr, 'yyyy-MM-dd', new Date());
+          const end = parse(endDateStr, 'yyyy-MM-dd', new Date());
+          return logDate >= start && logDate <= end;
+        }).length
+      });
+
       // Calculate day counts
-      const dayCounts = calculateDayCounts(selectedVesselLogs, startDateStr, endDateStr);
+      const dayCounts = calculateDayCounts(logsToUse, startDateStr, endDateStr);
+      
+      console.log('[TESTIMONIALS] Calculated day counts:', dayCounts);
 
       // Validate that total_days equals the sum (required by database constraint)
       const calculatedTotal = dayCounts.at_sea_days + dayCounts.standby_days + dayCounts.yard_days + dayCounts.leave_days;
@@ -767,6 +892,17 @@ export default function TestimonialsPage() {
       let retries = 0;
       const maxRetries = 5;
 
+      // Determine captain_user_id and captain_email
+      // If activeCaptain is found (SeaJourney user), use their user_id
+      // Otherwise, use the email provided by the user for external captains
+      const captainUserId = activeCaptain?.id || null;
+      const captainEmail = captainUserId ? null : (data.captain_email || null); // Only use email for external captains
+      const captainName = data.captain_name || null; // Optional name field
+
+      // If we have an active captain (SeaJourney user), set status to pending_captain
+      // They will see it in their inbox automatically
+      const finalStatus: TestimonialStatus = captainUserId ? 'pending_captain' : initialStatus;
+
       // Try to create testimonial, regenerating code if there's a unique constraint violation
       while (retries < maxRetries) {
         const result = await supabase
@@ -781,9 +917,10 @@ export default function TestimonialsPage() {
             standby_days: dayCounts.standby_days,
             yard_days: dayCounts.yard_days,
             leave_days: dayCounts.leave_days,
-            status: initialStatus,
-            captain_email: data.captain_email || null,
-            captain_name: data.captain_name || null,
+            status: finalStatus,
+            captain_user_id: captainUserId,
+            captain_email: captainEmail,
+            captain_name: captainName,
             official_body: data.official_body || null,
             official_reference: data.official_reference || null,
             notes: data.notes || null,
@@ -811,9 +948,10 @@ export default function TestimonialsPage() {
         throw insertError;
       }
 
-      // Send email to captain if captain_email is provided AND there's no active captain
-      // If there's an active captain, the testimonial will appear in their inbox automatically
-      if (data.captain_email && initialStatus === 'pending_captain' && !activeCaptain) {
+      // Send email to captain if captain_email is provided AND there's no active captain (SeaJourney user)
+      // If there's an active captain (captain_user_id), the testimonial will appear in their inbox automatically
+      if (captainEmail && finalStatus === 'pending_captain' && !captainUserId) {
+        // External captain (not a SeaJourney user) - send email
         const vesselName = vessels.find(v => v.id === data.vessel_id)?.name || 'Unknown Vessel';
         
         await requestCaptainSignoff(
@@ -824,8 +962,8 @@ export default function TestimonialsPage() {
           },
           toast
         );
-      } else if (activeCaptain && data.captain_email) {
-        // Active captain found - testimonial goes to inbox, no email needed
+      } else if (captainUserId) {
+        // Active SeaJourney captain found - testimonial goes to inbox automatically, no email needed
         toast({
           title: 'Testimonial Request Sent',
           description: 'Your testimonial request has been sent to the captain\'s inbox. They will be notified.',
@@ -1076,11 +1214,89 @@ export default function TestimonialsPage() {
               </DialogHeader>
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+                  {/* Show current vessel info if available */}
+                  {currentVessel && !useDifferentVessel && (
+                    <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-3 w-full">
+                            <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0">
+                              <Ship className="h-5 w-5 text-primary" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-sm font-semibold">Current Vessel</h3>
+                              <p className="text-lg font-medium mt-1">{currentVessel.name}</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {currentVessel.type} • {currentVessel.officialNumber || 'No IMO'}
+                              </p>
+                              
+                              {/* Captain Info */}
+                              <div className="mt-3 pt-3 border-t border-primary/20">
+                                {isCheckingCaptain ? (
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    <span>Checking for active captain...</span>
+                                  </div>
+                                ) : activeCaptain ? (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <Badge variant="outline" className="text-xs bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
+                                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                                        Active Captain Found
+                                      </Badge>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-1 italic">
+                                      Your request will be sent directly to this captain's inbox
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-muted-foreground">
+                                    <Badge variant="outline" className="text-xs">
+                                      No active captain found
+                                    </Badge>
+                                    <p className="mt-1">You can enter a captain email manually below</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Option to select different vessel */}
+                  {currentVessel && (
+                    <div className="flex items-center space-x-2 pb-2">
+                      <Checkbox
+                        id="use-different-vessel"
+                        checked={useDifferentVessel}
+                        onCheckedChange={(checked) => {
+                          setUseDifferentVessel(checked as boolean);
+                          if (!checked && currentVessel) {
+                            // Reset to current vessel
+                            form.setValue('vessel_id', currentVessel.id, { shouldValidate: false });
+                          } else {
+                            // Clear selection so user can choose
+                            form.setValue('vessel_id', '', { shouldValidate: false });
+                          }
+                        }}
+                      />
+                      <label
+                        htmlFor="use-different-vessel"
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                      >
+                        Select a different vessel
+                      </label>
+                    </div>
+                  )}
+
+                  {/* Vessel selector - always rendered but hidden when using current vessel */}
                   <FormField
                     control={form.control}
                     name="vessel_id"
                     render={({ field }) => (
-                      <FormItem>
+                      <FormItem className={currentVessel && !useDifferentVessel ? 'sr-only' : ''}>
                         <FormLabel>Vessel</FormLabel>
                         <FormControl>
                           <SearchableSelect
@@ -1088,7 +1304,7 @@ export default function TestimonialsPage() {
                               value: vessel.id,
                               label: vessel.name,
                             }))}
-                            value={field.value}
+                            value={field.value || ''}
                             onValueChange={field.onChange}
                             placeholder="Select a vessel..."
                           />
@@ -1097,6 +1313,7 @@ export default function TestimonialsPage() {
                       </FormItem>
                     )}
                   />
+
 
                   {/* Quick Date Range Options */}
                   {watchedVesselId && (
@@ -1235,70 +1452,24 @@ export default function TestimonialsPage() {
                                     </div>
                   )}
 
-                  {/* Show different UI based on whether there's an active captain */}
-                  {isCheckingCaptain ? (
-                    <div className="p-4 bg-muted/50 border border-border rounded-xl">
-                      <div className="flex items-center gap-3">
-                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                        <div>
-                          <p className="text-sm font-medium">Checking for active captain...</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">Searching for approved captaincy on this vessel</p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : activeCaptain ? (
-                    <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10">
-                      <CardContent className="pt-6">
-                        <div className="flex items-start gap-4">
-                          <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0">
-                            <CheckCircle2 className="h-6 w-6 text-primary" />
-                          </div>
-                          <div className="flex-1 space-y-2">
-                            <div>
-                              <h3 className="text-lg font-semibold">Active Captain Found</h3>
-                              <p className="text-sm text-muted-foreground mt-1">
-                                This vessel has an active captain on SeaJourney. Your testimonial request will be sent directly to the captain's inbox.
-                              </p>
-                            </div>
-                            <div className="pt-2 border-t border-primary/20">
-                              <div className="flex items-center gap-2 text-sm">
-                                <Mail className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-muted-foreground">Captain Email:</span>
-                                <span className="font-medium">{activeCaptain.email}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        {/* Hidden field to store captain email for form submission */}
-                        <FormField
-                          control={form.control}
-                          name="captain_email"
-                          render={({ field }) => (
-                            <input type="hidden" {...field} />
-                          )}
-                        />
-                      </CardContent>
-                    </Card>
-                  ) : (
+                  {/* Only show captain email field if no active captain found (captain info already shown in Current Vessel card above) */}
+                  {!activeCaptain && !isCheckingCaptain && (
                     <FormField
                       control={form.control}
                       name="captain_email"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Captain Email {isCheckingCaptain ? '(Checking...)' : '(Optional)'}</FormLabel>
+                          <FormLabel>Captain Email (Optional)</FormLabel>
                           <FormControl>
                             <Input
                               type="email"
                               placeholder="captain@vessel.com"
                               className="rounded-xl"
                               {...field}
-                              disabled={isCheckingCaptain}
                             />
                           </FormControl>
                           <FormDescription>
-                            {isCheckingCaptain 
-                              ? 'Checking for active captain...'
-                              : 'If provided, the captain will receive an email to sign off on this testimonial. If this vessel has an active captain on SeaJourney, it will be filled automatically.'}
+                            If provided, the captain will receive an email to sign off on this testimonial. If this vessel has an active captain on SeaJourney, they will be selected automatically.
                           </FormDescription>
                           <FormMessage />
                         </FormItem>

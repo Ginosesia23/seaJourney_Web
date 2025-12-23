@@ -85,12 +85,15 @@ export async function getVesselSeaService(
  * Transform database state log record to TypeScript interface
  */
 function transformStateLog(dbLog: any): StateLog {
+  // Handle both 'date' and 'log_date' field names for compatibility
+  const dateValue = dbLog.date || dbLog.log_date;
+  
   return {
     id: dbLog.id,
     userId: dbLog.user_id,
     vesselId: dbLog.vessel_id,
     state: dbLog.state,
-    date: dbLog.date,
+    date: dateValue,
     createdAt: dbLog.created_at,
     updatedAt: dbLog.updated_at,
   };
@@ -113,9 +116,29 @@ export async function getVesselStateLogs(
     query = query.eq('user_id', userId);
   }
   
+  // Try 'date' first, if that fails due to column name, we'll handle in transform
   const { data, error } = await query.order('date', { ascending: true });
 
-  if (error) throw error;
+  if (error) {
+    // If 'date' column doesn't exist, try 'log_date'
+    if (error.message?.includes('column "date"') || error.code === '42703') {
+      console.log('[getVesselStateLogs] Retrying with log_date column');
+      let retryQuery = supabase
+        .from('daily_state_logs')
+        .select('*')
+        .eq('vessel_id', vesselId);
+      
+      if (userId) {
+        retryQuery = retryQuery.eq('user_id', userId);
+      }
+      
+      const { data: retryData, error: retryError } = await retryQuery.order('log_date', { ascending: true });
+      
+      if (retryError) throw retryError;
+      return (retryData || []).map(transformStateLog);
+    }
+    throw error;
+  }
 
   return (data || []).map(transformStateLog);
 }

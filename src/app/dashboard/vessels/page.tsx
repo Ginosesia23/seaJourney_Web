@@ -94,6 +94,7 @@ export default function VesselsPage() {
   const [isVesselSearchOpen, setIsVesselSearchOpen] = useState(false);
   const [isAddVesselDialogOpen, setIsAddVesselDialogOpen] = useState(false);
   const [isSavingVessel, setIsSavingVessel] = useState(false);
+  const [vesselSigningAuthorities, setVesselSigningAuthorities] = useState<Map<string, boolean>>(new Map()); // vesselId -> hasActiveCaptain
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -287,6 +288,45 @@ export default function VesselsPage() {
       fetchCaptaincyRequests();
     }
   }, [allVessels, isCaptain, fetchCaptaincyRequests]);
+
+  // For vessel role users, check for active signing authorities (approved captains) for their active vessel
+  useEffect(() => {
+    const checkActiveCaptains = async () => {
+      if (!allVessels || !user?.id || currentUserProfile?.role !== 'vessel' || !currentUserProfile?.activeVesselId) {
+        return;
+      }
+
+      const activeVesselId = currentUserProfile.activeVesselId;
+      const activeVessel = allVessels.find(v => v.id === activeVesselId);
+      
+      if (!activeVessel) return;
+
+      try {
+        // Check if vessel has an active signing authority (approved captain)
+        const { data: signingAuthority, error } = await supabase
+          .from('vessel_signing_authorities')
+          .select('id')
+          .eq('vessel_id', activeVesselId)
+          .eq('is_primary', true)
+          .is('end_date', null)
+          .limit(1)
+          .maybeSingle();
+
+        if (!error) {
+          const hasActiveCaptain = !!signingAuthority;
+          setVesselSigningAuthorities(prev => {
+            const newMap = new Map(prev);
+            newMap.set(activeVesselId, hasActiveCaptain);
+            return newMap;
+          });
+        }
+      } catch (error) {
+        console.error('[VESSELS PAGE] Error checking signing authorities:', error);
+      }
+    };
+
+    checkActiveCaptains();
+  }, [allVessels, user?.id, currentUserProfile?.role, currentUserProfile?.activeVesselId, supabase]);
 
   // Search vessels when search term changes
   useEffect(() => {
@@ -879,6 +919,10 @@ export default function VesselsPage() {
                       const hasApprovedRequest = requestStatus === 'approved';
                       const hasRejectedRequest = requestStatus === 'rejected';
                       
+                      // For vessel role users, check if vessel has an active signing authority (approved captain)
+                      const isVesselRole = currentUserProfile?.role === 'vessel';
+                      const hasActiveCaptain = isVesselRole ? vesselSigningAuthorities.get(vessel.id) || false : false;
+                      
                       // Debug logging for captains - always log to help debug
                       if (isCaptain) {
                         console.log('[VESSEL ROW]', {
@@ -934,22 +978,48 @@ export default function VesselsPage() {
                                             <TableCell className="font-medium">{totalDays || (isCaptain && request ? '0' : '—')}</TableCell>
                                     <TableCell>
                                         <div className="flex flex-col gap-1">
-                                          {isCurrent ? (
-                                                      <Badge variant="default" className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400 w-fit">
-                                                          Active
-                                                      </Badge>
-                                          ) : !request ? (
-                                                      <Badge variant="secondary" className="font-normal w-fit">
-                                                          Past
-                                                      </Badge>
-                                          ) : null}
+                                          {(() => {
+                                            // For vessel role: if active vessel and has approved captain, show "Active Captain"
+                                            // For captain role: if active vessel and has approved request, show "Active Captain"
+                                            if (isCurrent && ((isVesselRole && hasActiveCaptain) || (isCaptain && hasApprovedRequest))) {
+                                              return (
+                                                <Badge variant="default" className="bg-green-600 hover:bg-green-700 text-white border-0 w-fit">
+                                                  <ShieldCheck className="mr-1 h-3 w-3" />
+                                                  Active Captain
+                                                </Badge>
+                                              );
+                                            }
+                                            
+                                            // Regular active status (no approved captain)
+                                            if (isCurrent) {
+                                              return (
+                                                <Badge variant="default" className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400 w-fit">
+                                                  Active
+                                                </Badge>
+                                              );
+                                            }
+                                            
+                                            // Past status (no request)
+                                            if (!request) {
+                                              return (
+                                                <Badge variant="secondary" className="font-normal w-fit">
+                                                  Past
+                                                </Badge>
+                                              );
+                                            }
+                                            
+                                            return null;
+                                          })()}
+                                          
+                                          {/* Captain-specific request statuses */}
                                           {isCaptain && hasPendingRequest && (
                                             <Badge variant="secondary" className="text-xs w-fit">
                                               <ShieldCheck className="mr-1 h-3 w-3" />
                                               Request Pending
                                             </Badge>
                                           )}
-                                          {isCaptain && hasApprovedRequest && (
+                                          {isCaptain && hasApprovedRequest && !isCurrent && (
+                                            // Only show "Captaincy Approved" if vessel is NOT active (to avoid duplicate with "Active Captain")
                                             <Badge variant="default" className="text-xs w-fit bg-green-600 hover:bg-green-700 text-white border-0">
                                               <ShieldCheck className="mr-1 h-3 w-3" />
                                               Captaincy Approved
@@ -959,6 +1029,14 @@ export default function VesselsPage() {
                                             <Badge variant="destructive" className="text-xs w-fit">
                                               <ShieldCheck className="mr-1 h-3 w-3" />
                                               Request Rejected
+                                            </Badge>
+                                          )}
+                                          
+                                          {/* Vessel role: show if vessel has active captain but vessel is not current */}
+                                          {isVesselRole && !isCurrent && hasActiveCaptain && (
+                                            <Badge variant="default" className="text-xs w-fit bg-blue-600 hover:bg-blue-700 text-white border-0">
+                                              <ShieldCheck className="mr-1 h-3 w-3" />
+                                              Has Active Captain
                                             </Badge>
                                           )}
                                         </div>

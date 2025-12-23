@@ -82,6 +82,7 @@ export interface Testimonial {
     leave_days: number;
     status: TestimonialStatus;
     pdf_url: string | null;
+    captain_user_id: string | null;  // uuid (references auth.users) - captain's user account
     captain_name: string | null;
     captain_email: string | null;
     official_body: string | null;

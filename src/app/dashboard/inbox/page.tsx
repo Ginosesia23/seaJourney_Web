@@ -9,12 +9,14 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, CheckCircle2, XCircle, Ship, Calendar, User, Mail, AlertCircle, Clock, FileText } from 'lucide-react';
-import { format } from 'date-fns';
+import { Loader2, CheckCircle2, XCircle, Ship, Calendar, User, Mail, AlertCircle, Clock, FileText, Eye } from 'lucide-react';
+import { format, parse, eachDayOfInterval, startOfDay, endOfDay, isAfter, isBefore, differenceInDays } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import type { UserProfile, Testimonial, Vessel, VesselClaimRequest } from '@/lib/types';
+import { getVesselStateLogs } from '@/supabase/database/queries';
+import { DateComparisonView } from './date-comparison-view';
+import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog } from '@/lib/types';
 
 export default function InboxPage() {
   const { user } = useUser();
@@ -33,6 +35,11 @@ export default function InboxPage() {
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // State for date comparison
+  const [vesselStateLogs, setVesselStateLogs] = useState<StateLog[]>([]); // Crew member's logs
+  const [allVesselLogs, setAllVesselLogs] = useState<StateLog[]>([]); // All vessel logs (for comparison)
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
 
   // Fetch user profile to get email
   const { data: userProfileRaw } = useDoc<UserProfile>('users', user?.id);
@@ -160,14 +167,23 @@ export default function InboxPage() {
           setTestimonials([]);
         } else {
           // Captains/vessel managers see testimonials addressed to them
+          // First try to match by captain_user_id (SeaJourney users), then fall back to email matching
           let query = supabase
             .from('testimonials')
             .select('*')
             .eq('status', 'pending_captain');
           
-          // Filter by captain_email matching user's email
-          if (user?.email) {
-            query = query.ilike('captain_email', user.email || '');
+          // Filter by captain_user_id first (preferred - SeaJourney users)
+          // Also include testimonials where captain_email matches (for external captains)
+          if (user?.id && user?.email) {
+            // Match by either captain_user_id OR captain_email
+            query = query.or(`captain_user_id.eq.${user.id},captain_email.ilike.${user.email}`);
+          } else if (user?.id) {
+            // Only match by captain_user_id
+            query = query.eq('captain_user_id', user.id);
+          } else if (user?.email) {
+            // Fallback to email matching if user.id is not available
+            query = query.ilike('captain_email', user.email);
           }
           
           const { data: testimonialsData, error: testimonialsError } = await query.order('created_at', { ascending: false });
@@ -324,11 +340,66 @@ export default function InboxPage() {
     }
   };
 
-  const openActionDialog = (testimonial: typeof testimonials[0], actionType: 'approve' | 'reject') => {
+  const openActionDialog = async (testimonial: typeof testimonials[0], actionType: 'approve' | 'reject') => {
     setSelectedTestimonial(testimonial);
     setAction(actionType);
     setRejectionReason('');
     setIsDialogOpen(true);
+    
+    // Fetch vessel state logs for date comparison
+    // For captains: fetch both crew member's logs AND all vessel logs (captain has read permission for vessel)
+    if (actionType === 'approve' && testimonial.vessel_id) {
+      setIsLoadingLogs(true);
+      try {
+        console.log('[INBOX] Fetching logs for comparison:', {
+          vesselId: testimonial.vessel_id,
+          crewUserId: testimonial.user_id,
+          currentUserId: user?.id,
+          isCaptain: isCaptain
+        });
+        
+        // Fetch crew member's logs (what they requested) - may be empty if RLS blocks
+        let crewLogs: StateLog[] = [];
+        try {
+          if (testimonial.user_id) {
+            crewLogs = await getVesselStateLogs(supabase, testimonial.vessel_id, testimonial.user_id);
+          }
+        } catch (error) {
+          console.warn('[INBOX] Could not fetch crew logs (RLS may block), will use vessel logs:', error);
+        }
+        
+        // Fetch ALL vessel logs (captain has permission to see all logs on their vessel)
+        // This allows captain to compare what crew requested vs what actually happened on vessel
+        const vesselLogs = await getVesselStateLogs(supabase, testimonial.vessel_id);
+        
+        console.log('[INBOX] Fetched logs:', {
+          crewLogsCount: crewLogs.length,
+          vesselLogsCount: vesselLogs.length,
+          crewFirstFew: crewLogs.slice(0, 5),
+          vesselFirstFew: vesselLogs.slice(0, 5),
+        });
+        
+        // Store both sets of logs
+        // Use crew logs if available, otherwise fall back to vessel logs filtered to date range
+        setVesselStateLogs(crewLogs.length > 0 ? crewLogs : vesselLogs);
+        setAllVesselLogs(vesselLogs); // Store all vessel logs for comparison
+      } catch (error: any) {
+        console.error('[INBOX] Error fetching vessel state logs:', {
+          error,
+          message: error?.message,
+          code: error?.code,
+          details: error?.details,
+          hint: error?.hint,
+          vesselId: testimonial.vessel_id,
+          userId: testimonial.user_id
+        });
+        setVesselStateLogs([]);
+      } finally {
+        setIsLoadingLogs(false);
+      }
+    } else {
+      setVesselStateLogs([]);
+    }
   };
 
   const openCaptaincyActionDialog = (request: typeof captaincyRequests[0], actionType: 'approve' | 'reject') => {
@@ -826,25 +897,15 @@ export default function InboxPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            onClick={() => openActionDialog(testimonial, 'approve')}
-                            size="sm"
-                            className="rounded-lg bg-green-600 hover:bg-green-700"
-                          >
-                            <CheckCircle2 className="h-4 w-4 mr-2" />
-                            Approve
-                          </Button>
-                          <Button
-                            onClick={() => openActionDialog(testimonial, 'reject')}
-                            size="sm"
-                            variant="destructive"
-                            className="rounded-lg"
-                          >
-                            <XCircle className="h-4 w-4 mr-2" />
-                            Reject
-                          </Button>
-                        </div>
+                        <Button
+                          onClick={() => openActionDialog(testimonial, 'approve')}
+                          size="sm"
+                          variant="outline"
+                          className="rounded-lg"
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          View
+                        </Button>
                       </TableCell>
                     </TableRow>
                       ))}
@@ -939,19 +1000,20 @@ export default function InboxPage() {
 
       {/* Action Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="rounded-xl">
+        <DialogContent className="rounded-xl max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {action === 'approve' ? 'Approve Testimonial' : 'Reject Testimonial'}
+              {action === 'approve' ? 'Review Testimonial Request' : 'Reject Testimonial'}
             </DialogTitle>
             <DialogDescription>
               {action === 'approve' 
-                ? 'Are you sure you want to approve this testimonial request?'
+                ? 'Review the requested dates and compare with actual vessel logs before approving.'
                 : 'Please provide a reason for rejecting this testimonial request.'}
             </DialogDescription>
           </DialogHeader>
           {selectedTestimonial && (
             <div className="space-y-4 py-4">
+              {/* Basic Info */}
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Requested By:</span>
@@ -961,17 +1023,93 @@ export default function InboxPage() {
                   <span className="text-muted-foreground">Vessel:</span>
                   <span className="font-medium">{getVesselName(selectedTestimonial.vessel_id)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Date Range:</span>
-                  <span className="font-medium">
-                    {format(new Date(selectedTestimonial.start_date), 'MMM d, yyyy')} - {format(new Date(selectedTestimonial.end_date), 'MMM d, yyyy')}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Total Days:</span>
-                  <span className="font-medium">{selectedTestimonial.total_days}</span>
-                </div>
               </div>
+
+              {/* Date Comparison - Show for approve action, but also allow rejection from this view */}
+              {action === 'approve' && (
+                <div className="space-y-4">
+                  <Separator />
+                  <div>
+                    <h4 className="text-sm font-semibold mb-3">Date Range Comparison</h4>
+                    
+                    {/* Requested Dates */}
+                    <Card className="mb-3">
+                      <CardContent className="pt-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Calendar className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">Requested Date Range</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">From:</span>
+                            <span className="font-medium">{format(new Date(selectedTestimonial.start_date), 'MMM d, yyyy')}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">To:</span>
+                            <span className="font-medium">{format(new Date(selectedTestimonial.end_date), 'MMM d, yyyy')}</span>
+                          </div>
+                          <div className="flex justify-between text-sm pt-2 border-t">
+                            <span className="text-muted-foreground">Total Days Requested:</span>
+                            <span className="font-semibold">{selectedTestimonial.total_days} days</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Actual Logged Dates */}
+                    {isLoadingLogs ? (
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span className="text-sm text-muted-foreground">Loading vessel logs...</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ) : vesselStateLogs.length > 0 || allVesselLogs.length > 0 ? (
+                      <DateComparisonView 
+                        requestedStart={selectedTestimonial.start_date}
+                        requestedEnd={selectedTestimonial.end_date}
+                        requestedDays={selectedTestimonial.total_days}
+                        actualLogs={vesselStateLogs}
+                        vesselLogs={allVesselLogs}
+                        testimonial={selectedTestimonial}
+                      />
+                    ) : (
+                      <Card className="border-yellow-500/30 bg-yellow-500/5">
+                        <CardContent className="pt-4">
+                          <div className="flex items-start gap-2">
+                            <AlertCircle className="h-4 w-4 text-yellow-600 mt-0.5" />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">No Logs Found</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                No logged dates found for this user on this vessel. Please verify the date range before approving.
+                              </p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+
+                  {/* Rejection Reason Field - Available when reviewing */}
+                  <Separator />
+                  <div className="space-y-2">
+                    <Label htmlFor="rejection-reason-review">Rejection Reason (if rejecting)</Label>
+                    <Textarea
+                      id="rejection-reason-review"
+                      placeholder="If you need to reject this request, please provide a reason..."
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      className="rounded-lg min-h-[100px]"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      If you find discrepancies or issues with the request, you can reject it and provide a reason above.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {action === 'reject' && (
                 <div className="space-y-2">
                   <Label htmlFor="rejection-reason">Rejection Reason *</Label>
@@ -1000,20 +1138,62 @@ export default function InboxPage() {
             >
               Cancel
             </Button>
-            <Button
-              onClick={action === 'approve' ? handleApprove : handleReject}
-              disabled={isProcessing}
-              className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                action === 'approve' ? 'Approve' : 'Reject'
-              )}
-            </Button>
+            {action === 'approve' && (
+              <>
+                <Button
+                  variant="destructive"
+                  onClick={handleReject}
+                  disabled={isProcessing || !rejectionReason.trim()}
+                  className="rounded-xl"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="mr-2 h-4 w-4" />
+                      Reject
+                    </>
+                  )}
+                </Button>
+                <Button
+                  onClick={handleApprove}
+                  disabled={isProcessing}
+                  className="rounded-xl bg-green-600 hover:bg-green-700"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      Approve
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
+            {action === 'reject' && (
+              <Button
+                onClick={handleReject}
+                disabled={isProcessing || !rejectionReason.trim()}
+                variant="destructive"
+                className="rounded-xl"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Reject'
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
