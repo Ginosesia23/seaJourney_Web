@@ -21,13 +21,16 @@ import { z } from 'zod';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments } from '@/supabase/database/queries';
-import { format, parse, differenceInDays, isAfter } from 'date-fns';
+import { format, parse, differenceInDays, isAfter, startOfDay, isBefore, getYear, getMonth, setMonth, setYear, startOfMonth } from 'date-fns';
 import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit, Shield, FileText, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import type { VesselAssignment, Vessel, UserProfile } from '@/lib/types';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar';
+import { updateUserProfile } from '@/supabase/database/queries';
 
 function CaptainRoleApplicationCard({ userProfile, userId }: { userProfile: UserProfile | null; userId?: string }) {
   const { supabase } = useSupabase();
@@ -520,6 +523,192 @@ const vesselDetailsSchema = z.object({
 
 type VesselDetailsFormValues = z.infer<typeof vesselDetailsSchema>;
 
+function VesselStartDateCard({ userProfile }: { userProfile: UserProfile | null }) {
+  const { user } = useUser();
+  const { supabase } = useSupabase();
+  const { toast } = useToast();
+  const [isSaving, setIsSaving] = useState(false);
+  const [startDate, setStartDate] = useState<Date | undefined>(
+    userProfile?.startDate ? new Date(userProfile.startDate) : undefined
+  );
+  const [isOpen, setIsOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState<Date>(
+    startDate ? startOfMonth(startDate) : startOfMonth(new Date())
+  );
+
+  useEffect(() => {
+    if (userProfile?.startDate) {
+      setStartDate(new Date(userProfile.startDate));
+    }
+  }, [userProfile?.startDate]);
+
+  const handleSave = async () => {
+    if (!user?.id) return;
+
+    setIsSaving(true);
+    try {
+      await updateUserProfile(supabase, user.id, {
+        startDate: startDate ? format(startDate, 'yyyy-MM-dd') : null,
+      });
+
+      toast({
+        title: 'Start Date Updated',
+        description: 'Your vessel start date has been saved successfully.',
+      });
+
+      setIsOpen(false);
+    } catch (error: any) {
+      console.error('Error updating start date:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update start date. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="space-y-1">
+          <Label>Official Start Date</Label>
+          <p className="text-sm text-muted-foreground">
+            This is the earliest date you can change vessel states. States can only be changed from this date to today.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => setIsOpen(!isOpen)}
+          disabled={isSaving}
+        >
+          {startDate ? 'Change Date' : 'Set Start Date'}
+        </Button>
+      </div>
+
+      {startDate && (
+        <div className="flex items-center gap-2 text-sm">
+          <Calendar className="h-4 w-4 text-muted-foreground" />
+          <span className="font-medium">{format(startDate, 'MMMM d, yyyy')}</span>
+        </div>
+      )}
+
+      {isOpen && (
+        <div className="space-y-4 p-4 border rounded-lg bg-muted/50">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-full justify-start text-left font-normal"
+              >
+                <Calendar className="mr-2 h-4 w-4" />
+                {startDate ? format(startDate, 'PPP') : 'Pick a date'}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <div className="p-3 space-y-3">
+                {/* Year and Month Selectors */}
+                <div className="flex gap-2">
+                  <Select
+                    value={getYear(calendarMonth).toString()}
+                    onValueChange={(value) => {
+                      const newYear = parseInt(value);
+                      setCalendarMonth(setYear(calendarMonth, newYear));
+                    }}
+                  >
+                    <SelectTrigger className="w-[120px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[200px]">
+                      {Array.from({ length: 50 }, (_, i) => {
+                        const year = new Date().getFullYear() - i;
+                        return (
+                          <SelectItem key={year} value={year.toString()}>
+                            {year}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={getMonth(calendarMonth).toString()}
+                    onValueChange={(value) => {
+                      const newMonth = parseInt(value);
+                      setCalendarMonth(setMonth(calendarMonth, newMonth));
+                    }}
+                  >
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[
+                        'January', 'February', 'March', 'April', 'May', 'June',
+                        'July', 'August', 'September', 'October', 'November', 'December'
+                      ].map((month, index) => (
+                        <SelectItem key={index} value={index.toString()}>
+                          {month}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <CalendarComponent
+                  mode="single"
+                  selected={startDate}
+                  month={calendarMonth}
+                  onMonthChange={setCalendarMonth}
+                  onSelect={(date) => {
+                    if (date) {
+                      const today = startOfDay(new Date());
+                      const selected = startOfDay(date);
+                      if (isAfter(selected, today)) {
+                        toast({
+                          title: 'Invalid Date',
+                          description: 'Start date cannot be in the future.',
+                          variant: 'destructive',
+                        });
+                        return;
+                      }
+                      setStartDate(date);
+                      setCalendarMonth(startOfMonth(date));
+                    }
+                  }}
+                  disabled={(date) => isAfter(date, new Date())}
+                  initialFocus
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsOpen(false);
+                setStartDate(userProfile?.startDate ? new Date(userProfile.startDate) : undefined);
+              }}
+              disabled={isSaving}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save'
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: UserProfile | null; vessel: Vessel | null; vesselData: any }) {
   const { toast } = useToast();
   const [isSaving, setIsSaving] = useState(false);
@@ -915,6 +1104,22 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
           )}
         </form>
       </Form>
+
+      {/* Vessel Start Date Card */}
+      <Card className="rounded-xl border">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            Official Start Date
+          </CardTitle>
+          <CardDescription>
+            Set your vessel's official start date. You can only change states from this date onwards.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <VesselStartDateCard userProfile={userProfile} />
+        </CardContent>
+      </Card>
 
       {/* Account Information Card */}
       <Card className="rounded-xl border">

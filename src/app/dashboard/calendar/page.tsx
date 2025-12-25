@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
@@ -52,6 +53,7 @@ export default function CalendarPage() {
     
     const activeVesselId = (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId;
     
+    const startDate = (userProfileRaw as any).start_date || (userProfileRaw as any).startDate || null;
     return {
       ...userProfileRaw,
       id: userProfileRaw.id,
@@ -66,6 +68,7 @@ export default function CalendarPage() {
       role: (userProfileRaw as any).role || 'crew',
       subscriptionTier: (userProfileRaw as any).subscription_tier || (userProfileRaw as any).subscriptionTier || 'free',
       subscriptionStatus: (userProfileRaw as any).subscription_status || (userProfileRaw as any).subscriptionStatus || 'inactive',
+      startDate: startDate || undefined,
     } as UserProfile;
   }, [userProfileRaw]);
 
@@ -337,6 +340,32 @@ export default function CalendarPage() {
 
     const dateStr = format(date, 'yyyy-MM-dd');
     const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
+
+    // For vessel accounts, allow editing from the vessel's start_date (if set) or vessel creation date
+    if (userProfile?.role === 'vessel') {
+      // Check if user has a start_date set
+      const userStartDate = userProfile?.startDate 
+        ? startOfDay(new Date(userProfile.startDate))
+        : null;
+      
+      // Fallback to vessel created_at date if start_date is not set
+      let earliestAllowedDate: Date | null = userStartDate;
+      if (!earliestAllowedDate) {
+        const vesselData = vessels?.find(v => v.id === currentVessel.id);
+        if (vesselData && (vesselData as any).created_at) {
+          earliestAllowedDate = startOfDay(new Date((vesselData as any).created_at));
+        }
+      }
+
+      if (earliestAllowedDate && isBefore(dateObj, earliestAllowedDate)) {
+        return {
+          valid: false,
+          reason: `You cannot change states before ${format(earliestAllowedDate, 'MMM d, yyyy')}${userStartDate ? ' (your official start date)' : ' (vessel launch date)'}.`,
+        };
+      }
+      // No end date restriction for vessel accounts - they can edit any date from start to present
+      return { valid: true };
+    }
 
     // Find the earliest assignment across ALL vessels (when user first joined any vessel)
     let earliestAssignment: VesselAssignment | null = null;
@@ -814,63 +843,90 @@ export default function CalendarPage() {
                   standbyStyle = {};
                 }
 
-                // Build title text with standby indicator
-                let titleText = '';
-                if (isFuture) {
-                  titleText = 'Cannot update future dates';
-                } else if (stateInfo) {
-                  titleText = `${format(day, 'MMM d, yyyy')}: ${stateInfo.label}`;
-                  if (isCountedStandby) {
-                    titleText += ' (Counted as Standby)';
-                  }
-                } else {
-                  titleText = format(day, 'MMM d, yyyy');
-                }
+                // Build tooltip content
+                const tooltipContent = (
+                  <div className="space-y-1.5 text-sm">
+                    <div className="font-semibold">{format(day, 'EEEE, MMMM d, yyyy')}</div>
+                    {isFuture ? (
+                      <div className="text-muted-foreground">Future date - cannot be updated</div>
+                    ) : stateInfo ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <stateInfo.icon className="h-4 w-4" style={{ color: stateInfo.color }} />
+                          <span className="font-medium">{stateInfo.label}</span>
+                        </div>
+                        {isCountedStandby && (
+                          <div className="flex items-center gap-2 text-purple-400">
+                            <Clock className="h-3.5 w-3.5" />
+                            <span>Counted as Standby</span>
+                          </div>
+                        )}
+                        {currentVessel && (
+                          <div className="text-muted-foreground text-xs pt-1 border-t border-border/50">
+                            Vessel: {currentVessel.name}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-muted-foreground">No state logged</div>
+                    )}
+                    {isCurrentDay && (
+                      <div className="text-xs text-primary font-medium pt-1 border-t border-border/50">Today</div>
+                    )}
+                  </div>
+                );
 
                 return (
-                  <button
-                    key={dateKey}
-                    onClick={() => handleDateClick(day)}
-                    disabled={isFuture}
-                    className={cn(
-                      "aspect-square rounded-xl text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
-                      !isFuture && "hover:scale-105 hover:shadow-md",
-                      !isCurrentMonth && "opacity-40",
-                      isFuture && "opacity-30 cursor-not-allowed",
-                      isCurrentDay && !isInRange && "ring-2 ring-primary ring-offset-2",
-                      isInRange && "ring-2 ring-primary/50",
-                      (isRangeStart || isRangeEnd) && "ring-2 ring-primary ring-offset-1",
-                      stateInfo 
-                        ? "text-white" 
-                        : "bg-muted/50 text-muted-foreground hover:bg-muted"
-                    )}
-                    style={
-                      backgroundStyle
-                        ? { ...standbyStyle, ...backgroundStyle }
-                        : stateInfo 
-                          ? { ...standbyStyle, backgroundColor: stateInfo.color } 
-                          : isInRange 
-                            ? { backgroundColor: 'hsl(var(--primary) / 0.15)', ...standbyStyle } 
-                            : standbyStyle
-                    }
-                    title={titleText}
-                  >
-                    <div className="flex flex-col items-center justify-center h-full relative">
-                      <span className="relative z-10 text-center">{format(day, 'd')}</span>
-                      {/* State icon in top-left corner (only for counted standby dates) */}
-                      {isCountedStandby && stateInfo && (
-                        <stateInfo.icon className="absolute top-1.5 left-1.5 h-2 w-2 opacity-90 z-10" />
-                      )}
-                      {/* State icon centered (for non-standby dates) */}
-                      {!isCountedStandby && stateInfo && (
-                        <stateInfo.icon className="h-2 w-2 mt-0.5 opacity-90 relative z-10" />
-                      )}
-                      {/* Standby icon in bottom-right corner (only for counted standby dates) */}
-                      {isCountedStandby && (
-                        <Clock className="absolute bottom-1.5 right-1.5 h-2 w-2 opacity-90 z-10" />
-                      )}
-                    </div>
-                  </button>
+                  <Tooltip key={dateKey}>
+                    <TooltipTrigger asChild>
+                      <div className="aspect-square">
+                        <button
+                          onClick={() => handleDateClick(day)}
+                          disabled={isFuture}
+                          className={cn(
+                            "w-full h-full rounded-xl text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                            !isFuture && "hover:scale-105 hover:shadow-md",
+                            !isCurrentMonth && "opacity-40",
+                            isFuture && "opacity-30 cursor-not-allowed",
+                            isCurrentDay && !isInRange && "ring-2 ring-primary ring-offset-2",
+                            isInRange && "ring-2 ring-primary/50",
+                            (isRangeStart || isRangeEnd) && "ring-2 ring-primary ring-offset-1",
+                            stateInfo 
+                              ? "text-white" 
+                              : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                          )}
+                          style={
+                            backgroundStyle
+                              ? { ...standbyStyle, ...backgroundStyle }
+                              : stateInfo 
+                                ? { ...standbyStyle, backgroundColor: stateInfo.color } 
+                                : isInRange 
+                                  ? { backgroundColor: 'hsl(var(--primary) / 0.15)', ...standbyStyle } 
+                                  : standbyStyle
+                          }
+                        >
+                          <div className="flex flex-col items-center justify-center h-full relative">
+                            <span className="relative z-10 text-center">{format(day, 'd')}</span>
+                            {/* State icon in top-left corner (only for counted standby dates) */}
+                            {isCountedStandby && stateInfo && (
+                              <stateInfo.icon className="absolute top-1.5 left-1.5 h-2 w-2 opacity-90 z-10" />
+                            )}
+                            {/* State icon centered (for non-standby dates) */}
+                            {!isCountedStandby && stateInfo && (
+                              <stateInfo.icon className="h-2 w-2 mt-0.5 opacity-90 relative z-10" />
+                            )}
+                            {/* Standby icon in bottom-right corner (only for counted standby dates) */}
+                            {isCountedStandby && (
+                              <Clock className="absolute bottom-1.5 right-1.5 h-2 w-2 opacity-90 z-10" />
+                            )}
+                          </div>
+                        </button>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      {tooltipContent}
+                    </TooltipContent>
+                  </Tooltip>
                 );
               })}
             </div>
@@ -1091,9 +1147,11 @@ export default function CalendarPage() {
       </Card>
 
       {/* Calendar Grid - 3 columns on large screens, 2 on medium, 1 on small */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {months.map(renderMonth)}
-      </div>
+      <TooltipProvider delayDuration={100}>
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {months.map(renderMonth)}
+        </div>
+      </TooltipProvider>
 
       {/* State Change Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={(open) => {

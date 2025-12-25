@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, startOfDay, isAfter, parse, eachDayOfInterval, isWithinInterval, subMonths, addDays, differenceInDays } from 'date-fns';
-import { LifeBuoy, Loader2, PlusCircle, Mail, Calendar, CalendarIcon, Ship, Clock, CheckCircle2, XCircle, FileText, Download, Trash2 } from 'lucide-react';
+import { LifeBuoy, Loader2, PlusCircle, Mail, Calendar, CalendarIcon, Ship, Clock, CheckCircle2, XCircle, FileText, Download, Trash2, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -278,6 +278,7 @@ function calculateDayCounts(stateLogs: StateLog[], startDate: string, endDate: s
 
 export default function TestimonialsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [expandedTestimonials, setExpandedTestimonials] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [isLoadingTestimonials, setIsLoadingTestimonials] = useState(false);
@@ -1066,11 +1067,17 @@ export default function TestimonialsPage() {
         lastName: userProfile.lastName,
         username: userProfile.username,
         email: userProfile.email || '',
+        dateOfBirth: null, // Not available in current user profile
+        position: userProfile.position || null,
       },
       vessel: {
         name: vessel.name,
         type: vessel.type || null,
         officialNumber: vessel.officialNumber || null,
+        flag_state: vessel.flag_state || null,
+        length_m: vessel.length_m || null,
+        gross_tonnage: vessel.gross_tonnage || null,
+        call_sign: vessel.call_sign || null,
       },
     });
     } catch (error) {
@@ -1573,85 +1580,209 @@ export default function TestimonialsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredTestimonials.map((testimonial) => (
-                        <TableRow key={testimonial.id}>
-                          <TableCell className="font-medium">
-                            <div className="flex items-center gap-2">
-                              <Ship className="h-4 w-4 text-muted-foreground" />
-                              {getVesselName(testimonial.vessel_id)}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2 text-sm">
-                              <Calendar className="h-4 w-4 text-muted-foreground" />
-                              {format(new Date(testimonial.start_date), 'MMM d, yyyy')} - {format(new Date(testimonial.end_date), 'MMM d, yyyy')}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-sm">
-                              <div className="font-medium">{testimonial.total_days} total</div>
-                              <div className="text-muted-foreground text-xs">
-                                {testimonial.at_sea_days} at sea, {testimonial.standby_days} standby
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {testimonial.captain_email ? (
-                              <div className="flex items-center gap-2">
-                                <Mail className="h-4 w-4 text-muted-foreground" />
-                                <div>
-                                  {testimonial.captain_name && (
-                                    <div className="font-medium text-sm">{testimonial.captain_name}</div>
-                                  )}
-                                  <div className="text-sm text-muted-foreground">{testimonial.captain_email}</div>
+                      {filteredTestimonials.map((testimonial) => {
+                        const isExpanded = expandedTestimonials.has(testimonial.id);
+                        const hasRejectionMessage = testimonial.status === 'rejected' && testimonial.notes;
+                        
+                        // Extract rejection reason from notes
+                        let rejectionReason = '';
+                        if (testimonial.notes) {
+                          if (testimonial.notes.includes('Rejection reason:')) {
+                            rejectionReason = testimonial.notes.split('Rejection reason:')[1]?.trim() || '';
+                          } else {
+                            // If no prefix, use the whole notes field
+                            rejectionReason = testimonial.notes;
+                          }
+                        }
+                        
+                        return (
+                          <React.Fragment key={testimonial.id}>
+                            <TableRow>
+                              <TableCell className="font-medium">
+                                <div className="flex items-center gap-2">
+                                  <Ship className="h-4 w-4 text-muted-foreground" />
+                                  {getVesselName(testimonial.vessel_id)}
                                 </div>
-                              </div>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">—</span>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2 text-sm">
+                                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                                  {format(new Date(testimonial.start_date), 'MMM d, yyyy')} - {format(new Date(testimonial.end_date), 'MMM d, yyyy')}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="text-sm">
+                                  <div className="font-medium">{testimonial.total_days} total</div>
+                                  <div className="text-muted-foreground text-xs">
+                                    {testimonial.at_sea_days} at sea, {testimonial.standby_days} standby
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {testimonial.captain_email ? (
+                                  <div className="flex items-center gap-2">
+                                    <Mail className="h-4 w-4 text-muted-foreground" />
+                                    <div>
+                                      {testimonial.captain_name && (
+                                        <div className="font-medium text-sm">{testimonial.captain_name}</div>
+                                      )}
+                                      <div className="text-sm text-muted-foreground">{testimonial.captain_email}</div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-sm text-muted-foreground">—</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  {getStatusBadge(testimonial.status)}
+                                  {hasRejectionMessage && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        const newExpanded = new Set(expandedTestimonials);
+                                        if (newExpanded.has(testimonial.id)) {
+                                          newExpanded.delete(testimonial.id);
+                                        } else {
+                                          newExpanded.add(testimonial.id);
+                                        }
+                                        setExpandedTestimonials(newExpanded);
+                                      }}
+                                      className="h-6 w-6 p-0"
+                                    >
+                                      {isExpanded ? (
+                                        <ChevronUp className="h-4 w-4" />
+                                      ) : (
+                                        <ChevronDown className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {format(new Date(testimonial.created_at), 'MMM d, yyyy')}
+                              </TableCell>
+                              <TableCell>
+                                {testimonial.pdf_url ? (
+                                  <a 
+                                    href={testimonial.pdf_url} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-primary hover:underline text-sm"
+                                  >
+                                    View PDF
+                                  </a>
+                                ) : testimonial.status === 'approved' ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleGeneratePDF(testimonial)}
+                                    className="rounded-xl"
+                                  >
+                                    <Download className="mr-2 h-4 w-4" />
+                                    Generate PDF
+                                  </Button>
+                                ) : (
+                                  <span className="text-sm text-muted-foreground">—</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {testimonial.status !== 'approved' ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setTestimonialToDelete(testimonial)}
+                                    className="rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                ) : (
+                                  <span className="text-sm text-muted-foreground">—</span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                            {isExpanded && hasRejectionMessage && (
+                              <TableRow>
+                                <TableCell colSpan={8} className="bg-red-50 dark:bg-red-950/20 p-0">
+                                  <div className="p-4 space-y-3">
+                                    <div className="flex items-start gap-3">
+                                      <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                                      <div className="flex-1 space-y-3">
+                                        <div>
+                                          <div className="font-semibold text-sm text-red-900 dark:text-red-100 mb-2">
+                                            Rejection Details
+                                          </div>
+                                          <div className="text-sm text-red-800 dark:text-red-200 whitespace-pre-wrap bg-white dark:bg-gray-900 p-4 rounded-lg border border-red-200 dark:border-red-800 max-h-96 overflow-y-auto">
+                                            {rejectionReason.split('--- State Mismatches Found ---').map((section, idx) => {
+                                              if (idx === 0) {
+                                                // Main rejection reason
+                                                return section.trim() ? (
+                                                  <div key={idx} className="mb-4">
+                                                    <div className="font-medium mb-2">Reason:</div>
+                                                    <div className="text-red-900 dark:text-red-100">{section.trim()}</div>
+                                                  </div>
+                                                ) : null;
+                                              } else {
+                                                // Mismatch details section
+                                                const mismatchParts = section.split('\n').filter(line => line.trim());
+                                                return (
+                                                  <div key={idx} className="mt-4 pt-4 border-t border-red-200 dark:border-red-800">
+                                                    <div className="font-medium mb-3 text-red-900 dark:text-red-100">
+                                                      State Mismatches Found
+                                                    </div>
+                                                    <div className="space-y-2 text-sm">
+                                                      {mismatchParts.map((line, lineIdx) => {
+                                                        if (line.includes('Total mismatches:')) {
+                                                          return (
+                                                            <div key={lineIdx} className="font-semibold text-red-900 dark:text-red-100 mb-2">
+                                                              {line}
+                                                            </div>
+                                                          );
+                                                        } else if (line.match(/^\d+\./)) {
+                                                          // Mismatch line
+                                                          return (
+                                                            <div key={lineIdx} className="text-red-800 dark:text-red-200 pl-4">
+                                                              {line}
+                                                            </div>
+                                                          );
+                                                        } else if (line.includes('more mismatch')) {
+                                                          return (
+                                                            <div key={lineIdx} className="text-red-700 dark:text-red-300 italic pl-4">
+                                                              {line}
+                                                            </div>
+                                                          );
+                                                        } else if (line.trim() && !line.includes('Please review')) {
+                                                          return (
+                                                            <div key={lineIdx} className="text-red-800 dark:text-red-200">
+                                                              {line}
+                                                            </div>
+                                                          );
+                                                        } else if (line.includes('Please review')) {
+                                                          return (
+                                                            <div key={lineIdx} className="mt-3 pt-3 border-t border-red-200 dark:border-red-800 text-red-900 dark:text-red-100 font-medium">
+                                                              {line}
+                                                            </div>
+                                                          );
+                                                        }
+                                                        return null;
+                                                      })}
+                                                    </div>
+                                                  </div>
+                                                );
+                                              }
+                                            })}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
                             )}
-                          </TableCell>
-                          <TableCell>
-                            {getStatusBadge(testimonial.status)}
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {format(new Date(testimonial.created_at), 'MMM d, yyyy')}
-                          </TableCell>
-                          <TableCell>
-                            {testimonial.pdf_url ? (
-                              <a 
-                                href={testimonial.pdf_url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-primary hover:underline text-sm"
-                              >
-                                View PDF
-                              </a>
-                            ) : testimonial.status === 'approved' ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleGeneratePDF(testimonial)}
-                                className="rounded-xl"
-                              >
-                                <Download className="mr-2 h-4 w-4" />
-                                Generate PDF
-                              </Button>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setTestimonialToDelete(testimonial)}
-                              className="rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                          </React.Fragment>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 )}

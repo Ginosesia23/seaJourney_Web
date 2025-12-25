@@ -32,11 +32,17 @@ export interface TestimonialPDFData {
     lastName?: string;
     username: string;
     email: string;
+    dateOfBirth?: string | null;
+    position?: string | null;
   };
   vessel: {
     name: string;
     type: string | null;
     officialNumber?: string | null;
+    flag_state?: string | null;
+    length_m?: number | null;
+    gross_tonnage?: number | null;
+    call_sign?: string | null;
   };
 }
 
@@ -142,12 +148,17 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
     ? format(new Date(testimonial.signoff_used_at), 'dd MMMM yyyy')
     : null;
 
+  // Format date of birth if available
+  const dateOfBirth = userProfile.dateOfBirth
+    ? format(parse(userProfile.dateOfBirth, 'yyyy-MM-dd', new Date()), 'dd MMMM yyyy')
+    : null;
+
   // Professional color scheme
   const textDark: [number, number, number] = [30, 30, 30];
   const textGray: [number, number, number] = [100, 100, 100];
-  const primaryBlue: [number, number, number] = [46, 139, 192];
+  const primaryBlue: [number, number, number] = [0, 29, 55]; // SeaJourney blue
   const borderColor: [number, number, number] = [200, 200, 200];
-  const headerColor: [number, number, number] = [12, 23, 33]; // #0c1721
+  const headerColor: [number, number, number] = [0, 29, 55]; // #001d37
 
   const setFillColor = (c: [number, number, number]) =>
     doc.setFillColor(c[0], c[1], c[2]);
@@ -159,88 +170,190 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
-  // ===== Header with colored background =====
-  const headerHeight = 50;
+  // ===== Header with SeaJourney branding =====
+  const headerHeight = 45;
   setFillColor(headerColor);
   doc.rect(0, 0, pageWidth, headerHeight, 'F');
 
-  let currentY = 12;
+  let currentY = 10;
   
   // Load and add PNG logo to PDF
   try {
     const logoPath = '/seajourney_logo_white.png';
     const logoDataURL = await loadLogoImage(logoPath);
     
-    const logoWidth = 45;
-    const logoHeight = 12;
+    const logoWidth = 50;
+    const logoHeight = 14;
     const logoX = (pageWidth - logoWidth) / 2;
     
     doc.addImage(logoDataURL, 'PNG', logoX, currentY, logoWidth, logoHeight);
-    currentY += logoHeight + 8;
+    currentY += logoHeight + 6;
   } catch (error) {
     console.error('Failed to load logo image:', error);
     // Fallback to text logo
-    doc.setFontSize(22);
+    doc.setFontSize(24);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(255, 255, 255);
     doc.text('SeaJourney', pageWidth / 2, currentY, { align: 'center' });
     currentY += 8;
   }
 
-  // Title
-  doc.setFontSize(18);
+  // Main Title - PYA style
+  doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(255, 255, 255);
-  doc.text('Sea Service Testimonial', pageWidth / 2, currentY, {
+  doc.text('THE SEA SERVICE TESTIMONIAL', pageWidth / 2, currentY, {
     align: 'center',
   });
-  currentY += 6;
+  currentY += 7;
 
   // Subtitle
-  doc.setFontSize(10);
+  doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(220, 220, 220);
-  doc.text('For submission to PYA / Nautilus / MCA', pageWidth / 2, currentY, {
+  doc.text('(MCA Approved for use in respect of service on commercially and privately operated yachts and sail training vessels)', 
+    pageWidth / 2, currentY, {
     align: 'center',
+    maxWidth: pageWidth - 28,
   });
   
   // Reset text color for content
   setTextColor(textDark);
   currentY = headerHeight + 15;
 
-  // ===== Section helper =====
-  const sectionHeader = (title: string) => {
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    setTextColor(primaryBlue);
-    doc.text(title, 14, currentY);
-    currentY += 6;
-    
-    setDrawColor(primaryBlue);
-    doc.setLineWidth(0.5);
-    doc.line(14, currentY - 2, 80, currentY - 2);
-    currentY += 6;
-    
-    setTextColor(textDark);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-  };
+  // ===== Part 1 - Service =====
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(primaryBlue);
+  doc.text('Part 1 - Service', 14, currentY);
+  currentY += 6;
 
-  // ===== Part 1 – Seafarer Details =====
-  sectionHeader('Part 1 – Seafarer Details');
+  // ===== Personal Details Section =====
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  setTextColor(textDark);
+  doc.text('This is to certify that:', 14, currentY);
+  currentY += 5;
 
-  const seafarerRows = [
-    ['Full Name:', fullName],
-    ['Email Address:', userProfile.email || 'Not provided'],
+  // Personal details table
+  const personalRows: string[][] = [
+    ['Name', fullName],
+    ['Email address', userProfile.email || 'Not provided'],
   ];
+  
+  if (dateOfBirth) {
+    personalRows.push(['Date of birth', dateOfBirth]);
+  }
 
   autoTable(doc, {
     startY: currentY,
     theme: 'plain',
-    body: seafarerRows,
+    head: [['Field', 'Details']],
+    body: personalRows,
     styles: {
       fontSize: 10,
-      cellPadding: { top: 5, right: 3, bottom: 5, left: 3 },
+      cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
+    },
+    headStyles: {
+      fillColor: [240, 240, 240],
+      textColor: textDark,
+      fontStyle: 'bold',
+      cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
+    },
+    columnStyles: {
+      0: {
+        fontStyle: 'bold',
+        cellWidth: 50,
+        textColor: textDark,
+      },
+      1: { cellWidth: 'auto' },
+    },
+    margin: { left: 14, right: 14 },
+    tableLineColor: borderColor,
+    tableLineWidth: 0.3,
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 5;
+
+  // Role section - show actual position if available
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  setTextColor(textDark);
+  doc.text('has served as (circle as appropriate):', 14, currentY);
+  currentY += 4;
+  
+  const roles = ['Master', 'Chief Mate', 'OOW', 'Deckhand', 'Engineer Watchkeeper', '2nd Engineer', 'Chief Engineer'];
+  const userPosition = userProfile.position || '';
+  
+  // If user has a position, highlight it in the role list
+  let roleText = roles.join(' / ');
+  if (userPosition) {
+    // Try to match user position to one of the roles
+    const matchedRole = roles.find(r => 
+      userPosition.toLowerCase().includes(r.toLowerCase()) || 
+      r.toLowerCase().includes(userPosition.toLowerCase())
+    );
+    if (matchedRole) {
+      roleText = roles.map(r => r === matchedRole ? `[${r}]` : r).join(' / ');
+      doc.setFontSize(9);
+      setTextColor(primaryBlue);
+      doc.text(`Position: ${userPosition}`, 14, currentY);
+      currentY += 4;
+    }
+  }
+  
+  doc.setFontSize(9);
+  setTextColor(textGray);
+  doc.text(roleText, 14, currentY, { maxWidth: pageWidth - 28 });
+  currentY += 6;
+
+  // ===== ON BOARD Section =====
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(primaryBlue);
+  doc.text('ON BOARD:', 14, currentY);
+  currentY += 5;
+
+  // Vessel details table
+  const vesselRows: string[][] = [
+    ['Vessel name', vessel.name || 'Not specified'],
+  ];
+
+  if (vessel.flag_state) {
+    vesselRows.push(['Flag', vessel.flag_state]);
+  }
+  if (vessel.officialNumber) {
+    vesselRows.push(['Official No.', vessel.officialNumber]);
+  }
+  if (vessel.type) {
+    const vesselTypeLabel = vessel.type === 'motor-yacht' ? 'M/Y' : 
+                           vessel.type === 'sailing-yacht' ? 'S/Y' : 
+                           vessel.type || 'Other';
+    vesselRows.push(['Type (M/Y, S/Y, other)', vesselTypeLabel]);
+  }
+  if (vessel.length_m) {
+    vesselRows.push(['Length-metres', `${vessel.length_m.toFixed(2)} m`]);
+  }
+  if (vessel.gross_tonnage) {
+    vesselRows.push(['GT', `${vessel.gross_tonnage.toFixed(2)}`]);
+  }
+  // Main engines KW - not available in current data, leave blank
+  vesselRows.push(['Main engines KW', '________________']);
+
+  autoTable(doc, {
+    startY: currentY,
+    theme: 'plain',
+    head: [['Field', 'Details']],
+    body: vesselRows,
+    styles: {
+      fontSize: 10,
+      cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
+    },
+    headStyles: {
+      fillColor: [240, 240, 240],
+      textColor: textDark,
+      fontStyle: 'bold',
+      cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
     },
     columnStyles: {
       0: {
@@ -252,66 +365,134 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
     },
     margin: { left: 14, right: 14 },
     tableLineColor: borderColor,
-    tableLineWidth: 0.1,
+    tableLineWidth: 0.3,
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 10;
+  currentY = (doc as any).lastAutoTable.finalY + 6;
 
-  // ===== Part 2 – Vessel & Service Details =====
-  sectionHeader('Part 2 – Vessel & Service Details');
-
-  const vesselRows: string[][] = [
-    ['Vessel Name:', vessel.name || 'Not specified'],
-    ['Vessel Type:', vessel.type || 'Not specified'],
+  // ===== Service Dates =====
+  const serviceDateRows: string[][] = [
+    ['From: (i.e. onboard yacht service)', startDate],
+    ['Until: (cannot leave blank or testimonial is not valid)', endDate],
   ];
-
-  if (vessel.officialNumber) {
-    vesselRows.push(['Official Number:', vessel.officialNumber]);
-  }
 
   autoTable(doc, {
     startY: currentY,
     theme: 'plain',
-    body: vesselRows,
+    body: serviceDateRows,
     styles: {
       fontSize: 10,
-      cellPadding: { top: 5, right: 3, bottom: 5, left: 3 },
+      cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
     },
     columnStyles: {
       0: {
         fontStyle: 'bold',
-        cellWidth: 70,
+        cellWidth: 100,
         textColor: textDark,
       },
       1: { cellWidth: 'auto' },
     },
     margin: { left: 14, right: 14 },
     tableLineColor: borderColor,
-    tableLineWidth: 0.1,
+    tableLineWidth: 0.3,
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 8;
+  currentY = (doc as any).lastAutoTable.finalY + 6;
 
-  const serviceRows: string[][] = [
-    ['Service Start Date:', startDate],
-    ['Service End Date:', endDate],
-    ['Total Service Days on Board:', `${testimonial.total_days} days`],
-    ['Actual Sea Service (days):', `${testimonial.at_sea_days} days`],
+  // ===== Service Breakdown (Days) =====
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  setTextColor(textDark);
+  doc.text('The above service includes:', 14, currentY);
+  currentY += 5;
+
+  const serviceBreakdownRows: string[][] = [
     [
-      'Standby Service (in port / at anchor):',
-      `${testimonial.standby_days} days`,
+      'Actual Days at Sea:',
+      `${testimonial.at_sea_days} days`,
+      '(proceeding to sea and in transit with main propelling engines running for at least 4h within a 24h period)'
     ],
-    ['Yard / Shipyard Service (days):', `${testimonial.yard_days} days`],
-    ['Leave (days):', `${testimonial.leave_days} days`],
+    [
+      'Stand-by Service:',
+      `${testimonial.standby_days} days`,
+      '(SHOULD NOT EXCEED DAYS AT SEA - time immediately following a voyage, waiting for owner, uniformed/ready to depart Max. 14 consecutive days without leaving port)'
+    ],
+    [
+      'Shipyard Service:',
+      `${testimonial.yard_days} days`,
+      '(max. 90 days per application)'
+    ],
+    [
+      'Watch keeping for HOLDERS of MCA OOW3000 or higher (ONLY WHILE VESSEL AT SEA AND UNDERWAY)',
+      '_____ days',
+      ''
+    ],
+    [
+      'Watchkeeping or UMS duties for Engineers registered in SV Program (ONLY WHILE VESSEL AT SEA AND UNDERWAY)',
+      '_____ days',
+      ''
+    ],
   ];
 
   autoTable(doc, {
     startY: currentY,
     theme: 'plain',
-    body: serviceRows,
+    head: [['Service Type', 'Days', 'Notes']],
+    body: serviceBreakdownRows,
+    styles: {
+      fontSize: 9,
+      cellPadding: { top: 2.5, right: 2, bottom: 2.5, left: 2 },
+    },
+    headStyles: {
+      fillColor: [240, 240, 240],
+      textColor: textDark,
+      fontStyle: 'bold',
+      fontSize: 9,
+      cellPadding: { top: 2.5, right: 2, bottom: 2.5, left: 2 },
+    },
+    columnStyles: {
+      0: {
+        fontStyle: 'bold',
+        cellWidth: 80,
+        textColor: textDark,
+      },
+      1: { 
+        cellWidth: 25,
+        halign: 'center',
+      },
+      2: { 
+        cellWidth: 'auto',
+        fontSize: 8,
+        textColor: textGray,
+      },
+    },
+    margin: { left: 14, right: 14 },
+    tableLineColor: borderColor,
+    tableLineWidth: 0.3,
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 6;
+
+  // ===== Days of Leave =====
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  setTextColor(textDark);
+  doc.text(`Days of leave of absence: ${testimonial.leave_days} days`, 14, currentY);
+  currentY += 6;
+
+  // ===== Areas Cruised (if we have passage data, could add this later) =====
+  const cruisingRows: string[][] = [
+    ['Areas cruised, rotation', '________________'],
+    ['nautical miles', '________________'],
+  ];
+
+  autoTable(doc, {
+    startY: currentY,
+    theme: 'plain',
+    body: cruisingRows,
     styles: {
       fontSize: 10,
-      cellPadding: { top: 5, right: 3, bottom: 5, left: 3 },
+      cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
     },
     columnStyles: {
       0: {
@@ -323,29 +504,23 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
     },
     margin: { left: 14, right: 14 },
     tableLineColor: borderColor,
-    tableLineWidth: 0.1,
+    tableLineWidth: 0.3,
   });
 
   currentY = (doc as any).lastAutoTable.finalY + 10;
 
-  // ===== Notes Section =====
-  if (testimonial.notes) {
-    sectionHeader('Additional Notes');
-
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    setTextColor(textDark);
-    doc.text(testimonial.notes, 14, currentY + 4, {
-      maxWidth: pageWidth - 28,
-      align: 'left',
-    });
-
-    currentY += 20;
+  // Check if we need a new page for declaration
+  if (currentY > pageHeight - 100) {
+    doc.addPage();
+    currentY = 20;
   }
 
   // ===== Part 3 – Declaration =====
-  currentY = Math.max(currentY, 150);
-  sectionHeader('Part 3 – Declaration by Master / Company Representative');
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(primaryBlue);
+  doc.text('Part 3 – Declaration by Master / Company Representative', 14, currentY);
+  currentY += 6;
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
@@ -358,11 +533,11 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
     'support applications for sea service verification by recognised bodies (e.g. PYA, ' +
     'Nautilus International) and, where applicable, submission to the Maritime and Coastguard Agency (MCA).';
 
-  doc.text(declarationText, 14, currentY + 4, {
+  doc.text(declarationText, 14, currentY, {
     maxWidth: pageWidth - 28,
     align: 'left',
   });
-  currentY += 22;
+  currentY += 18;
 
   // Signatory block
   setDrawColor(borderColor);
@@ -378,28 +553,30 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
   setTextColor(textDark);
   doc.setFont('helvetica', 'normal');
 
-  let lineY = currentY + 13;
-  doc.text(
-    `Name: ${testimonial.captain_name || '_______________________________'}`,
-    18,
-    lineY,
-  );
-  lineY += 5;
+  let lineY = currentY + 10;
+  // Captain name - fill in if available
+  const captainName = testimonial.captain_name || '_______________________________';
+  doc.text(`Name: ${captainName}`, 18, lineY);
+  lineY += 4.5;
+  
+  // Position - try to determine from captain name or leave as instruction
   doc.text(
     'Position: Master / Chief Officer / Manager (delete as appropriate)',
     18,
     lineY,
   );
-  lineY += 5;
+  lineY += 4.5;
+  
+  // Email - fill in if available
   if (testimonial.captain_email) {
     doc.text(`Email: ${testimonial.captain_email}`, 18, lineY);
-    lineY += 5;
+    lineY += 4.5;
   } else {
     doc.text('Email: _______________________________', 18, lineY);
-    lineY += 5;
+    lineY += 4.5;
   }
   doc.text('Company / Management: _______________________________', 18, lineY);
-  lineY += 5;
+  lineY += 4.5;
   doc.text('Telephone (office): _______________________________', 18, lineY);
 
   // Signature line inside the box
@@ -422,7 +599,13 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
   setTextColor(textDark);
   doc.setFont('helvetica', 'normal');
   doc.text('Date:', rightBoxX + 4, currentY + 15);
-  doc.line(rightBoxX + 15, currentY + 15, rightBoxX + 54, currentY + 15);
+  
+  // Fill in approval date if available, otherwise leave blank
+  if (approvedDate) {
+    doc.text(approvedDate, rightBoxX + 15, currentY + 15);
+  } else {
+    doc.line(rightBoxX + 15, currentY + 15, rightBoxX + 54, currentY + 15);
+  }
 
   doc.setFontSize(8);
   setTextColor(textGray);
@@ -435,8 +618,17 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
 
   // ===== Part 4 – Official Verification =====
   if (testimonial.official_body || testimonial.official_reference) {
+    if (currentY > pageHeight - 60) {
+      doc.addPage();
+      currentY = 20;
+    }
+    
     currentY += 6;
-    sectionHeader('Part 4 – Official Verification (PYA / Nautilus / Other)');
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    setTextColor(primaryBlue);
+    doc.text('Part 4 – Official Verification (PYA / Nautilus / Other)', 14, currentY);
+    currentY += 8;
 
     doc.setFontSize(10);
     setTextColor(textDark);
@@ -476,77 +668,84 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
     currentY = (doc as any).lastAutoTable.finalY + 6;
   }
 
-  // ===== Professional Footer =====
+  // ===== Footer on all pages (Document ID) + Full footer on last page =====
   const pageCount = (doc as any).internal.getNumberOfPages();
 
+  // Add document ID to all pages
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
-
-    const footerHeight = 35;
-    const footerStartY = pageHeight - footerHeight;
     
-    setFillColor(headerColor);
-    doc.rect(0, footerStartY, pageWidth, footerHeight, 'F');
-
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(255, 255, 255);
-
-    let footerY = footerStartY + 6;
-
-    // Top line
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text('FOR OFFICIALS USE ONLY', pageWidth / 2, footerY, {
-      align: 'center',
-    });
-    footerY += 6;
-
-    // Separator line
-    doc.setLineWidth(0.3);
-    doc.setDrawColor(100, 100, 100);
-    doc.line(14, footerY, pageWidth - 14, footerY);
-    footerY += 5;
-
-    // Codes (left)
+    // Simple footer with just document ID on all pages
     doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(220, 220, 220);
-
-    let leftY = footerY;
-    if (testimonial.testimonial_code) {
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(255, 255, 255);
-      doc.text(`Reference Code: ${testimonial.testimonial_code}`, 14, leftY);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(220, 220, 220);
-      leftY += 4;
-    }
-    doc.text(`Document ID: ${testimonial.id.substring(0, 8)}...`, 14, leftY);
-    leftY += 4;
-    doc.text(`Generated: ${generatedDate}`, 14, leftY);
-    if (approvedDate) {
-      leftY += 4;
-      doc.text(`Approved: ${approvedDate}`, 14, leftY);
-    }
-
-    // Center
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(255, 255, 255);
-    doc.text('www.seajourney.co.uk', pageWidth / 2, footerY, {
-      align: 'center',
+    setTextColor(textGray);
+    doc.text(`Document ID: ${testimonial.id}`, 14, pageHeight - 8, {
+      align: 'left',
     });
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(220, 220, 220);
-    doc.text('Digital sea service testimonials', pageWidth / 2, footerY + 4, {
-      align: 'center',
-    });
-
-    // Right
-    doc.text(`Page ${i} of ${pageCount}`, pageWidth - 14, footerY, {
+    doc.text(`Page ${i} of ${pageCount}`, pageWidth - 14, pageHeight - 8, {
       align: 'right',
     });
   }
+
+  // Full blue footer only on the last page
+  doc.setPage(pageCount);
+
+  const footerHeight = 30;
+  const footerStartY = pageHeight - footerHeight;
+  
+  setFillColor(headerColor);
+  doc.rect(0, footerStartY, pageWidth, footerHeight, 'F');
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(255, 255, 255);
+
+  let footerY = footerStartY + 8;
+
+  // Separator line
+  doc.setLineWidth(0.3);
+  doc.setDrawColor(100, 100, 100);
+  doc.line(14, footerY, pageWidth - 14, footerY);
+  footerY += 5;
+
+  // Codes (left)
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(220, 220, 220);
+
+  let leftY = footerY;
+  if (testimonial.testimonial_code) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text(`Reference Code: ${testimonial.testimonial_code}`, 14, leftY);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(220, 220, 220);
+    leftY += 4;
+  }
+  doc.text(`Document ID: ${testimonial.id}`, 14, leftY);
+  leftY += 4;
+  doc.text(`Generated: ${generatedDate}`, 14, leftY);
+  if (approvedDate) {
+    leftY += 4;
+    doc.text(`Approved: ${approvedDate}`, 14, leftY);
+  }
+
+  // Center
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 255, 255);
+  doc.text('www.seajourney.co.uk', pageWidth / 2, footerY, {
+    align: 'center',
+  });
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(220, 220, 220);
+  doc.text('Digital sea service testimonials', pageWidth / 2, footerY + 4, {
+    align: 'center',
+  });
+
+  // Right
+  doc.text(`Page ${pageCount} of ${pageCount}`, pageWidth - 14, footerY, {
+    align: 'right',
+  });
 
   doc.output('dataurlnewwindow');
 }

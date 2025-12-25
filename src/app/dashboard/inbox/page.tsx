@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc, useCollection } from '@/supabase/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, CheckCircle2, XCircle, Ship, Calendar, User, Mail, AlertCircle, Clock, FileText, Eye } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Ship, Calendar, User, Mail, AlertCircle, Clock, FileText, Eye, ChevronDown, ChevronUp } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format, parse, eachDayOfInterval, startOfDay, endOfDay, isAfter, isBefore, differenceInDays } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -23,9 +24,11 @@ export default function InboxPage() {
   const { supabase } = useSupabase();
   const { toast } = useToast();
   const [testimonials, setTestimonials] = useState<(Testimonial & { user?: { email: string; first_name?: string; last_name?: string; username?: string } })[]>([]);
+  const [approvedTestimonials, setApprovedTestimonials] = useState<(Testimonial & { user?: { email: string; first_name?: string; last_name?: string; username?: string } })[]>([]);
   const [captaincyRequests, setCaptaincyRequests] = useState<(VesselClaimRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } })[]>([]);
   const [captainRoleApplications, setCaptainRoleApplications] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'pending' | 'approved'>('pending');
   const [selectedTestimonial, setSelectedTestimonial] = useState<(Testimonial & { user?: { email: string; first_name?: string; last_name?: string; username?: string } }) | null>(null);
   const [selectedCaptaincyRequest, setSelectedCaptaincyRequest] = useState<(VesselClaimRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } }) | null>(null);
   const [selectedCaptainRoleApplication, setSelectedCaptainRoleApplication] = useState<any | null>(null);
@@ -40,6 +43,8 @@ export default function InboxPage() {
   const [vesselStateLogs, setVesselStateLogs] = useState<StateLog[]>([]); // Crew member's logs
   const [allVesselLogs, setAllVesselLogs] = useState<StateLog[]>([]); // All vessel logs (for comparison)
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set()); // Track which crew member groups are expanded
+  const [comparisonData, setComparisonData] = useState<any>(null); // Store comparison data for mismatch details
 
   // Fetch user profile to get email
   const { data: userProfileRaw } = useDoc<UserProfile>('users', user?.id);
@@ -167,38 +172,56 @@ export default function InboxPage() {
           setTestimonials([]);
         } else {
           // Captains/vessel managers see testimonials addressed to them
-          // First try to match by captain_user_id (SeaJourney users), then fall back to email matching
-          let query = supabase
+          // Build base query filter for captain matching
+          const captainFilter = user?.id && user?.email
+            ? `captain_user_id.eq.${user.id},captain_email.ilike.${user.email}`
+            : user?.id
+            ? `captain_user_id.eq.${user.id}`
+            : user?.email
+            ? `captain_email.ilike.${user.email}`
+            : null;
+
+          // Fetch pending testimonials
+          let pendingQuery = supabase
             .from('testimonials')
             .select('*')
             .eq('status', 'pending_captain');
           
-          // Filter by captain_user_id first (preferred - SeaJourney users)
-          // Also include testimonials where captain_email matches (for external captains)
-          if (user?.id && user?.email) {
-            // Match by either captain_user_id OR captain_email
-            query = query.or(`captain_user_id.eq.${user.id},captain_email.ilike.${user.email}`);
-          } else if (user?.id) {
-            // Only match by captain_user_id
-            query = query.eq('captain_user_id', user.id);
-          } else if (user?.email) {
-            // Fallback to email matching if user.id is not available
-            query = query.ilike('captain_email', user.email);
+          if (captainFilter) {
+            pendingQuery = pendingQuery.or(captainFilter);
           }
           
-          const { data: testimonialsData, error: testimonialsError } = await query.order('created_at', { ascending: false });
+          const { data: pendingData, error: pendingError } = await pendingQuery.order('created_at', { ascending: false });
 
-          if (testimonialsError) {
-            console.error('Error fetching pending testimonials:', testimonialsError);
+          // Fetch approved testimonials (where captain approved them)
+          let approvedQuery = supabase
+            .from('testimonials')
+            .select('*')
+            .eq('status', 'approved');
+          
+          if (captainFilter) {
+            approvedQuery = approvedQuery.or(captainFilter);
+          }
+          
+          const { data: approvedData, error: approvedError } = await approvedQuery.order('updated_at', { ascending: false });
+
+          if (pendingError) {
+            console.error('Error fetching pending testimonials:', pendingError);
             toast({
               title: 'Error',
               description: 'Failed to load pending requests. Please try again.',
               variant: 'destructive',
             });
-          } else if (testimonialsData) {
-            // Fetch user profiles for each testimonial separately
-            const testimonialsWithUsers = await Promise.all(
-              testimonialsData.map(async (testimonial) => {
+          }
+
+          if (approvedError) {
+            console.error('Error fetching approved testimonials:', approvedError);
+          }
+
+          // Helper function to fetch user profiles
+          const fetchUserProfiles = async (testimonialsList: any[]) => {
+            return await Promise.all(
+              testimonialsList.map(async (testimonial) => {
                 const { data: userData } = await supabase
                   .from('users')
                   .select('email, first_name, last_name, username')
@@ -211,11 +234,24 @@ export default function InboxPage() {
                 };
               })
             );
-            
-            setTestimonials(testimonialsWithUsers as any);
+          };
+
+          // Process pending testimonials
+          if (pendingData) {
+            const pendingWithUsers = await fetchUserProfiles(pendingData);
+            setTestimonials(pendingWithUsers as any);
           } else {
             setTestimonials([]);
           }
+
+          // Process approved testimonials
+          if (approvedData) {
+            const approvedWithUsers = await fetchUserProfiles(approvedData);
+            setApprovedTestimonials(approvedWithUsers as any);
+          } else {
+            setApprovedTestimonials([]);
+          }
+
           // Set captaincy requests to empty for non-admins
           setCaptaincyRequests([]);
         }
@@ -246,6 +282,56 @@ export default function InboxPage() {
     return fullName || (item.user as any).username || (item.user as any).email || 'Unknown User';
   };
 
+  // Group testimonials by crew member (user_id) and sort by most recent request
+  const groupedTestimonials = useMemo(() => {
+    if (testimonials.length === 0) return [];
+    
+    // Group by user_id
+    const groups = new Map<string, typeof testimonials>();
+    
+    testimonials.forEach(testimonial => {
+      const userId = testimonial.user_id;
+      if (!groups.has(userId)) {
+        groups.set(userId, []);
+      }
+      groups.get(userId)!.push(testimonial);
+    });
+    
+    // Sort each group by created_at (most recent first)
+    groups.forEach((group) => {
+      group.sort((a, b) => {
+        const dateA = new Date(a.created_at || 0).getTime();
+        const dateB = new Date(b.created_at || 0).getTime();
+        return dateB - dateA; // Most recent first
+      });
+    });
+    
+    // Convert to array and sort groups by most recent request in each group
+    const groupsArray = Array.from(groups.entries()).map(([userId, group]) => ({
+      userId,
+      testimonials: group,
+      mostRecentDate: new Date(group[0].created_at || 0).getTime(), // Most recent in group
+      crewMember: group[0].user, // User info from first testimonial
+    }));
+    
+    // Sort groups by most recent request (most recent group first)
+    groupsArray.sort((a, b) => b.mostRecentDate - a.mostRecentDate);
+    
+    return groupsArray;
+  }, [testimonials]);
+
+  const toggleGroup = (userId: string) => {
+    setExpandedGroups(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(userId)) {
+        newSet.delete(userId);
+      } else {
+        newSet.add(userId);
+      }
+      return newSet;
+    });
+  };
+
   const handleApprove = async () => {
     if (!selectedTestimonial) return;
 
@@ -268,7 +354,9 @@ export default function InboxPage() {
         description: 'The testimonial has been approved successfully.',
       });
 
-      // Remove from list
+      // Move to approved list and remove from pending
+      const approvedTestimonial = { ...selectedTestimonial, status: 'approved' as const };
+      setApprovedTestimonials(prev => [approvedTestimonial, ...prev]);
       setTestimonials(prev => prev.filter(t => t.id !== selectedTestimonial.id));
       setIsDialogOpen(false);
       setSelectedTestimonial(null);
@@ -283,6 +371,42 @@ export default function InboxPage() {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  // Format mismatch details for rejection message
+  const formatMismatchDetails = (comparison: any): string => {
+    if (!comparison || !comparison.discrepancies || comparison.discrepancies.length === 0) {
+      return '';
+    }
+
+    const discrepancies = comparison.discrepancies;
+    const formatState = (state: string): string => {
+      const stateMap: Record<string, string> = {
+        'underway': 'At Sea',
+        'at-anchor': 'At Anchor',
+        'in-port': 'In Port',
+        'in-yard': 'In Yard',
+        'on-leave': 'On Leave'
+      };
+      return stateMap[state] || state;
+    };
+
+    let details = '\n\n--- State Mismatches Found ---\n';
+    details += `Total mismatches: ${discrepancies.length} day${discrepancies.length !== 1 ? 's' : ''}\n\n`;
+    
+    // Group by type of mismatch for better readability
+    discrepancies.slice(0, 20).forEach((day: any, index: number) => {
+      const dateStr = format(new Date(day.date), 'MMM d, yyyy');
+      details += `${index + 1}. ${dateStr}: You logged "${formatState(day.crewState || '')}" but vessel records show "${formatState(day.vesselState || '')}"\n`;
+    });
+    
+    if (discrepancies.length > 20) {
+      details += `\n... and ${discrepancies.length - 20} more mismatch${discrepancies.length - 20 !== 1 ? 'es' : ''}\n`;
+    }
+    
+    details += '\nPlease review your logged dates and ensure they match the vessel\'s official records.';
+    
+    return details;
   };
 
   const handleReject = async () => {
@@ -300,9 +424,16 @@ export default function InboxPage() {
     setIsProcessing(true);
     try {
       const currentNotes = selectedTestimonial.notes || '';
+      
+      // Include mismatch details if available
+      let rejectionText = rejectionReason;
+      if (comparisonData && comparisonData.discrepancies && comparisonData.discrepancies.length > 0) {
+        rejectionText += formatMismatchDetails(comparisonData);
+      }
+      
       const notes = currentNotes
-        ? `${currentNotes}\n\nRejection reason: ${rejectionReason}`
-        : `Rejection reason: ${rejectionReason}`;
+        ? `${currentNotes}\n\nRejection reason: ${rejectionText}`
+        : `Rejection reason: ${rejectionText}`;
 
       const { error } = await supabase
         .from('testimonials')
@@ -358,31 +489,245 @@ export default function InboxPage() {
           isCaptain: isCaptain
         });
         
-        // Fetch crew member's logs (what they requested) - may be empty if RLS blocks
+        // Fetch crew member's logs (what they actually logged) - CRITICAL: We need these exact logs
         let crewLogs: StateLog[] = [];
-        try {
-          if (testimonial.user_id) {
+        if (testimonial.user_id) {
+          try {
+            console.log('[INBOX] Fetching crew member logs:', {
+              vesselId: testimonial.vessel_id,
+              crewUserId: testimonial.user_id,
+              currentUserId: user?.id,
+              dateRange: { start: testimonial.start_date, end: testimonial.end_date }
+            });
+            
+            // Try direct query first
             crewLogs = await getVesselStateLogs(supabase, testimonial.vessel_id, testimonial.user_id);
+            
+            console.log('[INBOX] Crew member logs fetched (direct query):', {
+              count: crewLogs.length,
+              firstFew: crewLogs.slice(0, 5).map(l => ({ date: l.date, state: l.state })),
+            });
+            
+            // If no logs found, try querying with date filter directly in the query
+            if (crewLogs.length === 0) {
+              console.log('[INBOX] No logs from direct query, trying date-filtered query...');
+              try {
+                const startDate = testimonial.start_date;
+                const endDate = testimonial.end_date;
+                
+                // Try querying with date range filter
+                const { data: dateFilteredData, error: dateError } = await supabase
+                  .from('daily_state_logs')
+                  .select('*')
+                  .eq('vessel_id', testimonial.vessel_id)
+                  .eq('user_id', testimonial.user_id)
+                  .gte('date', startDate)
+                  .lte('date', endDate)
+                  .order('date', { ascending: true });
+                
+                if (dateError) {
+                  console.error('[INBOX] Date-filtered query error:', dateError);
+                } else if (dateFilteredData && dateFilteredData.length > 0) {
+                  console.log('[INBOX] Found logs with date-filtered query:', dateFilteredData.length);
+                  // Transform the data to StateLog format
+                  crewLogs = dateFilteredData.map((log: any) => ({
+                    id: log.id,
+                    userId: log.user_id,
+                    vesselId: log.vessel_id,
+                    date: log.date || log.log_date,
+                    state: log.state,
+                    createdAt: log.created_at,
+                    updatedAt: log.updated_at,
+                  }));
+                }
+              } catch (altError: any) {
+                console.error('[INBOX] Alternative query also failed:', altError);
+              }
+            }
+            
+            // Filter to the exact date range of the testimonial (in case query didn't filter)
+            const startDate = parse(testimonial.start_date, 'yyyy-MM-dd', new Date());
+            const endDate = parse(testimonial.end_date, 'yyyy-MM-dd', new Date());
+            crewLogs = crewLogs.filter(log => {
+              const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+              return logDate >= startDate && logDate <= endDate;
+            });
+            
+            console.log('[INBOX] Crew member logs after filtering to date range:', {
+              count: crewLogs.length,
+              firstFew: crewLogs.slice(0, 5).map(l => ({ date: l.date, state: l.state }))
+            });
+            
+            if (crewLogs.length === 0) {
+              console.warn('[INBOX] WARNING: No crew member logs found for date range!', {
+                vesselId: testimonial.vessel_id,
+                crewUserId: testimonial.user_id,
+                dateRange: { start: testimonial.start_date, end: testimonial.end_date },
+                note: 'This may be due to RLS permissions or the crew member may not have logged these dates'
+              });
+            }
+          } catch (error: any) {
+            console.error('[INBOX] ERROR fetching crew member logs:', {
+              error: error?.message,
+              code: error?.code,
+              details: error?.details,
+              hint: error?.hint,
+              vesselId: testimonial.vessel_id,
+              crewUserId: testimonial.user_id,
+              fullError: error
+            });
+            
+            // Try one more time with a simpler query
+            try {
+              console.log('[INBOX] Attempting fallback query...');
+              const { data: fallbackData, error: fallbackError } = await supabase
+                .from('daily_state_logs')
+                .select('*')
+                .eq('vessel_id', testimonial.vessel_id)
+                .eq('user_id', testimonial.user_id);
+              
+              if (!fallbackError && fallbackData) {
+                console.log('[INBOX] Fallback query succeeded:', fallbackData.length, 'logs found');
+                crewLogs = fallbackData.map((log: any) => ({
+                  id: log.id,
+                  userId: log.user_id,
+                  vesselId: log.vessel_id,
+                  date: log.date || log.log_date,
+                  state: log.state,
+                  createdAt: log.created_at,
+                  updatedAt: log.updated_at,
+                }));
+                
+                // Filter to date range
+                const startDate = parse(testimonial.start_date, 'yyyy-MM-dd', new Date());
+                const endDate = parse(testimonial.end_date, 'yyyy-MM-dd', new Date());
+                crewLogs = crewLogs.filter(log => {
+                  const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+                  return logDate >= startDate && logDate <= endDate;
+                });
+              } else {
+                console.error('[INBOX] Fallback query also failed:', fallbackError);
+              }
+            } catch (fallbackErr: any) {
+              console.error('[INBOX] Fallback query exception:', fallbackErr);
+            }
+            
+            if (crewLogs.length === 0) {
+              toast({
+                title: 'Error Loading Crew Logs',
+                description: 'Unable to fetch the crew member\'s logged dates. Please check your permissions or contact support.',
+                variant: 'destructive',
+              });
+            }
           }
-        } catch (error) {
-          console.warn('[INBOX] Could not fetch crew logs (RLS may block), will use vessel logs:', error);
         }
         
-        // Fetch ALL vessel logs (captain has permission to see all logs on their vessel)
-        // This allows captain to compare what crew requested vs what actually happened on vessel
-        const vesselLogs = await getVesselStateLogs(supabase, testimonial.vessel_id);
+        // Fetch vessel account logs (from vessel_manager_id) - this is the official vessel state
+        // First, get the vessel record to find the vessel_manager_id
+        let vesselManagerId: string | null = null;
+        try {
+          const { data: vesselData, error: vesselError } = await supabase
+            .from('vessels')
+            .select('vessel_manager_id')
+            .eq('id', testimonial.vessel_id)
+            .maybeSingle();
+          
+          if (vesselError) {
+            console.error('[INBOX] Error fetching vessel record:', vesselError);
+          } else if (vesselData) {
+            vesselManagerId = vesselData.vessel_manager_id;
+            console.log('[INBOX] Vessel manager ID:', vesselManagerId);
+          }
+        } catch (error) {
+          console.error('[INBOX] Exception fetching vessel record:', error);
+        }
         
-        console.log('[INBOX] Fetched logs:', {
-          crewLogsCount: crewLogs.length,
-          vesselLogsCount: vesselLogs.length,
-          crewFirstFew: crewLogs.slice(0, 5),
-          vesselFirstFew: vesselLogs.slice(0, 5),
+        // Fetch vessel logs from the vessel account (vessel_manager_id)
+        // This is the official vessel state, not individual crew member logs
+        let vesselLogs: StateLog[] = [];
+        if (vesselManagerId) {
+          try {
+            console.log('[INBOX] Fetching vessel account logs:', {
+              vesselId: testimonial.vessel_id,
+              vesselManagerId: vesselManagerId,
+              dateRange: { start: testimonial.start_date, end: testimonial.end_date }
+            });
+            
+            vesselLogs = await getVesselStateLogs(supabase, testimonial.vessel_id, vesselManagerId);
+            
+            console.log('[INBOX] Vessel account logs fetched:', {
+              count: vesselLogs.length,
+              firstFew: vesselLogs.slice(0, 5).map(l => ({ date: l.date, state: l.state }))
+            });
+          } catch (error: any) {
+            console.error('[INBOX] Error fetching vessel account logs:', {
+              error: error?.message,
+              code: error?.code,
+              vesselId: testimonial.vessel_id,
+              vesselManagerId: vesselManagerId
+            });
+          }
+        } else {
+          console.warn('[INBOX] No vessel_manager_id found, trying to fetch all vessel logs as fallback');
+          // Fallback: if no vessel_manager_id, try fetching all logs (may include crew member logs)
+          try {
+            vesselLogs = await getVesselStateLogs(supabase, testimonial.vessel_id);
+            console.log('[INBOX] Fetched all vessel logs (fallback):', vesselLogs.length);
+          } catch (error: any) {
+            console.error('[INBOX] Error fetching all vessel logs:', error);
+          }
+        }
+        
+        // Filter vessel logs to date range
+        const startDate = parse(testimonial.start_date, 'yyyy-MM-dd', new Date());
+        const endDate = parse(testimonial.end_date, 'yyyy-MM-dd', new Date());
+        const vesselLogsInRange = vesselLogs.filter(log => {
+          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+          return logDate >= startDate && logDate <= endDate;
         });
         
-        // Store both sets of logs
-        // Use crew logs if available, otherwise fall back to vessel logs filtered to date range
-        setVesselStateLogs(crewLogs.length > 0 ? crewLogs : vesselLogs);
-        setAllVesselLogs(vesselLogs); // Store all vessel logs for comparison
+        console.log('[INBOX] Vessel logs filtered to date range:', {
+          count: vesselLogsInRange.length,
+          firstFew: vesselLogsInRange.slice(0, 5).map(l => ({ date: l.date, state: l.state }))
+        });
+        
+        console.log('[INBOX] Fetched logs summary:', {
+          crewLogsCount: crewLogs.length,
+          vesselLogsCount: vesselLogs.length,
+          vesselLogsInRangeCount: vesselLogsInRange.length,
+          crewFirstFew: crewLogs.slice(0, 5).map(l => ({ date: l.date, state: l.state })),
+          vesselFirstFew: vesselLogsInRange.slice(0, 5).map(l => ({ date: l.date, state: l.state })),
+        });
+        
+        // CRITICAL: Only use crew member's actual logs - never fall back to vessel logs
+        // Vessel logs might be from vessel account or other users, which would be incorrect
+        if (crewLogs.length === 0) {
+          console.error('[INBOX] CRITICAL: No crew member logs available - cannot show accurate comparison', {
+            vesselId: testimonial.vessel_id,
+            crewUserId: testimonial.user_id,
+            currentUserId: user?.id,
+            dateRange: { start: testimonial.start_date, end: testimonial.end_date },
+            possibleReasons: [
+              'RLS policy may be blocking access',
+              'Crew member may not have logged dates in this range',
+              'Captain may not have approved captaincy or signing authority',
+              'Date format mismatch'
+            ]
+          });
+          
+          // Don't show error toast here - let the DateComparisonView handle empty state
+          // The comparison view will show a message that logs are missing
+        } else {
+          console.log('[INBOX] Successfully loaded crew member logs for comparison:', {
+            count: crewLogs.length,
+            dateRange: { start: testimonial.start_date, end: testimonial.end_date }
+          });
+        }
+        
+        // Store crew member's actual logs (what they logged)
+        setVesselStateLogs(crewLogs);
+        // Store vessel logs for comparison (what the vessel logged)
+        setAllVesselLogs(vesselLogsInRange);
       } catch (error: any) {
         console.error('[INBOX] Error fetching vessel state logs:', {
           error,
@@ -665,15 +1010,15 @@ export default function InboxPage() {
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </CardContent>
         </Card>
-      ) : (isAdmin && captaincyRequests.length === 0 && captainRoleApplications.length === 0) || (!isAdmin && testimonials.length === 0) ? (
+      ) : (isAdmin && captaincyRequests.length === 0 && captainRoleApplications.length === 0) || (!isAdmin && testimonials.length === 0 && approvedTestimonials.length === 0) ? (
         <Card className="rounded-xl border">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Mail className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Pending Requests</h3>
+            <h3 className="text-lg font-semibold mb-2">No Requests</h3>
             <p className="text-sm text-muted-foreground max-w-md">
               {isAdmin 
                 ? 'You don\'t have any pending captaincy requests at this time.'
-                : 'You don\'t have any pending testimonial sign-off requests at this time.'}
+                : 'You don\'t have any testimonial sign-off requests at this time.'}
             </p>
           </CardContent>
         </Card>
@@ -701,16 +1046,13 @@ export default function InboxPage() {
                       {captainRoleApplications.map((application) => (
                         <TableRow key={application.id}>
                           <TableCell>
-                            <div className="flex items-center gap-3">
-                              <User className="h-4 w-4 text-muted-foreground" />
-                              <div>
-                                <div>{getUserName(application)}</div>
-                                {(application.user as any)?.email && (
-                                  <div className="text-xs text-muted-foreground">
-                                    {(application.user as any).email}
-                                  </div>
-                                )}
-                              </div>
+                            <div>
+                              <div>{getUserName(application)}</div>
+                              {(application.user as any)?.email && (
+                                <div className="text-xs text-muted-foreground">
+                                  {(application.user as any).email}
+                                </div>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -775,16 +1117,13 @@ export default function InboxPage() {
                       {captaincyRequests.map((request) => (
                         <TableRow key={request.id}>
                           <TableCell>
-                            <div className="flex items-center gap-3">
-                              <User className="h-4 w-4 text-muted-foreground" />
-                              <div>
-                                <div>{getUserName(request as any)}</div>
-                                {(request.user as any)?.email && (
-                                  <div className="text-xs text-muted-foreground">
-                                    {(request.user as any).email}
-                                  </div>
-                                )}
-                              </div>
+                            <div>
+                              <div>{getUserName(request as any)}</div>
+                              {(request.user as any)?.email && (
+                                <div className="text-xs text-muted-foreground">
+                                  {(request.user as any).email}
+                                </div>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -832,14 +1171,35 @@ export default function InboxPage() {
             </Card>
           )}
 
-          {/* Testimonials Section */}
-          {testimonials.length > 0 && (
+          {/* Testimonials Section - Only show tabs for captains (not admins) */}
+          {!isAdmin && (testimonials.length > 0 || approvedTestimonials.length > 0) && (
             <Card className="rounded-xl border shadow-sm">
               <CardHeader>
                 <CardTitle>Testimonial Sign-off Requests</CardTitle>
                 <CardDescription>Review and respond to testimonial sign-off requests from crew members</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
+                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'pending' | 'approved')} className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 m-4 mb-0">
+                    <TabsTrigger value="pending">
+                      Pending
+                      {testimonials.length > 0 && (
+                        <Badge variant="secondary" className="ml-2">
+                          {testimonials.length}
+                        </Badge>
+                      )}
+                    </TabsTrigger>
+                    <TabsTrigger value="approved">
+                      Approved
+                      {approvedTestimonials.length > 0 && (
+                        <Badge variant="secondary" className="ml-2">
+                          {approvedTestimonials.length}
+                        </Badge>
+                      )}
+                    </TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="pending" className="mt-0">
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -853,65 +1213,192 @@ export default function InboxPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {testimonials.map((testimonial) => (
-                    <TableRow key={testimonial.id} className="hover:bg-muted/50 transition-colors">
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <div>{getUserName(testimonial)}</div>
-                            {(testimonial.user as any)?.email && (
-                              <div className="text-xs text-muted-foreground">
-                                {(testimonial.user as any).email}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Ship className="h-4 w-4 text-muted-foreground" />
-                          {getVesselName(testimonial.vessel_id)}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          <div className="text-sm">
-                            {format(new Date(testimonial.start_date), 'MMM d, yyyy')} - {format(new Date(testimonial.end_date), 'MMM d, yyyy')}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-0.5 text-sm">
-                          <div className="font-medium">Total: {testimonial.total_days}</div>
-                          <div className="text-xs text-muted-foreground">
-                            At Sea: {testimonial.at_sea_days} | Standby: {testimonial.standby_days}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Clock className="h-4 w-4" />
-                          {format(new Date(testimonial.created_at), 'MMM d, yyyy')}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          onClick={() => openActionDialog(testimonial, 'approve')}
-                          size="sm"
-                          variant="outline"
-                          className="rounded-lg"
-                        >
-                          <Eye className="h-4 w-4 mr-2" />
-                          View
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                      ))}
+                      {groupedTestimonials.map((group, groupIndex) => {
+                        const isExpanded = expandedGroups.has(group.userId);
+                        const hasMultipleRequests = group.testimonials.length > 1;
+                        const visibleTestimonials = isExpanded || !hasMultipleRequests 
+                          ? group.testimonials 
+                          : [group.testimonials[0]]; // Only show first (most recent) if collapsed
+                        const hiddenCount = hasMultipleRequests && !isExpanded 
+                          ? group.testimonials.length - 1 
+                          : 0;
+
+                        return (
+                          <React.Fragment key={group.userId}>
+                            {visibleTestimonials.map((testimonial, index) => (
+                              <TableRow 
+                                key={testimonial.id} 
+                                className={`hover:bg-muted/50 transition-colors ${index === 0 && groupIndex > 0 ? 'border-t-2 border-border' : ''} ${index > 0 ? 'bg-muted/20' : ''}`}
+                              >
+                                <TableCell className="font-medium">
+                                  {index === 0 ? (
+                                    <div className="flex items-center gap-2">
+                                      {hasMultipleRequests && (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6"
+                                          onClick={() => toggleGroup(group.userId)}
+                                        >
+                                          {isExpanded ? (
+                                            <ChevronUp className="h-4 w-4" />
+                                          ) : (
+                                            <ChevronDown className="h-4 w-4" />
+                                          )}
+                                        </Button>
+                                      )}
+                                      <div>
+                                        <div className="font-semibold">{getUserName(testimonial)}</div>
+                                        {(testimonial.user as any)?.email && (
+                                          <div className="text-xs text-muted-foreground">
+                                            {(testimonial.user as any).email}
+                                          </div>
+                                        )}
+                                        {hasMultipleRequests && (
+                                          <div className="text-xs text-muted-foreground mt-1">
+                                            {group.testimonials.length} request{group.testimonials.length !== 1 ? 's' : ''}
+                                            {hiddenCount > 0 && (
+                                              <span className="ml-1">({hiddenCount} hidden)</span>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="pl-8 text-sm">
+                                      <div className="text-muted-foreground italic">
+                                        Additional request from same crew member
+                                      </div>
+                                    </div>
+                                  )}
+                                </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <Ship className="h-4 w-4 text-muted-foreground" />
+                                  {getVesselName(testimonial.vessel_id)}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                                  <div className="text-sm">
+                                    {format(new Date(testimonial.start_date), 'MMM d, yyyy')} - {format(new Date(testimonial.end_date), 'MMM d, yyyy')}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="space-y-0.5 text-sm">
+                                  <div className="font-medium">Total: {testimonial.total_days}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    At Sea: {testimonial.at_sea_days} | Standby: {testimonial.standby_days}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Clock className="h-4 w-4" />
+                                  {format(new Date(testimonial.created_at), 'MMM d, yyyy')}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  onClick={() => openActionDialog(testimonial, 'approve')}
+                                  size="sm"
+                                  variant="outline"
+                                  className="rounded-lg"
+                                >
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  View
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
+                  </TabsContent>
+                  
+                  <TabsContent value="approved" className="mt-0">
+                    {approvedTestimonials.length === 0 ? (
+                      <div className="p-8 text-center">
+                        <CheckCircle2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                        <h3 className="text-lg font-semibold mb-2">No Approved Testimonials</h3>
+                        <p className="text-sm text-muted-foreground">
+                          You haven't approved any testimonials yet.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Requested By</TableHead>
+                              <TableHead>Vessel</TableHead>
+                              <TableHead>Date Range</TableHead>
+                              <TableHead>Days</TableHead>
+                              <TableHead>Approved</TableHead>
+                              <TableHead>Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {approvedTestimonials.map((testimonial) => (
+                              <TableRow key={testimonial.id} className="hover:bg-muted/50 transition-colors">
+                                <TableCell className="font-medium">
+                                  <div>
+                                    <div className="font-semibold">{getUserName(testimonial)}</div>
+                                    {(testimonial.user as any)?.email && (
+                                      <div className="text-xs text-muted-foreground">
+                                        {(testimonial.user as any).email}
+                                      </div>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <Ship className="h-4 w-4 text-muted-foreground" />
+                                    {getVesselName(testimonial.vessel_id)}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                                    <div className="text-sm">
+                                      {format(new Date(testimonial.start_date), 'MMM d, yyyy')} - {format(new Date(testimonial.end_date), 'MMM d, yyyy')}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="space-y-0.5 text-sm">
+                                    <div className="font-medium">Total: {testimonial.total_days}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      At Sea: {testimonial.at_sea_days} | Standby: {testimonial.standby_days}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                    {testimonial.signoff_used_at 
+                                      ? format(new Date(testimonial.signoff_used_at), 'MMM d, yyyy')
+                                      : format(new Date(testimonial.updated_at), 'MMM d, yyyy')}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline" className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20">
+                                    <CheckCircle2 className="mr-1 h-3 w-3" />Approved
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
           )}
@@ -939,16 +1426,13 @@ export default function InboxPage() {
                       {captaincyRequests.map((request) => (
                         <TableRow key={request.id} className="hover:bg-muted/50 transition-colors">
                           <TableCell className="font-medium">
-                            <div className="flex items-center gap-2">
-                              <User className="h-4 w-4 text-muted-foreground" />
-                              <div>
-                                <div>{getUserName(request as any)}</div>
-                                {(request.user as any)?.email && (
-                                  <div className="text-xs text-muted-foreground">
-                                    {(request.user as any).email}
-                                  </div>
-                                )}
-                              </div>
+                            <div>
+                              <div>{getUserName(request as any)}</div>
+                              {(request.user as any)?.email && (
+                                <div className="text-xs text-muted-foreground">
+                                  {(request.user as any).email}
+                                </div>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -1000,7 +1484,7 @@ export default function InboxPage() {
 
       {/* Action Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="rounded-xl max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="rounded-xl max-w-7xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {action === 'approve' ? 'Review Testimonial Request' : 'Reject Testimonial'}
@@ -1012,60 +1496,63 @@ export default function InboxPage() {
             </DialogDescription>
           </DialogHeader>
           {selectedTestimonial && (
-            <div className="space-y-4 py-4">
-              {/* Basic Info */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Requested By:</span>
-                  <span className="font-medium">{getUserName(selectedTestimonial)}</span>
+            <div className="space-y-6 py-4">
+              {/* Header Info - Cleaner Layout */}
+              <div className="grid grid-cols-2 gap-4 pb-4 border-b">
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Requested By</div>
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-semibold text-base">{getUserName(selectedTestimonial)}</span>
+                  </div>
+                  {(selectedTestimonial.user as any)?.email && (
+                    <div className="text-xs text-muted-foreground mt-1 ml-6">
+                      {(selectedTestimonial.user as any).email}
+                    </div>
+                  )}
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Vessel:</span>
-                  <span className="font-medium">{getVesselName(selectedTestimonial.vessel_id)}</span>
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Vessel</div>
+                  <div className="flex items-center gap-2">
+                    <Ship className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-semibold text-base">{getVesselName(selectedTestimonial.vessel_id)}</span>
+                  </div>
                 </div>
               </div>
 
               {/* Date Comparison - Show for approve action, but also allow rejection from this view */}
               {action === 'approve' && (
-                <div className="space-y-4">
-                  <Separator />
-                  <div>
-                    <h4 className="text-sm font-semibold mb-3">Date Range Comparison</h4>
-                    
-                    {/* Requested Dates */}
-                    <Card className="mb-3">
-                      <CardContent className="pt-4">
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Calendar className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">Requested Date Range</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">From:</span>
-                            <span className="font-medium">{format(new Date(selectedTestimonial.start_date), 'MMM d, yyyy')}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">To:</span>
-                            <span className="font-medium">{format(new Date(selectedTestimonial.end_date), 'MMM d, yyyy')}</span>
-                          </div>
-                          <div className="flex justify-between text-sm pt-2 border-t">
-                            <span className="text-muted-foreground">Total Days Requested:</span>
-                            <span className="font-semibold">{selectedTestimonial.total_days} days</span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
+                <div className="space-y-6">
+                  {/* Requested Date Range - Simplified */}
+                  <div className="bg-muted/30 rounded-lg p-4 border">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Calendar className="h-5 w-5 text-primary" />
+                      <span className="font-semibold">Requested Date Range</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-1">Start Date</div>
+                        <div className="font-medium">{format(new Date(selectedTestimonial.start_date), 'MMM d, yyyy')}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-1">End Date</div>
+                        <div className="font-medium">{format(new Date(selectedTestimonial.end_date), 'MMM d, yyyy')}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-1">Total Days</div>
+                        <div className="font-semibold text-lg">{selectedTestimonial.total_days} days</div>
+                      </div>
+                    </div>
+                  </div>
 
-                    {/* Actual Logged Dates */}
+                    {/* Date Comparison View */}
                     {isLoadingLogs ? (
-                      <Card>
-                        <CardContent className="pt-4">
-                          <div className="flex items-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <span className="text-sm text-muted-foreground">Loading vessel logs...</span>
-                          </div>
-                        </CardContent>
-                      </Card>
+                      <div className="bg-muted/30 rounded-lg p-8 border">
+                        <div className="flex items-center justify-center gap-3">
+                          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                          <span className="text-sm font-medium">Loading vessel logs...</span>
+                        </div>
+                      </div>
                     ) : vesselStateLogs.length > 0 || allVesselLogs.length > 0 ? (
                       <DateComparisonView 
                         requestedStart={selectedTestimonial.start_date}
@@ -1074,38 +1561,66 @@ export default function InboxPage() {
                         actualLogs={vesselStateLogs}
                         vesselLogs={allVesselLogs}
                         testimonial={selectedTestimonial}
+                        onComparisonChange={setComparisonData}
                       />
                     ) : (
-                      <Card className="border-yellow-500/30 bg-yellow-500/5">
-                        <CardContent className="pt-4">
-                          <div className="flex items-start gap-2">
-                            <AlertCircle className="h-4 w-4 text-yellow-600 mt-0.5" />
-                            <div className="flex-1">
-                              <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">No Logs Found</p>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                No logged dates found for this user on this vessel. Please verify the date range before approving.
-                              </p>
-                            </div>
+                      <div className="bg-yellow-50 dark:bg-yellow-950/20 border-2 border-yellow-200 dark:border-yellow-800 rounded-xl p-5">
+                        <div className="flex items-start gap-3">
+                          <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-1">No Logs Found</p>
+                            <p className="text-xs text-yellow-700 dark:text-yellow-300">
+                              No logged dates found for this user on this vessel. Please verify the date range before approving.
+                            </p>
                           </div>
-                        </CardContent>
-                      </Card>
+                        </div>
+                      </div>
                     )}
-                  </div>
 
-                  {/* Rejection Reason Field - Available when reviewing */}
-                  <Separator />
-                  <div className="space-y-2">
-                    <Label htmlFor="rejection-reason-review">Rejection Reason (if rejecting)</Label>
-                    <Textarea
-                      id="rejection-reason-review"
-                      placeholder="If you need to reject this request, please provide a reason..."
-                      value={rejectionReason}
-                      onChange={(e) => setRejectionReason(e.target.value)}
-                      className="rounded-lg min-h-[100px]"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      If you find discrepancies or issues with the request, you can reject it and provide a reason above.
-                    </p>
+                  {/* Rejection Reason Field - Collapsible section */}
+                  <div className="bg-muted/30 rounded-lg p-4 border">
+                    <div className="space-y-3">
+                      <div>
+                        <Label htmlFor="rejection-reason-review" className="text-sm font-medium">Rejection Reason (Optional)</Label>
+                        <p className="text-xs text-muted-foreground mt-1 mb-2">
+                          If you need to reject this request, provide a reason below.
+                          {comparisonData && comparisonData.discrepancies && comparisonData.discrepancies.length > 0 && (
+                            <span className="block mt-1 text-yellow-700 dark:text-yellow-300 font-medium">
+                              ⚠️ {comparisonData.discrepancies.length} state mismatch{comparisonData.discrepancies.length !== 1 ? 'es' : ''} found. Mismatch details will be automatically included in the rejection message.
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <Textarea
+                        id="rejection-reason-review"
+                        placeholder="Enter rejection reason if needed..."
+                        value={rejectionReason}
+                        onChange={(e) => setRejectionReason(e.target.value)}
+                        className="rounded-lg min-h-[80px] bg-background"
+                      />
+                      {comparisonData && comparisonData.discrepancies && comparisonData.discrepancies.length > 0 && (
+                        <div className="mt-2 p-3 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                          <p className="text-xs font-medium text-yellow-900 dark:text-yellow-100 mb-2">
+                            Mismatch details that will be included:
+                          </p>
+                          <div className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1 max-h-32 overflow-y-auto">
+                            {comparisonData.discrepancies.slice(0, 5).map((day: any, idx: number) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                <span className="font-medium">{format(new Date(day.date), 'MMM d')}:</span>
+                                <span>Your log: <strong>{day.crewState === 'underway' ? 'At Sea' : day.crewState === 'at-anchor' ? 'At Anchor' : day.crewState === 'in-port' ? 'In Port' : day.crewState === 'in-yard' ? 'In Yard' : day.crewState}</strong></span>
+                                <span>→</span>
+                                <span>Vessel log: <strong>{day.vesselState === 'underway' ? 'At Sea' : day.vesselState === 'at-anchor' ? 'At Anchor' : day.vesselState === 'in-port' ? 'In Port' : day.vesselState === 'in-yard' ? 'In Yard' : day.vesselState}</strong></span>
+                              </div>
+                            ))}
+                            {comparisonData.discrepancies.length > 5 && (
+                              <p className="text-yellow-700 dark:text-yellow-300 italic mt-1">
+                                +{comparisonData.discrepancies.length - 5} more mismatch{comparisonData.discrepancies.length - 5 !== 1 ? 'es' : ''}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1132,6 +1647,7 @@ export default function InboxPage() {
                 setSelectedTestimonial(null);
                 setAction(null);
                 setRejectionReason('');
+                setComparisonData(null);
               }}
               disabled={isProcessing}
               className="rounded-xl"

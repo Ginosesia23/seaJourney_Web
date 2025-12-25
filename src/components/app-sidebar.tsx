@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { useRouter } from "next/navigation"
 import { useSupabase, useUser } from "@/supabase"
 import { useDoc } from "@/supabase/database"
@@ -118,6 +119,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const pathname = usePathname()
   const { supabase } = useSupabase()
   const { user } = useUser()
+  const [inboxCount, setInboxCount] = React.useState<number>(0)
 
   // Create admin-specific navGroups with updated Management section
   const isAdmin = userProfile?.role === 'admin'
@@ -161,6 +163,109 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   // Fetch vessel data if user is vessel role
   const activeVesselId = userProfile ? ((userProfile as any).active_vessel_id || (userProfile as any).activeVesselId) : null;
   const { data: vesselData } = useDoc<any>('vessels', (userProfile?.role === 'vessel' && activeVesselId) ? activeVesselId : null);
+  
+  // Fetch inbox count for captains/admins/vessel managers
+  React.useEffect(() => {
+    const fetchInboxCount = async () => {
+      if (!user?.id || !userProfile) return;
+      
+      const userRole = userProfile.role?.toLowerCase() || '';
+      const isCaptain = userRole === 'captain' || userRole === 'vessel' || userRole === 'admin';
+      
+      if (!isCaptain) {
+        setInboxCount(0);
+        return;
+      }
+
+      try {
+        if (userRole === 'admin') {
+          // Admins see captaincy requests and captain role applications
+          const [captaincyResult, applicationsResult] = await Promise.all([
+            supabase
+              .from('vessel_claim_requests')
+              .select('id', { count: 'exact', head: true })
+              .eq('status', 'pending'),
+            supabase
+              .from('captain_role_applications')
+              .select('id', { count: 'exact', head: true })
+              .eq('status', 'pending')
+          ]);
+          
+          const captaincyCount = captaincyResult.count || 0;
+          const applicationsCount = applicationsResult.count || 0;
+          setInboxCount(captaincyCount + applicationsCount);
+        } else {
+          // Captains/vessel managers see testimonials addressed to them
+          let query = supabase
+            .from('testimonials')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending_captain');
+          
+          // Match by captain_user_id OR captain_email
+          if (user?.id && user?.email) {
+            query = query.or(`captain_user_id.eq.${user.id},captain_email.ilike.${user.email}`);
+          } else if (user?.id) {
+            query = query.eq('captain_user_id', user.id);
+          } else if (user?.email) {
+            query = query.ilike('captain_email', user.email);
+          }
+          
+          const { count } = await query;
+          setInboxCount(count || 0);
+        }
+      } catch (error) {
+        console.error('[SIDEBAR] Error fetching inbox count:', error);
+        setInboxCount(0);
+      }
+    };
+
+    fetchInboxCount();
+    
+    // Set up realtime subscription to update count when items change
+    const channel = supabase
+      .channel('inbox-count-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'testimonials',
+          filter: `status=eq.pending_captain`,
+        },
+        () => {
+          fetchInboxCount();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'vessel_claim_requests',
+          filter: `status=eq.pending`,
+        },
+        () => {
+          fetchInboxCount();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'captain_role_applications',
+          filter: `status=eq.pending`,
+        },
+        () => {
+          fetchInboxCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, user?.email, userProfile, supabase]);
   
   // Get display username and email from userProfile or user object
   // For vessel role, use vessel name instead of username
@@ -277,12 +382,25 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   // Use a combination of href and label for unique keys (since two items can have the same href)
                   const uniqueKey = `${item.href}-${item.label}`
                   
+                  // Check if this is the inbox item and show count badge
+                  const isInbox = item.href === '/dashboard/inbox';
+                  
                   return (
                     <SidebarMenuItem key={uniqueKey}>
                       <SidebarMenuButton tooltip={item.label} asChild isActive={isActive}>
-                        <Link href={item.href}>
-                          <item.icon />
-                          <span>{item.label}</span>
+                        <Link href={item.href} className="flex items-center justify-between w-full">
+                          <div className="flex items-center gap-2">
+                            <item.icon />
+                            <span>{item.label}</span>
+                          </div>
+                          {isInbox && inboxCount > 0 && (
+                            <Badge 
+                              variant="destructive" 
+                              className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold"
+                            >
+                              {inboxCount > 99 ? '99+' : inboxCount}
+                            </Badge>
+                          )}
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

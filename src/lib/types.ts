@@ -15,6 +15,7 @@ export interface UserProfile {
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
   activeVesselId?: string;
+  startDate?: string | null; // ISO date string (YYYY-MM-DD) - Official start date for vessel accounts
 }
 
 export interface Vessel {

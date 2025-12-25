@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { format, parse, eachDayOfInterval } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,7 @@ interface DateComparisonViewProps {
   actualLogs: StateLog[]; // Crew member's logs
   vesselLogs?: StateLog[]; // All vessel logs (for comparison)
   testimonial?: any; // Testimonial object for day count breakdown
+  onComparisonChange?: (comparison: any) => void; // Callback to pass comparison data to parent
 }
 
 // Helper to format state names
@@ -41,113 +42,14 @@ function getStateBadgeVariant(state: string): string {
   return variantMap[state] || 'bg-gray-500/10 text-gray-700 border-gray-500/20';
 }
 
-/**
- * Reconstruct requested logs from testimonial breakdown
- * This intelligently distributes the requested day counts (at_sea_days, standby_days, etc.)
- * across the date range to show what the crew member requested.
- * Tries to match vessel logs where possible for better alignment.
- */
-function reconstructRequestedLogs(
-  testimonial: any,
-  startDate: Date,
-  endDate: Date,
-  vesselLogs: StateLog[]
-): Array<{ date: string; state: string }> {
-  if (!testimonial) return [];
-  
-  const requestedDates = eachDayOfInterval({ start: startDate, end: endDate });
-  
-  // Get counts from testimonial (what crew member requested)
-  const atSeaDays = testimonial.at_sea_days || 0;
-  const standbyDays = testimonial.standby_days || 0;
-  const yardDays = testimonial.yard_days || 0;
-  const leaveDays = testimonial.leave_days || 0;
-  
-  // Create a map of vessel logs for quick lookup
-  const vesselLogMap = new Map<string, StateLog>();
-  vesselLogs.forEach(log => {
-    vesselLogMap.set(log.date, log);
-  });
-  
-  // Track how many of each state we've assigned
-  const assignedCounts = {
-    'underway': 0,
-    'at-anchor': 0,
-    'in-port': 0,
-    'in-yard': 0,
-    'on-leave': 0,
-    'standby': 0 // Combined count for at-anchor + in-port
-  };
-  
-  const assignedStates = new Map<string, string>();
-  
-  // First pass: Try to match vessel logs where they align with requested states
-  // This creates a more realistic day-by-day view
-  for (const date of requestedDates) {
-    const dateStr = format(date, 'yyyy-MM-dd');
-    const vesselLog = vesselLogMap.get(dateStr);
-    
-    if (vesselLog) {
-      const vesselState = vesselLog.state;
-      
-      // Check if this vessel state matches what we still need to assign
-      if (vesselState === 'underway' && assignedCounts['underway'] < atSeaDays) {
-        assignedStates.set(dateStr, 'underway');
-        assignedCounts['underway']++;
-      } else if (vesselState === 'in-yard' && assignedCounts['in-yard'] < yardDays) {
-        assignedStates.set(dateStr, 'in-yard');
-        assignedCounts['in-yard']++;
-      } else if (vesselState === 'on-leave' && assignedCounts['on-leave'] < leaveDays) {
-        assignedStates.set(dateStr, 'on-leave');
-        assignedCounts['on-leave']++;
-      } else if ((vesselState === 'at-anchor' || vesselState === 'in-port') && assignedCounts['standby'] < standbyDays) {
-        // For standby, prefer matching the vessel's state (at-anchor or in-port)
-        assignedStates.set(dateStr, vesselState);
-        assignedCounts['standby']++;
-        assignedCounts[vesselState as 'at-anchor' | 'in-port']++;
-      }
-    }
-  }
-  
-  // Second pass: Fill remaining requested days with states from testimonial breakdown
-  const remainingStates: string[] = [];
-  remainingStates.push(...Array(Math.max(0, atSeaDays - assignedCounts['underway'])).fill('underway'));
-  remainingStates.push(...Array(Math.max(0, standbyDays - assignedCounts['standby'])).fill('at-anchor')); // Default standby to at-anchor
-  remainingStates.push(...Array(Math.max(0, yardDays - assignedCounts['in-yard'])).fill('in-yard'));
-  remainingStates.push(...Array(Math.max(0, leaveDays - assignedCounts['on-leave'])).fill('on-leave'));
-  
-  let remainingIndex = 0;
-  
-  // Assign remaining states to unassigned dates
-  for (const date of requestedDates) {
-    const dateStr = format(date, 'yyyy-MM-dd');
-    
-    if (!assignedStates.has(dateStr)) {
-      if (remainingIndex < remainingStates.length) {
-        const state = remainingStates[remainingIndex];
-        assignedStates.set(dateStr, state);
-        remainingIndex++;
-      } else {
-        // If we've used all requested states but still have dates, default to standby (at-anchor)
-        assignedStates.set(dateStr, 'at-anchor');
-      }
-    }
-  }
-  
-  // Build final reconstructed logs
-  return requestedDates.map(date => {
-    const dateStr = format(date, 'yyyy-MM-dd');
-    return { date: dateStr, state: assignedStates.get(dateStr) || 'at-anchor' };
-  });
-}
-
 export function DateComparisonView({ 
   requestedStart, 
   requestedEnd, 
   requestedDays, 
   actualLogs,
   vesselLogs = [],
-  testimonial
+  testimonial,
+  onComparisonChange
 }: DateComparisonViewProps) {
   const comparison = useMemo(() => {
     const startDate = parse(requestedStart, 'yyyy-MM-dd', new Date());
@@ -156,66 +58,90 @@ export function DateComparisonView({
     // Get all dates in the requested range
     const requestedDates = eachDayOfInterval({ start: startDate, end: endDate });
     
-    // Reconstruct what the crew member requested from the testimonial breakdown
-    // This is more accurate than using actualLogs which might be incomplete/incorrect
-    // We use vessel logs to inform the distribution for better alignment
-    const requestedLogs = reconstructRequestedLogs(testimonial, startDate, endDate, vesselLogs);
-    const requestedLogMap = new Map<string, { date: string; state: string }>();
-    requestedLogs.forEach(log => {
-      requestedLogMap.set(log.date, log);
-    });
-    
-    // Create maps for quick lookup of actual logs (fallback/reference)
+    // Use the crew member's ACTUAL daily_state_logs as the source of truth for what they requested
+    // Filter to the date range and create a map
     const crewLogMap = new Map<string, StateLog>();
     actualLogs.forEach(log => {
-      crewLogMap.set(log.date, log);
+      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+      // Only include logs within the requested date range
+      if (logDate >= startDate && logDate <= endDate) {
+        crewLogMap.set(log.date, log);
+      }
     });
     
+    // Create requested log map from actual crew member logs (what they actually recorded)
+    // This is the source of truth - what the crew member logged for each date
+    const requestedLogMap = new Map<string, { date: string; state: string }>();
+    crewLogMap.forEach((log, dateStr) => {
+      requestedLogMap.set(dateStr, { date: dateStr, state: log.state });
+    });
+    
+    // If we don't have logs for all dates in the range, fill in missing dates
+    // This can happen if the crew member didn't log every single day
+    // For missing dates, we'll mark them as not requested
+    requestedDates.forEach(date => {
+      const dateStr = format(date, 'yyyy-MM-dd');
+      if (!requestedLogMap.has(dateStr)) {
+        // Date is in range but crew member didn't log it - mark as not requested
+        requestedLogMap.set(dateStr, { date: dateStr, state: '' });
+      }
+    });
+    
+    // Create map for vessel logs (what the vessel actually logged)
     const vesselLogMap = new Map<string, StateLog>();
     vesselLogs.forEach(log => {
-      vesselLogMap.set(log.date, log);
+      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+      // Only include logs within the requested date range
+      if (logDate >= startDate && logDate <= endDate) {
+        vesselLogMap.set(log.date, log);
+      }
     });
     
     // Build day-by-day comparison
-    // Use reconstructed requested logs (from testimonial breakdown) as the primary source
-    // This shows what the crew member actually requested, not what's in daily_state_logs
+    // EXCLUDE "on-leave" dates from crew member's logs before comparing with vessel
+    // Only compare non-leave dates with vessel state logs
     const dayByDayComparison = requestedDates.map(date => {
       const dateStr = format(date, 'yyyy-MM-dd');
-      const requestedLog = requestedLogMap.get(dateStr); // What crew requested (from testimonial)
+      const requestedLog = requestedLogMap.get(dateStr); // What crew member actually logged (from daily_state_logs)
       const vesselLog = vesselLogMap.get(dateStr); // What vessel actually logged
-      const actualLog = crewLogMap.get(dateStr); // What's in daily_state_logs (reference only)
       
-      // Compare requested state (from testimonial) vs vessel state
-      const statesMatch = requestedLog && vesselLog && requestedLog.state === vesselLog.state;
-      const hasRequested = !!requestedLog;
+      // EXCLUDE on-leave dates from comparison - these should be ignored
+      const isOnLeave = requestedLog?.state === 'on-leave';
+      const hasRequestedState = !!requestedLog?.state && requestedLog.state !== '';
+      
+      // Only compare if NOT on leave and crew member has a logged state for this date
+      // If crew member was on leave, we skip comparison for that date
+      const statesMatch = !isOnLeave && hasRequestedState && vesselLog && requestedLog.state === vesselLog.state;
+      const hasRequested = hasRequestedState && !isOnLeave; // Exclude on-leave from requested count
       const hasVesselLog = !!vesselLog;
-      
-      // Check if requested state matches actual log (for reference)
-      const matchesActualLog = requestedLog && actualLog && requestedLog.state === actualLog.state;
       
       return {
         date,
         dateStr,
-        crewState: requestedLog?.state || null, // Use requested state from testimonial
-        vesselState: vesselLog?.state || null,
-        actualLogState: actualLog?.state || null, // For reference/debugging
+        crewState: requestedLog?.state || null, // What crew member actually logged (from daily_state_logs)
+        vesselState: vesselLog?.state || null, // What vessel logged
+        actualLogState: requestedLog?.state || null, // Same as crewState (for consistency)
+        isOnLeave, // Track if this is a leave day
         statesMatch,
-        hasCrewLog: hasRequested, // Whether we have a requested state
+        hasCrewLog: hasRequested, // Whether crew member logged a state for this date (excluding leave)
         hasVesselLog,
-        matchesActualLog, // Whether requested matches what's in daily_state_logs
-        isDiscrepancy: hasRequested && hasVesselLog && !statesMatch,
-        isMissingCrew: !hasRequested && hasVesselLog,
-        isMissingVessel: hasRequested && !hasVesselLog
+        matchesActualLog: true, // Since we're using actual logs, this is always true
+        isDiscrepancy: !isOnLeave && hasRequested && hasVesselLog && !statesMatch,
+        isMissingCrew: !isOnLeave && !hasRequested && hasVesselLog,
+        isMissingVessel: !isOnLeave && hasRequested && !hasVesselLog
       };
     });
     
     // Calculate summary stats
-    const crewLoggedDays = dayByDayComparison.filter(d => d.hasCrewLog).length;
-    const vesselLoggedDays = dayByDayComparison.filter(d => d.hasVesselLog).length;
-    const matchingDays = dayByDayComparison.filter(d => d.statesMatch).length;
-    const discrepancies = dayByDayComparison.filter(d => d.isDiscrepancy);
-    const missingCrewDays = dayByDayComparison.filter(d => d.isMissingCrew);
-    const missingVesselDays = dayByDayComparison.filter(d => d.isMissingVessel);
+    // Exclude on-leave days from all calculations
+    const nonLeaveDays = dayByDayComparison.filter(d => !d.isOnLeave);
+    const crewLoggedDays = nonLeaveDays.filter(d => d.hasCrewLog).length;
+    const vesselLoggedDays = nonLeaveDays.filter(d => d.hasVesselLog).length;
+    const matchingDays = nonLeaveDays.filter(d => d.statesMatch).length;
+    const discrepancies = nonLeaveDays.filter(d => d.isDiscrepancy);
+    const missingCrewDays = nonLeaveDays.filter(d => d.isMissingCrew);
+    const missingVesselDays = nonLeaveDays.filter(d => d.isMissingVessel);
+    const onLeaveDays = dayByDayComparison.filter(d => d.isOnLeave).length;
     
     const percentageMatch = crewLoggedDays > 0 
       ? Math.round((matchingDays / crewLoggedDays) * 100) 
@@ -242,6 +168,7 @@ export function DateComparisonView({
       discrepancies,
       missingCrewDays,
       missingVesselDays,
+      onLeaveDays, // Days excluded from comparison
       percentageMatch,
       dayByDayComparison,
       vesselAtSeaDays,
@@ -253,90 +180,140 @@ export function DateComparisonView({
     };
   }, [requestedStart, requestedEnd, actualLogs, vesselLogs, testimonial]);
 
+  // Notify parent component of comparison data when it changes
+  useEffect(() => {
+    if (onComparisonChange) {
+      onComparisonChange(comparison);
+    }
+  }, [comparison, onComparisonChange]);
+
   return (
-    <div className="space-y-4">
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <div className="space-y-6">
+      {/* Summary Cards - Redesigned for better readability */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Crew Member's Summary */}
-        <Card className="border-blue-500/30 bg-blue-500/5">
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 mb-3">
-              <User className="h-4 w-4 text-blue-600" />
-              <span className="text-sm font-medium">Crew Member Requested</span>
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border-2 border-blue-200 dark:border-blue-800 rounded-xl p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-blue-500/20 rounded-lg">
+              <User className="h-5 w-5 text-blue-700 dark:text-blue-400" />
             </div>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Requested Days:</span>
-                <span className="font-semibold">{testimonial?.total_days || comparison.crewLoggedDays}</span>
+            <div>
+              <div className="font-semibold text-sm text-blue-900 dark:text-blue-100">Crew Request</div>
+              <div className="text-xs text-blue-700/70 dark:text-blue-300/70">What was requested</div>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className="bg-white/60 dark:bg-gray-900/40 rounded-lg p-3 border border-blue-200/50 dark:border-blue-800/50">
+              <div className="text-xs text-muted-foreground mb-1">Total Days</div>
+              <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">{testimonial?.total_days || comparison.crewLoggedDays}</div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
+                <div className="text-muted-foreground mb-0.5">Compared</div>
+                <div className="font-semibold">{comparison.crewLoggedDays}</div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Matching States:</span>
-                <span className="font-semibold text-green-600">{comparison.matchingDays}</span>
+              <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
+                <div className="text-muted-foreground mb-0.5">Matching</div>
+                <div className="font-semibold text-green-600 dark:text-green-400">{comparison.matchingDays}</div>
               </div>
-              {comparison.discrepancies.length > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Mismatches:</span>
-                  <span className="font-semibold text-red-600">{comparison.discrepancies.length}</span>
+            </div>
+            {comparison.discrepancies.length > 0 && (
+              <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded p-2">
+                <div className="text-xs text-red-700 dark:text-red-400 font-medium">
+                  {comparison.discrepancies.length} mismatch{comparison.discrepancies.length !== 1 ? 'es' : ''}
                 </div>
-              )}
-              <div className="pt-2 border-t text-xs text-muted-foreground">
-                <div>At Sea: {testimonial?.at_sea_days || 0}</div>
-                <div>Standby: {testimonial?.standby_days || 0}</div>
-                <div>Yard: {testimonial?.yard_days || 0}</div>
-                <div>Leave: {testimonial?.leave_days || 0}</div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            )}
+            {comparison.onLeaveDays > 0 && (
+              <div className="text-xs text-muted-foreground pt-2 border-t border-blue-200/50 dark:border-blue-800/50">
+                {comparison.onLeaveDays} day{comparison.onLeaveDays !== 1 ? 's' : ''} on leave (excluded)
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Vessel Summary */}
-        <Card className={comparison.hasVesselLogs ? 'border-green-500/30 bg-green-500/5' : 'border-gray-500/30 bg-gray-500/5'}>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Ship className="h-4 w-4 text-green-600" />
-              <span className="text-sm font-medium">Vessel</span>
+        <div className={`bg-gradient-to-br ${comparison.hasVesselLogs ? 'from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 border-2 border-green-200 dark:border-green-800' : 'from-gray-50 to-gray-100/50 dark:from-gray-900/30 dark:to-gray-800/20 border-2 border-gray-200 dark:border-gray-800'} rounded-xl p-5`}>
+          <div className="flex items-center gap-3 mb-4">
+            <div className={`p-2 ${comparison.hasVesselLogs ? 'bg-green-500/20' : 'bg-gray-500/20'} rounded-lg`}>
+              <Ship className={`h-5 w-5 ${comparison.hasVesselLogs ? 'text-green-700 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`} />
             </div>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Logged Days:</span>
-                <span className="font-semibold">{comparison.vesselLoggedDays}</span>
+            <div>
+              <div className={`font-semibold text-sm ${comparison.hasVesselLogs ? 'text-green-900 dark:text-green-100' : 'text-gray-700 dark:text-gray-300'}`}>Vessel Logs</div>
+              <div className={`text-xs ${comparison.hasVesselLogs ? 'text-green-700/70 dark:text-green-300/70' : 'text-gray-600/70 dark:text-gray-400/70'}`}>Actual logged states</div>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className={`${comparison.hasVesselLogs ? 'bg-white/60 dark:bg-gray-900/40' : 'bg-white/40 dark:bg-gray-900/30'} rounded-lg p-3 border ${comparison.hasVesselLogs ? 'border-green-200/50 dark:border-green-800/50' : 'border-gray-200/50 dark:border-gray-800/50'}`}>
+              <div className="text-xs text-muted-foreground mb-1">Logged Days</div>
+              <div className={`text-2xl font-bold ${comparison.hasVesselLogs ? 'text-green-900 dark:text-green-100' : 'text-gray-600 dark:text-gray-400'}`}>
+                {comparison.vesselLoggedDays}
               </div>
-              {comparison.hasVesselLogs && (
-                <div className="grid grid-cols-2 gap-1 text-xs pt-2 border-t">
-                  <div>At Sea: {comparison.vesselAtSeaDays}</div>
-                  <div>Standby: {comparison.vesselStandbyDays}</div>
-                  <div>Yard: {comparison.vesselYardDays}</div>
-                  <div>Leave: {comparison.vesselLeaveDays}</div>
+            </div>
+            {comparison.hasVesselLogs && (
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
+                  <div className="text-muted-foreground mb-0.5">At Sea</div>
+                  <div className="font-semibold">{comparison.vesselAtSeaDays}</div>
                 </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Match Summary */}
-        <Card className={comparison.hasIssues ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-green-500/30 bg-green-500/5'}>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Match Rate</span>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Badge 
-                  variant="outline" 
-                  className={comparison.percentageMatch >= 90 ? 'border-green-500 text-green-700' : comparison.percentageMatch >= 50 ? 'border-yellow-500 text-yellow-700' : 'border-red-500 text-red-700'}
-                >
-                  {comparison.percentageMatch}%
-                </Badge>
+                <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
+                  <div className="text-muted-foreground mb-0.5">Standby</div>
+                  <div className="font-semibold">{comparison.vesselStandbyDays}</div>
+                </div>
+                <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
+                  <div className="text-muted-foreground mb-0.5">Yard</div>
+                  <div className="font-semibold">{comparison.vesselYardDays}</div>
+                </div>
+                <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
+                  <div className="text-muted-foreground mb-0.5">Leave</div>
+                  <div className="font-semibold">{comparison.vesselLeaveDays}</div>
+                </div>
               </div>
-              {comparison.hasIssues && (
-                <p className="text-xs text-muted-foreground">
-                  {comparison.discrepancies.length} state mismatch{comparison.discrepancies.length !== 1 ? 'es' : ''} found
-                </p>
+            )}
+          </div>
+        </div>
+
+        {/* Match Summary - Most Important */}
+        <div className={`bg-gradient-to-br ${comparison.hasIssues ? 'from-yellow-50 to-yellow-100/50 dark:from-yellow-950/30 dark:to-yellow-900/20 border-2 border-yellow-200 dark:border-yellow-800' : 'from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 border-2 border-green-200 dark:border-green-800'} rounded-xl p-5`}>
+          <div className="flex items-center gap-3 mb-4">
+            <div className={`p-2 ${comparison.hasIssues ? 'bg-yellow-500/20' : 'bg-green-500/20'} rounded-lg`}>
+              {comparison.hasIssues ? (
+                <AlertTriangle className="h-5 w-5 text-yellow-700 dark:text-yellow-400" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5 text-green-700 dark:text-green-400" />
               )}
             </div>
-          </CardContent>
-        </Card>
+            <div>
+              <div className={`font-semibold text-sm ${comparison.hasIssues ? 'text-yellow-900 dark:text-yellow-100' : 'text-green-900 dark:text-green-100'}`}>Match Rate</div>
+              <div className={`text-xs ${comparison.hasIssues ? 'text-yellow-700/70 dark:text-yellow-300/70' : 'text-green-700/70 dark:text-green-300/70'}`}>Overall accuracy</div>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className={`${comparison.hasIssues ? 'bg-white/60 dark:bg-gray-900/40 border-yellow-200/50 dark:border-yellow-800/50' : 'bg-white/60 dark:bg-gray-900/40 border-green-200/50 dark:border-green-800/50'} rounded-lg p-4 border text-center`}>
+              <div className="text-xs text-muted-foreground mb-2">Match Percentage</div>
+              <div className={`text-4xl font-bold ${comparison.percentageMatch >= 90 ? 'text-green-600 dark:text-green-400' : comparison.percentageMatch >= 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
+                {comparison.percentageMatch}%
+              </div>
+            </div>
+            {comparison.hasIssues && (
+              <div className="bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded p-3">
+                <div className="text-xs font-medium text-yellow-900 dark:text-yellow-100 mb-1">
+                  ⚠️ Review Required
+                </div>
+                <div className="text-xs text-yellow-700 dark:text-yellow-300">
+                  {comparison.discrepancies.length} state mismatch{comparison.discrepancies.length !== 1 ? 'es' : ''} found. Please review the day-by-day comparison below.
+                </div>
+              </div>
+            )}
+            {!comparison.hasIssues && comparison.matchingDays > 0 && (
+              <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded p-3">
+                <div className="text-xs font-medium text-green-900 dark:text-green-100">
+                  ✓ All states match
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Day-by-Day Comparison Table */}
@@ -358,7 +335,13 @@ export function DateComparisonView({
                   {comparison.dayByDayComparison.map((day) => (
                     <TableRow 
                       key={day.dateStr}
-                      className={day.isDiscrepancy ? 'bg-yellow-500/10 dark:bg-yellow-500/5' : ''}
+                      className={
+                        day.isOnLeave 
+                          ? 'bg-gray-100/50 dark:bg-gray-800/30 opacity-60' 
+                          : day.isDiscrepancy 
+                            ? 'bg-yellow-500/10 dark:bg-yellow-500/5' 
+                            : ''
+                      }
                     >
                       <TableCell className="font-medium">
                         {format(day.date, 'MMM d, yyyy')}
@@ -367,7 +350,17 @@ export function DateComparisonView({
                         </div>
                       </TableCell>
                       <TableCell>
-                        {day.crewState ? (
+                        {day.isOnLeave ? (
+                          <div className="space-y-1">
+                            <Badge 
+                              variant="outline" 
+                              className={`text-xs ${getStateBadgeVariant('on-leave')}`}
+                            >
+                              {formatStateName('on-leave')}
+                            </Badge>
+                            <div className="text-xs text-muted-foreground italic">(Excluded from comparison)</div>
+                          </div>
+                        ) : day.crewState ? (
                           <Badge 
                             variant="outline" 
                             className={`text-xs ${getStateBadgeVariant(day.crewState)}`}
@@ -377,7 +370,7 @@ export function DateComparisonView({
                         ) : (
                           <span className="text-xs text-muted-foreground italic">Not requested</span>
                         )}
-                        {day.actualLogState && day.actualLogState !== day.crewState && (
+                        {!day.isOnLeave && day.actualLogState && day.actualLogState !== day.crewState && (
                           <div className="text-xs text-muted-foreground mt-1">
                             (Actual: {formatStateName(day.actualLogState)})
                           </div>
@@ -396,7 +389,12 @@ export function DateComparisonView({
                         )}
                       </TableCell>
                       <TableCell>
-                        {day.statesMatch ? (
+                        {day.isOnLeave ? (
+                          <div className="flex items-center gap-1 text-gray-400">
+                            <XCircle className="h-3 w-3" />
+                            <span className="text-xs">Excluded</span>
+                          </div>
+                        ) : day.statesMatch ? (
                           <div className="flex items-center gap-1 text-green-600">
                             <CheckCircle2 className="h-3 w-3" />
                             <span className="text-xs">Match</span>

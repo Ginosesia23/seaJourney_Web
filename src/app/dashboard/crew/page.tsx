@@ -379,7 +379,14 @@ export default function CrewPage() {
             <div className="space-y-2">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div className="space-y-1">
-                        <h1 className="text-3xl font-bold tracking-tight">Crew Members</h1>
+                        <div className="flex items-center gap-3">
+                            <h1 className="text-3xl font-bold tracking-tight">Crew Members</h1>
+                            {crewMembers.length > 0 && (
+                                <Badge variant="secondary" className="text-sm font-semibold">
+                                    {crewMembers.length} {crewMembers.length === 1 ? 'member' : 'members'}
+                                </Badge>
+                            )}
+                        </div>
                         <p className="text-muted-foreground">
                             {currentUserProfile?.role === 'admin'
                                 ? "View and manage all crew members across all vessels."
@@ -412,21 +419,20 @@ export default function CrewPage() {
                                 {currentUserProfile?.role === 'admin' && <TableHead>Vessel</TableHead>}
                                 <TableHead>Position</TableHead>
                                 <TableHead>Role</TableHead>
-                                <TableHead>Subscription</TableHead>
-                                <TableHead>Joined</TableHead>
+                                <TableHead>Joined Vessel</TableHead>
                                 <TableHead className="w-[50px]"></TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {isLoading ? (
                                 <TableRow>
-                                    <TableCell colSpan={currentUserProfile?.role === 'admin' ? 8 : 7} className="h-24 text-center">
+                                    <TableCell colSpan={currentUserProfile?.role === 'admin' ? 7 : 6} className="h-24 text-center">
                                         <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                                     </TableCell>
                                 </TableRow>
                             ) : !currentUserProfile?.activeVesselId && currentUserProfile?.role !== 'admin' ? (
                                 <TableRow>
-                                    <TableCell colSpan={currentUserProfile?.role === 'admin' ? 8 : 7} className="h-24 text-center text-muted-foreground">
+                                    <TableCell colSpan={currentUserProfile?.role === 'admin' ? 7 : 6} className="h-24 text-center text-muted-foreground">
                                         No active vessel found. Please select an active vessel to view crew members.
                                     </TableCell>
                                 </TableRow>
@@ -434,7 +440,6 @@ export default function CrewPage() {
                                 filteredCrewMembers.map(({ profile, assignment }) => {
                                     const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
                                     const displayName = fullName || profile.username;
-                                    const regDate = profile.registrationDate ? new Date(profile.registrationDate) : null;
                                     
                                     // Get position from assignment (vessel-specific) first, fallback to profile
                                     const position = assignment.position || profile.position || null;
@@ -462,22 +467,6 @@ export default function CrewPage() {
                                                 return 'rounded-full bg-blue-500/10 text-blue-700 border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400';
                                             case 'captain':
                                                 return 'rounded-full bg-purple-500/10 text-purple-700 border-purple-500/20 dark:bg-purple-500/20 dark:text-purple-400';
-                                            default:
-                                                return 'rounded-full bg-gray-500/10 text-gray-700 border-gray-500/20 dark:bg-gray-500/20 dark:text-gray-400';
-                                        }
-                                    };
-
-                                    // Get subscription tier badge styling (pill-shaped)
-                                    const getSubscriptionBadgeClassName = (tier: string) => {
-                                        const tierLower = (tier || 'free').toLowerCase();
-                                        switch (tierLower) {
-                                            case 'pro':
-                                                return 'rounded-full bg-purple-500/10 text-purple-700 border-purple-500/20 dark:bg-purple-500/20 dark:text-purple-400';
-                                            case 'premium':
-                                                return 'rounded-full bg-blue-500/10 text-blue-700 border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400';
-                                            case 'standard':
-                                                return 'rounded-full bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400';
-                                            case 'free':
                                             default:
                                                 return 'rounded-full bg-gray-500/10 text-gray-700 border-gray-500/20 dark:bg-gray-500/20 dark:text-gray-400';
                                         }
@@ -525,15 +514,9 @@ export default function CrewPage() {
                                                 </Badge>
                                             </TableCell>
                                             <TableCell>
-                                                <Badge 
-                                                    variant="outline" 
-                                                    className={getSubscriptionBadgeClassName(profile.subscriptionTier)}
-                                                >
-                                                    {profile.subscriptionTier || 'free'}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell>
-                                                {regDate && !isNaN(regDate.getTime()) ? format(regDate, 'dd MMM, yyyy') : 'N/A'}
+                                                {assignment.startDate 
+                                                    ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
+                                                    : 'N/A'}
                                             </TableCell>
                                             <TableCell>
                                                 <DropdownMenu>
@@ -557,7 +540,7 @@ export default function CrewPage() {
                                 })
                             ) : (
                                 <TableRow>
-                                    <TableCell colSpan={currentUserProfile?.role === 'admin' ? 8 : 7} className="h-24 text-center">
+                                    <TableCell colSpan={currentUserProfile?.role === 'admin' ? 7 : 6} className="h-24 text-center">
                                         {currentUserProfile?.role === 'admin'
                                             ? 'No crew members found across all vessels.'
                                             : currentUserProfile?.activeVesselId 
