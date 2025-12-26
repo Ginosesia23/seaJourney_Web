@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
@@ -52,8 +52,8 @@ interface Plan {
   availableDate?: string; // Available date
 }
 
-// These are just design defaults; real prices will be overridden from Stripe
-const planTemplates: Omit<Plan, 'priceId'>[] = [
+// Crew plan templates - for individual crew members
+const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
   {
     name: 'Standard',
     price: '£4.99',
@@ -107,6 +107,90 @@ const planTemplates: Omit<Plan, 'priceId'>[] = [
   },
 ];
 
+// Vessel plan templates - for vessel accounts
+const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
+  {
+    name: 'Vessel Lite',
+    price: '£24.99',
+    priceSuffix: '/ month',
+    description: 'Essential vessel management for small operations.',
+    features: [
+      'Single vessel',
+      'Up to 15 crew members',
+      'Crew management & assignments',
+      'Vessel state tracking',
+      'Digital testimonial approvals',
+      'Crew sea time verification',
+      'Basic reporting & exports',
+    ],
+    cta: 'Get Started',
+    icon: Shield,
+    color: 'blue',
+  },
+  {
+    name: 'Vessel Basic',
+    price: '£49.99',
+    priceSuffix: '/ month',
+    description: 'Advanced vessel management for growing operations.',
+    features: [
+      'Single vessel',
+      'Up to 30 crew members',
+      'All Lite features',
+      'Advanced crew analytics',
+      'Automated testimonial workflows',
+      'Crew certification tracking',
+      'Priority support',
+    ],
+    cta: 'Get Started',
+    highlighted: false,
+    icon: Zap,
+    color: 'purple',
+  },
+  {
+    name: 'Vessel Pro',
+    price: '£99.99',
+    priceSuffix: '/ month',
+    description: 'Complete vessel management solution.',
+    features: [
+      'Single vessel',
+      'Unlimited crew members',
+      'Multiple role assignments',
+      'All Basic features',
+      'Fleet-wide analytics',
+      'Custom reporting & integrations',
+      'Advanced security & compliance',
+    ],
+    cta: 'Get Started',
+    icon: TrendingUp,
+    color: 'orange',
+    comingSoon: false,
+  },
+  {
+    name: 'Vessel Fleet',
+    price: '£249.99',
+    priceSuffix: '/ month',
+    description: 'Enterprise fleet management for large operations.',
+    features: [
+      'Up to 3 vessels (included)',
+      'Unlimited crew members',
+      '£50 per additional vessel',
+      'All Pro features',
+      'Enterprise-grade analytics',
+      'Custom integrations & API access',
+      'Dedicated account manager',
+      '24/7 priority support',
+      'Advanced compliance & security',
+    ],
+    cta: 'Get Started',
+    icon: TrendingUp,
+    color: 'orange',
+    comingSoon: false,
+  },
+];
+
+// Default to crew plans (backward compatibility)
+const planTemplates = crewPlanTemplates;
+
 const freeTier = {
   name: 'Mobile App',
   description:
@@ -128,9 +212,42 @@ export default function OffersPage() {
   const pathname = usePathname();
   const { toast } = useToast();
 
-  // Get user profile to check subscription status
-  const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>('users', user?.id);
+  // Get user profile to check subscription status and role
+  const { data: userProfileRaw, isLoading: isProfileLoading } = useDoc<UserProfile>('users', user?.id);
+  
+  // Transform user profile to handle both snake_case (from DB) and camelCase (from types)
+  const userProfile = useMemo(() => {
+    if (!userProfileRaw) return null;
+    
+    return {
+      ...userProfileRaw,
+      role: (userProfileRaw as any).role || 'crew',
+      subscriptionTier: (userProfileRaw as any).subscription_tier || (userProfileRaw as any).subscriptionTier || 'free',
+      subscriptionStatus: (userProfileRaw as any).subscription_status || (userProfileRaw as any).subscriptionStatus || 'inactive',
+    } as UserProfile;
+  }, [userProfileRaw]);
+  
   const hasActiveSub = userProfile ? hasActiveSubscription(userProfile) : false;
+  
+  // Determine if user is a vessel account - properly extract role
+  const userRole = userProfile?.role || 'crew';
+  const isVesselAccount = userRole?.toLowerCase() === 'vessel';
+  
+  // Log for debugging
+  useEffect(() => {
+    if (userProfile) {
+      console.log('[OFFERS PAGE] User profile loaded:', {
+        userId: userProfile.id,
+        role: userRole,
+        isVesselAccount,
+        rawRole: (userProfileRaw as any)?.role,
+        transformedRole: userProfile?.role,
+      });
+    }
+  }, [userProfile, userProfileRaw, userRole, isVesselAccount]);
+  
+  // Select appropriate plan templates based on role
+  const selectedPlanTemplates = isVesselAccount ? vesselPlanTemplates : crewPlanTemplates;
 
   // Format subscription tier for display
   const formatTierName = (tier: string) => {
@@ -193,15 +310,25 @@ export default function OffersPage() {
     // Don't fetch products if user has active subscription (will redirect)
     if (hasActiveSub) return;
     
+    // Wait for user profile to load before determining vessel account status
+    if (isProfileLoading || !userProfile) {
+      console.log('[OFFERS PAGE] Waiting for user profile to load...');
+      return;
+    }
+    
     const fetchProducts = async () => {
       console.log('========================================');
       console.log('[OFFERS PAGE] ===== FETCHING PRODUCTS =====');
       console.log('[OFFERS PAGE] Timestamp:', new Date().toISOString());
+      console.log('[OFFERS PAGE] User profile loaded:', !!userProfile);
+      console.log('[OFFERS PAGE] User role:', userProfile?.role);
+      console.log('[OFFERS PAGE] Is vessel account:', isVesselAccount);
       console.log('========================================');
       
       try {
         console.log('[OFFERS PAGE] Calling getStripeProducts()...');
-        const stripePrices: StripeProduct[] = await getStripeProducts();
+        console.log('[OFFERS PAGE] Is vessel account:', isVesselAccount);
+        const stripePrices: StripeProduct[] = await getStripeProducts(isVesselAccount);
 
         console.log('[OFFERS PAGE] ✅ Received prices from Stripe:', stripePrices.length);
         console.log('[OFFERS PAGE] Prices received:', stripePrices.map((p: any) => ({
@@ -213,14 +340,23 @@ export default function OffersPage() {
 
         const getTemplateTierKey = (templateName: string) => {
           const lower = templateName.toLowerCase();
+          // Handle vessel plans
+          if (lower.includes('vessel')) {
+            if (lower.includes('fleet')) return 'vessel_fleet';
+            if (lower.includes('pro')) return 'vessel_pro';
+            if (lower.includes('basic')) return 'vessel_basic';
+            if (lower.includes('lite')) return 'vessel_lite';
+          }
+          // Handle crew plans
           if (lower === 'pro') return 'professional';
           return lower;
         };
 
         console.log('[OFFERS PAGE] Mapping prices to plan templates...');
-        console.log('[OFFERS PAGE] Available templates:', planTemplates.map(t => t.name));
+        console.log('[OFFERS PAGE] User role:', isVesselAccount ? 'vessel' : 'crew');
+        console.log('[OFFERS PAGE] Available templates:', selectedPlanTemplates.map(t => t.name));
         
-        const mappedPlans: Plan[] = planTemplates.map((template) => {
+        const mappedPlans: Plan[] = selectedPlanTemplates.map((template) => {
           const templateTier = getTemplateTierKey(template.name);
           console.log(`[OFFERS PAGE] Mapping template "${template.name}" (tier key: "${templateTier}")...`);
 
@@ -231,6 +367,15 @@ export default function OffersPage() {
               anyPrice.nickname ||
               ''
             ).toLowerCase();
+
+            // Match vessel plans with vessel prices, crew plans with crew prices
+            const isVesselPrice = priceTier.includes('vessel');
+            const isVesselTemplate = templateTier.includes('vessel');
+            
+            // Only match if both are vessel or both are crew
+            if (isVesselPrice !== isVesselTemplate) {
+              return false;
+            }
 
             const match =
               priceTier === templateTier ||
@@ -307,16 +452,25 @@ export default function OffersPage() {
         console.error('[OFFERS PAGE] Error code:', error?.code);
         console.error('[OFFERS PAGE] Error stack:', error?.stack);
         console.error('[OFFERS PAGE] Full error:', error);
+        console.error('[OFFERS PAGE] Is vessel account:', isVesselAccount);
+        console.error('[OFFERS PAGE] User role:', userProfile?.role);
         console.error('[OFFERS PAGE] ========================================');
         
         // Fallback to templates without price IDs
         console.log('[OFFERS PAGE] Falling back to template defaults (no price IDs)');
         setPlans(
-          planTemplates.map((t) => ({ ...t, priceId: undefined })),
+          selectedPlanTemplates.map((t) => ({ ...t, priceId: undefined })),
         );
+        
+        // Show more specific error message
+        const errorMessage = error?.message || 'Could not load subscription plans.';
+        const isProductIdError = errorMessage.includes('product ID') || errorMessage.includes('not configured');
+        
         toast({
           title: 'Error',
-          description: 'Could not load subscription plans. Please try again later.',
+          description: isProductIdError 
+            ? `${errorMessage} Please check your environment variables.`
+            : `${errorMessage} Please try again later.`,
           variant: 'destructive',
         });
       } finally {
@@ -326,7 +480,7 @@ export default function OffersPage() {
     };
 
     fetchProducts();
-  }, [toast, hasActiveSub]);
+  }, [toast, hasActiveSub, isVesselAccount, selectedPlanTemplates, isProfileLoading, userProfile]);
 
 
   const handlePurchase = async (plan: Plan) => {
@@ -432,71 +586,77 @@ export default function OffersPage() {
                 <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-5xl mb-4">
                   {hasActiveSub && user
                     ? 'Change Your Plan'
+                    : isVesselAccount
+                    ? 'Choose Your Vessel Plan'
                     : 'Choose Your Voyage'}
               </h1>
                 <p className="mt-6 text-xl leading-8 text-blue-100">
                   {hasActiveSub && user
                     ? 'Upgrade or downgrade your subscription to match your needs. Changes take effect immediately.'
+                    : isVesselAccount
+                    ? 'Select the perfect plan for managing your vessel and crew based on your fleet size and crew numbers.'
                     : 'Find the perfect fit for your maritime career and get ready to set sail. Start your journey today with a 7-day free trial.'}
               </p>
               </motion.div>
             </div>
 
-            <div className="mx-auto mt-16 grid max-w-lg grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-2 xl:grid-cols-3">
-              {/* Free tier card */}
-              <motion.div
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: 0 }}
-              >
-                <Card className="flex flex-col rounded-2xl border border-blue-500/30 ring-1 ring-blue-500/20 transition-all duration-300 hover:scale-105" style={{ backgroundColor: 'rgba(2, 22, 44, 0.6)', backdropFilter: 'blur(20px)', boxShadow: '0 8px 32px rgba(59, 130, 246, 0.15), 0 0 0 1px rgba(59, 130, 246, 0.1)' }}>
-                  <CardHeader className="flex-grow pb-6">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-500/20">
-                        <Download className="h-6 w-6 text-blue-400" />
+            <div className={`mx-auto mt-16 grid max-w-lg grid-cols-1 gap-8 lg:max-w-none ${isVesselAccount ? 'lg:grid-cols-2 xl:grid-cols-4' : 'lg:grid-cols-2 xl:grid-cols-3'}`}>
+              {/* Free tier card - only show for crew accounts */}
+              {!isVesselAccount && (
+                <motion.div
+                  initial={{ opacity: 0, y: 30 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.5, delay: 0 }}
+                >
+                  <Card className="flex flex-col rounded-2xl border border-blue-500/30 ring-1 ring-blue-500/20 transition-all duration-300 hover:scale-105" style={{ backgroundColor: 'rgba(2, 22, 44, 0.6)', backdropFilter: 'blur(20px)', boxShadow: '0 8px 32px rgba(59, 130, 246, 0.15), 0 0 0 1px rgba(59, 130, 246, 0.1)' }}>
+                    <CardHeader className="flex-grow pb-6">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-500/20">
+                          <Download className="h-6 w-6 text-blue-400" />
+                        </div>
+                        <CardTitle className="font-headline text-2xl text-white">
+                          {freeTier.name}
+                        </CardTitle>
                       </div>
-                      <CardTitle className="font-headline text-2xl text-white">
-                        {freeTier.name}
-                      </CardTitle>
-                    </div>
-                    <div className="flex items-baseline gap-2 mb-2">
-                      <span className="text-5xl font-bold tracking-tight text-white">Free</span>
-                      </div>
-                    <CardDescription className="text-blue-100/80 text-base mt-4">
-                      {freeTier.description}
-                    </CardDescription>
-                    </CardHeader>
-                  <CardContent className="border-t border-white/10 pt-6 pb-6">
-                    <ul className="space-y-4 text-sm">
-                      {freeTier.features.map((feature, idx) => (
-                        <li key={idx} className="flex items-start gap-3">
-                          <div className="mt-0.5 h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0 bg-blue-500/20">
-                            <Check className="h-3 w-3 text-blue-400" />
-                          </div>
-                          <span className="text-white/90">{feature}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </CardContent>
-                  <CardFooter className="pt-0">
-                      <Button
-                        asChild
-                      className="w-full rounded-xl text-base font-semibold h-12 bg-white/10 hover:bg-white/20 text-white border border-white/20"
-                      >
-                        <Link
-                          href={freeTier.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2"
+                      <div className="flex items-baseline gap-2 mb-2">
+                        <span className="text-5xl font-bold tracking-tight text-white">Free</span>
+                        </div>
+                      <CardDescription className="text-blue-100/80 text-base mt-4">
+                        {freeTier.description}
+                      </CardDescription>
+                      </CardHeader>
+                    <CardContent className="border-t border-white/10 pt-6 pb-6">
+                      <ul className="space-y-4 text-sm">
+                        {freeTier.features.map((feature, idx) => (
+                          <li key={idx} className="flex items-start gap-3">
+                            <div className="mt-0.5 h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0 bg-blue-500/20">
+                              <Check className="h-3 w-3 text-blue-400" />
+                            </div>
+                            <span className="text-white/90">{feature}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </CardContent>
+                    <CardFooter className="pt-0">
+                        <Button
+                          asChild
+                        className="w-full rounded-xl text-base font-semibold h-12 bg-white/10 hover:bg-white/20 text-white border border-white/20"
                         >
-                        <Download className="h-4 w-4" />
-                        {freeTier.cta}
-                        </Link>
-                      </Button>
-                    </CardFooter>
-                  </Card>
-              </motion.div>
+                          <Link
+                            href={freeTier.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-2"
+                          >
+                          <Download className="h-4 w-4" />
+                          {freeTier.cta}
+                          </Link>
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                </motion.div>
+              )}
 
               {/* Paid plan cards */}
               {plans.map((plan, index) => {
@@ -591,7 +751,8 @@ export default function OffersPage() {
                           )}
                           {isHighlighted &&
                             !isCurrent &&
-                            !plan.comingSoon && (
+                            !plan.comingSoon &&
+                            !isVesselAccount && (
                               <div
                                 className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto"
                                 style={{
@@ -736,31 +897,33 @@ export default function OffersPage() {
               })}
             </div>
 
-            {/* Additional CTA Section */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: 0.4 }}
-              className="mt-16 text-center"
-            >
-              <div
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-full border"
-                style={{
-                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                  borderColor: 'rgba(59, 130, 246, 0.3)',
-                }}
+            {/* Additional CTA Section - only show for crew accounts */}
+            {!isVesselAccount && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.4 }}
+                className="mt-16 text-center"
               >
-                <Shield className="h-5 w-5 text-blue-400" />
-                <p className="text-blue-200 font-medium">
-                  All plans include a{' '}
-                  <span className="text-white font-bold">
-                    7-day free trial
-                  </span>{' '}
-                  - Cancel anytime
-                </p>
-              </div>
-            </motion.div>
+                <div
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full border"
+                  style={{
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderColor: 'rgba(59, 130, 246, 0.3)',
+                  }}
+                >
+                  <Shield className="h-5 w-5 text-blue-400" />
+                  <p className="text-blue-200 font-medium">
+                    All plans include a{' '}
+                    <span className="text-white font-bold">
+                      7-day free trial
+                    </span>{' '}
+                    - Cancel anytime
+                  </p>
+                </div>
+              </motion.div>
+            )}
           </div>
         </section>
       </main>

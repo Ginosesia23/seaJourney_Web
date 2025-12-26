@@ -30,11 +30,20 @@ export interface StripePriceWithProduct extends Stripe.Price {
  * Get all prices for the subscription product
  * Since we now have 1 product with 3 prices, we return all prices
  * (each price represents a tier: standard / premium / professional)
+ * 
+ * @param isVesselAccount - If true, fetches vessel product prices, otherwise crew product prices
  */
-export async function getStripeProducts(): Promise<StripeProduct[]> {
+export async function getStripeProducts(isVesselAccount: boolean = false): Promise<StripeProduct[]> {
+  // Determine which product ID to use and trim any whitespace/semicolons
+  const productId = (isVesselAccount 
+    ? process.env.STRIPE_VESSEL_SUBSCRIPTION_PRODUCT_ID 
+    : process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID)?.trim().replace(/[;,\s]+$/, '');
+  
+  const productType = isVesselAccount ? 'VESSEL' : 'CREW';
+  
   console.log('========================================');
-  console.log('[STRIPE] ===== FETCHING PRODUCTS =====');
-  console.log('[STRIPE] Product ID:', process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID);
+  console.log(`[STRIPE] ===== FETCHING ${productType} PRODUCTS =====`);
+  console.log(`[STRIPE] Product ID:`, productId);
   console.log('[STRIPE] Timestamp:', new Date().toISOString());
   
   // Validate Stripe secret key
@@ -43,6 +52,13 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
     const errorMsg = '[STRIPE] ❌ ERROR: STRIPE_SECRET_KEY is not set in environment variables';
     console.error(errorMsg);
     throw new Error('Stripe secret key is not configured. Please set STRIPE_SECRET_KEY environment variable.');
+  }
+  
+  // Validate product ID
+  if (!productId) {
+    const errorMsg = `[STRIPE] ❌ ERROR: STRIPE_${productType}_SUBSCRIPTION_PRODUCT_ID is not set in environment variables`;
+    console.error(errorMsg);
+    throw new Error(`Stripe ${productType.toLowerCase()} product ID is not configured. Please set STRIPE_${productType}_SUBSCRIPTION_PRODUCT_ID environment variable.`);
   }
   
   console.log('[STRIPE] Secret key prefix:', secretKey.slice(0, 8));
@@ -64,14 +80,14 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
     console.log('[STRIPE] Calling stripe.prices.list()...');
     console.log('[STRIPE] Request params:', {
       active: true,
-      product: process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID,
+      product: productId,
       limit: 100,
       expand: ['data.product'],
     });
     
     const prices = await stripe.prices.list({
       active: true,
-      product: process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID,
+      product: productId,
       limit: 100,
       expand: ['data.product'],
     });
@@ -134,9 +150,9 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
       const product = price.product as Stripe.Product;
 
       const isSubscriptionProduct =
-        product?.id === process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID ||
+        product?.id === productId ||
         (typeof price.product === 'string' &&
-          price.product === process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID);
+          price.product === productId);
 
       const isActive =
         isSubscriptionProduct && !!product && product.active && price.active;
@@ -195,6 +211,8 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
   } catch (error: any) {
     console.error('========================================');
     console.error('[STRIPE] ❌ ERROR FETCHING PRODUCTS');
+    console.error(`[STRIPE] Product Type: ${productType}`);
+    console.error(`[STRIPE] Product ID used: ${productId}`);
     console.error('[STRIPE] Error name:', error?.name);
     console.error('[STRIPE] Error message:', error?.message);
     console.error('[STRIPE] Error type:', error?.type);
@@ -204,8 +222,8 @@ export async function getStripeProducts(): Promise<StripeProduct[]> {
     
     // Check for common errors
     if (error?.code === 'resource_missing') {
-      console.error('[STRIPE] ⚠️ Product ID may be incorrect or not found in this Stripe account');
-      console.error('[STRIPE] Current Product ID:', process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID);
+      console.error(`[STRIPE] ⚠️ Product ID may be incorrect or not found in this Stripe account`);
+      console.error(`[STRIPE] Current Product ID (${productType}):`, productId);
     }
     
     if (error?.statusCode === 401) {

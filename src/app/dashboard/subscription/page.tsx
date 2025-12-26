@@ -82,7 +82,8 @@ interface StripeSubscriptionData {
   [key: string]: any;
 }
 
-const planTemplates: Omit<Plan, 'priceId'>[] = [
+// Crew plan templates - for individual crew members
+const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
   {
     name: 'Standard',
     price: '£4.99',
@@ -132,6 +133,83 @@ const planTemplates: Omit<Plan, 'priceId'>[] = [
   },
 ];
 
+// Vessel plan templates - for vessel accounts
+const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
+  {
+    name: 'Vessel Lite',
+    price: '£24.99',
+    priceSuffix: '/ month',
+    description: 'Essential vessel management for small operations.',
+    features: [
+      'Single vessel',
+      'Up to 15 crew members',
+      'Crew management & assignments',
+      'Vessel state tracking',
+      'Digital testimonial approvals',
+      'Crew sea time verification',
+      'Basic reporting & exports',
+    ],
+    icon: Shield,
+    color: 'blue',
+  },
+  {
+    name: 'Vessel Basic',
+    price: '£49.99',
+    priceSuffix: '/ month',
+    description: 'Advanced vessel management for growing operations.',
+    features: [
+      'Single vessel',
+      'Up to 30 crew members',
+      'All Lite features',
+      'Advanced crew analytics',
+      'Automated testimonial workflows',
+      'Crew certification tracking',
+      'Priority support',
+    ],
+    highlighted: false,
+    icon: Zap,
+    color: 'purple',
+  },
+  {
+    name: 'Vessel Pro',
+    price: '£99.99',
+    priceSuffix: '/ month',
+    description: 'Complete vessel management solution.',
+    features: [
+      'Single vessel',
+      'Unlimited crew members',
+      'Multiple role assignments',
+      'All Basic features',
+      'Fleet-wide analytics',
+      'Custom reporting & integrations',
+      'Advanced security & compliance',
+    ],
+    icon: TrendingUp,
+    color: 'orange',
+    comingSoon: false,
+  },
+  {
+    name: 'Vessel Fleet',
+    price: '£249.99',
+    priceSuffix: '/ month',
+    description: 'Enterprise fleet management for large operations.',
+    features: [
+      'Up to 3 vessels (included)',
+      'Unlimited crew members',
+      '£50 per additional vessel',
+      'All Pro features',
+      'Enterprise-grade analytics',
+      'Custom integrations & API access',
+      'Dedicated account manager',
+      '24/7 priority support',
+      'Advanced compliance & security',
+    ],
+    icon: TrendingUp,
+    color: 'orange',
+    comingSoon: false,
+  },
+];
+
 export default function ManageSubscriptionPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -162,6 +240,25 @@ export default function ManageSubscriptionPage() {
         'inactive',
     } as UserProfile;
   }, [userProfileRaw]);
+
+  // Determine if user is a vessel account - check both camelCase and snake_case
+  const userRole = userProfile?.role || (userProfile as any)?.role || null;
+  const isVesselAccount = userRole?.toLowerCase() === 'vessel';
+  
+  // Log for debugging
+  useEffect(() => {
+    if (userProfile) {
+      console.log('[SUBSCRIPTION PAGE] User profile loaded:', {
+        userId: userProfile.id,
+        role: userRole,
+        isVesselAccount,
+        rawRole: (userProfile as any)?.role,
+      });
+    }
+  }, [userProfile, userRole, isVesselAccount]);
+  
+  // Select appropriate plan templates based on role
+  const selectedPlanTemplates = isVesselAccount ? vesselPlanTemplates : crewPlanTemplates;
 
   // Format subscription tier for display
   const formatTierName = (tier: string) => {
@@ -205,11 +302,21 @@ export default function ManageSubscriptionPage() {
     const fetchData = async () => {
       if (!user?.email) return;
 
+      // Wait for user profile to load before determining vessel account status
+      if (isProfileLoading || !userProfile) {
+        console.log('[SUBSCRIPTION PAGE] Waiting for user profile to load...');
+        return;
+      }
+
+      console.log('[SUBSCRIPTION PAGE] User profile loaded:', !!userProfile);
+      console.log('[SUBSCRIPTION PAGE] User role:', userProfile?.role);
+      console.log('[SUBSCRIPTION PAGE] Is vessel account:', isVesselAccount);
+
       try {
         setIsLoading(true);
 
         const res = await fetch(
-          `/api/billing?email=${encodeURIComponent(user.email)}`,
+          `/api/billing?email=${encodeURIComponent(user.email)}&isVesselAccount=${isVesselAccount}`,
         );
 
         if (!res.ok) {
@@ -231,11 +338,19 @@ export default function ManageSubscriptionPage() {
 
         const getTemplateTierKey = (templateName: string) => {
           const lower = templateName.toLowerCase();
+          // Handle vessel plans
+          if (lower.includes('vessel')) {
+            if (lower.includes('fleet')) return 'vessel_fleet';
+            if (lower.includes('pro')) return 'vessel_pro';
+            if (lower.includes('basic')) return 'vessel_basic';
+            if (lower.includes('lite')) return 'vessel_lite';
+          }
+          // Handle crew plans
           if (lower === 'pro') return 'professional';
           return lower;
         };
 
-        const mappedPlans: Plan[] = planTemplates.map((template) => {
+        const mappedPlans: Plan[] = selectedPlanTemplates.map((template) => {
           const templateTier = getTemplateTierKey(template.name);
 
           const matchingPrice = stripePrices.find((price: StripePrice) => {
@@ -244,6 +359,15 @@ export default function ManageSubscriptionPage() {
             )
               .toString()
               .toLowerCase();
+
+            // Match vessel plans with vessel prices, crew plans with crew prices
+            const isVesselPrice = priceTier.includes('vessel');
+            const isVesselTemplate = templateTier.includes('vessel');
+            
+            // Only match if both are vessel or both are crew
+            if (isVesselPrice !== isVesselTemplate) {
+              return false;
+            }
 
             return (
               priceTier === templateTier ||
@@ -273,12 +397,23 @@ export default function ManageSubscriptionPage() {
 
         setPlans(mappedPlans);
       } catch (error: any) {
-        console.error('Failed to fetch subscription data:', error);
+        console.error('[SUBSCRIPTION PAGE] Failed to fetch subscription data:', error);
+        console.error('[SUBSCRIPTION PAGE] Is vessel account:', isVesselAccount);
+        console.error('[SUBSCRIPTION PAGE] User role:', userProfile?.role);
+        console.error('[SUBSCRIPTION PAGE] Error details:', {
+          message: error?.message,
+          type: error?.type,
+          code: error?.code,
+        });
+        
+        const errorMessage = error?.message || 'Failed to load subscription information.';
+        const isProductIdError = errorMessage.includes('product ID') || errorMessage.includes('not configured');
+        
         toast({
           title: 'Error',
-          description:
-            error.message ||
-            'Failed to load subscription information. Please try again.',
+          description: isProductIdError
+            ? `${errorMessage} Please check your environment variables.`
+            : `${errorMessage} Please try again.`,
           variant: 'destructive',
         });
       } finally {
@@ -287,7 +422,7 @@ export default function ManageSubscriptionPage() {
     };
 
     fetchData();
-  }, [user?.email, toast]);
+  }, [user?.email, toast, isVesselAccount, isProfileLoading, userProfile]);
 
   const handleChangePlan = async (plan: Plan) => {
     if (!plan.priceId || !stripeSubscription?.subscription) {
@@ -643,7 +778,7 @@ export default function ManageSubscriptionPage() {
                           Coming Soon
                         </div>
                       )}
-                      {isHighlighted && !isCurrent && !plan.comingSoon && (
+                      {isHighlighted && !isCurrent && !plan.comingSoon && !isVesselAccount && (
                         <div className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto bg-purple-100 dark:bg-purple-500/20 border-purple-300 dark:border-purple-500/50 text-purple-700 dark:text-purple-400">
                           <Star className="h-3.5 w-3.5 fill-current" />
                           Most Popular

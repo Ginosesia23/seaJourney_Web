@@ -14,6 +14,7 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const email = searchParams.get('email');
+  const isVesselAccount = searchParams.get('isVesselAccount') === 'true';
 
   if (!email) {
     return NextResponse.json(
@@ -23,8 +24,16 @@ export async function GET(req: Request) {
   }
 
   try {
+    console.log('[API /api/billing] Fetching subscription data for:', email);
+    console.log('[API /api/billing] Is vessel account:', isVesselAccount);
+    
     const subscriptionData = await getUserStripeSubscription(email);
-    const stripePrices = await getStripeProducts();
+    const stripePrices = await getStripeProducts(isVesselAccount);
+
+    console.log('[API /api/billing] Successfully fetched:', {
+      hasSubscriptionData: !!subscriptionData,
+      pricesCount: stripePrices.length,
+    });
 
     return NextResponse.json(
       { subscriptionData, stripePrices },
@@ -32,6 +41,12 @@ export async function GET(req: Request) {
     );
   } catch (err: any) {
     console.error('[API /api/billing] Error:', err);
+    console.error('[API /api/billing] Error details:', {
+      message: err?.message,
+      type: err?.type,
+      code: err?.code,
+      isVesselAccount,
+    });
     return NextResponse.json(
       {
         error:

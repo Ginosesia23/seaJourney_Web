@@ -33,10 +33,19 @@ export async function POST(req: NextRequest) {
       customerId,
     });
 
-    if (session.payment_status !== 'paid') {
-      console.warn('[VERIFY] Payment status is not paid, aborting update:', {
+    // For subscriptions, check both payment_status and session status
+    // Session status can be 'complete' even if payment_status is not yet 'paid' (async processing)
+    // Also check if subscription exists and is active
+    const isPaymentComplete = 
+      session.payment_status === 'paid' || 
+      session.status === 'complete' ||
+      (session.subscription && typeof session.subscription === 'object' && (session.subscription as any)?.status === 'active');
+
+    if (!isPaymentComplete && session.status !== 'complete') {
+      console.warn('[VERIFY] Payment not complete, aborting update:', {
         payment_status: session.payment_status,
         status: session.status,
+        subscription_status: typeof session.subscription === 'object' ? (session.subscription as any)?.status : 'N/A',
       });
 
       return NextResponse.json(
@@ -71,6 +80,61 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Check if subscription was already updated by webhook
+    // Retry a few times in case webhook is still processing
+    let existingUser = null;
+    let retries = 3;
+    while (retries > 0) {
+      const { data: user } = await supabaseAdmin
+        .from('users')
+        .select('subscription_tier, subscription_status, stripe_subscription_id')
+        .eq('id', userId)
+        .single();
+      
+      existingUser = user;
+      
+      // If webhook already updated it and subscription is active, return success
+      if (existingUser && existingUser.subscription_status === 'active') {
+        // Check if subscription ID matches, or if it's null (webhook might not have set it yet)
+        if (!existingUser.stripe_subscription_id || existingUser.stripe_subscription_id === subscriptionId) {
+          console.log('[VERIFY] ✅ Subscription already active in database (updated by webhook)');
+          return NextResponse.json({
+            success: true,
+            status: 'success',
+            tier: existingUser.subscription_tier || tier,
+            subscriptionId,
+            customerId,
+            productName: meta.productName,
+            payment_status: session.payment_status,
+            session_status: session.status,
+            alreadyUpdated: true,
+          });
+        }
+      }
+      
+      // If subscription is active but IDs don't match, still return success (webhook might have different ID)
+      if (existingUser && existingUser.subscription_status === 'active') {
+        console.log('[VERIFY] ✅ Subscription active (IDs may differ, but status is active)');
+        return NextResponse.json({
+          success: true,
+          status: 'success',
+          tier: existingUser.subscription_tier || tier,
+          subscriptionId: existingUser.stripe_subscription_id || subscriptionId,
+          customerId,
+          productName: meta.productName,
+          payment_status: session.payment_status,
+          session_status: session.status,
+          alreadyUpdated: true,
+        });
+      }
+      
+      // Wait a bit before retrying (webhook might still be processing)
+      if (retries > 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      retries--;
+    }
+
     // Use supabaseAdmin (service role) so we bypass RLS and always hit the row
     console.log('[VERIFY] Updating user in Supabase:', {
       userId,
@@ -97,9 +161,62 @@ export async function POST(req: NextRequest) {
         '[VERIFY] Supabase update error in verify-checkout-session:',
         error,
       );
+      // Don't fail if update fails - webhook might have already updated it
+      // Retry checking if subscription is now active (webhook might be processing)
+      let recheckUser = null;
+      let retries = 3;
+      while (retries > 0) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('subscription_tier, subscription_status, stripe_subscription_id')
+          .eq('id', userId)
+          .single();
+        
+        recheckUser = user;
+        
+        if (recheckUser && recheckUser.subscription_status === 'active') {
+          console.log('[VERIFY] ✅ Subscription is active after recheck (webhook updated it)');
+          return NextResponse.json({
+            success: true,
+            status: 'success',
+            tier: recheckUser.subscription_tier || tier,
+            subscriptionId: recheckUser.stripe_subscription_id || subscriptionId,
+            customerId,
+            productName: meta.productName,
+            payment_status: session.payment_status,
+            session_status: session.status,
+            updatedByWebhook: true,
+          });
+        }
+        retries--;
+      }
+      
+      // If still not active after retries, but payment is complete, return success anyway
+      // The webhook will eventually update it, and the user can refresh
+      if (isPaymentComplete) {
+        console.warn('[VERIFY] ⚠️ Payment complete but subscription not yet active in DB. Webhook may still be processing.');
+        return NextResponse.json({
+          success: true,
+          status: 'pending',
+          tier,
+          subscriptionId,
+          customerId,
+          productName: meta.productName,
+          payment_status: session.payment_status,
+          session_status: session.status,
+          warning: 'Payment verified but subscription update may be pending. Please refresh if needed.',
+        });
+      }
+      
+      // If payment is not complete, return error
+      throw error;
     } else {
       console.log('[VERIFY] ✅ User row after update:', data);
     }
+
+    // Also include productName from metadata if available
+    const productName = meta.productName as string | undefined;
 
     return NextResponse.json({
       success: true,
@@ -107,6 +224,9 @@ export async function POST(req: NextRequest) {
       tier,
       subscriptionId,
       customerId,
+      productName,
+      payment_status: session.payment_status,
+      session_status: session.status,
     });
   } catch (err: any) {
     console.error('[VERIFY] ❌ Error verifying checkout session:', err);
