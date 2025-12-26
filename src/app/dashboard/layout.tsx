@@ -89,14 +89,8 @@ useEffect(() => {
       redirectingRef.current = false; // Reset redirect flag if subscription is active
     }
 
-    // Only redirect vessel roles to crew page, admins should see the dashboard summary
-    if (
-      userProfile &&
-      userProfile.role === 'vessel' &&
-      (pathname === '/dashboard' || pathname === '/')
-    ) {
-      router.push('/dashboard/crew');
-    }
+    // Vessel managers can now see the dashboard summary (no redirect)
+    // They can navigate to crew page if needed
   }, [user, isLoading, hasActiveSubscription, pathname, userProfile, router]);
 
   const isMapPage = pathname === '/dashboard/world-map';

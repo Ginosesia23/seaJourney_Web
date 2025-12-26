@@ -53,6 +53,25 @@ export default function DashboardPage() {
     annualRevenue: number;
   } | null>(null);
   const [isLoadingAdminStats, setIsLoadingAdminStats] = useState(false);
+  const [vesselStats, setVesselStats] = useState<{
+    crewCount: number;
+    totalSeaDays: number;
+    totalStandbyDays: number;
+    totalDays: number;
+    currentMonthDays: number;
+    currentMonthSeaDays: number;
+    pendingTestimonials: number;
+    recentActivity: number;
+    stateBreakdown: Record<string, number>;
+    todayStatus: string | null;
+    recentCrewActivity: Array<{
+      userId: string;
+      userName: string;
+      lastActivity: string;
+      daysLogged: number;
+    }>;
+  } | null>(null);
+  const [isLoadingVesselStats, setIsLoadingVesselStats] = useState(false);
 
   // Fetch user profile to get active vessel
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -70,6 +89,7 @@ export default function DashboardPage() {
   }, [userProfileRaw]);
 
   const isAdmin = userProfile?.role === 'admin';
+  const isVesselManager = userProfile?.role === 'vessel';
 
   // Fetch admin statistics
   useEffect(() => {
@@ -200,6 +220,166 @@ export default function DashboardPage() {
 
     fetchAdminStats();
   }, [isAdmin, user?.id, supabase]);
+
+  // Fetch vessel statistics for vessel managers
+  useEffect(() => {
+    if (!isVesselManager || !user?.id || !userProfile?.activeVesselId) {
+      setVesselStats(null);
+      return;
+    }
+
+    const fetchVesselStats = async () => {
+      setIsLoadingVesselStats(true);
+      try {
+        const vesselId = userProfile.activeVesselId;
+
+        // Fetch crew count (active assignments)
+        const { data: assignments, error: assignmentsError } = await supabase
+          .from('vessel_assignments')
+          .select('id')
+          .eq('vessel_id', vesselId)
+          .is('end_date', null);
+
+        if (assignmentsError) {
+          console.error('[VESSEL DASHBOARD] Error fetching crew:', assignmentsError);
+        }
+
+        // Fetch all state logs for this vessel
+        const { data: allLogs, error: logsError } = await supabase
+          .from('daily_state_logs')
+          .select('*')
+          .eq('vessel_id', vesselId);
+
+        if (logsError) {
+          console.error('[VESSEL DASHBOARD] Error fetching logs:', logsError);
+        }
+
+        // Transform logs
+        const stateLogs: StateLog[] = (allLogs || []).map((log: any) => ({
+          id: log.id,
+          userId: log.user_id,
+          vesselId: log.vessel_id,
+          date: log.date,
+          state: log.state,
+        }));
+
+        // Calculate sea time
+        const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(stateLogs);
+
+        // State breakdown
+        const stateBreakdown: Record<string, number> = {};
+        stateLogs.forEach(log => {
+          stateBreakdown[log.state] = (stateBreakdown[log.state] || 0) + 1;
+        });
+
+        // Today's status
+        const today = format(new Date(), 'yyyy-MM-dd');
+        const todayLog = stateLogs.find(log => log.date === today);
+        const todayStatus = todayLog ? todayLog.state : null;
+
+        // Current month stats
+        const now = new Date();
+        const monthStart = startOfMonth(now);
+        const monthEnd = endOfMonth(now);
+        const currentMonthLogs = stateLogs.filter(log => {
+          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+          return isWithinInterval(logDate, { start: monthStart, end: monthEnd });
+        });
+        const { totalSeaDays: monthSeaDays } = calculateStandbyDays(currentMonthLogs);
+
+        // Fetch pending testimonials for this vessel
+        // Use the same approach as inbox page - filter by vessel_id and status
+        let pendingTestimonialsCount = 0;
+        try {
+          const { data: pendingTestimonials, error: testimonialsError } = await supabase
+            .from('testimonials')
+            .select('id')
+            .eq('vessel_id', vesselId)
+            .eq('status', 'pending_captain');
+
+          if (testimonialsError) {
+            console.error('[VESSEL DASHBOARD] Error fetching testimonials:', {
+              error: testimonialsError,
+              message: testimonialsError.message,
+              code: testimonialsError.code,
+              details: testimonialsError.details,
+              hint: testimonialsError.hint,
+              vesselId,
+            });
+            // Default to 0 on error
+            pendingTestimonialsCount = 0;
+          } else {
+            pendingTestimonialsCount = pendingTestimonials?.length || 0;
+          }
+        } catch (err) {
+          console.error('[VESSEL DASHBOARD] Exception fetching testimonials:', err);
+          pendingTestimonialsCount = 0;
+        }
+
+        // Recent activity (last 7 days)
+        const sevenDaysAgo = subDays(now, 7);
+        const recentLogs = stateLogs.filter(log => {
+          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+          return !isBefore(logDate, sevenDaysAgo);
+        });
+
+        // Fetch crew member info for recent activity
+        const crewUserIds = [...new Set(stateLogs.map(log => log.userId))];
+        const { data: crewProfiles } = await supabase
+          .from('users')
+          .select('id, first_name, last_name, username')
+          .in('id', crewUserIds);
+
+        const profileMap = new Map((crewProfiles || []).map((p: any) => [
+          p.id,
+          {
+            name: `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.username,
+            username: p.username,
+          }
+        ]));
+
+        // Calculate recent crew activity (last 30 days per crew member)
+        const thirtyDaysAgo = subDays(now, 30);
+        const recentCrewActivity = crewUserIds.map(userId => {
+          const userLogs = stateLogs.filter(log => {
+            const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+            return log.userId === userId && !isBefore(logDate, thirtyDaysAgo);
+          });
+          const lastLog = userLogs.sort((a, b) => b.date.localeCompare(a.date))[0];
+          const profile = profileMap.get(userId);
+          return {
+            userId,
+            userName: profile?.name || 'Unknown',
+            lastActivity: lastLog?.date || null,
+            daysLogged: userLogs.length,
+          };
+        }).filter(activity => activity.daysLogged > 0)
+          .sort((a, b) => (b.lastActivity || '').localeCompare(a.lastActivity || ''))
+          .slice(0, 5); // Top 5 most active
+
+        setVesselStats({
+          crewCount: assignments?.length || 0,
+          totalSeaDays,
+          totalStandbyDays,
+          totalDays: stateLogs.length,
+          currentMonthDays: currentMonthLogs.length,
+          currentMonthSeaDays: monthSeaDays,
+          pendingTestimonials: pendingTestimonialsCount,
+          recentActivity: recentLogs.length,
+          stateBreakdown,
+          todayStatus,
+          recentCrewActivity,
+        });
+      } catch (error) {
+        console.error('[VESSEL DASHBOARD] Exception fetching stats:', error);
+        setVesselStats(null);
+      } finally {
+        setIsLoadingVesselStats(false);
+      }
+    };
+
+    fetchVesselStats();
+  }, [isVesselManager, user?.id, userProfile?.activeVesselId, supabase]);
 
   // Query all vessels (vessels are shared, not owned by users)
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
@@ -1017,6 +1197,357 @@ export default function DashboardPage() {
 
 
   const isLoading = isLoadingVessels || isLoadingProfile || (vessels && (allSeaService.length === 0 && allStateLogs.size === 0 && vessels.length > 0));
+  
+  // Render vessel manager dashboard
+  if (isVesselManager) {
+    if (isLoadingVesselStats || !vesselStats) {
+      return (
+        <div className="flex flex-col gap-6">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <Card key={i} className="rounded-xl">
+                <CardHeader>
+                  <Skeleton className="h-4 w-24" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-8 w-16" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const todayStateInfo = vesselStats.todayStatus 
+      ? vesselStates.find(s => s.value === vesselStats.todayStatus)
+      : null;
+    const TodayStateIcon = todayStateInfo?.icon || Ship;
+
+    return (
+      <div className="flex flex-col gap-6">
+        {/* Header Section */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">
+                {currentVessel?.name || 'Vessel Dashboard'}
+              </h1>
+              <p className="text-muted-foreground">Complete vessel overview and management</p>
+            </div>
+            <div className="flex items-center gap-3">
+              {vesselStats.todayStatus && todayStateInfo && (
+                <Badge 
+                  variant="outline" 
+                  className="text-sm border-2"
+                  style={{ borderColor: todayStateInfo.color, color: todayStateInfo.color }}
+                >
+                  <TodayStateIcon className="mr-2 h-4 w-4" />
+                  Today: {todayStateInfo.label}
+                </Badge>
+              )}
+              {currentVessel && (
+                <Badge variant="outline" className="text-sm">
+                  <Ship className="mr-2 h-4 w-4" />
+                  {currentVessel.type || 'Vessel'}
+                </Badge>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Key Metrics Grid */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/10">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Crew Members</CardTitle>
+              <div className="h-10 w-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{vesselStats.crewCount}</div>
+              <p className="text-xs text-muted-foreground mt-1">Active crew on vessel</p>
+              <Button asChild variant="ghost" size="sm" className="mt-2 h-7 text-xs">
+                <Link href="/dashboard/crew">View All →</Link>
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/20 dark:to-green-900/10">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Sea Days</CardTitle>
+              <div className="h-10 w-10 rounded-xl bg-green-500/20 flex items-center justify-center">
+                <Waves className="h-5 w-5 text-green-600 dark:text-green-400" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{vesselStats.totalSeaDays}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {vesselStats.totalStandbyDays} standby • {vesselStats.totalDays} total
+              </p>
+              <Button asChild variant="ghost" size="sm" className="mt-2 h-7 text-xs">
+                <Link href="/dashboard/calendar">View Details →</Link>
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/10">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">This Month</CardTitle>
+              <div className="h-10 w-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
+                <Calendar className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{vesselStats.currentMonthSeaDays}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {vesselStats.currentMonthDays} days logged this month
+              </p>
+              <Button asChild variant="ghost" size="sm" className="mt-2 h-7 text-xs">
+                <Link href="/dashboard/calendar">View Calendar →</Link>
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/20 dark:to-orange-900/10">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Pending Testimonials</CardTitle>
+              <div className="h-10 w-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
+                <FileText className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{vesselStats.pendingTestimonials}</div>
+              <p className="text-xs text-muted-foreground mt-1">Awaiting your approval</p>
+              {vesselStats.pendingTestimonials > 0 && (
+                <Button asChild variant="default" size="sm" className="mt-2 h-7 text-xs">
+                  <Link href="/dashboard/inbox">Review Now →</Link>
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Main Content Grid */}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {/* State Breakdown */}
+          <Card className="rounded-xl border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold">State Breakdown</CardTitle>
+              <CardDescription>Days logged by vessel state</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {vesselStates.map(state => {
+                  const count = vesselStats.stateBreakdown[state.value] || 0;
+                  const percentage = vesselStats.totalDays > 0 
+                    ? Math.round((count / vesselStats.totalDays) * 100) 
+                    : 0;
+                  const StateIcon = state.icon;
+                  
+                  return (
+                    <div key={state.value} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <StateIcon className="h-4 w-4" style={{ color: state.color }} />
+                          <span className="text-sm font-medium">{state.label}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold">{count}</span>
+                          <span className="text-xs text-muted-foreground">({percentage}%)</span>
+                        </div>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full rounded-full transition-all"
+                          style={{ 
+                            width: `${percentage}%`,
+                            backgroundColor: state.color 
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Sea Time Summary */}
+          <Card className="rounded-xl border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold">Sea Time Summary</CardTitle>
+              <CardDescription>MCA/PYA compliant calculations</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Waves className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                      <span className="text-sm font-semibold">At Sea</span>
+                    </div>
+                    <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                      {vesselStats.totalSeaDays}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Days underway</p>
+                </div>
+                <div className="p-4 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Anchor className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                      <span className="text-sm font-semibold">Standby</span>
+                    </div>
+                    <span className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                      {vesselStats.totalStandbyDays}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">MCA/PYA compliant</p>
+                </div>
+                <div className="pt-2 border-t">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Total Days</span>
+                    </div>
+                    <span className="text-lg font-bold">{vesselStats.totalDays} days</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Recent Crew Activity */}
+          <Card className="rounded-xl border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold">Recent Crew Activity</CardTitle>
+              <CardDescription>Last 30 days</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {vesselStats.recentCrewActivity.length > 0 ? (
+                <div className="space-y-3">
+                  {vesselStats.recentCrewActivity.map((activity) => (
+                    <div 
+                      key={activity.userId}
+                      className="flex items-center justify-between p-2 rounded-lg border bg-background/50 hover:bg-accent transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{activity.userName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {activity.daysLogged} days logged
+                        </p>
+                      </div>
+                      {activity.lastActivity && (
+                        <Badge variant="outline" className="text-xs shrink-0">
+                          {format(parse(activity.lastActivity, 'yyyy-MM-dd', new Date()), 'MMM d')}
+                        </Badge>
+                      )}
+                    </div>
+                  ))}
+                  <Button asChild variant="ghost" className="w-full rounded-lg" size="sm">
+                    <Link href="/dashboard/crew">
+                      <Users className="mr-2 h-4 w-4" />
+                      View All Crew
+                    </Link>
+                  </Button>
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <Users className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">No recent activity</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Quick Actions & Recent Activity */}
+        <div className="grid gap-6 md:grid-cols-2">
+          <Card className="rounded-xl border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold">Quick Actions</CardTitle>
+              <CardDescription>Common vessel management tasks</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-2">
+                <Button asChild variant="outline" className="h-auto flex-col items-start p-4 rounded-lg">
+                  <Link href="/dashboard/crew">
+                    <Users className="mb-2 h-5 w-5" />
+                    <span className="font-semibold">Crew</span>
+                    <span className="text-xs text-muted-foreground">{vesselStats.crewCount} members</span>
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="h-auto flex-col items-start p-4 rounded-lg">
+                  <Link href="/dashboard/inbox">
+                    <FileText className="mb-2 h-5 w-5" />
+                    <span className="font-semibold">Testimonials</span>
+                    {vesselStats.pendingTestimonials > 0 && (
+                      <Badge variant="destructive" className="mt-1">
+                        {vesselStats.pendingTestimonials} pending
+                      </Badge>
+                    )}
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="h-auto flex-col items-start p-4 rounded-lg">
+                  <Link href="/dashboard/calendar">
+                    <Calendar className="mb-2 h-5 w-5" />
+                    <span className="font-semibold">Calendar</span>
+                    <span className="text-xs text-muted-foreground">View all dates</span>
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="h-auto flex-col items-start p-4 rounded-lg">
+                  <Link href="/dashboard/current">
+                    <Activity className="mb-2 h-5 w-5" />
+                    <span className="font-semibold">Current</span>
+                    <span className="text-xs text-muted-foreground">Today's status</span>
+                  </Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold">Activity Overview</CardTitle>
+              <CardDescription>Last 7 days summary</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                  <div className="flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Days Logged</span>
+                  </div>
+                  <span className="text-2xl font-bold">{vesselStats.recentActivity}</span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                  <div className="flex items-center gap-2">
+                    <Waves className="h-4 w-4 text-blue-500" />
+                    <span className="text-sm font-medium">This Month</span>
+                  </div>
+                  <span className="text-2xl font-bold">{vesselStats.currentMonthSeaDays}</span>
+                </div>
+                <div className="pt-2 border-t">
+                  <Button asChild variant="ghost" className="w-full rounded-lg" size="sm">
+                    <Link href="/dashboard/calendar">
+                      <History className="mr-2 h-4 w-4" />
+                      View Full Activity
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
   
   // Render admin dashboard if user is admin
   if (isAdmin) {
