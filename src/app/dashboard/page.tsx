@@ -1,22 +1,24 @@
 
 'use client';
 
-import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, CalendarDays, TrendingDown, Activity, Target, Trophy, CheckCircle2, XCircle, FileText } from 'lucide-react';
+import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, CalendarDays, TrendingDown, Activity, Target, Trophy, CheckCircle2, XCircle, FileText, Users, CreditCard, BarChart3, Globe, LogIn } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { format, getYear, subDays, startOfDay, isWithinInterval, parse, startOfMonth, endOfMonth, isSameMonth } from 'date-fns';
+import { format, getYear, subDays, startOfDay, isWithinInterval, parse, startOfMonth, endOfMonth, isSameMonth, isBefore, isAfter } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser, useSupabase } from '@/supabase';
+import { useToast } from '@/hooks/use-toast';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselSeaService, getVesselStateLogs, updateStateLogsBatch } from '@/supabase/database/queries';
 import { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import type { Vessel, SeaServiceRecord, StateLog, UserProfile, DailyStatus, Testimonial } from '@/lib/types';
+import type { Vessel, SeaServiceRecord, StateLog, UserProfile, DailyStatus, Testimonial, VisaTracker, VisaEntry } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
+import { calculateVisaCompliance, detectVisaRules } from '@/lib/visa-compliance';
 
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
   { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
@@ -29,6 +31,7 @@ const vesselStates: { value: DailyStatus; label: string; color: string, icon: Re
 export default function DashboardPage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
+  const { toast } = useToast();
 
   const [selectedYear, setSelectedYear] = useState('all');
   const [selectedVessel, setSelectedVessel] = useState('all');
@@ -37,6 +40,19 @@ export default function DashboardPage() {
   const [allStateLogs, setAllStateLogs] = useState<Map<string, StateLog[]>>(new Map());
   const [currentVesselLogs, setCurrentVesselLogs] = useState<StateLog[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
+  const [activeVisas, setActiveVisas] = useState<Array<VisaTracker & { daysRemaining: number; daysUsed: number }>>([]);
+  const [isLoggingVisaDate, setIsLoggingVisaDate] = useState(false);
+  const [adminStats, setAdminStats] = useState<{
+    totalUsers: number;
+    activeSubscriptions: number;
+    activeVesselSubscriptions: number;
+    totalVessels: number;
+    subscriptionsByTier: Record<string, number>;
+    recentSignups: number;
+    monthlyRevenue: number;
+    annualRevenue: number;
+  } | null>(null);
+  const [isLoadingAdminStats, setIsLoadingAdminStats] = useState(false);
 
   // Fetch user profile to get active vessel
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -45,11 +61,145 @@ export default function DashboardPage() {
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
     const activeVesselId = (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId;
+    const role = (userProfileRaw as any).role || userProfileRaw.role || 'crew';
     return {
       ...userProfileRaw,
       activeVesselId: activeVesselId || undefined,
+      role: role,
     } as UserProfile;
   }, [userProfileRaw]);
+
+  const isAdmin = userProfile?.role === 'admin';
+
+  // Fetch admin statistics
+  useEffect(() => {
+    if (!isAdmin || !user?.id) {
+      setAdminStats(null);
+      return;
+    }
+
+    const fetchAdminStats = async () => {
+      setIsLoadingAdminStats(true);
+      try {
+        // Fetch all users (crew members)
+        const { data: allUsers, error: usersError } = await supabase
+          .from('users')
+          .select('id, subscription_status, subscription_tier, created_at, role')
+          .neq('role', 'vessel');
+
+        if (usersError) {
+          console.error('[ADMIN DASHBOARD] Error fetching users:', usersError);
+        }
+
+        // Fetch all vessel accounts
+        const { data: allVesselAccounts, error: vesselAccountsError } = await supabase
+          .from('users')
+          .select('id, subscription_status, subscription_tier, created_at, role')
+          .eq('role', 'vessel');
+
+        if (vesselAccountsError) {
+          console.error('[ADMIN DASHBOARD] Error fetching vessel accounts:', vesselAccountsError);
+        }
+
+        // Fetch all vessels
+        const { data: allVesselsData, error: vesselsError } = await supabase
+          .from('vessels')
+          .select('id, is_official');
+
+        if (vesselsError) {
+          console.error('[ADMIN DASHBOARD] Error fetching vessels:', vesselsError);
+        }
+
+        // Calculate statistics
+        const totalUsers = allUsers?.length || 0;
+        const activeSubscriptions = allUsers?.filter(u => 
+          (u.subscription_status || '').toLowerCase() === 'active'
+        ).length || 0;
+        
+        const activeVesselSubscriptions = allVesselAccounts?.filter(u => 
+          (u.subscription_status || '').toLowerCase() === 'active'
+        ).length || 0;
+        
+        const officialVessels = allVesselsData?.filter(v => {
+          const isOfficial = (v as any).is_official;
+          return isOfficial === true || isOfficial === 'true';
+        }).length || 0;
+
+        // Pricing map for subscription tiers (monthly prices in GBP)
+        const tierPricing: Record<string, number> = {
+          // Crew plans
+          'standard': 4.99,
+          'premium': 9.99,
+          'pro': 14.99,
+          'professional': 14.99,
+          // Vessel plans
+          'vessel_lite': 24.99,
+          'vessel_basic': 49.99,
+          'vessel_pro': 99.99,
+          'vessel_fleet': 249.99,
+        };
+
+        // Count subscriptions by tier and calculate revenue
+        const subscriptionsByTier: Record<string, number> = {};
+        let monthlyRevenue = 0;
+
+        // Calculate revenue from crew subscriptions
+        allUsers?.forEach(user => {
+          if ((user.subscription_status || '').toLowerCase() === 'active') {
+            const tier = (user.subscription_tier || 'free').toLowerCase();
+            subscriptionsByTier[tier] = (subscriptionsByTier[tier] || 0) + 1;
+            
+            // Add to revenue if tier has pricing
+            const price = tierPricing[tier];
+            if (price) {
+              monthlyRevenue += price;
+            }
+          }
+        });
+
+        // Calculate revenue from vessel subscriptions
+        allVesselAccounts?.forEach(vessel => {
+          if ((vessel.subscription_status || '').toLowerCase() === 'active') {
+            const tier = (vessel.subscription_tier || 'free').toLowerCase();
+            subscriptionsByTier[tier] = (subscriptionsByTier[tier] || 0) + 1;
+            
+            // Add to revenue if tier has pricing
+            const price = tierPricing[tier];
+            if (price) {
+              monthlyRevenue += price;
+            }
+          }
+        });
+
+        const annualRevenue = monthlyRevenue * 12;
+
+        // Count recent signups (last 30 days)
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const recentSignups = allUsers?.filter(u => {
+          const createdAt = u.created_at ? new Date(u.created_at) : null;
+          return createdAt && createdAt >= thirtyDaysAgo;
+        }).length || 0;
+
+        setAdminStats({
+          totalUsers,
+          activeSubscriptions,
+          activeVesselSubscriptions,
+          totalVessels: officialVessels,
+          subscriptionsByTier,
+          recentSignups,
+          monthlyRevenue,
+          annualRevenue,
+        });
+      } catch (error) {
+        console.error('[ADMIN DASHBOARD] Error fetching admin stats:', error);
+      } finally {
+        setIsLoadingAdminStats(false);
+      }
+    };
+
+    fetchAdminStats();
+  }, [isAdmin, user?.id, supabase]);
 
   // Query all vessels (vessels are shared, not owned by users)
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
@@ -113,6 +263,279 @@ export default function DashboardPage() {
 
     fetchTestimonials();
   }, [user?.id, supabase]);
+
+  // Fetch active visas for quick log
+  useEffect(() => {
+    if (!user?.id || isAdmin) return;
+
+    const fetchActiveVisas = async () => {
+      try {
+        const today = startOfDay(new Date());
+        const { data, error } = await supabase
+          .from('visa_tracker')
+          .select('*')
+          .eq('user_id', user.id)
+          .gte('expire_date', format(today, 'yyyy-MM-dd'))
+          .order('expire_date', { ascending: true });
+
+        if (error) {
+          console.error('[DASHBOARD] Error fetching visas:', error);
+          setActiveVisas([]);
+        } else {
+          const visaIds = (data || []).map((v: any) => v.id);
+          
+          // Fetch all entries for all visas (not just count)
+          const { data: entriesData } = await supabase
+            .from('visa_entries')
+            .select('*')
+            .in('visa_id', visaIds);
+
+          // Group entries by visa_id
+          const entriesByVisa = new Map<string, VisaEntry[]>();
+          (entriesData || []).forEach((entry: any) => {
+            const visaEntry: VisaEntry = {
+              id: entry.id,
+              visaId: entry.visa_id,
+              userId: entry.user_id,
+              entryDate: entry.entry_date,
+              createdAt: entry.created_at,
+              updatedAt: entry.updated_at,
+            };
+            const existing = entriesByVisa.get(entry.visa_id) || [];
+            entriesByVisa.set(entry.visa_id, [...existing, visaEntry]);
+          });
+
+          const transformedVisas = (data || []).map((visa: any) => {
+            const entries = entriesByVisa.get(visa.id) || [];
+            
+            // Auto-detect rules if not set
+            let visaWithRules: VisaTracker = {
+              id: visa.id,
+              userId: visa.user_id,
+              areaName: visa.area_name,
+              issueDate: visa.issue_date,
+              expireDate: visa.expire_date,
+              totalDays: visa.total_days,
+              ruleType: visa.rule_type || 'fixed',
+              daysAllowed: visa.days_allowed || null,
+              periodDays: visa.period_days || null,
+              notes: visa.notes || null,
+              createdAt: visa.created_at,
+              updatedAt: visa.updated_at,
+            };
+            
+            // Auto-detect rules if not set
+            if (!visaWithRules.ruleType || !visaWithRules.daysAllowed) {
+              const detectedRules = detectVisaRules(visaWithRules.areaName);
+              if (detectedRules) {
+                visaWithRules = {
+                  ...visaWithRules,
+                  ruleType: visaWithRules.ruleType || detectedRules.ruleType,
+                  daysAllowed: visaWithRules.daysAllowed || detectedRules.daysAllowed,
+                  periodDays: visaWithRules.periodDays || detectedRules.periodDays,
+                };
+              }
+            }
+            
+            // Use compliance calculation
+            const compliance = calculateVisaCompliance(visaWithRules, entries);
+            
+            return {
+              ...visaWithRules,
+              daysUsed: compliance.daysUsed,
+              daysRemaining: compliance.daysRemaining,
+            };
+          });
+          setActiveVisas(transformedVisas);
+        }
+      } catch (error) {
+        console.error('[DASHBOARD] Exception fetching visas:', error);
+        setActiveVisas([]);
+      }
+    };
+
+    fetchActiveVisas();
+  }, [user?.id, supabase, isAdmin]);
+
+  // Quick log today's date for a visa
+  const handleQuickLogVisaDate = async (visa: VisaTracker) => {
+    if (!user?.id) return;
+
+    setIsLoggingVisaDate(true);
+    try {
+      const today = startOfDay(new Date());
+      const todayStr = format(today, 'yyyy-MM-dd');
+      const visaIssue = parse(visa.issueDate, 'yyyy-MM-dd', new Date());
+      const visaExpire = parse(visa.expireDate, 'yyyy-MM-dd', new Date());
+
+      // Check if date is within visa period
+      if (isBefore(today, visaIssue) || isAfter(today, visaExpire)) {
+        toast({
+          title: 'Invalid Date',
+          description: `Today's date is outside the visa period (${format(visaIssue, 'MMM d, yyyy')} - ${format(visaExpire, 'MMM d, yyyy')}).`,
+          variant: 'destructive',
+        });
+        setIsLoggingVisaDate(false);
+        return;
+      }
+
+      // Check if already logged
+      const { data: existing, error: checkError } = await supabase
+        .from('visa_entries')
+        .select('id')
+        .eq('visa_id', visa.id)
+        .eq('entry_date', todayStr)
+        .single();
+
+      if (existing) {
+        toast({
+          title: 'Already Logged',
+          description: "Today's date has already been logged for this visa.",
+          variant: 'destructive',
+        });
+        setIsLoggingVisaDate(false);
+        return;
+      }
+
+      const { error } = await supabase
+        .from('visa_entries')
+        .insert({
+          visa_id: visa.id,
+          user_id: user.id,
+          entry_date: todayStr,
+        });
+
+      if (error) throw error;
+
+      // Fetch updated visa entries to calculate days remaining using compliance logic
+      const { data: visaEntriesData, error: entriesError } = await supabase
+        .from('visa_entries')
+        .select('*')
+        .eq('visa_id', visa.id);
+
+      const entries: VisaEntry[] = (visaEntriesData || []).map((entry: any) => ({
+        id: entry.id,
+        visaId: entry.visa_id,
+        userId: entry.user_id,
+        entryDate: entry.entry_date,
+        createdAt: entry.created_at,
+        updatedAt: entry.updated_at,
+      }));
+
+      // Auto-detect rules if not set
+      let visaWithRules: VisaTracker = {
+        ...visa,
+        ruleType: (visa as any).ruleType || (visa as any).rule_type || 'fixed',
+        daysAllowed: (visa as any).daysAllowed || (visa as any).days_allowed || null,
+        periodDays: (visa as any).periodDays || (visa as any).period_days || null,
+      };
+      
+      if (!visaWithRules.ruleType || !visaWithRules.daysAllowed) {
+        const detectedRules = detectVisaRules(visaWithRules.areaName);
+        if (detectedRules) {
+          visaWithRules = {
+            ...visaWithRules,
+            ruleType: visaWithRules.ruleType || detectedRules.ruleType,
+            daysAllowed: visaWithRules.daysAllowed || detectedRules.daysAllowed,
+            periodDays: visaWithRules.periodDays || detectedRules.periodDays,
+          };
+        }
+      }
+
+      const compliance = calculateVisaCompliance(visaWithRules, entries);
+      const daysRemaining = compliance.daysRemaining;
+
+      toast({
+        title: 'Date Logged',
+        description: `Successfully logged today's date for ${visa.areaName}. ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''} remaining.`,
+      });
+
+      // Refresh active visas with updated entries using compliance calculation
+      const { data: updatedData, error: fetchError } = await supabase
+        .from('visa_tracker')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('expire_date', todayStr)
+        .order('expire_date', { ascending: true });
+
+      if (!fetchError && updatedData) {
+        const visaIds = updatedData.map((v: any) => v.id);
+        
+        // Fetch all entries for all visas
+        const { data: entriesData } = await supabase
+          .from('visa_entries')
+          .select('*')
+          .in('visa_id', visaIds);
+
+        // Group entries by visa_id
+        const entriesByVisa = new Map<string, VisaEntry[]>();
+        (entriesData || []).forEach((entry: any) => {
+          const visaEntry: VisaEntry = {
+            id: entry.id,
+            visaId: entry.visa_id,
+            userId: entry.user_id,
+            entryDate: entry.entry_date,
+            createdAt: entry.created_at,
+            updatedAt: entry.updated_at,
+          };
+          const existing = entriesByVisa.get(entry.visa_id) || [];
+          entriesByVisa.set(entry.visa_id, [...existing, visaEntry]);
+        });
+
+        const transformedVisas = updatedData.map((v: any) => {
+          const entries = entriesByVisa.get(v.id) || [];
+          
+          // Auto-detect rules if not set
+          let visaWithRules: VisaTracker = {
+            id: v.id,
+            userId: v.user_id,
+            areaName: v.area_name,
+            issueDate: v.issue_date,
+            expireDate: v.expire_date,
+            totalDays: v.total_days,
+            ruleType: v.rule_type || 'fixed',
+            daysAllowed: v.days_allowed || null,
+            periodDays: v.period_days || null,
+            notes: v.notes || null,
+            createdAt: v.created_at,
+            updatedAt: v.updated_at,
+          };
+          
+          // Auto-detect rules if not set
+          if (!visaWithRules.ruleType || !visaWithRules.daysAllowed) {
+            const detectedRules = detectVisaRules(visaWithRules.areaName);
+            if (detectedRules) {
+              visaWithRules = {
+                ...visaWithRules,
+                ruleType: visaWithRules.ruleType || detectedRules.ruleType,
+                daysAllowed: visaWithRules.daysAllowed || detectedRules.daysAllowed,
+                periodDays: visaWithRules.periodDays || detectedRules.periodDays,
+              };
+            }
+          }
+          
+          // Use compliance calculation
+          const compliance = calculateVisaCompliance(visaWithRules, entries);
+          
+          return {
+            ...visaWithRules,
+            daysUsed: compliance.daysUsed,
+            daysRemaining: compliance.daysRemaining,
+          };
+        });
+        setActiveVisas(transformedVisas);
+      }
+    } catch (error: any) {
+      console.error('[DASHBOARD] Error logging visa date:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to log date. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoggingVisaDate(false);
+    }
+  };
 
   const [isFillingGaps, setIsFillingGaps] = useState(false);
 
@@ -231,10 +654,69 @@ export default function DashboardPage() {
     return { totalDays: days, atSeaDays: atSea, standbyDays: standby };
   }, [allStateLogs, selectedVessel, selectedYear]);
 
+  const [visaEntries, setVisaEntries] = useState<VisaEntry[]>([]);
+
+  // Fetch visa entries for recent activity
+  useEffect(() => {
+    if (!user?.id || isAdmin) return;
+
+    const fetchVisaEntries = async () => {
+      try {
+        const thirtyDaysAgo = subDays(new Date(), 30);
+        const { data: entriesData, error: entriesError } = await supabase
+          .from('visa_entries')
+          .select('*')
+          .eq('user_id', user.id)
+          .gte('entry_date', format(thirtyDaysAgo, 'yyyy-MM-dd'))
+          .order('created_at', { ascending: false });
+
+        if (entriesError) {
+          console.error('[DASHBOARD] Error fetching visa entries:', entriesError);
+          setVisaEntries([]);
+          return;
+        }
+
+        if (!entriesData || entriesData.length === 0) {
+          setVisaEntries([]);
+          return;
+        }
+
+        // Fetch visa tracker info for each entry
+        const visaIds = [...new Set(entriesData.map((e: any) => e.visa_id))];
+        const { data: visasData, error: visasError } = await supabase
+          .from('visa_tracker')
+          .select('id, area_name')
+          .in('id', visaIds);
+
+        if (visasError) {
+          console.error('[DASHBOARD] Error fetching visa trackers:', visasError);
+        }
+
+        const visaMap = new Map((visasData || []).map((v: any) => [v.id, v.area_name]));
+
+        const transformedEntries: Array<VisaEntry & { areaName?: string }> = entriesData.map((entry: any) => ({
+          id: entry.id,
+          visaId: entry.visa_id,
+          userId: entry.user_id,
+          entryDate: entry.entry_date,
+          createdAt: entry.created_at,
+          updatedAt: entry.updated_at,
+          areaName: visaMap.get(entry.visa_id) || 'Unknown Area',
+        }));
+        setVisaEntries(transformedEntries);
+      } catch (error) {
+        console.error('[DASHBOARD] Exception fetching visa entries:', error);
+        setVisaEntries([]);
+      }
+    };
+
+    fetchVisaEntries();
+  }, [user?.id, supabase, isAdmin]);
+
   const recentActivity = useMemo(() => {
     const activities: Array<{
       id: string;
-      type: 'state_log' | 'testimonial_approved' | 'testimonial_rejected' | 'state_change';
+      type: 'state_log' | 'testimonial_approved' | 'testimonial_rejected' | 'state_change' | 'visa_logged';
       date: string;
       timestamp: number;
       vesselName?: string;
@@ -242,6 +724,7 @@ export default function DashboardPage() {
       vesselId?: string;
       state?: DailyStatus;
       testimonial?: Testimonial;
+      visaAreaName?: string;
     }> = [];
     
     if (!vessels) return [];
@@ -308,6 +791,23 @@ export default function DashboardPage() {
       }
     });
     
+    // 3. Add visa entry logs
+    visaEntries.forEach(entry => {
+      const entryDate = new Date(entry.entryDate);
+      const entryTimestamp = entry.createdAt ? new Date(entry.createdAt).getTime() : entryDate.getTime();
+      const thirtyDaysAgo = subDays(new Date(), 30).getTime();
+      
+      if (entryTimestamp >= thirtyDaysAgo) {
+        activities.push({
+          id: `visa-${entry.id}`,
+          type: 'visa_logged',
+          date: entry.entryDate,
+          timestamp: entryTimestamp,
+          visaAreaName: (entry as any).areaName || 'Unknown Area',
+        });
+      }
+    });
+    
     // Sort by timestamp (most recent first) and take the last 8 (to show more activities)
     return activities
       .sort((a, b) => b.timestamp - a.timestamp)
@@ -317,7 +817,7 @@ export default function DashboardPage() {
         // Ensure date is properly formatted
         date: activity.date || format(new Date(activity.timestamp), 'yyyy-MM-dd'),
       }));
-  }, [allStateLogs, vessels, testimonials]);
+  }, [allStateLogs, vessels, testimonials, visaEntries]);
   
   const availableYears = useMemo(() => {
     if (!allSeaService) return [];
@@ -518,6 +1018,206 @@ export default function DashboardPage() {
 
   const isLoading = isLoadingVessels || isLoadingProfile || (vessels && (allSeaService.length === 0 && allStateLogs.size === 0 && vessels.length > 0));
   
+  // Render admin dashboard if user is admin
+  if (isAdmin) {
+    if (isLoadingAdminStats || !adminStats) {
+      return (
+        <div className="flex flex-col gap-6">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <Card key={i} className="rounded-xl">
+                <CardHeader>
+                  <Skeleton className="h-4 w-24" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-8 w-16" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-6">
+        {/* Header Section */}
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
+          <p className="text-muted-foreground">Company overview and key metrics</p>
+        </div>
+
+        {/* Key Metrics Grid */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Active Crew Accounts</CardTitle>
+              <div className="h-8 w-8 rounded-xl bg-green-500/10 flex items-center justify-center">
+                <Users className="h-4 w-4 text-green-500" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{adminStats.activeSubscriptions}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                of {adminStats.totalUsers} total users
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Official Vessels</CardTitle>
+              <div className="h-8 w-8 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                <Ship className="h-4 w-4 text-blue-500" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{adminStats.totalVessels}</div>
+              <p className="text-xs text-muted-foreground mt-1">Registered vessels</p>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Users</CardTitle>
+              <div className="h-8 w-8 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                <Users className="h-4 w-4 text-purple-500" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{adminStats.totalUsers}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {adminStats.recentSignups} new in last 30 days
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Revenue</CardTitle>
+              <div className="h-8 w-8 rounded-xl bg-green-500/10 flex items-center justify-center">
+                <CreditCard className="h-4 w-4 text-green-500" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">£{adminStats.monthlyRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                £{adminStats.annualRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} annually
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Subscription Breakdown */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <Card className="rounded-xl border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold">Subscription Tiers</CardTitle>
+              <CardDescription>Active subscriptions by tier</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {Object.entries(adminStats.subscriptionsByTier).length > 0 ? (
+                  Object.entries(adminStats.subscriptionsByTier)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([tier, count]) => (
+                      <div key={tier} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CreditCard className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium capitalize">
+                            {tier.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                        <Badge variant="secondary">{count}</Badge>
+                      </div>
+                    ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">No active subscriptions</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold">Quick Actions</CardTitle>
+              <CardDescription>Common admin tasks</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <Button asChild variant="outline" className="w-full justify-start rounded-lg">
+                  <Link href="/dashboard/crew">
+                    <Users className="mr-2 h-4 w-4" />
+                    Manage Crew Members
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="w-full justify-start rounded-lg">
+                  <Link href="/dashboard/vessels">
+                    <Ship className="mr-2 h-4 w-4" />
+                    Manage Vessels
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="w-full justify-start rounded-lg">
+                  <Link href="/dashboard/vessels">
+                    <BarChart3 className="mr-2 h-4 w-4" />
+                    View Analytics
+                  </Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold">Revenue Breakdown</CardTitle>
+              <CardDescription>Subscription revenue by account type</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Active Vessel Accounts</span>
+                  <span className="text-sm font-semibold">
+                    {adminStats.activeVesselSubscriptions}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t">
+                  <span className="text-sm text-muted-foreground">Active Crew Accounts</span>
+                  <span className="text-sm font-semibold">
+                    {adminStats.activeSubscriptions}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t">
+                  <span className="text-sm font-medium">Total Active Subscriptions</span>
+                  <span className="text-sm font-bold">
+                    {adminStats.activeSubscriptions + adminStats.activeVesselSubscriptions}
+                  </span>
+                </div>
+                <div className="pt-2 border-t">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-muted-foreground">Monthly Recurring Revenue</span>
+                    <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                      £{adminStats.monthlyRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Annual Recurring Revenue</span>
+                    <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                      £{adminStats.annualRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+  
   // Loading skeleton component
   const StatCardSkeleton = () => (
     <Card>
@@ -613,77 +1313,138 @@ export default function DashboardPage() {
         <Separator />
       </div>
       
-      {/* Past 7 Days Summary */}
-      {past7DaysStats.totalDays > 0 && (
-        <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-r from-primary/5 to-primary/10">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-4">
-              <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
-                <CalendarDays className="h-6 w-6 text-primary" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold mb-2">Last 7 Days Summary</h3>
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    In the last week, you logged{' '}
-                    <span className="font-semibold text-foreground">{past7DaysStats.totalDays} day{past7DaysStats.totalDays !== 1 ? 's' : ''}</span>:
-                  </p>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                    {past7DaysStats.atSeaDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-blue))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.atSeaDays}</span> day{past7DaysStats.atSeaDays !== 1 ? 's' : ''} at sea
-                        </span>
-                      </div>
-                    )}
-                    {past7DaysStats.standbyDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.standbyDays}</span> standby day{past7DaysStats.standbyDays !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                    )}
-                    {past7DaysStats.atAnchorDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.atAnchorDays}</span> day{past7DaysStats.atAnchorDays !== 1 ? 's' : ''} at anchor
-                        </span>
-                      </div>
-                    )}
-                    {past7DaysStats.inPortDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-green))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.inPortDays}</span> day{past7DaysStats.inPortDays !== 1 ? 's' : ''} in port
-                        </span>
-                      </div>
-                    )}
-                    {past7DaysStats.onLeaveDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-gray))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.onLeaveDays}</span> day{past7DaysStats.onLeaveDays !== 1 ? 's' : ''} on leave
-                        </span>
-                      </div>
-                    )}
-                    {past7DaysStats.inYardDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-red))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.inYardDays}</span> day{past7DaysStats.inYardDays !== 1 ? 's' : ''} in yard
-                        </span>
-                      </div>
-                    )}
+      {/* Past 7 Days Summary and Quick Visa Log - Side by Side */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Past 7 Days Summary */}
+        {past7DaysStats.totalDays > 0 && (
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-r from-primary/5 to-primary/10">
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-4">
+                <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
+                  <CalendarDays className="h-6 w-6 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold mb-2">Last 7 Days Summary</h3>
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      In the last week, you logged{' '}
+                      <span className="font-semibold text-foreground">{past7DaysStats.totalDays} day{past7DaysStats.totalDays !== 1 ? 's' : ''}</span>:
+                    </p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                      {past7DaysStats.atSeaDays > 0 && (
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-blue))' }} />
+                          <span className="text-muted-foreground">
+                            <span className="font-semibold text-foreground">{past7DaysStats.atSeaDays}</span> day{past7DaysStats.atSeaDays !== 1 ? 's' : ''} at sea
+                          </span>
+                        </div>
+                      )}
+                      {past7DaysStats.standbyDays > 0 && (
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
+                          <span className="text-muted-foreground">
+                            <span className="font-semibold text-foreground">{past7DaysStats.standbyDays}</span> standby day{past7DaysStats.standbyDays !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                      )}
+                      {past7DaysStats.atAnchorDays > 0 && (
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
+                          <span className="text-muted-foreground">
+                            <span className="font-semibold text-foreground">{past7DaysStats.atAnchorDays}</span> day{past7DaysStats.atAnchorDays !== 1 ? 's' : ''} at anchor
+                          </span>
+                        </div>
+                      )}
+                      {past7DaysStats.inPortDays > 0 && (
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-green))' }} />
+                          <span className="text-muted-foreground">
+                            <span className="font-semibold text-foreground">{past7DaysStats.inPortDays}</span> day{past7DaysStats.inPortDays !== 1 ? 's' : ''} in port
+                          </span>
+                        </div>
+                      )}
+                      {past7DaysStats.onLeaveDays > 0 && (
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-gray))' }} />
+                          <span className="text-muted-foreground">
+                            <span className="font-semibold text-foreground">{past7DaysStats.onLeaveDays}</span> day{past7DaysStats.onLeaveDays !== 1 ? 's' : ''} on leave
+                          </span>
+                        </div>
+                      )}
+                      {past7DaysStats.inYardDays > 0 && (
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-red))' }} />
+                          <span className="text-muted-foreground">
+                            <span className="font-semibold text-foreground">{past7DaysStats.inYardDays}</span> day{past7DaysStats.inYardDays !== 1 ? 's' : ''} in yard
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Quick Visa Log Section - Compact */}
+        {!isAdmin && activeVisas.length > 0 && (
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-r from-blue-500/5 to-purple-500/5">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                  <Globe className="h-4 w-4 text-blue-500" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Quick Visa Log</CardTitle>
+                  <CardDescription className="text-xs">Log today's date</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="space-y-2">
+                {activeVisas.map((visa) => {
+                  const today = startOfDay(new Date());
+                  const visaIssue = parse(visa.issueDate, 'yyyy-MM-dd', new Date());
+                  const visaExpire = parse(visa.expireDate, 'yyyy-MM-dd', new Date());
+                  const isTodayValid = !isBefore(today, visaIssue) && !isAfter(today, visaExpire);
+
+                  return (
+                    <div key={visa.id} className="flex items-center justify-between gap-2 p-2 rounded-lg border bg-background/50">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{visa.areaName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {visa.daysRemaining} day{visa.daysRemaining !== 1 ? 's' : ''} remaining
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleQuickLogVisaDate(visa)}
+                        disabled={!isTodayValid || isLoggingVisaDate}
+                        className="rounded-lg h-8 shrink-0"
+                      >
+                        {isLoggingVisaDate ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <LogIn className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-3 pt-3 border-t">
+                <Link href="/dashboard/visa-tracker">
+                  <Button variant="ghost" size="sm" className="text-xs w-full">
+                    View All Visas →
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
       
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -941,7 +1702,7 @@ export default function DashboardPage() {
               <History className="h-5 w-5 text-primary" />
                 <CardTitle>Recent Activity</CardTitle>
             </div>
-            <CardDescription>Your recent activity including sea time, state changes, and testimonial updates</CardDescription>
+            <CardDescription>Your recent activity including sea time, state changes, visa logs, and testimonial updates</CardDescription>
             </CardHeader>
             <CardContent>
             {recentActivity.length > 0 ? (
@@ -961,6 +1722,32 @@ export default function DashboardPage() {
                   }
                   
                   // Handle different activity types
+                  if (activity.type === 'visa_logged') {
+                    return (
+                      <div 
+                        key={activity.id}
+                        className="flex items-center gap-3 p-3 rounded-xl border bg-background/50 hover:bg-background transition-colors"
+                      >
+                        <div className="h-10 w-10 flex items-center justify-center flex-shrink-0 rounded-xl bg-blue-500/20">
+                          <Globe className="h-5 w-5 text-blue-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="text-sm font-semibold truncate">{activity.visaAreaName || 'Unknown Area'}</p>
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-medium text-blue-600">
+                              Visa Date Logged
+                            </span>
+                            <span className="text-xs text-muted-foreground">•</span>
+                            <span className="text-xs text-muted-foreground">{dateLabel}</span>
+                          </div>
+                        </div>
+                        <div className="h-2.5 w-2.5 rounded-full flex-shrink-0 bg-blue-600" />
+                      </div>
+                    );
+                  }
+                  
                   if (activity.type === 'testimonial_approved' || activity.type === 'testimonial_rejected') {
                     const isApproved = activity.type === 'testimonial_approved';
                     return (

@@ -419,7 +419,11 @@ export default function CrewPage() {
                                 {currentUserProfile?.role === 'admin' && <TableHead>Vessel</TableHead>}
                                 <TableHead>Position</TableHead>
                                 <TableHead>Role</TableHead>
-                                <TableHead>Joined Vessel</TableHead>
+                                {currentUserProfile?.role === 'admin' ? (
+                                    <TableHead>Subscription Tier</TableHead>
+                                ) : (
+                                    <TableHead>Joined Vessel</TableHead>
+                                )}
                                 <TableHead className="w-[50px]"></TableHead>
                             </TableRow>
                         </TableHeader>
@@ -513,11 +517,28 @@ export default function CrewPage() {
                                                     {getRoleLabel(profile.role)}
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell>
-                                                {assignment.startDate 
-                                                    ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
-                                                    : 'N/A'}
-                                            </TableCell>
+                                            {currentUserProfile?.role === 'admin' ? (
+                                                <TableCell>
+                                                    <Badge 
+                                                        variant="secondary"
+                                                        className={
+                                                            profile.subscriptionStatus === 'active'
+                                                                ? 'bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400'
+                                                                : 'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:bg-gray-500/20 dark:text-gray-400'
+                                                        }
+                                                    >
+                                                        {profile.subscriptionTier && profile.subscriptionTier !== 'free'
+                                                            ? profile.subscriptionTier.charAt(0).toUpperCase() + profile.subscriptionTier.slice(1).replace(/_/g, ' ')
+                                                            : 'Free'}
+                                                    </Badge>
+                                                </TableCell>
+                                            ) : (
+                                                <TableCell>
+                                                    {assignment.startDate 
+                                                        ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
+                                                        : 'N/A'}
+                                                </TableCell>
+                                            )}
                                             <TableCell>
                                                 <DropdownMenu>
                                                     <DropdownMenuTrigger asChild>

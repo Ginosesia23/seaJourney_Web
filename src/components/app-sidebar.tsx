@@ -20,6 +20,8 @@ import {
   Calendar,
   Navigation,
   Inbox,
+  BarChart3,
+  Globe,
 } from "lucide-react"
 
 import {
@@ -89,6 +91,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/passage-logbook", label: "Passage Log", icon: Map, disabled: false },
       { href: "/dashboard/bridge-watch-log", label: "Bridge Watch", icon: Navigation, disabled: false, hideForRoles: ['vessel'] }, // Hide Bridge Watch for vessel role
+      { href: "/dashboard/visa-tracker", label: "Visa Tracker", icon: Globe, disabled: false, hideForRoles: ['vessel', 'admin'] }, // Available for crew, captain roles
     ]
   },
   {
@@ -100,6 +103,12 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
       { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, requiredRole: "captain", disabled: false }, // Captains and vessel roles can access
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false },
       { href: "/dashboard/testimonials", label: "Testimonials", icon: LifeBuoy, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'] },
+    ]
+  },
+  {
+    title: "Analytics",
+    items: [
+      { href: "/dashboard/revenue", label: "Revenue & Subscriptions", icon: BarChart3, requiredRole: "admin", disabled: false },
     ]
   },
   {

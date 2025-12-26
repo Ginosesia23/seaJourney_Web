@@ -89,9 +89,10 @@ useEffect(() => {
       redirectingRef.current = false; // Reset redirect flag if subscription is active
     }
 
+    // Only redirect vessel roles to crew page, admins should see the dashboard summary
     if (
       userProfile &&
-      (userProfile.role === 'vessel' || userProfile.role === 'admin') &&
+      userProfile.role === 'vessel' &&
       (pathname === '/dashboard' || pathname === '/')
     ) {
       router.push('/dashboard/crew');

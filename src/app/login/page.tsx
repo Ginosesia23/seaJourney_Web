@@ -42,8 +42,10 @@ export default function LoginPage() {
   const checkUserAndRedirect = async (userId: string) => {
     try {
       const userProfile = await getUserProfile(supabase, userId);
-        if (userProfile.role === 'vessel' || userProfile.role === 'admin') {
+        if (userProfile.role === 'vessel') {
           router.push('/dashboard/crew');
+        } else if (userProfile.role === 'admin') {
+          router.push('/dashboard');
         } else {
         if (userProfile.subscriptionStatus === 'active') {
                 router.push('/dashboard');

@@ -174,4 +174,28 @@ export interface VesselClaimRequest {
     updated_at?: string;               // timestamp with time zone
 }
 
+export interface VisaTracker {
+    id: string;                        // uuid PK
+    userId: string;                    // uuid FK → auth.users.id
+    areaName: string;                  // text - e.g., "Schengen Area", "USA", "Australia"
+    issueDate: string;                 // Date in YYYY-MM-DD format - when visa was issued
+    expireDate: string;                // Date in YYYY-MM-DD format - when visa expires
+    totalDays: number;                 // Total days allowed (for fixed rules)
+    ruleType?: 'fixed' | 'rolling';   // Type of visa rule
+    daysAllowed?: number;              // Days allowed (e.g., 90 for Schengen)
+    periodDays?: number;               // Period in days for rolling rules (e.g., 180 for Schengen)
+    notes?: string | null;             // Optional notes
+    createdAt?: string;                 // ISO timestamp
+    updatedAt?: string;                 // ISO timestamp
+}
+
+export interface VisaEntry {
+    id: string;                        // uuid PK
+    visaId: string;                    // uuid FK → visa_tracker.id
+    userId: string;                     // uuid FK → auth.users.id
+    entryDate: string;                  // Date in YYYY-MM-DD format - the date user was in the area
+    createdAt?: string;                 // ISO timestamp
+    updatedAt?: string;                 // ISO timestamp
+}
+
 
