@@ -458,7 +458,7 @@ export default function CrewPage() {
                                             case 'vessel':
                                                 return 'Vessel Manager';
                                             default:
-                                                return 'Crew Member';
+                                                return 'Crew';
                                         }
                                     };
                                     

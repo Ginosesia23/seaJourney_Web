@@ -61,7 +61,7 @@ export function UserInfoCard({ userId }: UserInfoCardProps) {
   const getRoleLabel = (role: string) => {
     switch (role) {
       case 'crew':
-        return 'Crew Member';
+        return 'Crew';
       case 'captain':
         return 'Captain';
       case 'vessel':
