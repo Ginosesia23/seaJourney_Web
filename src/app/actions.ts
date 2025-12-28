@@ -248,7 +248,7 @@ export async function createCheckoutSession(
   userEmail: string,
 ): Promise<{ sessionId: string; url: string | null }> {
   const origin =
-    process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+    process.env.NEXT_PUBLIC_APP_URL || 'http://www.seajourney.co.uk';
 
   const price = await stripe.prices.retrieve(priceId, {
     expand: ['product'],
