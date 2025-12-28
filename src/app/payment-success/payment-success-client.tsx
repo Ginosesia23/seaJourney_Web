@@ -1,7 +1,7 @@
 // app/payment-success/payment-success-client.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSupabase, useUser } from '@/supabase';
 import { updateUserProfile } from '@/supabase/database/queries';
@@ -18,6 +18,27 @@ import { useToast } from '@/hooks/use-toast';
 import LogoOnboarding from '@/components/logo-onboarding';
 import Link from 'next/link';
 
+type VerifyResponse =
+  | {
+      success: true;
+      status: 'success' | 'processing' | 'pending';
+      tier?: string;
+      productName?: string;
+      alreadyUpdated?: boolean;
+      updatedByWebhook?: boolean;
+      payment_status?: string | null;
+      session_status?: string | null;
+      warning?: string;
+    }
+  | {
+      success: false;
+      status?: 'error';
+      error?: string;
+      errorMessage?: string;
+      payment_status?: string | null;
+      session_status?: string | null;
+    };
+
 export default function PaymentSuccessClient() {
   const [isVerifying, setIsVerifying] = useState(true);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -31,177 +52,199 @@ export default function PaymentSuccessClient() {
 
   const sessionId = searchParams.get('session_id');
 
+  // Prevent double-running in React Strict Mode / rerenders
+  const startedRef = useRef(false);
+
   useEffect(() => {
-    const verifyPayment = async () => {
+    // If we already succeeded or already started, do nothing
+    if (isSuccess || startedRef.current) return;
+
+    const verifyWithPolling = async () => {
+      // Don’t fail instantly. Wait a bit for sessionId/user hydration.
+      const START_TIMEOUT_MS = 8000; // wait up to 8s for sessionId + user
+      const VERIFY_TIMEOUT_MS = 30000; // total time to poll verify/db
+      const POLL_INTERVAL_MS = 1200;
+
+      const startWait = Date.now();
+
+      setIsVerifying(true);
+      setError(null);
+
+      // Step 1: wait for sessionId and user to exist
+      while (Date.now() - startWait < START_TIMEOUT_MS) {
+        if (sessionId && user?.id) break;
+        await new Promise((r) => setTimeout(r, 150));
+      }
+
       if (!sessionId) {
-        setError('No session ID provided');
         setIsVerifying(false);
+        setError('Missing session_id in return URL from Stripe.');
+        toast({
+          title: 'Error',
+          description: 'Missing session_id in return URL from Stripe.',
+          variant: 'destructive',
+        });
         return;
       }
 
       if (!user?.id) {
-        setError('User not authenticated');
         setIsVerifying(false);
+        setError('Please log in to verify your payment.');
+        toast({
+          title: 'Login required',
+          description: 'Please log in to verify your payment.',
+          variant: 'destructive',
+        });
         return;
       }
 
-      try {
-        setIsVerifying(true);
+      // Mark started only after we have the required inputs
+      startedRef.current = true;
 
-        const res = await fetch('/api/stripe/verify-checkout-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId }),
-        });
+      // Step 2: poll verification endpoint (and DB fallback)
+      const verifyStart = Date.now();
+      let lastProcessingToastAt = 0;
 
-        if (!res.ok) {
-          const errorText = await res.text();
-          console.error('[CLIENT] API error response:', {
-            status: res.status,
-            statusText: res.statusText,
-            body: errorText,
-          });
-          throw new Error(`API error: ${res.status} ${res.statusText}`);
-        }
-
-        let result: any;
+      while (Date.now() - verifyStart < VERIFY_TIMEOUT_MS) {
         try {
-          result = await res.json();
-        } catch (jsonError) {
-          console.error('[CLIENT] Failed to parse JSON response:', jsonError);
-          throw new Error('Invalid response from server');
-        }
+          const res = await fetch(
+            `/api/stripe/verify-checkout-session?session_id=${encodeURIComponent(
+              sessionId,
+            )}`,
+            {
+              method: 'GET',
+              cache: 'no-store',
+            },
+          );
 
-        console.log('[CLIENT] Verification result:', result);
-
-        if (result.success) {
-          const tier = result.tier ?? 'premium';
-          const productName = result.productName;
-          const alreadyUpdated = result.alreadyUpdated || result.updatedByWebhook;
-          const status = result.status || 'success';
-
-          console.log('[CLIENT] Payment verification successful:', {
-            tier,
-            productName,
-            alreadyUpdated,
-            status,
-          });
-
-          // Only update if webhook hasn't already updated it
-          // If status is 'pending', the webhook is still processing, so we'll wait
-          if (!alreadyUpdated && status === 'success') {
-            try {
-              console.log('[CLIENT] Updating user subscription:', {
-                userId: user.id,
-                tier,
-                productName,
-              });
-
-              await updateUserProfile(supabase, user.id, {
-                subscriptionStatus: 'active',
-                subscriptionTier: tier,
-                email: user.email,
-              });
-
-              console.log('[CLIENT] Successfully updated Supabase users table');
-            } catch (supabaseError: any) {
-              console.error('[CLIENT] Supabase update error:', supabaseError);
-              // Don't fail if update fails - webhook might have already updated it
-              // Just log the error and continue
-              console.warn('[CLIENT] Update failed, but continuing:', supabaseError?.message);
-            }
-          } else if (alreadyUpdated) {
-            console.log('[CLIENT] Subscription already updated by webhook, skipping client update');
-          } else if (status === 'pending') {
-            console.log('[CLIENT] Payment verified but subscription update pending, webhook processing');
+          let result: VerifyResponse | null = null;
+          try {
+            result = (await res.json()) as VerifyResponse;
+          } catch {
+            // ignore parse errors, treat as transient
+            result = null;
           }
 
-          setIsSuccess(true);
-          const description = status === 'pending'
-            ? `Your payment has been verified. Your ${productName || tier} subscription is being activated. Please refresh if needed.`
-            : `Your ${productName || tier} subscription has been activated. Welcome to SeaJourney!`;
-          
-          toast({
-            title: 'Payment Successful!',
-            description,
+          console.log('[CLIENT] Verification response:', {
+            ok: res.ok,
+            status: res.status,
+            result,
           });
 
-          setTimeout(() => {
-            router.push('/dashboard');
-          }, 3000);
-        } else {
-          // If verification failed but payment status suggests success, check database directly
-          const paymentStatus = result.payment_status;
-          const sessionStatus = result.session_status;
-          
-          if (paymentStatus === 'paid' || sessionStatus === 'complete') {
-            console.log('[CLIENT] Verification returned false but payment appears successful, checking database...');
-            
-            // Check database directly to see if subscription is active
-            try {
-              const { data: userProfile } = await supabase
-                .from('users')
-                .select('subscription_status, subscription_tier')
-                .eq('id', user.id)
-                .single();
-              
-              if (userProfile && userProfile.subscription_status === 'active') {
-                console.log('[CLIENT] ✅ Subscription is active in database despite verification failure');
-                setIsSuccess(true);
-                toast({
-                  title: 'Payment Successful!',
-                  description: 'Your subscription has been activated. Welcome to SeaJourney!',
-                });
-                setTimeout(() => {
-                  router.push('/dashboard');
-                }, 3000);
-                return;
+          // If Stripe verify says success
+          if (result && result.success) {
+            const status = result.status || 'success';
+            const tier = result.tier ?? 'premium';
+            const productName = result.productName;
+            const alreadyUpdated =
+              !!result.alreadyUpdated || !!result.updatedByWebhook;
+
+            // If verified + DB is ready (success), finish
+            if (status === 'success') {
+              // Optional client-side update (only if webhook didn’t already do it)
+              if (!alreadyUpdated) {
+                try {
+                  await updateUserProfile(supabase, user.id, {
+                    subscriptionStatus: 'active',
+                    subscriptionTier: tier,
+                    email: user.email,
+                  });
+                } catch (e: any) {
+                  console.warn(
+                    '[CLIENT] Client update failed (continuing):',
+                    e?.message,
+                  );
+                }
               }
-            } catch (dbError) {
-              console.error('[CLIENT] Error checking database:', dbError);
+
+              setIsSuccess(true);
+              setIsVerifying(false);
+
+              toast({
+                title: 'Payment Successful!',
+                description: `Your ${
+                  productName || tier
+                } subscription has been activated. Welcome to SeaJourney!`,
+              });
+
+              setTimeout(() => {
+                router.push('/dashboard');
+              }, 1500);
+
+              return;
             }
+
+            // Otherwise, "processing/pending" is normal → keep polling
+            const now = Date.now();
+            if (now - lastProcessingToastAt > 5000) {
+              lastProcessingToastAt = now;
+              toast({
+                title: 'Finalising your subscription…',
+                description:
+                  result.warning ||
+                  `We’ve confirmed payment. Activating your ${
+                    productName || tier
+                  } plan…`,
+              });
+            }
+
+            await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+            continue;
           }
-          
-          const errorMsg = result.error || result.errorMessage || 'Payment verification failed';
-          console.error('[CLIENT] Verification failed:', errorMsg);
-          setError(errorMsg);
-          toast({
-            title: 'Verification Failed',
-            description: errorMsg,
-            variant: 'destructive',
-          });
+
+          // If verify endpoint isn't ok or returns failure, do a DB check.
+          // This handles webhook timing + any transient API failures.
+          try {
+            const { data: userProfile, error: dbErr } = await supabase
+              .from('users')
+              .select('subscription_status, subscription_tier')
+              .eq('id', user.id)
+              .maybeSingle();
+
+            if (!dbErr && userProfile?.subscription_status === 'active') {
+              setIsSuccess(true);
+              setIsVerifying(false);
+
+              toast({
+                title: 'Payment Successful!',
+                description:
+                  'Your subscription is active. Redirecting to your dashboard…',
+              });
+
+              setTimeout(() => {
+                router.push('/dashboard');
+              }, 1500);
+
+              return;
+            }
+          } catch (dbError) {
+            console.warn('[CLIENT] DB check failed (continuing):', dbError);
+          }
+
+          // Not active yet → keep polling quietly
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        } catch (err) {
+          console.warn('[CLIENT] Verification request failed (retrying):', err);
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
         }
-      } catch (err: any) {
-        console.error('[CLIENT] Payment verification error:', {
-          message: err?.message,
-          stack: err?.stack,
-          name: err?.name,
-          error: err,
-        });
-        const errorMessage = err?.message || 'An unexpected error occurred';
-        setError(errorMessage);
-        toast({
-          title: 'Error',
-          description: errorMessage,
-          variant: 'destructive',
-        });
-      } finally {
-        setIsVerifying(false);
       }
+
+      // Step 3: timeout → show a helpful message, not a scary “failed”
+      setIsVerifying(false);
+      setError(
+        'We confirmed your checkout, but activation is taking longer than usual. Please refresh, or go to the dashboard — it should unlock shortly.',
+      );
+      toast({
+        title: 'Still processing',
+        description:
+          'Activation is taking longer than usual. Try refreshing, or go to the dashboard.',
+        variant: 'destructive',
+      });
     };
 
-    if (sessionId && user) {
-      verifyPayment();
-    } else if (!user) {
-      const timer = setTimeout(() => {
-        if (!user) {
-          setError('Please log in to verify your payment');
-          setIsVerifying(false);
-        }
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [sessionId, user, supabase, router, toast]);
+    verifyWithPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, user?.id]);
 
   if (isVerifying) {
     return (
@@ -214,7 +257,7 @@ export default function PaymentSuccessClient() {
             <div className="flex flex-col items-center justify-center space-y-4">
               <Loader2 className="h-12 w-12 animate-spin text-primary" />
               <p className="text-center text-muted-foreground">
-                Verifying your payment...
+                Finalising your subscription…
               </p>
             </div>
           </CardContent>
@@ -232,7 +275,7 @@ export default function PaymentSuccessClient() {
         <Card className="w-full max-w-md border-destructive/50 bg-black/20 backdrop-blur-sm">
           <CardHeader className="text-center">
             <CardTitle className="font-headline text-2xl text-destructive">
-              Payment Verification Failed
+              Subscription Still Processing
             </CardTitle>
             <CardDescription>{error}</CardDescription>
           </CardHeader>
@@ -240,7 +283,7 @@ export default function PaymentSuccessClient() {
             <Button asChild variant="outline" className="w-full rounded-lg">
               <Link href="/offers">Back to Offers</Link>
             </Button>
-            <Button asChild variant="ghost" className="w-full rounded-lg">
+            <Button asChild className="w-full rounded-lg">
               <Link href="/dashboard">Go to Dashboard</Link>
             </Button>
           </CardContent>

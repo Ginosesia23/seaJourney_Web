@@ -1463,7 +1463,7 @@ export default function CurrentPage() {
                   const standbyColor = 'rgba(139, 92, 246, 0.85)';
                   const stateColor = stateInfo.color;
                   backgroundStyle = {
-                    background: `linear-gradient(135deg, ${stateColor} 0%, ${stateColor} 50%, ${standbyColor} 50%, ${standbyColor} 100%)`,
+                    background: `linear-gradient(135deg, ${stateColor} 0%, ${stateColor} 70%, ${standbyColor} 70%, ${standbyColor} 100%)`,
                   };
                   standbyStyle = {};
                 } else if (isCountedStandby && !stateInfo) {

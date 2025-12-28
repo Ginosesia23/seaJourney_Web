@@ -826,11 +826,11 @@ export default function CalendarPage() {
                   // Standby color - using a distinct purple for counted standby
                   const standbyColor = 'rgba(139, 92, 246, 0.85)'; // Purple for counted standby
                   
-                  // Create diagonal split: state color on one half, standby color on other half
+                  // Create diagonal split: 70% state color, 30% standby color
                   // Using linear gradient at 135 degrees (diagonal from top-left to bottom-right)
                   const stateColor = stateInfo.color;
                   backgroundStyle = {
-                    background: `linear-gradient(135deg, ${stateColor} 0%, ${stateColor} 50%, ${standbyColor} 50%, ${standbyColor} 100%)`,
+                    background: `linear-gradient(135deg, ${stateColor} 0%, ${stateColor} 70%, ${standbyColor} 70%, ${standbyColor} 100%)`,
                   };
                   
                   // No border, just the diagonal split
@@ -1130,7 +1130,7 @@ export default function CalendarPage() {
                 <div 
                   className="h-8 w-8 rounded relative"
                   style={{
-                    background: `linear-gradient(135deg, hsl(var(--chart-orange)) 0%, hsl(var(--chart-orange)) 50%, rgba(139, 92, 246, 0.85) 50%, rgba(139, 92, 246, 0.85) 100%)`
+                    background: `linear-gradient(135deg, hsl(var(--chart-orange)) 0%, hsl(var(--chart-orange)) 70%, rgba(139, 92, 246, 0.85) 70%, rgba(139, 92, 246, 0.85) 100%)`
                   }}
                 >
                   <Anchor className="absolute top-1.5 left-1.5 h-2 w-2 opacity-90" />
