@@ -275,7 +275,7 @@ export async function createCheckoutSession(
     mode: 'subscription',
     customer_email: userEmail,
     client_reference_id: userId,
-    success_url: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+    success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/offers`,
 
     // 👇 for checkout.session.completed handler

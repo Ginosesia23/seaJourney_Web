@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
 
     // Stripe success_url should pass:
-    // /billing/success?session_id={CHECKOUT_SESSION_ID}
+    // /payment-success?session_id={CHECKOUT_SESSION_ID}
     const sessionId =
       url.searchParams.get('session_id') ||
       url.searchParams.get('sessionId') ||

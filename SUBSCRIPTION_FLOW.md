@@ -41,7 +41,7 @@ const session = await stripe.checkout.sessions.create({
     productId,
     productName,
   },
-  success_url: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+success_url: `${siteUrl}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
 });
 ```
 
