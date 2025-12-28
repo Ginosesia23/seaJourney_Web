@@ -96,10 +96,14 @@ export default function PassageLogbookPage() {
   
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
+    const role = (userProfileRaw as any).role || userProfileRaw.role || 'crew';
+    const subscriptionTier = (userProfileRaw as any).subscription_tier || userProfileRaw.subscriptionTier || 'free';
+    const subscriptionStatus = (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive';
     return {
       ...userProfileRaw,
-      subscriptionTier: (userProfileRaw as any).subscription_tier || userProfileRaw.subscriptionTier || 'free',
-      subscriptionStatus: (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive',
+      role: role,
+      subscriptionTier: subscriptionTier,
+      subscriptionStatus: subscriptionStatus,
     } as UserProfile;
   }, [userProfileRaw]);
 
@@ -155,19 +159,32 @@ export default function PassageLogbookPage() {
     },
   });
 
-  // Check if user has premium subscription
-  const hasPremiumAccess = useMemo(() => {
+  // Check if user has access (premium/pro for crew, any active tier for vessels)
+  const hasAccess = useMemo(() => {
     if (!userProfile) return false;
     const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
     const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
+    const role = (userProfile as any).role || userProfile.role || 'crew';
+    
+    // Vessel accounts: allow all active vessel tiers
+    if (role === 'vessel') {
+      const tierLower = tier.toLowerCase();
+      return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && status === 'active';
+    }
+    
+    // Crew accounts: premium or pro only
     return (tier === 'premium' || tier === 'pro') && status === 'active';
   }, [userProfile]);
 
   const onSubmit = async (data: PassageFormValues) => {
-    if (!user?.id || !hasPremiumAccess) {
+    if (!user?.id || !hasAccess) {
+      const role = (userProfile as any)?.role || userProfile?.role || 'crew';
+      const message = role === 'vessel' 
+        ? 'Passage Log Book requires an active vessel subscription.'
+        : 'Passage Log Book is available for Premium and Pro subscribers.';
       toast({
-        title: 'Premium Feature',
-        description: 'Passage Log Book is available for Premium and Pro subscribers.',
+        title: 'Subscription Required',
+        description: message,
         variant: 'destructive',
       });
       return;
@@ -454,22 +471,28 @@ export default function PassageLogbookPage() {
     );
   }
 
-  if (!hasPremiumAccess) {
+  if (!hasAccess) {
+    const role = (userProfile as any)?.role || userProfile?.role || 'crew';
+    const message = role === 'vessel' 
+      ? 'The Passage Log Book requires an active vessel subscription. Please subscribe to a plan to access this feature.'
+      : 'The Passage Log Book is available for Premium and Pro subscribers. Upgrade your plan to access this feature.';
+    const buttonText = role === 'vessel' ? 'View Plans' : 'Upgrade to Premium';
+    
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div className="flex flex-col gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Passage Log Book</CardTitle>
-            <CardDescription>Premium Feature</CardDescription>
+            <CardDescription>Subscription Required</CardDescription>
           </CardHeader>
           <CardContent className="text-center py-12">
             <MapPin className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
+            <h3 className="text-xl font-semibold mb-2">Subscription Required</h3>
             <p className="text-muted-foreground mb-6">
-              The Passage Log Book is available for Premium and Pro subscribers. Upgrade your plan to access this feature.
+              {message}
             </p>
             <Button className="rounded-xl" asChild>
-              <a href="/offers">Upgrade to Premium</a>
+              <a href="/offers">{buttonText}</a>
             </Button>
           </CardContent>
         </Card>
@@ -478,19 +501,22 @@ export default function PassageLogbookPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Passage Log Book</h1>
-          <p className="text-muted-foreground mt-1">
-            Record and track your voyages between ports
-          </p>
+    <div className="flex flex-col gap-6">
+      {/* Header Section */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Passage Log Book</h1>
+            <p className="text-muted-foreground">
+              Record and track your voyages between ports
+            </p>
+          </div>
         </div>
       </div>
 
       {/* Summary Cards */}
       {passages.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Distance</CardTitle>
@@ -541,7 +567,7 @@ export default function PassageLogbookPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Dialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}>
             <DialogTrigger asChild>

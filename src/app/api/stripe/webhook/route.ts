@@ -1,10 +1,49 @@
 // app/api/stripe/webhook/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
+import { Resend } from 'resend';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import type StripeType from 'stripe';
 
+const resend = new Resend(process.env.RESEND_API_KEY!);
+const SITE_URL = process.env.SITE_URL || 'https://www.seajourney.co.uk';
+const BILLING_FROM =
+  process.env.BILLING_FROM_EMAIL || 'SeaJourney <billing@seajourney.co.uk>';
+
 export const runtime = 'nodejs'; // we need raw body support
+
+async function emailAlreadySent(stripeEventId: string) {
+  const { data, error } = await supabaseAdmin
+    .from('webhook_email_logs')
+    .select('stripe_event_id')
+    .eq('stripe_event_id', stripeEventId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[EMAIL] webhook_email_logs lookup error:', error);
+  }
+
+  return !!data;
+}
+
+async function markEmailSent(args: {
+  stripe_event_id: string;
+  email_type: string;
+  user_id?: string | null;
+  to_email?: string | null;
+}) {
+  const { error } = await supabaseAdmin.from('webhook_email_logs').insert({
+    stripe_event_id: args.stripe_event_id,
+    email_type: args.email_type,
+    user_id: args.user_id ?? null,
+    to_email: args.to_email ?? null,
+  });
+
+  if (error) {
+    console.warn('[EMAIL] Failed to insert webhook_email_logs row:', error);
+  }
+}
+
 
 async function updateUserFromSubscription(subscription: StripeType.Subscription) {
   const metadata = subscription.metadata || {};
@@ -268,6 +307,87 @@ export async function POST(req: NextRequest) {
           await updateUserFromSubscription(full as StripeType.Subscription);
           break;
         }
+
+        case 'invoice.paid': {
+          // ✅ Email idempotency: prevent duplicates on webhook retries
+          if (await emailAlreadySent(event.id)) {
+            console.log('[EMAIL] Skipping duplicate invoice.paid email:', event.id);
+            break;
+          }
+        
+          const invoice = event.data.object as StripeType.Invoice;
+        
+          const customerId =
+            typeof invoice.customer === 'string'
+              ? invoice.customer
+              : (invoice.customer as any)?.id || null;
+        
+          if (!customerId) {
+            console.warn('[EMAIL] invoice.paid missing customer id');
+            await markEmailSent({
+              stripe_event_id: event.id,
+              email_type: 'invoice.paid',
+            });
+            break;
+          }
+        
+          // Find user by stripe_customer_id
+          const { data: userRow, error: userErr } = await supabaseAdmin
+            .from('users')
+            .select('id, email, subscription_tier')
+            .eq('stripe_customer_id', customerId)
+            .maybeSingle();
+        
+          if (userErr) {
+            console.error('[EMAIL] Failed to lookup user for invoice.paid:', userErr);
+            // Don’t mark as sent here; allow retry if DB was temporarily unavailable
+            break;
+          }
+        
+          if (!userRow?.email) {
+            console.warn('[EMAIL] No user/email found for customer:', customerId);
+            // Mark as sent so retries don’t spam logs; nothing to send anyway
+            await markEmailSent({
+              stripe_event_id: event.id,
+              email_type: 'invoice.paid',
+              user_id: userRow?.id ?? null,
+              to_email: null,
+            });
+            break;
+          }
+        
+          const tier = userRow.subscription_tier || 'your plan';
+        
+          // Send the email
+          await resend.emails.send({
+            from: BILLING_FROM,
+            to: userRow.email,
+            subject: 'Your SeaJourney subscription is active ✅',
+            html: `
+              <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+                <h2>Subscription active</h2>
+                <p>Your <b>${tier}</b> subscription is now active.</p>
+                <p><a href="${SITE_URL}/dashboard">Go to your dashboard</a></p>
+                <p style="color:#777; font-size: 12px;">
+                  If you didn’t make this purchase, please contact support.
+                </p>
+              </div>
+            `,
+          });
+        
+          console.log('[EMAIL] ✅ Sent invoice.paid email to:', userRow.email);
+        
+          // ✅ Record idempotency AFTER successful send
+          await markEmailSent({
+            stripe_event_id: event.id,
+            email_type: 'invoice.paid',
+            user_id: userRow.id,
+            to_email: userRow.email,
+          });
+        
+          break;
+        }
+        
         
       default:
         console.log('[STRIPE WEBHOOK] Ignoring event type:', event.type);

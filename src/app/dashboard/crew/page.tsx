@@ -15,6 +15,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertCircle, ArrowUpCircle } from 'lucide-react';
+import Link from 'next/link';
 import type { UserProfile, VesselAssignment, Vessel } from '@/lib/types';
 import { getActiveVesselAssignmentsByVessel } from '@/supabase/database/queries';
 import { useCollection } from '@/supabase/database';
@@ -49,6 +52,8 @@ export default function CrewPage() {
         
         const activeVesselId = (currentUserProfileRaw as any).active_vessel_id || (currentUserProfileRaw as any).activeVesselId;
         const role = (currentUserProfileRaw as any).role || currentUserProfileRaw.role || 'crew';
+        const subscriptionTier = (currentUserProfileRaw as any).subscription_tier || (currentUserProfileRaw as any).subscriptionTier || 'free';
+        const subscriptionStatus = (currentUserProfileRaw as any).subscription_status || (currentUserProfileRaw as any).subscriptionStatus || 'inactive';
         
         console.log('[CREW PAGE] User profile transform:', {
             raw: currentUserProfileRaw,
@@ -56,6 +61,8 @@ export default function CrewPage() {
             activeVesselId: (currentUserProfileRaw as any).activeVesselId,
             resolvedActiveVesselId: activeVesselId,
             role: role,
+            subscriptionTier: subscriptionTier,
+            subscriptionStatus: subscriptionStatus,
             allKeys: Object.keys(currentUserProfileRaw)
         });
         
@@ -63,8 +70,38 @@ export default function CrewPage() {
             ...currentUserProfileRaw,
             activeVesselId: activeVesselId || undefined,
             role: role,
+            subscriptionTier: subscriptionTier,
+            subscriptionStatus: subscriptionStatus,
         } as UserProfile;
     }, [currentUserProfileRaw]);
+
+    // Get crew limit based on vessel subscription tier
+    const getCrewLimit = (tier: string | undefined, status: string | undefined): number => {
+        if (!tier || (status || '').toLowerCase() !== 'active') {
+            return 0; // No active subscription = no access
+        }
+        
+        const tierLower = tier.toLowerCase();
+        switch (tierLower) {
+            case 'vessel_lite':
+                return 15;
+            case 'vessel_basic':
+                return 30;
+            case 'vessel_pro':
+            case 'vessel_fleet':
+                return Infinity; // Unlimited
+            default:
+                return 0; // Unknown tier = no access
+        }
+    };
+
+    const crewLimit = useMemo(() => {
+        // Only apply limits to vessel managers (not admins)
+        if (currentUserProfile?.role !== 'vessel') {
+            return Infinity; // Admins and captains see all
+        }
+        return getCrewLimit(currentUserProfile.subscriptionTier, currentUserProfile.subscriptionStatus);
+    }, [currentUserProfile?.role, currentUserProfile?.subscriptionTier, currentUserProfile?.subscriptionStatus]);
 
     // Check if captain has pending captaincy request
     useEffect(() => {
@@ -221,6 +258,12 @@ export default function CrewPage() {
                     setCrewMembers(crewWithProfiles);
                 } else {
                     // Non-admins: Get active assignments for their vessel only
+                    if (!currentUserProfile.activeVesselId) {
+                        console.log('[CREW PAGE] No active vessel ID for non-admin user');
+                        setCrewMembers([]);
+                        setIsLoadingAssignments(false);
+                        return;
+                    }
                     console.log('[CREW PAGE] Fetching crew for vessel:', currentUserProfile.activeVesselId);
                     const assignments = await getActiveVesselAssignmentsByVessel(supabase, currentUserProfile.activeVesselId);
                     
@@ -312,33 +355,43 @@ export default function CrewPage() {
         fetchCrew();
     }, [supabase, currentUserProfile?.activeVesselId, isAuthorized, user?.id, currentUserProfile?.role]);
     
-    // Filter crew members by search term
+    // Filter crew members by search term and apply tier-based limits
     const filteredCrewMembers = useMemo(() => {
         console.log('[CREW PAGE] Filtering crew members:', {
             crewMembersCount: crewMembers.length,
             searchTerm: searchTerm,
+            crewLimit: crewLimit,
             crewMembers: crewMembers
         });
         
-        if (!searchTerm) {
-            console.log('[CREW PAGE] No search term, returning all crew members:', crewMembers.length);
-            return crewMembers;
+        // First apply search filter
+        let filtered = crewMembers;
+        if (searchTerm) {
+            filtered = crewMembers.filter(({ profile }) => {
+                const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.toLowerCase();
+                const username = profile.username.toLowerCase();
+                const email = profile.email.toLowerCase();
+                const lowercasedTerm = searchTerm.toLowerCase();
+
+                return fullName.includes(lowercasedTerm) || 
+                       username.includes(lowercasedTerm) || 
+                       email.includes(lowercasedTerm);
+            });
         }
-
-        const filtered = crewMembers.filter(({ profile }) => {
-            const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.toLowerCase();
-            const username = profile.username.toLowerCase();
-            const email = profile.email.toLowerCase();
-            const lowercasedTerm = searchTerm.toLowerCase();
-
-            return fullName.includes(lowercasedTerm) || 
-                   username.includes(lowercasedTerm) || 
-                   email.includes(lowercasedTerm);
-        });
         
-        console.log('[CREW PAGE] Filtered crew members:', filtered.length, filtered);
+        // Then apply tier-based limit (only for vessel managers)
+        if (crewLimit !== Infinity && filtered.length > crewLimit) {
+            console.log('[CREW PAGE] Applying tier limit:', {
+                total: filtered.length,
+                limit: crewLimit,
+                showing: crewLimit
+            });
+            filtered = filtered.slice(0, crewLimit);
+        }
+        
+        console.log('[CREW PAGE] Final filtered crew members:', filtered.length);
         return filtered;
-    }, [crewMembers, searchTerm]);
+    }, [crewMembers, searchTerm, crewLimit]);
 
     const isLoading = isLoadingProfile || isLoadingAssignments || isCheckingCaptaincy;
     
@@ -350,7 +403,12 @@ export default function CrewPage() {
         filteredCrewMembersCount: filteredCrewMembers.length,
         hasActiveVessel: !!currentUserProfile?.activeVesselId,
         activeVesselId: currentUserProfile?.activeVesselId,
-        isAuthorized
+        isAuthorized,
+        role: currentUserProfile?.role,
+        subscriptionTier: currentUserProfile?.subscriptionTier,
+        subscriptionStatus: currentUserProfile?.subscriptionStatus,
+        crewLimit: crewLimit,
+        shouldShowWarning: currentUserProfile?.role === 'vessel' && crewLimit !== Infinity && crewMembers.length > crewLimit
     });
 
     if (!isLoading && !isAuthorized) {
@@ -383,7 +441,15 @@ export default function CrewPage() {
                             <h1 className="text-3xl font-bold tracking-tight">Crew Members</h1>
                             {crewMembers.length > 0 && (
                                 <Badge variant="secondary" className="text-sm font-semibold">
-                                    {crewMembers.length} {crewMembers.length === 1 ? 'member' : 'members'}
+                                    {filteredCrewMembers.length}
+                                    {crewLimit !== Infinity && currentUserProfile?.role === 'vessel' && (
+                                        <span className="text-muted-foreground"> / {crewLimit}</span>
+                                    )}
+                                    {crewLimit !== Infinity && currentUserProfile?.role === 'vessel' && crewMembers.length > crewLimit && (
+                                        <span className="text-muted-foreground"> (of {crewMembers.length})</span>
+                                    )}
+                                    {' '}
+                                    {filteredCrewMembers.length === 1 ? 'member' : 'members'}
                                 </Badge>
                             )}
                         </div>
@@ -391,7 +457,9 @@ export default function CrewPage() {
                             {currentUserProfile?.role === 'admin'
                                 ? "View and manage all crew members across all vessels."
                                 : currentUserProfile?.activeVesselId 
-                                    ? "View and manage crew members with active assignments on your vessel." 
+                                    ? currentUserProfile?.role === 'vessel' && crewLimit !== Infinity
+                                        ? `View and manage crew members with active assignments on your vessel. Your plan allows up to ${crewLimit} crew members.`
+                                        : "View and manage crew members with active assignments on your vessel."
                                     : "No active vessel found. Please select an active vessel to view crew members."}
                         </p>
                     </div>
@@ -407,6 +475,49 @@ export default function CrewPage() {
                 </div>
                 <Separator />
             </div>
+
+            {/* Tier Limit Warning */}
+            {currentUserProfile?.role === 'vessel' && crewLimit !== Infinity && crewMembers.length > crewLimit && (
+                <div className="rounded-xl border border-orange-500/50 bg-orange-50 dark:bg-orange-950/20 p-4">
+                    <div className="flex items-start gap-3">
+                        <AlertCircle className="h-5 w-5 text-orange-600 dark:text-orange-400 shrink-0 mt-0.5" />
+                        <div className="flex-1 space-y-2">
+                            <h3 className="font-semibold text-orange-900 dark:text-orange-100">Crew Limit Reached</h3>
+                            <p className="text-sm text-orange-800 dark:text-orange-200">
+                                Your <strong>{currentUserProfile.subscriptionTier?.replace('vessel_', '').replace('_', ' ').toUpperCase() || 'current'}</strong> plan allows you to view up to <strong>{crewLimit} crew members</strong>. 
+                                You currently have <strong>{crewMembers.length} crew members</strong> on your vessel. Only the first {crewLimit} are displayed.
+                            </p>
+                            <Button asChild variant="outline" size="sm" className="mt-2 border-orange-500 text-orange-700 hover:bg-orange-100 dark:border-orange-400 dark:text-orange-300 dark:hover:bg-orange-900/30">
+                                <Link href="/offers">
+                                    <ArrowUpCircle className="mr-2 h-4 w-4" />
+                                    Upgrade Plan
+                                </Link>
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* No Active Subscription Warning */}
+            {currentUserProfile?.role === 'vessel' && crewLimit === 0 && (
+                <div className="rounded-xl border border-red-500/50 bg-red-50 dark:bg-red-950/20 p-4">
+                    <div className="flex items-start gap-3">
+                        <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                        <div className="flex-1 space-y-2">
+                            <h3 className="font-semibold text-red-900 dark:text-red-100">Subscription Required</h3>
+                            <p className="text-sm text-red-800 dark:text-red-200">
+                                You need an active vessel subscription to view crew members. Please subscribe to a plan to access this feature.
+                            </p>
+                            <Button asChild variant="outline" size="sm" className="mt-2 border-red-500 text-red-700 hover:bg-red-100 dark:border-red-400 dark:text-red-300 dark:hover:bg-red-900/30">
+                                <Link href="/offers">
+                                    <ArrowUpCircle className="mr-2 h-4 w-4" />
+                                    View Plans
+                                </Link>
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                 <CardContent className="p-0">
@@ -436,7 +547,7 @@ export default function CrewPage() {
                                 </TableRow>
                             ) : !currentUserProfile?.activeVesselId && currentUserProfile?.role !== 'admin' ? (
                                 <TableRow>
-                                    <TableCell colSpan={currentUserProfile?.role === 'admin' ? 7 : 6} className="h-24 text-center text-muted-foreground">
+                                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                                         No active vessel found. Please select an active vessel to view crew members.
                                     </TableCell>
                                 </TableRow>
