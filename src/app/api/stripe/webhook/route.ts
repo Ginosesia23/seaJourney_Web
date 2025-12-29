@@ -8,7 +8,7 @@ import type StripeType from 'stripe';
 const resend = new Resend(process.env.RESEND_API_KEY!);
 const SITE_URL = process.env.SITE_URL || 'https://www.seajourney.co.uk';
 const BILLING_FROM =
-  process.env.BILLING_FROM_EMAIL || 'SeaJourney <billing@seajourney.co.uk>';
+  process.env.BILLING_FROM_EMAIL || 'SeaJourney <team@seajourney.co.uk>';
 
 export const runtime = 'nodejs'; // we need raw body support
 
@@ -265,20 +265,20 @@ export async function POST(req: NextRequest) {
 
   try {
     switch (event.type) {
-      case 'checkout.session.completed': {
+      case "checkout.session.completed": {
         const session = event.data.object as StripeType.Checkout.Session;
-
+      
         const metadata = session.metadata || {};
-        const userId = metadata.userId;
-        const tier = (metadata.tier || 'standard').toLowerCase();
-
-        const subscriptionId = session.subscription as string | null;
+        const userId = metadata.userId; // make sure this matches what you set during session creation
+        const tier = (metadata.tier || "standard").toLowerCase();
+      
+        const subscriptionId = (session.subscription as string) || null;
         const customerId =
-          typeof session.customer === 'string'
+          typeof session.customer === "string"
             ? session.customer
             : (session.customer as StripeType.Customer | null)?.id || null;
-
-        console.log('[STRIPE WEBHOOK] checkout.session.completed payload:', {
+      
+        console.log("[STRIPE WEBHOOK] checkout.session.completed payload:", {
           userId,
           tier,
           subscriptionId,
@@ -286,12 +286,39 @@ export async function POST(req: NextRequest) {
           payment_status: session.payment_status,
           status: session.status,
         });
-
-        // Optional: You can update here too, but since your verify-checkout-session does it,
-        // and subscription.updated will also arrive, it’s okay to leave this as logging only.
+      
+        // ✅ HARD REQUIREMENT: persist the mapping so invoice.paid can find the user later
+        if (!userId || !customerId) {
+          console.warn("[STRIPE WEBHOOK] Missing userId/customerId, cannot link user.", {
+            userId,
+            customerId,
+          });
+          break;
+        }
+      
+        const { error } = await supabaseAdmin
+          .from("users")
+          .update({
+            stripe_customer_id: customerId,
+            stripe_subscription_id: subscriptionId,
+            subscription_tier: tier,
+          })
+          .eq("id", userId);
+      
+        if (error) {
+          console.error("[STRIPE WEBHOOK] Failed to store Stripe IDs on user:", error);
+        } else {
+          console.log("[STRIPE WEBHOOK] ✅ Linked user to Stripe customer:", {
+            userId,
+            customerId,
+            subscriptionId,
+            tier,
+          });
+        }
+      
         break;
       }
-
+      
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
         case 'customer.subscription.deleted': {
@@ -317,10 +344,7 @@ export async function POST(req: NextRequest) {
         
           const invoice = event.data.object as StripeType.Invoice;
         
-          const customerId =
-            typeof invoice.customer === 'string'
-              ? invoice.customer
-              : (invoice.customer as any)?.id || null;
+          const customerId = invoice.customer as string;
         
           if (!customerId) {
             console.warn('[EMAIL] invoice.paid missing customer id');
@@ -338,12 +362,11 @@ export async function POST(req: NextRequest) {
             .eq('stripe_customer_id', customerId)
             .maybeSingle();
         
-          if (userErr) {
-            console.error('[EMAIL] Failed to lookup user for invoice.paid:', userErr);
-            // Don’t mark as sent here; allow retry if DB was temporarily unavailable
-            break;
-          }
-        
+            if (!userRow?.email) {
+              console.warn("[EMAIL] No user/email found for customer:", customerId);
+              break;
+            }
+                    
           if (!userRow?.email) {
             console.warn('[EMAIL] No user/email found for customer:', customerId);
             // Mark as sent so retries don’t spam logs; nothing to send anyway
@@ -357,26 +380,35 @@ export async function POST(req: NextRequest) {
           }
         
           const tier = userRow.subscription_tier || 'your plan';
+
+          console.log("[EMAIL] from:", BILLING_FROM);
+          console.log("[EMAIL] to:", userRow.email);
+          if (!userRow.email) console.warn("[EMAIL] ⚠️ No recipient email found!");
         
-          // Send the email
-          await resend.emails.send({
-            from: BILLING_FROM,
-            to: userRow.email,
-            subject: 'Your SeaJourney subscription is active ✅',
-            html: `
-              <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-                <h2>Subscription active</h2>
-                <p>Your <b>${tier}</b> subscription is now active.</p>
-                <p><a href="${SITE_URL}/dashboard">Go to your dashboard</a></p>
-                <p style="color:#777; font-size: 12px;">
-                  If you didn’t make this purchase, please contact support.
-                </p>
-              </div>
-            `,
-          });
-        
-          console.log('[EMAIL] ✅ Sent invoice.paid email to:', userRow.email);
-        
+
+          try {
+            const result = await resend.emails.send({
+              from: BILLING_FROM,
+              to: [userRow.email], // IMPORTANT: array is safest
+              subject: "Your SeaJourney subscription is active ✅",
+              html: `
+                <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+                  <h2>Subscription active</h2>
+                  <p>Your <b>${tier}</b> subscription is now active.</p>
+                  <p><a href="${SITE_URL}/dashboard">Go to your dashboard</a></p>
+                  <p style="color:#777; font-size: 12px;">
+                    If you didn’t make this purchase, please contact support.
+                  </p>
+                </div>
+              `,
+            });
+          
+            console.log("[EMAIL] ✅ Resend result:", result);
+            console.log("[EMAIL] ✅ Sent invoice.paid email to:", userRow.email);
+          } catch (err) {
+            console.error("[EMAIL] ❌ Resend send failed:", err);
+          }
+                  
           // ✅ Record idempotency AFTER successful send
           await markEmailSent({
             stripe_event_id: event.id,
