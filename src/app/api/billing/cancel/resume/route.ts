@@ -1,34 +1,15 @@
 // app/api/billing/resume/route.ts
 import { NextResponse } from 'next/server';
-import { resumeSubscription } from '@/app/actions';
+import { resumeMySubscription } from '@/app/actions';
 
-export async function POST(req: Request) {
+export async function POST() {
   try {
-    const body = await req.json().catch(() => ({}));
-    const { subscriptionId } = body || {};
-
-    if (!subscriptionId) {
-      return NextResponse.json(
-        { error: 'Missing subscriptionId' },
-        { status: 400 },
-      );
-    }
-
-    await resumeSubscription(subscriptionId);
-
-    return NextResponse.json(
-      { success: true },
-      { status: 200 },
-    );
+    const subscription = await resumeMySubscription();
+    return NextResponse.json({ success: true, subscriptionId: subscription.id });
   } catch (err: any) {
-    console.error('[API /api/billing/resume] Error:', err);
     return NextResponse.json(
-      {
-        error:
-          err?.message ||
-          'Failed to resume subscription. Please try again later.',
-      },
-      { status: 500 },
+      { error: err?.message || 'Failed to resume subscription' },
+      { status: err?.status || 500 },
     );
   }
 }
