@@ -138,7 +138,7 @@ To test the flow manually:
 
 1. **Test API Route Directly:**
    ```bash
-   curl -X POST http://localhost:3000/api/stripe/verify-checkout-session \
+   curl -X POST http://localhost:9002/api/stripe/verify-checkout-session \
      -H "Content-Type: application/json" \
      -d '{"sessionId":"cs_test_..."}'
    ```
