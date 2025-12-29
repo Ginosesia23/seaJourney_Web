@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { supabase } from "@/lib/supabaseClient"; // adjust path to wherever you exported createClient(...)
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
@@ -572,36 +573,48 @@ export default function ManageSubscriptionPage() {
   const handleResumeSubscription = async () => {
     if (!stripeSubscription?.subscription) {
       toast({
-        title: 'Error',
-        description: 'Unable to resume subscription. Please contact support.',
-        variant: 'destructive',
+        title: "Error",
+        description: "Unable to resume subscription. Please contact support.",
+        variant: "destructive",
       });
       return;
     }
-
+  
     try {
-      const res = await fetch('/api/billing/resume', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subscriptionId: stripeSubscription.subscription.id,
-        }),
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || 'Failed to resume subscription.');
+      // ✅ Get access token from Supabase (browser/localStorage)
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+  
+      if (sessionErr || !token) {
+        throw new Error("You are not logged in. Please sign in again.");
       }
-
-      toast({
-        title: 'Subscription Resumed',
-        description: 'Your subscription has been resumed.',
+  
+      const res = await fetch("/api/billing/resume", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        // ✅ No need to send subscriptionId anymore (server should look it up from DB)
+        body: JSON.stringify({}),
       });
-
+  
+      const body = await res.json().catch(() => ({}));
+  
+      if (!res.ok) {
+        throw new Error(body.error || "Failed to resume subscription.");
+      }
+  
+      toast({
+        title: "Subscription Resumed",
+        description: "Your subscription has been resumed.",
+      });
+  
       // Refresh subscription data
       if (user?.email) {
         const refreshed = await fetch(
-          `/api/billing?email=${encodeURIComponent(user.email)}`,
+          `/api/billing?email=${encodeURIComponent(user.email)}&isVesselAccount=${isVesselAccount}`,
         );
         if (refreshed.ok) {
           const { subscriptionData }: { subscriptionData: StripeSubscriptionData | null } =
@@ -609,19 +622,18 @@ export default function ManageSubscriptionPage() {
           setStripeSubscription(subscriptionData || null);
         }
       }
-
+  
       router.refresh();
     } catch (error: any) {
-      console.error('Failed to resume subscription:', error);
+      console.error("Failed to resume subscription:", error);
       toast({
-        title: 'Resume Failed',
-        description:
-          error.message ||
-          'Failed to resume subscription. Please contact support.',
-        variant: 'destructive',
+        title: "Resume Failed",
+        description: error?.message || "Failed to resume subscription. Please contact support.",
+        variant: "destructive",
       });
     }
   };
+  
 
   if (isLoading || isProfileLoading) {
     return (

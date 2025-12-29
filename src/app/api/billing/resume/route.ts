@@ -1,30 +1,40 @@
 // src/app/api/billing/resume/route.ts
 import { NextResponse } from "next/server";
-import { resumeMySubscription } from "@/app/actions";
+import { createClient } from "@supabase/supabase-js";
+import { stripe } from "@/lib/stripe";
 
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "https://www.seajourney.co.uk",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "content-type, authorization",
-    },
-  });
-}
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
 
-export async function POST() {
-  try {
-    const subscription = await resumeMySubscription();
-    return NextResponse.json({ success: true, subscriptionId: subscription.id });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err?.message || "Failed to resume subscription" },
-      { status: err?.status || 500 },
-    );
+export async function POST(req: Request) {
+  const auth = req.headers.get("authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+
+  if (!token) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-}
 
-export async function GET() {
-  return NextResponse.json({ error: "Use POST" }, { status: 405 });
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { data: row, error: dbErr } = await supabaseAdmin
+    .from("users")
+    .select("stripe_subscription_id")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (dbErr) return NextResponse.json({ error: dbErr.message }, { status: 500 });
+  if (!row?.stripe_subscription_id) {
+    return NextResponse.json({ error: "No subscription found" }, { status: 400 });
+  }
+
+  const sub = await stripe.subscriptions.update(row.stripe_subscription_id, {
+    cancel_at_period_end: false,
+  });
+
+  return NextResponse.json({ success: true, subscriptionId: sub.id });
 }
