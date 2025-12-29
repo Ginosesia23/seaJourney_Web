@@ -1,12 +1,24 @@
-/**
- * Server-side Supabase client
- * Use this for server actions and API routes
- */
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
-import { createClient } from '@supabase/supabase-js';
-import { supabaseConfig } from './config';
+export async function createSupabaseServerClient() {
+  const cookieStore = cookies();
 
-export function createSupabaseServerClient() {
-  return createClient(supabaseConfig.url, supabaseConfig.anonKey);
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set() {
+          // not needed in route handlers
+        },
+        remove() {
+          // not needed in route handlers
+        },
+      },
+    }
+  );
 }
-
