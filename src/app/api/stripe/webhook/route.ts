@@ -88,14 +88,41 @@ async function lookupUserIdByCustomer(customerId: string) {
  * Prefer price.metadata.tier (best), fallback to nickname, fallback to sub.metadata.tier
  */
 function extractTierFromSubscription(sub: StripeType.Subscription) {
-  const item = sub.items?.data?.[0];
-  const price = item?.price as StripeType.Price | undefined;
+  const items = sub.items?.data ?? [];
 
-  const tierFromPriceMeta = (price?.metadata as any)?.tier as
-    | string
-    | undefined;
+  const crewProductId = (process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID || "").trim();
+  const vesselProductId = (process.env.STRIPE_VESSEL_SUBSCRIPTION_PRODUCT_ID || "").trim();
+
+  // Pick the "main" item by product match first
+  const picked =
+    items.find((it) => {
+      const price = it.price as StripeType.Price;
+      const prod = price.product as any;
+      const prodId = typeof prod === "string" ? prod : prod?.id;
+      return prodId === vesselProductId || prodId === crewProductId;
+    }) ||
+    // Or any item with metadata.tier
+    items.find((it) => ((it.price as any)?.metadata?.tier)) ||
+    // fallback
+    items[0];
+
+  const price = picked?.price as StripeType.Price | undefined;
+
+  const tierFromPriceMeta = (price?.metadata as any)?.tier as string | undefined;
   const tierFromNickname = price?.nickname || undefined;
   const tierFromSubMeta = (sub.metadata as any)?.tier as string | undefined;
+
+  // Debug (keep for now)
+  console.log("[TIER] picked item:", {
+    subId: sub.id,
+    pickedPriceId: price?.id,
+    pickedNickname: price?.nickname,
+    pickedMetaTier: tierFromPriceMeta,
+    pickedProduct:
+      typeof (price?.product as any) === "string"
+        ? (price?.product as any)
+        : (price?.product as any)?.id,
+  });
 
   return normalizeTier(tierFromPriceMeta || tierFromNickname || tierFromSubMeta);
 }
