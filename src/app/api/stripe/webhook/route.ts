@@ -5,7 +5,7 @@ import { stripe } from "@/lib/stripe";
 import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-export const runtime = "nodejs"; // needed for raw body
+export const runtime = "nodejs";
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
@@ -13,11 +13,9 @@ const SITE_URL = process.env.SITE_URL || "https://www.seajourney.co.uk";
 const BILLING_FROM =
   process.env.BILLING_FROM_EMAIL || "SeaJourney <team@seajourney.co.uk>";
 
-/**
- * --------------------------
+/** --------------------------
  * Email idempotency helpers
- * --------------------------
- */
+ * -------------------------- */
 async function emailAlreadySent(stripeEventId: string) {
   const { data, error } = await supabaseAdmin
     .from("webhook_email_logs")
@@ -42,15 +40,13 @@ async function markEmailSent(args: {
     to_email: args.to_email ?? null,
   });
 
-  if (error) console.warn("[EMAIL] Failed to insert webhook_email_logs row:", error);
+  if (error)
+    console.warn("[EMAIL] Failed to insert webhook_email_logs row:", error);
 }
 
-/**
- * ----------------------------------------
- * Subscription → DB sync (source of truth)
- * ----------------------------------------
- * This is what fixes “Stripe upgraded, UI still old”
- */
+/** --------------------------
+ * Subscription → DB sync helpers
+ * -------------------------- */
 function normalizeTier(raw: string | undefined | null) {
   const t = (raw || "").toLowerCase().trim();
   return t || "standard";
@@ -60,9 +56,14 @@ function mapStripeStatusToAppStatus(
   stripeStatus: StripeType.Subscription.Status,
 ): "active" | "past_due" | "canceled" | "inactive" {
   if (stripeStatus === "active" || stripeStatus === "trialing") return "active";
-  if (stripeStatus === "past_due" || stripeStatus === "unpaid" || stripeStatus === "incomplete")
+  if (
+    stripeStatus === "past_due" ||
+    stripeStatus === "unpaid" ||
+    stripeStatus === "incomplete"
+  )
     return "past_due";
-  if (stripeStatus === "canceled" || stripeStatus === "incomplete_expired") return "canceled";
+  if (stripeStatus === "canceled" || stripeStatus === "incomplete_expired")
+    return "canceled";
   return "inactive";
 }
 
@@ -74,37 +75,48 @@ async function lookupUserIdByCustomer(customerId: string) {
     .maybeSingle();
 
   if (error) {
-    console.error("[STRIPE WEBHOOK] Error looking up user by stripe_customer_id:", error);
+    console.error(
+      "[STRIPE WEBHOOK] Error looking up user by stripe_customer_id:",
+      error,
+    );
     return null;
   }
   return data?.id ?? null;
 }
 
 /**
- * Extract tier from subscription item:
- * Prefer price.metadata.tier (best), fallback to nickname.
+ * Prefer price.metadata.tier (best), fallback to nickname, fallback to sub.metadata.tier
  */
 function extractTierFromSubscription(sub: StripeType.Subscription) {
   const item = sub.items?.data?.[0];
-  const price = (item?.price as StripeType.Price | undefined) || undefined;
+  const price = item?.price as StripeType.Price | undefined;
 
-  const tierFromPriceMeta = (price?.metadata as any)?.tier as string | undefined;
+  const tierFromPriceMeta = (price?.metadata as any)?.tier as
+    | string
+    | undefined;
   const tierFromNickname = price?.nickname || undefined;
+  const tierFromSubMeta = (sub.metadata as any)?.tier as string | undefined;
 
-  return normalizeTier(tierFromPriceMeta || tierFromNickname || sub.metadata?.tier);
+  return normalizeTier(tierFromPriceMeta || tierFromNickname || tierFromSubMeta);
 }
 
+/**
+ * ✅ The main “Stripe → Supabase” sync function.
+ * This is what makes the UI/features update after plan changes.
+ */
 async function syncUserFromSubscription(sub: StripeType.Subscription) {
   const customerId = sub.customer as string;
-  let userId = (sub.metadata?.userId as string | undefined) || null;
 
-  // Fallback: resolve userId via stripe_customer_id if metadata.userId missing
+  // Resolve user id (metadata preferred, fallback to DB lookup by customerId)
+  let userId =
+    ((sub.metadata as any)?.userId as string | undefined) || null;
+
   if (!userId && customerId) {
     userId = await lookupUserIdByCustomer(customerId);
   }
 
   if (!userId) {
-    console.warn("[STRIPE WEBHOOK] No userId resolved for subscription, skipping sync", {
+    console.warn("[SYNC] No userId resolved. Skipping DB sync.", {
       subscriptionId: sub.id,
       customerId,
     });
@@ -118,77 +130,84 @@ async function syncUserFromSubscription(sub: StripeType.Subscription) {
     ? new Date(sub.current_period_end * 1000).toISOString()
     : null;
 
-  // Idempotency guard
-  const { data: existing, error: existingErr } = await supabaseAdmin
-    .from("users")
-    .select(
-      "stripe_subscription_id, stripe_customer_id, subscription_tier, subscription_status, cancel_at_period_end, current_period_end",
-    )
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (existingErr) console.error("[STRIPE WEBHOOK] Guard lookup error:", existingErr);
-
-  if (
-    existing &&
-    existing.stripe_subscription_id === sub.id &&
-    (existing.stripe_customer_id || "") === customerId &&
-    (existing.subscription_tier || "").toLowerCase() === tier &&
-    (existing.subscription_status || "").toLowerCase() === appStatus &&
-    !!existing.cancel_at_period_end === !!sub.cancel_at_period_end &&
-    (existing.current_period_end || null) === currentPeriodEndIso
-  ) {
-    console.log("[STRIPE WEBHOOK] 🔁 Sync guard: already up to date", {
-      userId,
-      subscriptionId: sub.id,
-      tier,
-      appStatus,
-    });
-    return;
-  }
-
-  console.log("[STRIPE WEBHOOK] ✅ Syncing subscription → DB", {
+  console.log("[SYNC] resolved:", {
     userId,
     customerId,
     subscriptionId: sub.id,
     stripeStatus: sub.status,
     appStatus,
     tier,
-    cancel_at_period_end: sub.cancel_at_period_end,
-    current_period_end: sub.current_period_end,
+    cancel_at_period_end: !!sub.cancel_at_period_end,
+    currentPeriodEndIso,
   });
 
-  const { data: updatedRow, error: updErr } = await supabaseAdmin
-  .from("users")
-  .update({
-    stripe_customer_id: customerId,
-    stripe_subscription_id: sub.id,
-    subscription_tier: tier,
-    subscription_status: appStatus,
-    cancel_at_period_end: !!sub.cancel_at_period_end,
-    current_period_end: currentPeriodEndIso,
-  })
-  .eq("id", userId)
-  .select("id, email, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, cancel_at_period_end, current_period_end")
-  .maybeSingle();
+  // Read before
+  const { data: before, error: beforeErr } = await supabaseAdmin
+    .from("users")
+    .select(
+      "id, email, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, cancel_at_period_end, current_period_end, updated_at",
+    )
+    .eq("id", userId)
+    .maybeSingle();
 
-console.log("[STRIPE WEBHOOK] update result:", { updatedRow, updErr });
+  console.log("[SYNC] before:", { before, beforeErr });
+
+  // Update by userId first
+  const { data: updated, error: updateErr } = await supabaseAdmin
+    .from("users")
+    .update({
+      subscription_tier: tier,
+      subscription_status: appStatus,
+      stripe_subscription_id: sub.id,
+      stripe_customer_id: customerId,
+      cancel_at_period_end: !!sub.cancel_at_period_end,
+      current_period_end: currentPeriodEndIso,
+    })
+    .eq("id", userId)
+    .select(
+      "id, email, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, cancel_at_period_end, current_period_end, updated_at",
+    );
+
+  console.log("[SYNC] update-by-userId result:", { updated, updateErr });
+
+  // If no rows updated, try matching by customerId as fallback
+  if (!updateErr && (!updated || updated.length === 0)) {
+    console.warn("[SYNC] No rows updated by userId. Trying stripe_customer_id...", {
+      userId,
+      customerId,
+    });
+
+    const { data: updated2, error: updateErr2 } = await supabaseAdmin
+      .from("users")
+      .update({
+        subscription_tier: tier,
+        subscription_status: appStatus,
+        stripe_subscription_id: sub.id,
+        stripe_customer_id: customerId,
+        cancel_at_period_end: !!sub.cancel_at_period_end,
+        current_period_end: currentPeriodEndIso,
+      })
+      .eq("stripe_customer_id", customerId)
+      .select(
+        "id, email, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, cancel_at_period_end, current_period_end, updated_at",
+      );
+
+    console.log("[SYNC] update-by-customerId result:", { updated2, updateErr2 });
+  }
 }
 
-/**
- * -----------------------
+/** -----------------------
  * Webhook handler
- * -----------------------
- */
+ * ----------------------- */
 export async function POST(req: NextRequest) {
   const sig = req.headers.get("stripe-signature");
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!sig || !webhookSecret) {
-    console.error("[STRIPE WEBHOOK] Missing stripe-signature or STRIPE_WEBHOOK_SECRET", {
-      hasSig: !!sig,
-      hasSecret: !!webhookSecret,
-    });
+    console.error(
+      "[STRIPE WEBHOOK] Missing stripe-signature or STRIPE_WEBHOOK_SECRET",
+      { hasSig: !!sig, hasSecret: !!webhookSecret },
+    );
     return new NextResponse("Bad Request", { status: 400 });
   }
 
@@ -198,7 +217,10 @@ export async function POST(req: NextRequest) {
   try {
     event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (err: any) {
-    console.error("[STRIPE WEBHOOK] ❌ Signature verification failed:", err?.message);
+    console.error(
+      "[STRIPE WEBHOOK] ❌ Signature verification failed:",
+      err?.message,
+    );
     return new NextResponse(`Webhook Error: ${err?.message}`, { status: 400 });
   }
 
@@ -207,14 +229,19 @@ export async function POST(req: NextRequest) {
   try {
     switch (event.type) {
       /**
-       * 1) Persist customer/subscription mapping ASAP
-       * This enables invoice events to find the user.
+       * Persist customer/subscription mapping ASAP
+       * This enables invoice events + later subscription updates to map back to the user.
        */
       case "checkout.session.completed": {
         const session = event.data.object as StripeType.Checkout.Session;
         const metadata = session.metadata || {};
 
-        const userId = metadata.userId as string | undefined;
+        // ✅ IMPORTANT: fallback to client_reference_id
+        const userId =
+          (metadata.userId as string | undefined) ||
+          (session.client_reference_id as string | null) ||
+          null;
+
         const tier = normalizeTier((metadata.tier as string | undefined) || "standard");
 
         const subscriptionId = (session.subscription as string) || null;
@@ -232,37 +259,41 @@ export async function POST(req: NextRequest) {
         });
 
         if (!userId || !customerId) {
-          console.warn("[STRIPE WEBHOOK] Missing userId/customerId, cannot persist mapping.", {
-            userId,
-            customerId,
-          });
+          console.warn(
+            "[STRIPE WEBHOOK] Missing userId/customerId, cannot persist mapping.",
+            { userId, customerId },
+          );
           break;
         }
 
-        const { error } = await supabaseAdmin
+        const { data: updated, error } = await supabaseAdmin
           .from("users")
           .update({
             stripe_customer_id: customerId,
             stripe_subscription_id: subscriptionId,
             subscription_tier: tier,
           })
-          .eq("id", userId);
+          .eq("id", userId)
+          .select("id, email, stripe_customer_id, stripe_subscription_id, subscription_tier");
 
-        if (error) console.error("[STRIPE WEBHOOK] Failed to store mapping:", error);
-        else console.log("[STRIPE WEBHOOK] ✅ Stored customer/subscription mapping for user:", userId);
+        if (error) {
+          console.error("[STRIPE WEBHOOK] Failed to store mapping:", error);
+        } else {
+          console.log("[STRIPE WEBHOOK] ✅ Stored mapping:", updated);
+        }
 
         break;
       }
 
       /**
-       * 2) This is the key fix for “upgrade works in Stripe but DB/UI not updated”
+       * ✅ Key fix: subscription changes update your DB
        */
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
         const partial = event.data.object as StripeType.Subscription;
 
-        // ✅ Re-fetch full subscription with expanded item price + product
+        // Re-fetch full subscription (expanded price/product so metadata is available)
         const full = await stripe.subscriptions.retrieve(partial.id, {
           expand: ["items.data.price.product"],
         });
@@ -272,8 +303,7 @@ export async function POST(req: NextRequest) {
       }
 
       /**
-       * 3) invoice.paid -> send email (optional) + idempotent
-       * You can ALSO set subscription_status active here if you want it tied to payment.
+       * invoice.paid → optional email (idempotent)
        */
       case "invoice.paid": {
         if (await emailAlreadySent(event.id)) {
@@ -300,7 +330,6 @@ export async function POST(req: NextRequest) {
 
         if (!userRow?.email) {
           console.warn("[EMAIL] No user/email found for customer:", customerId);
-          // Avoid retry spam
           await markEmailSent({
             stripe_event_id: event.id,
             email_type: "invoice.paid",
@@ -339,7 +368,7 @@ export async function POST(req: NextRequest) {
           });
         } catch (err) {
           console.error("[EMAIL] ❌ Resend send failed:", err);
-          // still mark as sent? I prefer NOT to mark if it failed, so retries can re-attempt.
+          // If it failed, we do NOT mark as sent so Stripe retry can re-attempt
         }
 
         break;
