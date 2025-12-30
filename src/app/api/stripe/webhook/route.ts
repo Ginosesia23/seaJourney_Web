@@ -158,23 +158,21 @@ async function syncUserFromSubscription(sub: StripeType.Subscription) {
     current_period_end: sub.current_period_end,
   });
 
-  const { error } = await supabaseAdmin
-    .from("users")
-    .update({
-      stripe_customer_id: customerId,
-      stripe_subscription_id: sub.id,
-      subscription_tier: tier,
-      subscription_status: appStatus,
-      cancel_at_period_end: !!sub.cancel_at_period_end,
-      current_period_end: currentPeriodEndIso,
-    })
-    .eq("id", userId);
+  const { data: updatedRow, error: updErr } = await supabaseAdmin
+  .from("users")
+  .update({
+    stripe_customer_id: customerId,
+    stripe_subscription_id: sub.id,
+    subscription_tier: tier,
+    subscription_status: appStatus,
+    cancel_at_period_end: !!sub.cancel_at_period_end,
+    current_period_end: currentPeriodEndIso,
+  })
+  .eq("id", userId)
+  .select("id, email, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, cancel_at_period_end, current_period_end")
+  .maybeSingle();
 
-  if (error) {
-    console.error("[STRIPE WEBHOOK] DB sync error:", error);
-  } else {
-    console.log("[STRIPE WEBHOOK] ✅ DB sync complete", { userId, tier, appStatus });
-  }
+console.log("[STRIPE WEBHOOK] update result:", { updatedRow, updErr });
 }
 
 /**
