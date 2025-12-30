@@ -1,23 +1,18 @@
-// app/api/billing/change-plan/route.ts
-import { NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import type Stripe from 'stripe';
+// src/app/api/billing/change-plan/route.ts
+import { NextResponse } from "next/server";
+import { stripe } from "@/lib/stripe";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import type Stripe from "stripe";
 
 function tierFromPrice(price: Stripe.Price): string {
-  return (
-    (price.metadata?.tier || '').toString().toLowerCase().trim() || 'standard'
-  );
+  return ((price.metadata?.tier || "").toString().toLowerCase().trim() || "standard");
 }
 
-/**
- * Find the phase that is active "now".
- * Stripe phases have start_date/end_date as unix seconds.
- */
-function getCurrentPhase(schedule: Stripe.SubscriptionSchedule): Stripe.SubscriptionSchedule.Phase | null {
+function getCurrentPhase(
+  schedule: Stripe.SubscriptionSchedule,
+): Stripe.SubscriptionSchedule.Phase | null {
   const now = Math.floor(Date.now() / 1000);
   const phases = schedule.phases || [];
-  // active phase: start_date <= now < end_date (or end_date null)
   const active =
     phases.find((p) => {
       const startOk = (p.start_date ?? 0) <= now;
@@ -25,22 +20,14 @@ function getCurrentPhase(schedule: Stripe.SubscriptionSchedule): Stripe.Subscrip
       return startOk && endOk;
     }) || null;
 
-  // fallback to last phase if none matched
   return active || phases[phases.length - 1] || null;
 }
 
-export async function scheduleDowngradeAtPeriodEnd(
-  subscriptionId: string,
-  newPriceId: string,
-) {
-  // 1) Load subscription (need current_period_end + schedule)
+async function scheduleDowngradeAtPeriodEnd(subscriptionId: string, newPriceId: string) {
   const sub = await stripe.subscriptions.retrieve(subscriptionId);
-
   const currentPeriodEnd = sub.current_period_end; // unix seconds
 
-  // 2) Get schedule id if it exists, else create it
   let scheduleId: string;
-
   if (sub.schedule) {
     scheduleId = sub.schedule as string;
   } else {
@@ -50,23 +37,19 @@ export async function scheduleDowngradeAtPeriodEnd(
     scheduleId = created.id;
   }
 
-  // 3) Fetch schedule and find the active phase
   const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
   const currentPhase = getCurrentPhase(schedule);
 
   if (!currentPhase) {
-    throw new Error('Schedule has no phases; cannot schedule downgrade.');
+    throw new Error("Schedule has no phases; cannot schedule downgrade.");
   }
 
-  // 4) Build a clean 2-phase schedule:
-  //    - keep CURRENT phase items until current_period_end
-  //    - apply downgrade from current_period_end
   const phases: Stripe.SubscriptionScheduleUpdateParams.Phase[] = [
     {
-      start_date: currentPhase.start_date, // ✅ DO NOT CHANGE THIS
+      start_date: currentPhase.start_date,
       end_date: currentPeriodEnd,
       items: (currentPhase.items || []).map((it) => ({
-        price: typeof it.price === 'string' ? it.price : it.price.id,
+        price: typeof it.price === "string" ? it.price : it.price.id,
         quantity: it.quantity ?? 1,
       })),
     },
@@ -76,13 +59,41 @@ export async function scheduleDowngradeAtPeriodEnd(
     },
   ];
 
-  // 5) Update schedule
   const updated = await stripe.subscriptionSchedules.update(scheduleId, {
-    end_behavior: 'release',
+    end_behavior: "release",
     phases,
   });
 
   return { schedule: updated, effectiveAt: currentPeriodEnd, scheduleId };
+}
+
+/**
+ * Pick the subscription item that corresponds to the "plan"
+ * by matching product ID against crew/vessel product IDs.
+ */
+function pickPlanItem(
+  sub: Stripe.Subscription,
+  crewProductId: string,
+  vesselProductId: string,
+) {
+  const items = sub.items.data;
+
+  // 1) prefer item whose product matches known product ids
+  const byProduct = items.find((it) => {
+    const price = it.price as Stripe.Price;
+    const prod = price.product as any;
+    const prodId = typeof prod === "string" ? prod : prod?.id;
+    return prodId === crewProductId || prodId === vesselProductId;
+  });
+
+  // 2) else any item with metadata.tier
+  const byTierMeta = items.find((it) => {
+    const price = it.price as Stripe.Price;
+    return !!(price.metadata as any)?.tier;
+  });
+
+  // 3) else fallback first item
+  return byProduct || byTierMeta || items[0] || null;
 }
 
 export async function POST(req: Request) {
@@ -92,28 +103,73 @@ export async function POST(req: Request) {
 
     if (!subscriptionId || !priceId) {
       return NextResponse.json(
-        { error: 'Missing subscriptionId or priceId' },
+        { error: "Missing subscriptionId or priceId" },
         { status: 400 },
       );
     }
 
-    // 1) Load current subscription and current price (expanded)
+    const crewProductId = (process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID || "").trim();
+    const vesselProductId = (process.env.STRIPE_VESSEL_SUBSCRIPTION_PRODUCT_ID || "").trim();
+
+    if (!crewProductId || !vesselProductId) {
+      return NextResponse.json(
+        { error: "Missing STRIPE_SUBSCRIPTION_PRODUCT_ID or STRIPE_VESSEL_SUBSCRIPTION_PRODUCT_ID" },
+        { status: 500 },
+      );
+    }
+
+    // 1) Load current subscription with expanded prices
     const currentSub = await stripe.subscriptions.retrieve(subscriptionId, {
-      expand: ['items.data.price'],
+      expand: ["items.data.price.product"],
     });
 
-    const currentItem = currentSub.items.data[0];
-    const currentPrice = currentItem?.price as Stripe.Price | undefined;
+    const stripeCustomerId =
+      typeof currentSub.customer === "string"
+        ? currentSub.customer
+        : (currentSub.customer as any)?.id;
 
-    if (!currentPrice) {
+    const currentItem = pickPlanItem(
+      currentSub as Stripe.Subscription,
+      crewProductId,
+      vesselProductId,
+    );
+
+    if (!currentItem) {
       return NextResponse.json(
-        { error: 'Could not determine current subscription price' },
+        { error: "Could not determine current subscription item" },
         { status: 400 },
       );
     }
 
-    // 2) Load target price
-    const newPrice = await stripe.prices.retrieve(priceId);
+    const currentPrice = currentItem.price as Stripe.Price;
+    const currentProduct = currentPrice.product as any;
+    const currentProductId = typeof currentProduct === "string" ? currentProduct : currentProduct?.id;
+
+    // 2) Load target price (expand product so we can validate product family)
+    const newPrice = await stripe.prices.retrieve(priceId, {
+      expand: ["product"],
+    });
+
+    const newProduct = newPrice.product as any;
+    const newProductId = typeof newProduct === "string" ? newProduct : newProduct?.id;
+
+    // Prevent switching between crew/vessel products accidentally
+    const currentIsVessel = currentProductId === vesselProductId;
+    const newIsVessel = newProductId === vesselProductId;
+
+    const currentIsCrew = currentProductId === crewProductId;
+    const newIsCrew = newProductId === crewProductId;
+
+    if ((currentIsVessel && !newIsVessel) || (currentIsCrew && !newIsCrew)) {
+      return NextResponse.json(
+        {
+          error:
+            "You cannot switch between crew and vessel products using change-plan. Create a new subscription for the other product.",
+          debug: { currentProductId, newProductId },
+        },
+        { status: 400 },
+      );
+    }
 
     const currentAmount = currentPrice.unit_amount ?? 0;
     const newAmount = newPrice.unit_amount ?? 0;
@@ -121,20 +177,31 @@ export async function POST(req: Request) {
     const currentTier = tierFromPrice(currentPrice);
     const targetTier = tierFromPrice(newPrice);
 
-    const isDowngrade = newAmount < currentAmount;
     const isSame = newPrice.id === currentPrice.id;
-
     if (isSame) {
       return NextResponse.json(
-        { success: true, mode: 'no_change', message: 'Already on this plan.' },
+        { success: true, mode: "no_change", message: "Already on this plan." },
         { status: 200 },
       );
     }
 
-    const stripeCustomerId =
-      typeof currentSub.customer === 'string'
-        ? currentSub.customer
-        : (currentSub.customer as any)?.id;
+    // IMPORTANT: downgrade/upgrade decision based on the PLAN item (not an addon)
+    const isDowngrade = newAmount < currentAmount;
+
+    console.log("[CHANGE-PLAN] decision:", {
+      subscriptionId,
+      stripeCustomerId,
+      currentPriceId: currentPrice.id,
+      currentProductId,
+      currentTier,
+      currentAmount,
+      newPriceId: newPrice.id,
+      newProductId,
+      targetTier,
+      newAmount,
+      isDowngrade,
+      pickedItemId: currentItem.id,
+    });
 
     // ---------- DOWNGRADE (schedule for period end) ----------
     if (isDowngrade) {
@@ -144,72 +211,60 @@ export async function POST(req: Request) {
       );
 
       // Save pending change to DB for UI
+      const pendingUpdate = {
+        pending_subscription_tier: targetTier,
+        pending_change_effective_at: new Date(effectiveAt * 1000).toISOString(),
+      };
+
       if (userId) {
-        await supabaseAdmin
-          .from('users')
-          .update({
-            pending_subscription_tier: targetTier,
-            pending_change_effective_at: new Date(
-              effectiveAt * 1000,
-            ).toISOString(),
-          })
-          .eq('id', userId);
+        await supabaseAdmin.from("users").update(pendingUpdate).eq("id", userId);
       } else if (stripeCustomerId) {
         await supabaseAdmin
-          .from('users')
-          .update({
-            pending_subscription_tier: targetTier,
-            pending_change_effective_at: new Date(
-              effectiveAt * 1000,
-            ).toISOString(),
-          })
-          .eq('stripe_customer_id', stripeCustomerId);
+          .from("users")
+          .update(pendingUpdate)
+          .eq("stripe_customer_id", stripeCustomerId);
       }
 
       return NextResponse.json(
         {
           success: true,
-          mode: 'downgrade_scheduled',
+          mode: "downgrade_scheduled",
           currentTier,
           targetTier,
-          effectiveAt, // unix seconds
+          effectiveAt,
           scheduleId,
-          message: 'Downgrade scheduled for next billing date.',
+          message: "Downgrade scheduled for next billing date.",
         },
         { status: 200 },
       );
     }
 
     // ---------- UPGRADE (apply immediately with proration) ----------
-    // ✅ If there is a schedule, release it first so it doesn't override the upgrade
+    // If there is a schedule, release it first so it doesn't override the upgrade
     if (currentSub.schedule) {
       await stripe.subscriptionSchedules.release(currentSub.schedule as string);
     }
 
     const updated = await stripe.subscriptions.update(subscriptionId, {
       items: [{ id: currentItem.id, price: priceId }],
-      proration_behavior: 'create_prorations',
-      payment_behavior: 'pending_if_incomplete',
-      expand: ['latest_invoice.payment_intent'],
+      proration_behavior: "create_prorations",
+      payment_behavior: "pending_if_incomplete",
+      expand: ["latest_invoice.payment_intent"],
     });
 
     // Clear any pending downgrade (user changed mind)
+    const clearPending = {
+      pending_subscription_tier: null,
+      pending_change_effective_at: null,
+    };
+
     if (userId) {
-      await supabaseAdmin
-        .from('users')
-        .update({
-          pending_subscription_tier: null,
-          pending_change_effective_at: null,
-        })
-        .eq('id', userId);
+      await supabaseAdmin.from("users").update(clearPending).eq("id", userId);
     } else if (stripeCustomerId) {
       await supabaseAdmin
-        .from('users')
-        .update({
-          pending_subscription_tier: null,
-          pending_change_effective_at: null,
-        })
-        .eq('stripe_customer_id', stripeCustomerId);
+        .from("users")
+        .update(clearPending)
+        .eq("stripe_customer_id", stripeCustomerId);
     }
 
     const latestInvoice = updated.latest_invoice as Stripe.Invoice | null;
@@ -218,7 +273,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         success: true,
-        mode: 'upgrade_applied',
+        mode: "upgrade_applied",
         currentTier,
         targetTier,
         subscriptionStatus: updated.status,
@@ -240,12 +295,12 @@ export async function POST(req: Request) {
       { status: 200 },
     );
   } catch (err: any) {
-    console.error('[API /api/billing/change-plan] Error:', err);
+    console.error("[API /api/billing/change-plan] Error:", err);
     return NextResponse.json(
       {
         error:
           err?.message ||
-          'Failed to change subscription plan. Please try again later.',
+          "Failed to change subscription plan. Please try again later.",
       },
       { status: 500 },
     );
