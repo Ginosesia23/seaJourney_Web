@@ -1340,34 +1340,60 @@ export default function TestimonialsPage() {
 
                   {/* Quick Date Range Options */}
                   {watchedVesselId && (
-                    <div className="space-y-2">
-                      <FormLabel>Quick Select Date Range</FormLabel>
+                    <div className="space-y-3">
+                      <FormLabel className="text-base font-semibold">Quick Select Date Range</FormLabel>
                       {dateRangeOptions && dateRangeOptions.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                          {dateRangeOptions.map((option, index) => (
-                            <Button
-                              key={index}
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="rounded-xl border-2 hover:border-primary transition-all"
-                              onClick={() => applyDateRangeOption(option)}
-                            >
-                              {option.label}
-                              <span className="ml-2 text-xs text-muted-foreground">
-                                ({format(option.startDate, 'MMM d')} - {format(option.endDate, 'MMM d, yyyy')})
-                              </span>
-                            </Button>
-                          ))}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {dateRangeOptions.map((option, index) => {
+                            const daysDiff = differenceInDays(option.endDate, option.startDate) + 1;
+                            return (
+                              <button
+                                key={index}
+                                type="button"
+                                onClick={() => applyDateRangeOption(option)}
+                                className="group relative rounded-lg border-2 border-border bg-card p-4 text-left hover:border-primary hover:bg-accent transition-all hover:shadow-md"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-semibold text-sm mb-1.5 group-hover:text-primary transition-colors">
+                                      {option.label}
+                                    </div>
+                                    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                                      <div className="flex items-center gap-1.5">
+                                        <CalendarIcon className="h-3.5 w-3.5" />
+                                        <span>{format(option.startDate, 'MMM d, yyyy')}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <CalendarIcon className="h-3.5 w-3.5" />
+                                        <span>{format(option.endDate, 'MMM d, yyyy')}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex-shrink-0 text-right">
+                                    <div className="text-lg font-bold text-primary">
+                                      {daysDiff}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {daysDiff === 1 ? 'day' : 'days'}
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
                       ) : selectedVesselLogs.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">
-                          Loading vessel data...
-                        </p>
+                        <div className="rounded-lg border border-dashed p-4 text-center">
+                          <p className="text-sm text-muted-foreground">
+                            Loading vessel data...
+                          </p>
+                        </div>
                       ) : (
-                        <p className="text-sm text-muted-foreground">
-                          No date range options available. Ensure you have logged time on this vessel.
-                        </p>
+                        <div className="rounded-lg border border-dashed p-4 text-center">
+                          <p className="text-sm text-muted-foreground">
+                            No date range options available. Ensure you have logged time on this vessel.
+                          </p>
+                        </div>
                       )}
                     </div>
                   )}
