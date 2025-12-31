@@ -670,86 +670,6 @@ export default function TestimonialsPage() {
       });
     }
 
-    // Option 3: Last onboard period (from vessel assignment)
-    // Find the most recent assignment for this vessel
-    const sortedAssignments = [...vesselAssignments].sort((a, b) => {
-      const aStart = parse(a.startDate, 'yyyy-MM-dd', new Date());
-      const bStart = parse(b.startDate, 'yyyy-MM-dd', new Date());
-      return bStart.getTime() - aStart.getTime();
-    });
-
-    if (sortedAssignments.length > 0) {
-      const latestAssignment = sortedAssignments[0];
-      const assignmentStart = parse(latestAssignment.startDate, 'yyyy-MM-dd', new Date());
-      const assignmentEnd = latestAssignment.endDate 
-        ? parse(latestAssignment.endDate, 'yyyy-MM-dd', new Date())
-        : today;
-
-      // Check if this assignment has logged days
-      const assignmentLogs = selectedVesselLogs.filter(log => {
-        const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
-        return logDate >= assignmentStart && logDate <= assignmentEnd;
-      });
-
-      if (assignmentLogs.length > 0) {
-        // Find the actual range of logged days within this assignment
-        const loggedDates = assignmentLogs
-          .map(log => parse(log.date, 'yyyy-MM-dd', new Date()))
-          .sort((a, b) => a.getTime() - b.getTime());
-        
-        const firstLoggedDate = loggedDates[0];
-        const lastLoggedDate = loggedDates[loggedDates.length - 1];
-
-        options.push({
-          label: 'Last Onboard Period',
-          startDate: firstLoggedDate,
-          endDate: lastLoggedDate > today ? today : lastLoggedDate,
-        });
-      }
-
-      // Option 3: Find period between "on-leave" states (most recent onboard period before leave)
-      const leaveLogsWithDates = selectedVesselLogs
-        .filter(log => log.state === 'on-leave')
-        .map(log => ({
-          logDate: parse(log.date, 'yyyy-MM-dd', new Date()),
-          state: log.state
-        }))
-        .sort((a, b) => b.logDate.getTime() - a.logDate.getTime());
-
-      if (leaveLogsWithDates.length > 0) {
-        // Find the last leave period
-        const lastLeaveDate = leaveLogsWithDates[0].logDate;
-        
-        // Find the last logged date before leave
-        const logsBeforeLeave = selectedVesselLogs
-          .filter(log => {
-            const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
-            return logDate < lastLeaveDate && log.state !== 'on-leave';
-          })
-          .map(log => parse(log.date, 'yyyy-MM-dd', new Date()))
-          .sort((a, b) => a.getTime() - b.getTime());
-
-        if (logsBeforeLeave.length > 0) {
-          const lastOnboardBeforeLeave = logsBeforeLeave[logsBeforeLeave.length - 1];
-          // Go back to find the start of this onboard period (first non-leave date in sequence)
-          let periodStart = lastOnboardBeforeLeave;
-          for (let i = logsBeforeLeave.length - 2; i >= 0; i--) {
-            const daysDiff = differenceInDays(logsBeforeLeave[i + 1], logsBeforeLeave[i]);
-            if (daysDiff <= 1) {
-              periodStart = logsBeforeLeave[i];
-            } else {
-              break;
-            }
-          }
-
-          options.push({
-            label: 'Before Last Leave',
-            startDate: periodStart,
-            endDate: addDays(lastLeaveDate, -1),
-          });
-        }
-      }
-    }
 
     return options;
   }, [watchedVesselId, vesselAssignments, selectedVesselLogs]);
@@ -1351,7 +1271,7 @@ export default function TestimonialsPage() {
                                 key={index}
                                 type="button"
                                 onClick={() => applyDateRangeOption(option)}
-                                className="group relative rounded-lg border-2 border-border bg-card p-4 text-left hover:border-primary hover:bg-accent transition-all hover:shadow-md"
+                                className="group relative rounded-xl border-2 border-border bg-card p-4 text-left hover:border-primary hover:bg-accent transition-all hover:shadow-md"
                               >
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="flex-1 min-w-0">
