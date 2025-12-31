@@ -86,6 +86,7 @@ export interface Testimonial {
     captain_user_id: string | null;  // uuid (references auth.users) - captain's user account
     captain_name: string | null;
     captain_email: string | null;
+    captain_position: string | null;  // Captain's position (e.g., "Master", "Chief Officer") saved at approval time
     official_body: string | null;
     official_reference: string | null;
     notes: string | null;

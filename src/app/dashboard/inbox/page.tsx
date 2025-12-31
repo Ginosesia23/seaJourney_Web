@@ -15,6 +15,7 @@ import { format, parse, eachDayOfInterval, startOfDay, endOfDay, isAfter, isBefo
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { getVesselStateLogs } from '@/supabase/database/queries';
 import { DateComparisonView } from './date-comparison-view';
 import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog } from '@/lib/types';
@@ -38,6 +39,12 @@ export default function InboxPage() {
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Password verification state
+  const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [isVerifyingPassword, setIsVerifyingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
   
   // State for date comparison
   const [vesselStateLogs, setVesselStateLogs] = useState<StateLog[]>([]); // Crew member's logs
@@ -332,22 +339,170 @@ export default function InboxPage() {
     });
   };
 
+  // Verify password before approval
+  const verifyPasswordAndApprove = async () => {
+    if (!userProfileRaw?.email || !password) {
+      setPasswordError('Password is required');
+      return;
+    }
+
+    setIsVerifyingPassword(true);
+    setPasswordError('');
+
+    try {
+      // Verify password by attempting to sign in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: userProfileRaw.email,
+        password: password,
+      });
+
+      if (signInError) {
+        setPasswordError('Incorrect password. Please try again.');
+        return;
+      }
+
+      // Password is correct, close password dialog and proceed with approval
+      setIsPasswordDialogOpen(false);
+      setPassword('');
+      setPasswordError('');
+      
+      // Now proceed with the actual approval
+      await performApproval();
+    } catch (error: any) {
+      console.error('Error verifying password:', error);
+      setPasswordError('An error occurred. Please try again.');
+    } finally {
+      setIsVerifyingPassword(false);
+    }
+  };
+
   const handleApprove = async () => {
-    if (!selectedTestimonial) return;
+    if (!selectedTestimonial || !user?.id) return;
+    
+    // Show password verification dialog first
+    setIsPasswordDialogOpen(true);
+    setPassword('');
+    setPasswordError('');
+  };
+
+  // Actual approval logic (separated for reuse)
+  const performApproval = async () => {
+    if (!selectedTestimonial || !user?.id) return;
 
     setIsProcessing(true);
     try {
+      // Fetch captain profile to populate captain_name and captain_email if not already set
+      let updateData: any = {
+        status: 'approved',
+        updated_at: new Date().toISOString(),
+      };
+
+      // Always fetch and save captain details (name, email, position) when approving
+      // This ensures the crew member can generate the PDF without needing permission to view the captain's profile
+      if (!selectedTestimonial.captain_name || !selectedTestimonial.captain_email || !selectedTestimonial.captain_position) {
+        // If captain_user_id is set, fetch from that user's profile
+        if (selectedTestimonial.captain_user_id) {
+          const { data: captainProfile, error: profileError } = await supabase
+            .from('users')
+            .select('first_name, last_name, email, position')
+            .eq('id', selectedTestimonial.captain_user_id)
+            .maybeSingle();
+
+          if (!profileError && captainProfile) {
+            const captainFullName = `${captainProfile.first_name || ''} ${captainProfile.last_name || ''}`.trim();
+            if (!selectedTestimonial.captain_name && captainFullName) {
+              updateData.captain_name = captainFullName;
+            }
+            if (!selectedTestimonial.captain_email && captainProfile.email) {
+              updateData.captain_email = captainProfile.email;
+            }
+            if (!selectedTestimonial.captain_position && captainProfile.position) {
+              updateData.captain_position = captainProfile.position;
+            }
+          }
+        } else {
+          // If no captain_user_id, try to get from current user (the approving captain)
+          const { data: currentCaptainProfile, error: currentProfileError } = await supabase
+            .from('users')
+            .select('first_name, last_name, email, position')
+            .eq('id', user.id)
+            .maybeSingle();
+
+          if (!currentProfileError && currentCaptainProfile) {
+            const captainFullName = `${currentCaptainProfile.first_name || ''} ${currentCaptainProfile.last_name || ''}`.trim();
+            if (!selectedTestimonial.captain_name && captainFullName) {
+              updateData.captain_name = captainFullName;
+            }
+            if (!selectedTestimonial.captain_email && currentCaptainProfile.email) {
+              updateData.captain_email = currentCaptainProfile.email;
+            }
+            if (!selectedTestimonial.captain_position && currentCaptainProfile.position) {
+              updateData.captain_position = currentCaptainProfile.position;
+            }
+            // Also set captain_user_id if not already set
+            if (!selectedTestimonial.captain_user_id) {
+              updateData.captain_user_id = user.id;
+            }
+          }
+        }
+      }
+
       const { error } = await supabase
         .from('testimonials')
-        .update({
-          status: 'approved',
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', selectedTestimonial.id);
 
       if (error) {
         throw error;
       }
+
+      // Create immutable snapshot in approved_testimonials table via API route
+      // Add a small delay to ensure the testimonial update has been committed
+      // Use a promise-based approach instead of setTimeout for better error handling
+      (async () => {
+        // Wait a bit for the database update to commit
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        try {
+          console.log('[SNAPSHOT] Calling snapshot API for testimonial:', selectedTestimonial.id);
+          
+          const snapshotResponse = await fetch('/api/testimonials/create-snapshot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              testimonialId: selectedTestimonial.id,
+            }),
+          });
+
+          const snapshotResult = await snapshotResponse.json();
+
+          if (!snapshotResponse.ok) {
+            console.error('[SNAPSHOT] Error creating snapshot - Full details:', {
+              status: snapshotResponse.status,
+              statusText: snapshotResponse.statusText,
+              error: snapshotResult.error,
+              message: snapshotResult.message,
+              code: snapshotResult.code,
+              details: snapshotResult.details,
+              hint: snapshotResult.hint,
+              testimonialId: selectedTestimonial.id,
+              testimonialStatus: updateData.status,
+              fullResponse: JSON.stringify(snapshotResult, null, 2),
+            });
+            // Don't throw - approval succeeded, snapshot is just for record keeping
+          } else {
+            console.log('[SNAPSHOT] Successfully created snapshot:', snapshotResult.snapshot);
+          }
+        } catch (snapshotErr: any) {
+          console.error('[SNAPSHOT] Exception creating approved testimonial snapshot:', {
+            error: snapshotErr,
+            message: snapshotErr?.message,
+            stack: snapshotErr?.stack,
+            testimonialId: selectedTestimonial.id,
+          });
+          // Don't throw - approval succeeded, snapshot is just for record keeping
+        }
+      })();
 
       toast({
         title: 'Testimonial Approved',
@@ -355,7 +510,14 @@ export default function InboxPage() {
       });
 
       // Move to approved list and remove from pending
-      const approvedTestimonial = { ...selectedTestimonial, status: 'approved' as const };
+      const approvedTestimonial = { 
+        ...selectedTestimonial, 
+        status: 'approved' as const,
+        captain_name: updateData.captain_name || selectedTestimonial.captain_name,
+        captain_email: updateData.captain_email || selectedTestimonial.captain_email,
+        captain_position: updateData.captain_position || selectedTestimonial.captain_position,
+        captain_user_id: updateData.captain_user_id || selectedTestimonial.captain_user_id,
+      };
       setApprovedTestimonials(prev => [approvedTestimonial, ...prev]);
       setTestimonials(prev => prev.filter(t => t.id !== selectedTestimonial.id));
       setIsDialogOpen(false);
@@ -1648,8 +1810,11 @@ export default function InboxPage() {
                 setAction(null);
                 setRejectionReason('');
                 setComparisonData(null);
+                setIsPasswordDialogOpen(false);
+                setPassword('');
+                setPasswordError('');
               }}
-              disabled={isProcessing}
+              disabled={isProcessing || isVerifyingPassword}
               className="rounded-xl"
             >
               Cancel
@@ -1659,7 +1824,7 @@ export default function InboxPage() {
                 <Button
                   variant="destructive"
                   onClick={handleReject}
-                  disabled={isProcessing || !rejectionReason.trim()}
+                  disabled={isProcessing || isVerifyingPassword || !rejectionReason.trim()}
                   className="rounded-xl"
                 >
                   {isProcessing ? (
@@ -1676,7 +1841,7 @@ export default function InboxPage() {
                 </Button>
                 <Button
                   onClick={handleApprove}
-                  disabled={isProcessing}
+                  disabled={isProcessing || isVerifyingPassword}
                   className="rounded-xl bg-green-600 hover:bg-green-700"
                 >
                   {isProcessing ? (
@@ -1937,6 +2102,74 @@ export default function InboxPage() {
                 </>
               ) : (
                 action === 'approve' ? 'Approve' : 'Reject'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Password Verification Dialog */}
+      <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
+        <DialogContent className="rounded-xl max-w-md">
+          <DialogHeader>
+            <DialogTitle>Verify Your Identity</DialogTitle>
+            <DialogDescription>
+              For security purposes, please enter your password to approve this testimonial.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="approval-password">Password</Label>
+              <Input
+                id="approval-password"
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setPasswordError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !isVerifyingPassword) {
+                    verifyPasswordAndApprove();
+                  }
+                }}
+                disabled={isVerifyingPassword}
+                className="rounded-lg"
+                autoFocus
+              />
+              {passwordError && (
+                <p className="text-sm text-destructive">{passwordError}</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsPasswordDialogOpen(false);
+                setPassword('');
+                setPasswordError('');
+              }}
+              disabled={isVerifyingPassword}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={verifyPasswordAndApprove}
+              disabled={isVerifyingPassword || !password}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {isVerifyingPassword ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Verifying...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Verify & Approve
+                </>
               )}
             </Button>
           </DialogFooter>

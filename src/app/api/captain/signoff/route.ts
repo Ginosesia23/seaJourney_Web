@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('testimonials')
-    .select('id, status, signoff_token_expires_at, signoff_used_at, notes')
+    .select('id, user_id, vessel_id, start_date, end_date, total_days, at_sea_days, standby_days, testimonial_code, status, signoff_token_expires_at, signoff_used_at, notes, captain_user_id, captain_name, captain_email, captain_position')
     .eq('signoff_token', token)
     .eq('signoff_target_email', email)
     .maybeSingle();
@@ -206,6 +206,34 @@ export async function POST(req: NextRequest) {
     updated_at: now.toISOString(),
   };
 
+  // If approving, fetch and save captain details (name, email, position) from the email
+  // This ensures the crew member can generate the PDF without needing permission to view the captain's profile
+  if (decision === 'approve') {
+    // Try to find the captain's user account by email
+    const { data: captainUser, error: captainUserError } = await supabaseAdmin
+      .from('users')
+      .select('id, first_name, last_name, email, position')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (!captainUserError && captainUser) {
+      // Save captain details if not already set
+      const captainFullName = `${captainUser.first_name || ''} ${captainUser.last_name || ''}`.trim();
+      if (!data.captain_name && captainFullName) {
+        updateData.captain_name = captainFullName;
+      }
+      if (!data.captain_email && captainUser.email) {
+        updateData.captain_email = captainUser.email;
+      }
+      if (!data.captain_position && captainUser.position) {
+        updateData.captain_position = captainUser.position;
+      }
+      if (!data.captain_user_id) {
+        updateData.captain_user_id = captainUser.id;
+      }
+    }
+  }
+
   // Add rejection reason to notes if rejecting
   if (decision === 'reject' && rejectionReason) {
     updateData.notes = data.notes
@@ -224,6 +252,98 @@ export async function POST(req: NextRequest) {
       { success: false, error: 'Failed to record decision.' },
       { status: 500 },
     );
+  }
+
+  // If approving, create immutable snapshot in approved_testimonials table
+  if (decision === 'approve') {
+    try {
+      // Fetch crew member profile
+      const { data: crewProfile, error: crewError } = await supabaseAdmin
+        .from('users')
+        .select('first_name, last_name, position')
+        .eq('id', data.user_id)
+        .maybeSingle();
+
+      if (crewError) {
+        console.error('Error fetching crew profile for snapshot:', crewError);
+      }
+
+      // Fetch vessel information
+      const { data: vesselData, error: vesselError } = await supabaseAdmin
+        .from('vessels')
+        .select('name, imo')
+        .eq('id', data.vessel_id)
+        .maybeSingle();
+
+      if (vesselError) {
+        console.error('Error fetching vessel for snapshot:', vesselError);
+      }
+
+      // Get captain name and position
+      const captainName = updateData.captain_name || data.captain_name || 'Unknown';
+      const captainPosition = updateData.captain_position || data.captain_position || null;
+      
+      // For captain_license, we'll use the position as a fallback
+      const captainLicense = captainPosition || null;
+
+      // Prepare snapshot data
+      const crewName = crewProfile 
+        ? `${crewProfile.first_name || ''} ${crewProfile.last_name || ''}`.trim() || 'Unknown'
+        : 'Unknown';
+      const rank = crewProfile?.position || 'Unknown';
+      const vesselName = vesselData?.name || 'Unknown';
+      const imo = vesselData?.imo || null;
+
+      const snapshotData = {
+        testimonial_id: data.id,
+        crew_name: crewName,
+        rank: rank,
+        vessel_name: vesselName,
+        imo: imo,
+        start_date: data.start_date,
+        end_date: data.end_date,
+        total_days: data.total_days,
+        sea_days: data.at_sea_days,
+        standby_days: data.standby_days,
+        captain_name: captainName,
+        captain_license: captainLicense,
+        document_id: data.id, // The UUID used as Document ID
+        testimonial_code: data.testimonial_code || null,
+        approved_at: now.toISOString(),
+      };
+
+      console.log('[SNAPSHOT] Attempting to insert snapshot via email signoff:', {
+        testimonial_id: snapshotData.testimonial_id,
+        crew_name: snapshotData.crew_name,
+        vessel_name: snapshotData.vessel_name,
+        email,
+      });
+
+      // Insert snapshot into approved_testimonials
+      const { data: insertedData, error: snapshotError } = await supabaseAdmin
+        .from('approved_testimonials')
+        .insert(snapshotData)
+        .select()
+        .single();
+
+      if (snapshotError) {
+        console.error('[SNAPSHOT] Error creating approved testimonial snapshot:', {
+          error: snapshotError,
+          message: snapshotError.message,
+          code: snapshotError.code,
+          details: snapshotError.details,
+          hint: snapshotError.hint,
+          snapshotData,
+          email,
+        });
+        // Don't fail the request - approval succeeded, snapshot is just for record keeping
+      } else {
+        console.log('[SNAPSHOT] Successfully created snapshot via email signoff:', insertedData);
+      }
+    } catch (snapshotErr: any) {
+      console.error('Error creating approved testimonial snapshot:', snapshotErr);
+      // Don't fail the request - approval succeeded, snapshot is just for record keeping
+    }
   }
 
   return NextResponse.json({ success: true });
