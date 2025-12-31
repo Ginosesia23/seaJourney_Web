@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useSupabase } from '@/supabase';
 import { CheckCircle2, XCircle, AlertTriangle, Loader2 } from 'lucide-react';
@@ -34,7 +34,7 @@ interface VerificationData {
   document_id: string;
 }
 
-export default function VerificationResultPage() {
+function VerificationResultContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { supabase } = useSupabase();
@@ -487,5 +487,31 @@ export default function VerificationResultPage() {
   }
 
   return null;
+}
+
+export default function VerificationResultPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background">
+        <div className="border-b bg-muted/30">
+          <div className="container mx-auto px-6 py-4 flex justify-center">
+            <LogoOnboarding />
+          </div>
+        </div>
+        <div className="container mx-auto px-6 py-8 max-w-2xl">
+          <Card className="border-2 shadow-lg">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+                <p className="text-muted-foreground">Loading...</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    }>
+      <VerificationResultContent />
+    </Suspense>
+  );
 }
 
