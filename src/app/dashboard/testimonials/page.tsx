@@ -287,7 +287,7 @@ export default function TestimonialsPage() {
   const [testimonialToDelete, setTestimonialToDelete] = useState<Testimonial | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-    const { user } = useUser();
+  const { user } = useUser();
   const { supabase } = useSupabase();
   const { toast } = useToast();
 
@@ -407,6 +407,9 @@ export default function TestimonialsPage() {
   // Fetch vessel assignments and state logs for selected vessel
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
   
+  // Ref to track previous assignments for polling comparison
+  const previousAssignmentsRef = useRef<VesselAssignment[]>([]);
+  
   // Check for active captain when vessel is selected
   useEffect(() => {
     if (!watchedVesselId) {
@@ -502,9 +505,6 @@ export default function TestimonialsPage() {
   
   useEffect(() => {
     if (watchedVesselId && user?.id) {
-      // Use ref to track previous assignments for polling comparison
-      const previousAssignmentsRef = useRef<VesselAssignment[]>([]);
-      
       const fetchData = async () => {
         console.log('[TESTIMONIALS] Fetching logs for vessel:', {
           vesselId: watchedVesselId,
