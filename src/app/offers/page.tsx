@@ -603,59 +603,59 @@ export default function OffersPage() {
             <div className={`mx-auto mt-16 grid max-w-lg grid-cols-1 gap-8 lg:max-w-none ${isVesselAccount ? 'lg:grid-cols-2 xl:grid-cols-4' : 'lg:grid-cols-2 xl:grid-cols-3'}`}>
               {/* Free tier card - only show for crew accounts */}
               {!isVesselAccount && (
-                <motion.div
-                  initial={{ opacity: 0, y: 30 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.5, delay: 0 }}
-                >
-                  <Card className="flex flex-col rounded-2xl border border-blue-500/30 ring-1 ring-blue-500/20 transition-all duration-300 hover:scale-105" style={{ backgroundColor: 'rgba(2, 22, 44, 0.6)', backdropFilter: 'blur(20px)', boxShadow: '0 8px 32px rgba(59, 130, 246, 0.15), 0 0 0 1px rgba(59, 130, 246, 0.1)' }}>
-                    <CardHeader className="flex-grow pb-6">
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-500/20">
-                          <Download className="h-6 w-6 text-blue-400" />
-                        </div>
-                        <CardTitle className="font-headline text-2xl text-white">
-                          {freeTier.name}
-                        </CardTitle>
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0 }}
+              >
+                <Card className="flex flex-col rounded-2xl border border-blue-500/30 ring-1 ring-blue-500/20 transition-all duration-300 hover:scale-105" style={{ backgroundColor: 'rgba(2, 22, 44, 0.6)', backdropFilter: 'blur(20px)', boxShadow: '0 8px 32px rgba(59, 130, 246, 0.15), 0 0 0 1px rgba(59, 130, 246, 0.1)' }}>
+                  <CardHeader className="flex-grow pb-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-500/20">
+                        <Download className="h-6 w-6 text-blue-400" />
                       </div>
-                      <div className="flex items-baseline gap-2 mb-2">
-                        <span className="text-5xl font-bold tracking-tight text-white">Free</span>
-                        </div>
-                      <CardDescription className="text-blue-100/80 text-base mt-4">
-                        {freeTier.description}
-                      </CardDescription>
-                      </CardHeader>
-                    <CardContent className="border-t border-white/10 pt-6 pb-6">
-                      <ul className="space-y-4 text-sm">
-                        {freeTier.features.map((feature, idx) => (
-                          <li key={idx} className="flex items-start gap-3">
-                            <div className="mt-0.5 h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0 bg-blue-500/20">
-                              <Check className="h-3 w-3 text-blue-400" />
-                            </div>
-                            <span className="text-white/90">{feature}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </CardContent>
-                    <CardFooter className="pt-0">
-                        <Button
-                          asChild
-                        className="w-full rounded-xl text-base font-semibold h-12 bg-white/10 hover:bg-white/20 text-white border border-white/20"
+                      <CardTitle className="font-headline text-2xl text-white">
+                        {freeTier.name}
+                      </CardTitle>
+                    </div>
+                    <div className="flex items-baseline gap-2 mb-2">
+                      <span className="text-5xl font-bold tracking-tight text-white">Free</span>
+                      </div>
+                    <CardDescription className="text-blue-100/80 text-base mt-4">
+                      {freeTier.description}
+                    </CardDescription>
+                    </CardHeader>
+                  <CardContent className="border-t border-white/10 pt-6 pb-6">
+                    <ul className="space-y-4 text-sm">
+                      {freeTier.features.map((feature, idx) => (
+                        <li key={idx} className="flex items-start gap-3">
+                          <div className="mt-0.5 h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0 bg-blue-500/20">
+                            <Check className="h-3 w-3 text-blue-400" />
+                          </div>
+                          <span className="text-white/90">{feature}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  <CardFooter className="pt-0">
+                      <Button
+                        asChild
+                      className="w-full rounded-xl text-base font-semibold h-12 bg-white/10 hover:bg-white/20 text-white border border-white/20"
+                      >
+                        <Link
+                          href={freeTier.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-2"
                         >
-                          <Link
-                            href={freeTier.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          className="flex items-center justify-center gap-2"
-                          >
-                          <Download className="h-4 w-4" />
-                          {freeTier.cta}
-                          </Link>
-                        </Button>
-                      </CardFooter>
-                    </Card>
-                </motion.div>
+                        <Download className="h-4 w-4" />
+                        {freeTier.cta}
+                        </Link>
+                      </Button>
+                    </CardFooter>
+                  </Card>
+              </motion.div>
               )}
 
               {/* Paid plan cards */}
@@ -899,30 +899,30 @@ export default function OffersPage() {
 
             {/* Additional CTA Section - only show for crew accounts */}
             {!isVesselAccount && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: 0.4 }}
-                className="mt-16 text-center"
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.4 }}
+              className="mt-16 text-center"
+            >
+              <div
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-full border"
+                style={{
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  borderColor: 'rgba(59, 130, 246, 0.3)',
+                }}
               >
-                <div
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full border"
-                  style={{
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    borderColor: 'rgba(59, 130, 246, 0.3)',
-                  }}
-                >
-                  <Shield className="h-5 w-5 text-blue-400" />
-                  <p className="text-blue-200 font-medium">
-                    All plans include a{' '}
-                    <span className="text-white font-bold">
-                      7-day free trial
-                    </span>{' '}
-                    - Cancel anytime
-                  </p>
-                </div>
-              </motion.div>
+                <Shield className="h-5 w-5 text-blue-400" />
+                <p className="text-blue-200 font-medium">
+                  All plans include a{' '}
+                  <span className="text-white font-bold">
+                    7-day free trial
+                  </span>{' '}
+                  - Cancel anytime
+                </p>
+              </div>
+            </motion.div>
             )}
           </div>
         </section>

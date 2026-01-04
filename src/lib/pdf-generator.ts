@@ -219,7 +219,7 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
   doc.text('SEA SERVICE TESTIMONIAL', pageWidth / 2, currentY, {
     align: 'center',
   });
-  
+
   // Document type subtitle
   currentY += 5;
   doc.setFontSize(8);
@@ -240,19 +240,19 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
   doc.rect(14, currentY - 4, pageWidth - 28, sectionHeaderHeight, 'F');
   
   doc.setFontSize(13);
-  doc.setFont('helvetica', 'bold');
-  setTextColor(primaryBlue);
+    doc.setFont('helvetica', 'bold');
+    setTextColor(primaryBlue);
   doc.text('PART 1 – SEAFARER\'S DETAILS', 18, currentY + 2);
-  
+    
   // Underline
-  setDrawColor(primaryBlue);
-  doc.setLineWidth(0.5);
+    setDrawColor(primaryBlue);
+    doc.setLineWidth(0.5);
   doc.line(18, currentY + 3, pageWidth - 18, currentY + 3);
-  
+    
   currentY += sectionHeaderHeight + 4;
 
   // ===== Personal Details Section =====
-  doc.setFontSize(10);
+    doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   setTextColor(textDark);
   doc.text('This is to certify that:', 18, currentY);
@@ -294,7 +294,7 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
       1: { 
         cellWidth: 'auto',
         textColor: textDark,
-      },
+    },
     },
     margin: { left: 18, right: 18 },
     tableLineColor: borderColor,
@@ -401,7 +401,7 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
       1: { 
         cellWidth: 'auto',
         textColor: textDark,
-      },
+    },
     },
     margin: { left: 18, right: 18 },
     tableLineColor: borderColor,
@@ -528,9 +528,9 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
   }
 
   // ===== Days of Leave =====
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  setTextColor(textDark);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    setTextColor(textDark);
   doc.text(`Days of leave of absence: ${testimonial.leave_days} days`, 18, currentY);
   currentY += 5;
 
@@ -563,7 +563,7 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
     margin: { left: 18, right: 18 },
     tableLineColor: borderColor,
     tableLineWidth: 0.5,
-  });
+    });
 
   // Get the final Y position after autoTable
   currentY = (doc as any).lastAutoTable.finalY + 6;
@@ -776,7 +776,7 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
         1: { 
           cellWidth: 'auto',
           textColor: textDark,
-        },
+      },
       },
       margin: { left: 18, right: 18 },
       tableLineColor: borderColor,
@@ -793,7 +793,7 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
   // Add document ID to all pages
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
-    
+
     // Simple footer with just document ID on all pages
     doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
@@ -811,61 +811,61 @@ export async function generateTestimonialPDF(data: TestimonialPDFData) {
   doc.setPage(pageCount);
 
   const footerHeight = 30;
-  const footerStartY = pageHeight - footerHeight;
-  
-  setFillColor(headerColor);
-  doc.rect(0, footerStartY, pageWidth, footerHeight, 'F');
+    const footerStartY = pageHeight - footerHeight;
+    
+    setFillColor(headerColor);
+    doc.rect(0, footerStartY, pageWidth, footerHeight, 'F');
 
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(255, 255, 255);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(255, 255, 255);
 
   let footerY = footerStartY + 8;
 
-  // Separator line
-  doc.setLineWidth(0.3);
-  doc.setDrawColor(100, 100, 100);
-  doc.line(14, footerY, pageWidth - 14, footerY);
-  footerY += 5;
+    // Separator line
+    doc.setLineWidth(0.3);
+    doc.setDrawColor(100, 100, 100);
+    doc.line(14, footerY, pageWidth - 14, footerY);
+    footerY += 5;
 
-  // Codes (left)
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(220, 220, 220);
-
-  let leftY = footerY;
-  if (testimonial.testimonial_code) {
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(255, 255, 255);
-    doc.text(`Reference Code: ${testimonial.testimonial_code}`, 14, leftY);
+    // Codes (left)
+    doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(220, 220, 220);
-    leftY += 4;
-  }
+
+    let leftY = footerY;
+    if (testimonial.testimonial_code) {
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(255, 255, 255);
+      doc.text(`Reference Code: ${testimonial.testimonial_code}`, 14, leftY);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(220, 220, 220);
+      leftY += 4;
+    }
   doc.text(`Document ID: ${testimonial.id}`, 14, leftY);
-  leftY += 4;
-  doc.text(`Generated: ${generatedDate}`, 14, leftY);
-  if (approvedDate) {
     leftY += 4;
-    doc.text(`Approved: ${approvedDate}`, 14, leftY);
-  }
+    doc.text(`Generated: ${generatedDate}`, 14, leftY);
+    if (approvedDate) {
+      leftY += 4;
+      doc.text(`Approved: ${approvedDate}`, 14, leftY);
+    }
 
-  // Center
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(255, 255, 255);
-  doc.text('www.seajourney.co.uk', pageWidth / 2, footerY, {
-    align: 'center',
-  });
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(220, 220, 220);
-  doc.text('Digital sea service testimonials', pageWidth / 2, footerY + 4, {
-    align: 'center',
-  });
+    // Center
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text('www.seajourney.co.uk', pageWidth / 2, footerY, {
+      align: 'center',
+    });
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(220, 220, 220);
+    doc.text('Digital sea service testimonials', pageWidth / 2, footerY + 4, {
+      align: 'center',
+    });
 
-  // Right
+    // Right
   doc.text(`Page ${pageCount} of ${pageCount}`, pageWidth - 14, footerY, {
-    align: 'right',
-  });
+      align: 'right',
+    });
 
   doc.output('dataurlnewwindow');
 }

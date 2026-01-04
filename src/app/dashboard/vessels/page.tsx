@@ -1220,7 +1220,7 @@ export default function VesselsPage() {
                                                                                         <span className="text-sm font-medium">
                                                                                             {format(parse(assignment.startDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
                                                                                         </span>
-                                                                                    </div>
+                                                                </div>
                                                                                     {assignment.endDate && (
                                                                                         <div className="flex justify-between items-center py-1">
                                                                                             <span className="text-sm text-muted-foreground">Leave Date</span>

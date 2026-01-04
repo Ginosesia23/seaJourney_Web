@@ -368,15 +368,15 @@ export default function CrewPage() {
         let filtered = crewMembers;
         if (searchTerm) {
             filtered = crewMembers.filter(({ profile }) => {
-                const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.toLowerCase();
-                const username = profile.username.toLowerCase();
-                const email = profile.email.toLowerCase();
-                const lowercasedTerm = searchTerm.toLowerCase();
+            const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.toLowerCase();
+            const username = profile.username.toLowerCase();
+            const email = profile.email.toLowerCase();
+            const lowercasedTerm = searchTerm.toLowerCase();
 
-                return fullName.includes(lowercasedTerm) || 
-                       username.includes(lowercasedTerm) || 
-                       email.includes(lowercasedTerm);
-            });
+            return fullName.includes(lowercasedTerm) || 
+                   username.includes(lowercasedTerm) || 
+                   email.includes(lowercasedTerm);
+        });
         }
         
         // Then apply tier-based limit (only for vessel managers)
@@ -438,7 +438,7 @@ export default function CrewPage() {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div className="space-y-1">
                         <div className="flex items-center gap-3">
-                            <h1 className="text-3xl font-bold tracking-tight">Crew Members</h1>
+                        <h1 className="text-3xl font-bold tracking-tight">Crew Members</h1>
                             {crewMembers.length > 0 && (
                                 <Badge variant="secondary" className="text-sm font-semibold">
                                     {filteredCrewMembers.length}
@@ -629,8 +629,8 @@ export default function CrewPage() {
                                                 </Badge>
                                             </TableCell>
                                             {currentUserProfile?.role === 'admin' ? (
-                                                <TableCell>
-                                                    <Badge 
+                                            <TableCell>
+                                                <Badge 
                                                         variant="secondary"
                                                         className={
                                                             profile.subscriptionStatus === 'active'
@@ -641,14 +641,14 @@ export default function CrewPage() {
                                                         {profile.subscriptionTier && profile.subscriptionTier !== 'free'
                                                             ? profile.subscriptionTier.charAt(0).toUpperCase() + profile.subscriptionTier.slice(1).replace(/_/g, ' ')
                                                             : 'Free'}
-                                                    </Badge>
-                                                </TableCell>
+                                                </Badge>
+                                            </TableCell>
                                             ) : (
-                                                <TableCell>
+                                            <TableCell>
                                                     {assignment.startDate 
                                                         ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
                                                         : 'N/A'}
-                                                </TableCell>
+                                            </TableCell>
                                             )}
                                             <TableCell>
                                                 <DropdownMenu>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -502,6 +502,9 @@ export default function TestimonialsPage() {
   
   useEffect(() => {
     if (watchedVesselId && user?.id) {
+      // Use ref to track previous assignments for polling comparison
+      const previousAssignmentsRef = useRef<VesselAssignment[]>([]);
+      
       const fetchData = async () => {
         console.log('[TESTIMONIALS] Fetching logs for vessel:', {
           vesselId: watchedVesselId,
@@ -524,13 +527,91 @@ export default function TestimonialsPage() {
           // Filter assignments for this vessel
           const vesselAssignments = assignments.filter(a => a.vesselId === watchedVesselId);
           setVesselAssignments(vesselAssignments);
+          previousAssignmentsRef.current = [...vesselAssignments];
         } catch (error) {
           console.error('[TESTIMONIALS] Error fetching logs:', error);
           setSelectedVesselLogs([]);
           setVesselAssignments([]);
+          previousAssignmentsRef.current = [];
         }
       };
       fetchData();
+
+      // Set up real-time subscription to detect changes to vessel assignments
+      // This will detect changes made from the mobile app or other sources
+      const channel = supabase
+        .channel(`testimonials-vessel-assignments-${user.id}-${Date.now()}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // INSERT, UPDATE, DELETE
+            schema: 'public',
+            table: 'vessel_assignments',
+            filter: `user_id=eq.${user.id}`,
+          },
+          async (payload) => {
+            console.log('[TESTIMONIALS] Vessel assignment changed via real-time:', payload);
+            // Refetch assignments when changes are detected
+            try {
+              const assignments = await getVesselAssignments(supabase, user.id);
+              const vesselAssignments = assignments.filter(a => a.vesselId === watchedVesselId);
+              setVesselAssignments(vesselAssignments);
+              previousAssignmentsRef.current = [...vesselAssignments];
+            } catch (error) {
+              console.error('[TESTIMONIALS] Error refetching assignments after change:', error);
+            }
+          }
+        )
+        .subscribe((status) => {
+          console.log('[TESTIMONIALS] Real-time subscription status:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('[TESTIMONIALS] Successfully subscribed to vessel_assignments changes');
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('[TESTIMONIALS] Real-time subscription error - falling back to polling');
+          }
+        });
+
+      // Fallback: Poll for changes every 3 seconds if real-time doesn't work
+      // This ensures we detect changes even if real-time subscriptions fail
+      const pollInterval = setInterval(async () => {
+        try {
+          const assignments = await getVesselAssignments(supabase, user.id);
+          const vesselAssignments = assignments.filter(a => a.vesselId === watchedVesselId);
+          
+          // Check if assignments have changed by comparing end_date values
+          // Use a more robust comparison
+          const previous = previousAssignmentsRef.current;
+          const previousMap = new Map(previous.map(a => [a.id, a]));
+          const currentMap = new Map(vesselAssignments.map(a => [a.id, a]));
+          
+          const hasChanges = 
+            vesselAssignments.length !== previous.length ||
+            vesselAssignments.some(a => {
+              const prev = previousMap.get(a.id);
+              return !prev || 
+                a.vesselId !== prev.vesselId ||
+                a.startDate !== prev.startDate || 
+                a.endDate !== prev.endDate;
+            }) ||
+            previous.some(a => !currentMap.has(a.id));
+          
+          if (hasChanges) {
+            console.log('[TESTIMONIALS] Polling detected changes in vessel assignments', {
+              previous: previous.map(a => ({ id: a.id, vesselId: a.vesselId, startDate: a.startDate, endDate: a.endDate })),
+              current: vesselAssignments.map(a => ({ id: a.id, vesselId: a.vesselId, startDate: a.startDate, endDate: a.endDate }))
+            });
+            setVesselAssignments(vesselAssignments);
+            previousAssignmentsRef.current = [...vesselAssignments];
+          }
+        } catch (error) {
+          console.error('[TESTIMONIALS] Error polling vessel assignments:', error);
+        }
+      }, 3000); // Poll every 3 seconds (more frequent)
+
+      return () => {
+        supabase.removeChannel(channel);
+        clearInterval(pollInterval);
+      };
     } else {
       setSelectedVesselLogs([]);
       setVesselAssignments([]);

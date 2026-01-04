@@ -1846,77 +1846,77 @@ export default function DashboardPage() {
       
       {/* Past 7 Days Summary and Quick Visa Log - Side by Side */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Past 7 Days Summary */}
-        {past7DaysStats.totalDays > 0 && (
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-r from-primary/5 to-primary/10">
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-4">
-                <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
-                  <CalendarDays className="h-6 w-6 text-primary" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold mb-2">Last 7 Days Summary</h3>
-                  <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      In the last week, you logged{' '}
-                      <span className="font-semibold text-foreground">{past7DaysStats.totalDays} day{past7DaysStats.totalDays !== 1 ? 's' : ''}</span>:
-                    </p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                      {past7DaysStats.atSeaDays > 0 && (
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-blue))' }} />
-                          <span className="text-muted-foreground">
-                            <span className="font-semibold text-foreground">{past7DaysStats.atSeaDays}</span> day{past7DaysStats.atSeaDays !== 1 ? 's' : ''} at sea
-                          </span>
-                        </div>
-                      )}
-                      {past7DaysStats.standbyDays > 0 && (
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
-                          <span className="text-muted-foreground">
-                            <span className="font-semibold text-foreground">{past7DaysStats.standbyDays}</span> standby day{past7DaysStats.standbyDays !== 1 ? 's' : ''}
-                          </span>
-                        </div>
-                      )}
-                      {past7DaysStats.atAnchorDays > 0 && (
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
-                          <span className="text-muted-foreground">
-                            <span className="font-semibold text-foreground">{past7DaysStats.atAnchorDays}</span> day{past7DaysStats.atAnchorDays !== 1 ? 's' : ''} at anchor
-                          </span>
-                        </div>
-                      )}
-                      {past7DaysStats.inPortDays > 0 && (
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-green))' }} />
-                          <span className="text-muted-foreground">
-                            <span className="font-semibold text-foreground">{past7DaysStats.inPortDays}</span> day{past7DaysStats.inPortDays !== 1 ? 's' : ''} in port
-                          </span>
-                        </div>
-                      )}
-                      {past7DaysStats.onLeaveDays > 0 && (
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-gray))' }} />
-                          <span className="text-muted-foreground">
-                            <span className="font-semibold text-foreground">{past7DaysStats.onLeaveDays}</span> day{past7DaysStats.onLeaveDays !== 1 ? 's' : ''} on leave
-                          </span>
-                        </div>
-                      )}
-                      {past7DaysStats.inYardDays > 0 && (
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-red))' }} />
-                          <span className="text-muted-foreground">
-                            <span className="font-semibold text-foreground">{past7DaysStats.inYardDays}</span> day{past7DaysStats.inYardDays !== 1 ? 's' : ''} in yard
-                          </span>
-                        </div>
-                      )}
-                    </div>
+      {/* Past 7 Days Summary */}
+      {past7DaysStats.totalDays > 0 && (
+        <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-r from-primary/5 to-primary/10">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-4">
+              <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
+                <CalendarDays className="h-6 w-6 text-primary" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold mb-2">Last 7 Days Summary</h3>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    In the last week, you logged{' '}
+                    <span className="font-semibold text-foreground">{past7DaysStats.totalDays} day{past7DaysStats.totalDays !== 1 ? 's' : ''}</span>:
+                  </p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                    {past7DaysStats.atSeaDays > 0 && (
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-blue))' }} />
+                        <span className="text-muted-foreground">
+                          <span className="font-semibold text-foreground">{past7DaysStats.atSeaDays}</span> day{past7DaysStats.atSeaDays !== 1 ? 's' : ''} at sea
+                        </span>
+                      </div>
+                    )}
+                    {past7DaysStats.standbyDays > 0 && (
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
+                        <span className="text-muted-foreground">
+                          <span className="font-semibold text-foreground">{past7DaysStats.standbyDays}</span> standby day{past7DaysStats.standbyDays !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    )}
+                    {past7DaysStats.atAnchorDays > 0 && (
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
+                        <span className="text-muted-foreground">
+                          <span className="font-semibold text-foreground">{past7DaysStats.atAnchorDays}</span> day{past7DaysStats.atAnchorDays !== 1 ? 's' : ''} at anchor
+                        </span>
+                      </div>
+                    )}
+                    {past7DaysStats.inPortDays > 0 && (
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-green))' }} />
+                        <span className="text-muted-foreground">
+                          <span className="font-semibold text-foreground">{past7DaysStats.inPortDays}</span> day{past7DaysStats.inPortDays !== 1 ? 's' : ''} in port
+                        </span>
+                      </div>
+                    )}
+                    {past7DaysStats.onLeaveDays > 0 && (
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-gray))' }} />
+                        <span className="text-muted-foreground">
+                          <span className="font-semibold text-foreground">{past7DaysStats.onLeaveDays}</span> day{past7DaysStats.onLeaveDays !== 1 ? 's' : ''} on leave
+                        </span>
+                      </div>
+                    )}
+                    {past7DaysStats.inYardDays > 0 && (
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-red))' }} />
+                        <span className="text-muted-foreground">
+                          <span className="font-semibold text-foreground">{past7DaysStats.inYardDays}</span> day{past7DaysStats.inYardDays !== 1 ? 's' : ''} in yard
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
         {/* Quick Visa Log Section - Compact */}
         {!isAdmin && activeVisas.length > 0 && (

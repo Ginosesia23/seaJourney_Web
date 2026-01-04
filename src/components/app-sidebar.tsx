@@ -399,8 +399,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                       <SidebarMenuButton tooltip={item.label} asChild isActive={isActive}>
                         <Link href={item.href} className="flex items-center justify-between w-full">
                           <div className="flex items-center gap-2">
-                            <item.icon />
-                            <span>{item.label}</span>
+                          <item.icon />
+                          <span>{item.label}</span>
                           </div>
                           {isInbox && inboxCount > 0 && (
                             <Badge 

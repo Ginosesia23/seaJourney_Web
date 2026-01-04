@@ -316,9 +316,9 @@ function VerificationResultContent() {
                 <div className="flex items-center gap-4">
                   <CheckCircle2 className="h-8 w-8 text-green-500" />
                   <div>
-                    <h1 className="text-2xl font-bold text-green-500">✅ Verified</h1>
+                    <h1 className="text-2xl font-bold text-green-500">Verified</h1>
                     <p className="text-sm text-muted-foreground mt-1">
-                      This record has been verified and matches the official document
+                      <code className="font-mono font-semibold">{data.testimonial_code}</code> matches an official record approved by {data.captain_name}
                     </p>
                   </div>
                 </div>

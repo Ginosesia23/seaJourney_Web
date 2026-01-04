@@ -206,6 +206,10 @@ export default function CurrentPage() {
   const vesselLimit = hasUnlimitedVessels ? Infinity : 3;
   const canAddVessel = hasUnlimitedVessels || actualVesselCount < vesselLimit;
 
+  const [stateLogs, setStateLogs] = useState<StateLog[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
+
   const currentVessel = useMemo(() => {
     if (!userProfile || !vessels || vessels.length === 0) {
       console.log('[CURRENT PAGE] No user profile or vessels available');
@@ -215,27 +219,44 @@ export default function CurrentPage() {
     const activeVesselId = userProfile.activeVesselId;
     const foundVessel = vessels.find(v => v.id === activeVesselId);
     
+    // If no vessel found by activeVesselId, return undefined
+    if (!foundVessel) {
+      console.log('[CURRENT PAGE] No vessel found for activeVesselId:', activeVesselId);
+      return undefined;
+    }
+    
+    // Check if there's an active assignment (end_date IS NULL) for this vessel
+    const activeAssignments = vesselAssignments.filter(
+      a => a.vesselId === activeVesselId && !a.endDate
+    );
+    
+    // If there's no active assignment, the vessel is not actually active
+    if (activeAssignments.length === 0) {
+      console.log('[CURRENT PAGE] Vessel found but no active assignment:', {
+        vesselId: activeVesselId,
+        vesselName: foundVessel.name,
+        allAssignments: vesselAssignments.filter(a => a.vesselId === activeVesselId),
+      });
+      return undefined;
+    }
+    
     console.log('[CURRENT PAGE] Active Vessel Debug:', {
       userProfileId: userProfile.id,
       activeVesselId,
-      vesselsCount: vessels.length,
-      vesselIds: vessels.map(v => v.id),
-      foundVessel: foundVessel ? { id: foundVessel.id, name: foundVessel.name } : null,
-      userProfileRaw: userProfileRaw,
+      vesselName: foundVessel.name,
+      activeAssignmentsCount: activeAssignments.length,
+      activeAssignments: activeAssignments.map(a => ({ id: a.id, startDate: a.startDate, endDate: a.endDate })),
     });
     
     return foundVessel;
-  }, [vessels, userProfile, userProfileRaw]);
+  }, [vessels, userProfile, userProfileRaw, vesselAssignments]);
 
   // Determine if there's an active service based on active vessel
   const hasActiveService = !!currentVessel;
 
-  const [stateLogs, setStateLogs] = useState<StateLog[]>([]);
-  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
-  const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
-
   const [isFillingGaps, setIsFillingGaps] = useState(false);
   const gapFilledRef = useRef<string | null>(null); // Track if we've already filled gaps for this vessel/date combo
+  const previousAssignmentsRef = useRef<VesselAssignment[]>([]); // Track previous assignments for polling comparison
 
   // Check if captain has approved captaincy for current vessel and find vessel account user
   const [vesselAccountUserId, setVesselAccountUserId] = useState<string | null>(null);
@@ -510,21 +531,134 @@ export default function CurrentPage() {
   useEffect(() => {
     if (!user?.id) {
       setVesselAssignments([]);
+      previousAssignmentsRef.current = [];
       return;
     }
 
     const fetchAssignments = async () => {
       try {
         const assignments = await getVesselAssignments(supabase, user.id);
+        console.log('[CURRENT PAGE] Fetched vessel assignments:', assignments.map(a => ({ id: a.id, vesselId: a.vesselId, startDate: a.startDate, endDate: a.endDate })));
         setVesselAssignments(assignments);
+        previousAssignmentsRef.current = [...assignments];
       } catch (error) {
         console.error('Error fetching vessel assignments:', error);
         setVesselAssignments([]);
+        previousAssignmentsRef.current = [];
       }
     };
 
     fetchAssignments();
-  }, [user?.id, supabase]);
+
+    // Set up real-time subscription to detect changes to vessel assignments
+    // This will detect changes made from the mobile app or other sources
+    const channel = supabase
+      .channel(`current-vessel-assignments-${user.id}-${Date.now()}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'vessel_assignments',
+          filter: `user_id=eq.${user.id}`,
+        },
+        async (payload) => {
+          console.log('[CURRENT PAGE] Vessel assignment changed via real-time:', payload);
+          // Refetch assignments when changes are detected
+          try {
+            const assignments = await getVesselAssignments(supabase, user.id);
+            console.log('[CURRENT PAGE] Refetched assignments after real-time change:', assignments.map(a => ({ id: a.id, vesselId: a.vesselId, startDate: a.startDate, endDate: a.endDate })));
+            setVesselAssignments(assignments);
+            previousAssignmentsRef.current = [...assignments];
+          } catch (error) {
+            console.error('[CURRENT PAGE] Error refetching assignments after change:', error);
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('[CURRENT PAGE] Real-time subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('[CURRENT PAGE] Successfully subscribed to vessel_assignments changes');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[CURRENT PAGE] Real-time subscription error - falling back to polling');
+        }
+      });
+
+    // Fallback: Poll for changes every 3 seconds if real-time doesn't work
+    // This ensures we detect changes even if real-time subscriptions fail
+    const pollInterval = setInterval(async () => {
+      try {
+        const assignments = await getVesselAssignments(supabase, user.id);
+        
+        // Check if assignments have changed by comparing end_date values
+        // Use a more robust comparison that checks all fields
+        const previous = previousAssignmentsRef.current;
+        
+        // Create maps for easier comparison
+        const previousMap = new Map(previous.map(a => [a.id, a]));
+        const currentMap = new Map(assignments.map(a => [a.id, a]));
+        
+        // Check for changes: different count, new assignments, removed assignments, or modified assignments
+        const hasChanges = 
+          assignments.length !== previous.length ||
+          assignments.some(a => {
+            const prev = previousMap.get(a.id);
+            if (!prev) return true; // New assignment
+            // Compare all relevant fields
+            return a.vesselId !== prev.vesselId ||
+              a.startDate !== prev.startDate || 
+              a.endDate !== prev.endDate;
+          }) ||
+          previous.some(a => !currentMap.has(a.id)); // Removed assignment
+        
+        // Always update if there are changes, and also update ref
+        if (hasChanges) {
+          console.log('[CURRENT PAGE] Polling detected changes in vessel assignments', {
+            previous: previous.map(a => ({ id: a.id, vesselId: a.vesselId, startDate: a.startDate, endDate: a.endDate })),
+            current: assignments.map(a => ({ id: a.id, vesselId: a.vesselId, startDate: a.startDate, endDate: a.endDate }))
+          });
+          setVesselAssignments(assignments);
+          previousAssignmentsRef.current = [...assignments];
+        } else {
+          // Even if no changes detected, update ref to latest data to prevent stale comparisons
+          previousAssignmentsRef.current = [...assignments];
+        }
+      } catch (error) {
+        console.error('[CURRENT PAGE] Error polling vessel assignments:', error);
+      }
+    }, 3000); // Poll every 3 seconds (more frequent)
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
+    };
+  }, [user?.id, supabase, userProfile?.activeVesselId, refetchUserProfile]);
+
+  // Effect to automatically clear activeVesselId when all assignments are ended
+  useEffect(() => {
+    if (!userProfile?.activeVesselId || !vesselAssignments.length || !user?.id) {
+      return;
+    }
+
+    const activeAssignmentsForVessel = vesselAssignments.filter(
+      a => a.vesselId === userProfile.activeVesselId && !a.endDate
+    );
+
+    if (activeAssignmentsForVessel.length === 0) {
+      console.log('[CURRENT PAGE] No active assignment found for activeVesselId, clearing it');
+      updateUserProfile(supabase, user.id, {
+        activeVesselId: null,
+      })
+        .then(() => {
+          if (refetchUserProfile) {
+            refetchUserProfile();
+          }
+        })
+        .catch((error) => {
+          console.error('[CURRENT PAGE] Error clearing activeVesselId:', error);
+        });
+    }
+  }, [vesselAssignments, userProfile?.activeVesselId, user?.id, supabase, refetchUserProfile]);
 
   // Calculate standby days
   const { standbyPeriods } = useMemo(() => {

@@ -242,7 +242,7 @@ export default function InboxPage() {
               })
             );
           };
-
+            
           // Process pending testimonials
           if (pendingData) {
             const pendingWithUsers = await fetchUserProfiles(pendingData);
@@ -393,8 +393,8 @@ export default function InboxPage() {
     try {
       // Fetch captain profile to populate captain_name and captain_email if not already set
       let updateData: any = {
-        status: 'approved',
-        updated_at: new Date().toISOString(),
+          status: 'approved',
+          updated_at: new Date().toISOString(),
       };
 
       // Always fetch and save captain details (name, email, position) when approving
@@ -653,7 +653,7 @@ export default function InboxPage() {
         
         // Fetch crew member's logs (what they actually logged) - CRITICAL: We need these exact logs
         let crewLogs: StateLog[] = [];
-        if (testimonial.user_id) {
+          if (testimonial.user_id) {
           try {
             console.log('[INBOX] Fetching crew member logs:', {
               vesselId: testimonial.vessel_id,
@@ -1208,13 +1208,13 @@ export default function InboxPage() {
                       {captainRoleApplications.map((application) => (
                         <TableRow key={application.id}>
                           <TableCell>
-                            <div>
-                              <div>{getUserName(application)}</div>
-                              {(application.user as any)?.email && (
-                                <div className="text-xs text-muted-foreground">
-                                  {(application.user as any).email}
-                                </div>
-                              )}
+                              <div>
+                                <div>{getUserName(application)}</div>
+                                {(application.user as any)?.email && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {(application.user as any).email}
+                                  </div>
+                                )}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -1279,13 +1279,13 @@ export default function InboxPage() {
                       {captaincyRequests.map((request) => (
                         <TableRow key={request.id}>
                           <TableCell>
-                            <div>
-                              <div>{getUserName(request as any)}</div>
-                              {(request.user as any)?.email && (
-                                <div className="text-xs text-muted-foreground">
-                                  {(request.user as any).email}
-                                </div>
-                              )}
+                              <div>
+                                <div>{getUserName(request as any)}</div>
+                                {(request.user as any)?.email && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {(request.user as any).email}
+                                  </div>
+                                )}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -1392,9 +1392,9 @@ export default function InboxPage() {
                                 key={testimonial.id} 
                                 className={`hover:bg-muted/50 transition-colors ${index === 0 && groupIndex > 0 ? 'border-t-2 border-border' : ''} ${index > 0 ? 'bg-muted/20' : ''}`}
                               >
-                                <TableCell className="font-medium">
+                      <TableCell className="font-medium">
                                   {index === 0 ? (
-                                    <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2">
                                       {hasMultipleRequests && (
                                         <Button
                                           variant="ghost"
@@ -1409,22 +1409,22 @@ export default function InboxPage() {
                                           )}
                                         </Button>
                                       )}
-                                      <div>
+                          <div>
                                         <div className="font-semibold">{getUserName(testimonial)}</div>
-                                        {(testimonial.user as any)?.email && (
-                                          <div className="text-xs text-muted-foreground">
-                                            {(testimonial.user as any).email}
-                                          </div>
+                            {(testimonial.user as any)?.email && (
+                              <div className="text-xs text-muted-foreground">
+                                {(testimonial.user as any).email}
+                              </div>
                                         )}
                                         {hasMultipleRequests && (
                                           <div className="text-xs text-muted-foreground mt-1">
                                             {group.testimonials.length} request{group.testimonials.length !== 1 ? 's' : ''}
                                             {hiddenCount > 0 && (
                                               <span className="ml-1">({hiddenCount} hidden)</span>
-                                            )}
-                                          </div>
+                            )}
+                          </div>
                                         )}
-                                      </div>
+                        </div>
                                     </div>
                                   ) : (
                                     <div className="pl-8 text-sm">
@@ -1433,48 +1433,48 @@ export default function InboxPage() {
                                       </div>
                                     </div>
                                   )}
-                                </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Ship className="h-4 w-4 text-muted-foreground" />
-                                  {getVesselName(testimonial.vessel_id)}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                                  <div className="text-sm">
-                                    {format(new Date(testimonial.start_date), 'MMM d, yyyy')} - {format(new Date(testimonial.end_date), 'MMM d, yyyy')}
-                                  </div>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <div className="space-y-0.5 text-sm">
-                                  <div className="font-medium">Total: {testimonial.total_days}</div>
-                                  <div className="text-xs text-muted-foreground">
-                                    At Sea: {testimonial.at_sea_days} | Standby: {testimonial.standby_days}
-                                  </div>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                  <Clock className="h-4 w-4" />
-                                  {format(new Date(testimonial.created_at), 'MMM d, yyyy')}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  onClick={() => openActionDialog(testimonial, 'approve')}
-                                  size="sm"
-                                  variant="outline"
-                                  className="rounded-lg"
-                                >
-                                  <Eye className="h-4 w-4 mr-2" />
-                                  View
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                            ))}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Ship className="h-4 w-4 text-muted-foreground" />
+                          {getVesselName(testimonial.vessel_id)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-muted-foreground" />
+                          <div className="text-sm">
+                            {format(new Date(testimonial.start_date), 'MMM d, yyyy')} - {format(new Date(testimonial.end_date), 'MMM d, yyyy')}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-0.5 text-sm">
+                          <div className="font-medium">Total: {testimonial.total_days}</div>
+                          <div className="text-xs text-muted-foreground">
+                            At Sea: {testimonial.at_sea_days} | Standby: {testimonial.standby_days}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Clock className="h-4 w-4" />
+                          {format(new Date(testimonial.created_at), 'MMM d, yyyy')}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          onClick={() => openActionDialog(testimonial, 'approve')}
+                          size="sm"
+                          variant="outline"
+                          className="rounded-lg"
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          View
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                      ))}
                           </React.Fragment>
                         );
                       })}
@@ -1588,13 +1588,13 @@ export default function InboxPage() {
                       {captaincyRequests.map((request) => (
                         <TableRow key={request.id} className="hover:bg-muted/50 transition-colors">
                           <TableCell className="font-medium">
-                            <div>
-                              <div>{getUserName(request as any)}</div>
-                              {(request.user as any)?.email && (
-                                <div className="text-xs text-muted-foreground">
-                                  {(request.user as any).email}
-                                </div>
-                              )}
+                              <div>
+                                <div>{getUserName(request as any)}</div>
+                                {(request.user as any)?.email && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {(request.user as any).email}
+                                  </div>
+                                )}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -1666,7 +1666,7 @@ export default function InboxPage() {
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4 text-muted-foreground" />
                     <span className="font-semibold text-base">{getUserName(selectedTestimonial)}</span>
-                  </div>
+                </div>
                   {(selectedTestimonial.user as any)?.email && (
                     <div className="text-xs text-muted-foreground mt-1 ml-6">
                       {(selectedTestimonial.user as any).email}
@@ -1692,20 +1692,20 @@ export default function InboxPage() {
                       <span className="font-semibold">Requested Date Range</span>
                     </div>
                     <div className="grid grid-cols-3 gap-4">
-                      <div>
+                  <div>
                         <div className="text-xs text-muted-foreground mb-1">Start Date</div>
                         <div className="font-medium">{format(new Date(selectedTestimonial.start_date), 'MMM d, yyyy')}</div>
-                      </div>
+                          </div>
                       <div>
                         <div className="text-xs text-muted-foreground mb-1">End Date</div>
                         <div className="font-medium">{format(new Date(selectedTestimonial.end_date), 'MMM d, yyyy')}</div>
-                      </div>
+                          </div>
                       <div>
                         <div className="text-xs text-muted-foreground mb-1">Total Days</div>
                         <div className="font-semibold text-lg">{selectedTestimonial.total_days} days</div>
-                      </div>
-                    </div>
-                  </div>
+                          </div>
+                          </div>
+                        </div>
 
                     {/* Date Comparison View */}
                     {isLoadingLogs ? (
@@ -1713,7 +1713,7 @@ export default function InboxPage() {
                         <div className="flex items-center justify-center gap-3">
                           <Loader2 className="h-5 w-5 animate-spin text-primary" />
                           <span className="text-sm font-medium">Loading vessel logs...</span>
-                        </div>
+                          </div>
                       </div>
                     ) : vesselStateLogs.length > 0 || allVesselLogs.length > 0 ? (
                       <DateComparisonView 
@@ -1729,14 +1729,14 @@ export default function InboxPage() {
                       <div className="bg-yellow-50 dark:bg-yellow-950/20 border-2 border-yellow-200 dark:border-yellow-800 rounded-xl p-5">
                         <div className="flex items-start gap-3">
                           <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
-                          <div className="flex-1">
+                            <div className="flex-1">
                             <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-1">No Logs Found</p>
                             <p className="text-xs text-yellow-700 dark:text-yellow-300">
-                              No logged dates found for this user on this vessel. Please verify the date range before approving.
-                            </p>
+                                No logged dates found for this user on this vessel. Please verify the date range before approving.
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      </div>
+                  </div>
                     )}
 
                   {/* Rejection Reason Field - Collapsible section */}
@@ -1753,13 +1753,13 @@ export default function InboxPage() {
                           )}
                         </p>
                       </div>
-                      <Textarea
-                        id="rejection-reason-review"
+                    <Textarea
+                      id="rejection-reason-review"
                         placeholder="Enter rejection reason if needed..."
-                        value={rejectionReason}
-                        onChange={(e) => setRejectionReason(e.target.value)}
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
                         className="rounded-lg min-h-[80px] bg-background"
-                      />
+                    />
                       {comparisonData && comparisonData.discrepancies && comparisonData.discrepancies.length > 0 && (
                         <div className="mt-2 p-3 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
                           <p className="text-xs font-medium text-yellow-900 dark:text-yellow-100 mb-2">

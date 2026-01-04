@@ -93,7 +93,7 @@ export function DateComparisonView({
       const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
       // Only include logs within the requested date range
       if (logDate >= startDate && logDate <= endDate) {
-        vesselLogMap.set(log.date, log);
+      vesselLogMap.set(log.date, log);
       }
     });
     
@@ -216,21 +216,21 @@ export function DateComparisonView({
                 <div className="text-muted-foreground mb-0.5">Matching</div>
                 <div className="font-semibold text-green-600 dark:text-green-400">{comparison.matchingDays}</div>
               </div>
-            </div>
-            {comparison.discrepancies.length > 0 && (
+              </div>
+              {comparison.discrepancies.length > 0 && (
               <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded p-2">
                 <div className="text-xs text-red-700 dark:text-red-400 font-medium">
                   {comparison.discrepancies.length} mismatch{comparison.discrepancies.length !== 1 ? 'es' : ''}
                 </div>
-              </div>
-            )}
+                </div>
+              )}
             {comparison.onLeaveDays > 0 && (
               <div className="text-xs text-muted-foreground pt-2 border-t border-blue-200/50 dark:border-blue-800/50">
                 {comparison.onLeaveDays} day{comparison.onLeaveDays !== 1 ? 's' : ''} on leave (excluded)
               </div>
             )}
-          </div>
-        </div>
+              </div>
+            </div>
 
         {/* Vessel Summary */}
         <div className={`bg-gradient-to-br ${comparison.hasVesselLogs ? 'from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 border-2 border-green-200 dark:border-green-800' : 'from-gray-50 to-gray-100/50 dark:from-gray-900/30 dark:to-gray-800/20 border-2 border-gray-200 dark:border-gray-800'} rounded-xl p-5`}>
@@ -249,8 +249,8 @@ export function DateComparisonView({
               <div className={`text-2xl font-bold ${comparison.hasVesselLogs ? 'text-green-900 dark:text-green-100' : 'text-gray-600 dark:text-gray-400'}`}>
                 {comparison.vesselLoggedDays}
               </div>
-            </div>
-            {comparison.hasVesselLogs && (
+              </div>
+              {comparison.hasVesselLogs && (
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
                   <div className="text-muted-foreground mb-0.5">At Sea</div>
@@ -292,10 +292,10 @@ export function DateComparisonView({
             <div className={`${comparison.hasIssues ? 'bg-white/60 dark:bg-gray-900/40 border-yellow-200/50 dark:border-yellow-800/50' : 'bg-white/60 dark:bg-gray-900/40 border-green-200/50 dark:border-green-800/50'} rounded-lg p-4 border text-center`}>
               <div className="text-xs text-muted-foreground mb-2">Match Percentage</div>
               <div className={`text-4xl font-bold ${comparison.percentageMatch >= 90 ? 'text-green-600 dark:text-green-400' : comparison.percentageMatch >= 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
-                {comparison.percentageMatch}%
+                  {comparison.percentageMatch}%
               </div>
-            </div>
-            {comparison.hasIssues && (
+              </div>
+              {comparison.hasIssues && (
               <div className="bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded p-3">
                 <div className="text-xs font-medium text-yellow-900 dark:text-yellow-100 mb-1">
                   ⚠️ Review Required
@@ -311,8 +311,8 @@ export function DateComparisonView({
                   ✓ All states match
                 </div>
               </div>
-            )}
-          </div>
+              )}
+            </div>
         </div>
       </div>
 

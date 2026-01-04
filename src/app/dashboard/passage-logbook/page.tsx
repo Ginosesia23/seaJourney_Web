@@ -505,11 +505,11 @@ export default function PassageLogbookPage() {
       {/* Header Section */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Passage Log Book</h1>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Passage Log Book</h1>
             <p className="text-muted-foreground">
-              Record and track your voyages between ports
-            </p>
+            Record and track your voyages between ports
+          </p>
           </div>
         </div>
       </div>

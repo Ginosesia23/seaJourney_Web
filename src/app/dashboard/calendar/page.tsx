@@ -880,47 +880,47 @@ export default function CalendarPage() {
                   <Tooltip key={dateKey}>
                     <TooltipTrigger asChild>
                       <div className="aspect-square">
-                        <button
-                          onClick={() => handleDateClick(day)}
-                          disabled={isFuture}
-                          className={cn(
+                  <button
+                    onClick={() => handleDateClick(day)}
+                    disabled={isFuture}
+                    className={cn(
                             "w-full h-full rounded-xl text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
-                            !isFuture && "hover:scale-105 hover:shadow-md",
-                            !isCurrentMonth && "opacity-40",
-                            isFuture && "opacity-30 cursor-not-allowed",
-                            isCurrentDay && !isInRange && "ring-2 ring-primary ring-offset-2",
-                            isInRange && "ring-2 ring-primary/50",
-                            (isRangeStart || isRangeEnd) && "ring-2 ring-primary ring-offset-1",
-                            stateInfo 
-                              ? "text-white" 
-                              : "bg-muted/50 text-muted-foreground hover:bg-muted"
-                          )}
-                          style={
-                            backgroundStyle
-                              ? { ...standbyStyle, ...backgroundStyle }
-                              : stateInfo 
-                                ? { ...standbyStyle, backgroundColor: stateInfo.color } 
-                                : isInRange 
-                                  ? { backgroundColor: 'hsl(var(--primary) / 0.15)', ...standbyStyle } 
-                                  : standbyStyle
-                          }
-                        >
-                          <div className="flex flex-col items-center justify-center h-full relative">
-                            <span className="relative z-10 text-center">{format(day, 'd')}</span>
-                            {/* State icon in top-left corner (only for counted standby dates) */}
-                            {isCountedStandby && stateInfo && (
-                              <stateInfo.icon className="absolute top-1.5 left-1.5 h-2 w-2 opacity-90 z-10" />
-                            )}
-                            {/* State icon centered (for non-standby dates) */}
-                            {!isCountedStandby && stateInfo && (
-                              <stateInfo.icon className="h-2 w-2 mt-0.5 opacity-90 relative z-10" />
-                            )}
-                            {/* Standby icon in bottom-right corner (only for counted standby dates) */}
-                            {isCountedStandby && (
-                              <Clock className="absolute bottom-1.5 right-1.5 h-2 w-2 opacity-90 z-10" />
-                            )}
-                          </div>
-                        </button>
+                      !isFuture && "hover:scale-105 hover:shadow-md",
+                      !isCurrentMonth && "opacity-40",
+                      isFuture && "opacity-30 cursor-not-allowed",
+                      isCurrentDay && !isInRange && "ring-2 ring-primary ring-offset-2",
+                      isInRange && "ring-2 ring-primary/50",
+                      (isRangeStart || isRangeEnd) && "ring-2 ring-primary ring-offset-1",
+                      stateInfo 
+                        ? "text-white" 
+                        : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                    )}
+                    style={
+                      backgroundStyle
+                        ? { ...standbyStyle, ...backgroundStyle }
+                        : stateInfo 
+                          ? { ...standbyStyle, backgroundColor: stateInfo.color } 
+                          : isInRange 
+                            ? { backgroundColor: 'hsl(var(--primary) / 0.15)', ...standbyStyle } 
+                            : standbyStyle
+                    }
+                  >
+                    <div className="flex flex-col items-center justify-center h-full relative">
+                      <span className="relative z-10 text-center">{format(day, 'd')}</span>
+                      {/* State icon in top-left corner (only for counted standby dates) */}
+                      {isCountedStandby && stateInfo && (
+                        <stateInfo.icon className="absolute top-1.5 left-1.5 h-2 w-2 opacity-90 z-10" />
+                      )}
+                      {/* State icon centered (for non-standby dates) */}
+                      {!isCountedStandby && stateInfo && (
+                        <stateInfo.icon className="h-2 w-2 mt-0.5 opacity-90 relative z-10" />
+                      )}
+                      {/* Standby icon in bottom-right corner (only for counted standby dates) */}
+                      {isCountedStandby && (
+                        <Clock className="absolute bottom-1.5 right-1.5 h-2 w-2 opacity-90 z-10" />
+                      )}
+                    </div>
+                  </button>
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-xs">
@@ -1148,9 +1148,9 @@ export default function CalendarPage() {
 
       {/* Calendar Grid - 3 columns on large screens, 2 on medium, 1 on small */}
       <TooltipProvider delayDuration={100}>
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {months.map(renderMonth)}
-        </div>
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {months.map(renderMonth)}
+      </div>
       </TooltipProvider>
 
       {/* State Change Dialog */}
