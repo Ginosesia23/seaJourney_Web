@@ -41,6 +41,8 @@ export function useDoc<T = any>(
     setIsLoading(true);
     setError(null);
 
+    console.log(`[useDoc] Fetching ${tableName} with id:`, docId);
+    
     const { data: fetchedData, error: fetchError } = await supabase
       .from(tableName)
       .select('*')
@@ -48,11 +50,27 @@ export function useDoc<T = any>(
       .single();
 
     if (fetchError) {
+      console.error(`[useDoc] Error fetching ${tableName}:`, {
+        table: tableName,
+        docId,
+        error: fetchError,
+        code: fetchError.code,
+        message: fetchError.message,
+        details: fetchError.details,
+        hint: fetchError.hint,
+      });
       setError(fetchError);
       setData(null);
       setIsLoading(false);
       return;
     }
+
+    console.log(`[useDoc] Successfully fetched ${tableName}:`, {
+      table: tableName,
+      docId,
+      hasData: !!fetchedData,
+      data: fetchedData,
+    });
 
     if (fetchedData) {
       setData({

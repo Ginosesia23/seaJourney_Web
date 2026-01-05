@@ -53,6 +53,8 @@ export interface TestimonialPDFData {
   } | null;
 }
 
+export type TestimonialPDFFormat = 'mca' | 'mlc' | 'pya' | 'seajourney';
+
 export interface PassageLogExportData {
   passages: Array<{
     id: string;
@@ -131,7 +133,10 @@ function loadLogoImage(logoPath: string): Promise<string> {
 /*                          SEA SERVICE TESTIMONIAL                           */
 /* ========================================================================== */
 
-export async function generateTestimonialPDF(data: TestimonialPDFData) {
+export async function generateTestimonialPDF(
+  data: TestimonialPDFData,
+  pdfFormat: TestimonialPDFFormat = 'seajourney'
+) {
   const doc = new jsPDF();
   const { testimonial, userProfile, vessel, captainProfile } = data;
 

@@ -160,11 +160,10 @@ export default function CalendarPage() {
     checkCaptaincyAndFindVesselAccount();
   }, [currentVessel?.id, user?.id, userProfile?.role, supabase]);
 
-  // Fetch state logs for current vessel
-  // For approved captains, fetch logs from vessel account user only (using vessel_manager_id)
-  // For others, fetch only their own logs
+  // Fetch state logs from ALL vessels the user has assignments for
+  // This allows viewing states from previous vessels and current vessel
   useEffect(() => {
-    if (!currentVessel || !user?.id) {
+    if (!user?.id || !vessels || vessels.length === 0) {
       setStateLogs([]);
       setIsLoadingLogs(false);
       return;
@@ -172,89 +171,87 @@ export default function CalendarPage() {
 
     setIsLoadingLogs(true);
     
-    const fetchLogs = async () => {
-      // If captain has approved captaincy, fetch vessel account logs (using vessel_manager_id)
-      // Otherwise, fetch only logs for this user
-      let userIdToFetch: string | undefined = user.id;
-      
-      // Check if this is an approved captain
-      if (userProfile?.role === 'captain') {
-        try {
-          // Check for approved captaincy
-          const { data: captaincyData } = await supabase
-            .from('vessel_claim_requests')
-            .select('id')
-            .eq('requested_by', user.id)
-            .eq('vessel_id', currentVessel.id)
-            .eq('status', 'approved')
-            .maybeSingle();
+    const fetchAllLogs = async () => {
+      try {
+        // Get all unique vessel IDs from assignments
+        const vesselIdsFromAssignments = new Set<string>();
+        vesselAssignments.forEach(assignment => {
+          vesselIdsFromAssignments.add(assignment.vesselId);
+        });
+
+        // Also include current vessel if it exists
+        if (currentVessel) {
+          vesselIdsFromAssignments.add(currentVessel.id);
+        }
+
+        // Fetch logs from all vessels the user has assignments for
+        const allLogs: StateLog[] = [];
+        
+        for (const vesselId of vesselIdsFromAssignments) {
+          const vessel = vessels.find(v => v.id === vesselId);
+          if (!vessel) continue;
+
+          // For captains with approved captaincy, fetch vessel account logs
+          // Otherwise, fetch only logs for this user
+          let userIdToFetch: string | undefined = user.id;
           
-          if (captaincyData) {
-            // Approved captain - use vessel_manager_id from vessel record (preferred method)
-            const vesselManagerId = (currentVessel as any).vessel_manager_id || (currentVessel as any).vesselManagerId;
-            
-            if (vesselManagerId) {
-              userIdToFetch = vesselManagerId;
-              console.log('[CALENDAR PAGE] Using vessel_manager_id from vessel record:', vesselManagerId);
-            } else if (vesselAccountUserId) {
-              // Fallback to vesselAccountUserId if vessel_manager_id not available
-              userIdToFetch = vesselAccountUserId;
-              console.log('[CALENDAR PAGE] Using vesselAccountUserId from state:', vesselAccountUserId);
-            } else {
-              // Last resort: try to find which user has logs for this vessel
-              try {
-                const { data: logsData } = await supabase
-                  .from('daily_state_logs')
-                  .select('user_id')
-                  .eq('vessel_id', currentVessel.id)
-                  .limit(1)
-                  .maybeSingle();
-                
-                if (logsData?.user_id) {
-                  console.log('[CALENDAR PAGE] Found logs with user_id, using that:', logsData.user_id);
-                  userIdToFetch = logsData.user_id;
+          if (userProfile?.role === 'captain') {
+            try {
+              const { data: captaincyData } = await supabase
+                .from('vessel_claim_requests')
+                .select('id')
+                .eq('requested_by', user.id)
+                .eq('vessel_id', vesselId)
+                .eq('status', 'approved')
+                .maybeSingle();
+              
+              if (captaincyData) {
+                const vesselManagerId = (vessel as any).vessel_manager_id || (vessel as any).vesselManagerId;
+                if (vesselManagerId) {
+                  userIdToFetch = vesselManagerId;
                 } else {
-                  // No logs found yet, but approved captain - fetch all logs for vessel (no filter)
-                  console.log('[CALENDAR PAGE] No logs found for vessel, will fetch all logs for vessel');
-                  userIdToFetch = undefined;
+                  userIdToFetch = undefined; // Fetch all logs for vessel
                 }
-              } catch (logSearchError) {
-                console.error('[CALENDAR PAGE] Error searching for logs:', logSearchError);
-                // Fall back to fetching all logs for vessel
-                userIdToFetch = undefined;
               }
+            } catch (e) {
+              console.error('[CALENDAR PAGE] Error checking captaincy for vessel:', vesselId, e);
             }
           }
-        } catch (e) {
-          console.error('[CALENDAR PAGE] Error checking captaincy in fetchLogs:', e);
+
+          try {
+            const logs = await getVesselStateLogs(supabase, vesselId, userIdToFetch);
+            console.log('[CALENDAR PAGE] Fetched logs for vessel:', {
+              vesselId,
+              vesselName: vessel.name,
+              logsCount: logs.length,
+            });
+            allLogs.push(...logs);
+          } catch (error) {
+            console.error(`[CALENDAR PAGE] Error fetching logs for vessel ${vesselId}:`, error);
+          }
         }
-      }
-      
-      console.log('[CALENDAR PAGE] Fetching state logs:', {
-        vesselId: currentVessel.id,
-        userIdToFetch: userIdToFetch || 'ALL (no filter)',
-        currentUserId: user.id,
-        userRole: userProfile?.role
-      });
-      
-      try {
-        const logs = await getVesselStateLogs(supabase, currentVessel.id, userIdToFetch);
-        console.log('[CALENDAR PAGE] State logs fetched:', {
-          logsCount: logs.length,
-          userIdToFetch: userIdToFetch || 'ALL',
-          vesselId: currentVessel.id
+
+        // Remove duplicates (same date + vessel combination)
+        const uniqueLogs = Array.from(
+          new Map(allLogs.map(log => [`${log.date}-${log.vesselId}`, log])).values()
+        );
+
+        console.log('[CALENDAR PAGE] Total logs fetched from all vessels:', {
+          totalLogs: uniqueLogs.length,
+          vesselsCount: vesselIdsFromAssignments.size,
         });
-        setStateLogs(logs);
+
+        setStateLogs(uniqueLogs);
         setIsLoadingLogs(false);
       } catch (error) {
-        console.error('[CALENDAR PAGE] Error fetching state logs:', error);
+        console.error('[CALENDAR PAGE] Error fetching all logs:', error);
         setStateLogs([]);
         setIsLoadingLogs(false);
       }
     };
     
-    fetchLogs();
-  }, [currentVessel?.id, user?.id, userProfile?.role, vesselAccountUserId, supabase]);
+    fetchAllLogs();
+  }, [user?.id, vessels, vesselAssignments, userProfile?.role, supabase]);
 
   // Fetch vessel assignments to determine valid date ranges
   useEffect(() => {
@@ -323,6 +320,13 @@ export default function CalendarPage() {
     return dates;
   }, [stateLogs]);
 
+  // Get list of vessels user has logged time on
+  const vesselsWithLogs = useMemo(() => {
+    if (!vessels || !vesselAssignments.length) return [];
+    const vesselIds = new Set(vesselAssignments.map(a => a.vesselId));
+    return vessels.filter(v => vesselIds.has(v.id));
+  }, [vessels, vesselAssignments]);
+
   // Get all months for the selected year
   const yearStart = startOfYear(new Date(selectedYear, 0, 1));
   const yearEnd = endOfYear(new Date(selectedYear, 11, 31));
@@ -332,14 +336,53 @@ export default function CalendarPage() {
   const currentYear = new Date().getFullYear();
   const isCurrentYear = selectedYear >= currentYear;
 
-  // Helper function to validate if a date is within valid vessel assignment period
-  const isDateValidForStateChange = (date: Date): { valid: boolean; reason?: string } => {
-    if (!currentVessel || !user?.id) {
-      return { valid: false, reason: 'No vessel selected.' };
+  // Helper function to find which vessel a date belongs to based on assignments
+  const findVesselForDate = (date: Date): { vessel: Vessel | null; assignment: VesselAssignment | null } => {
+    if (!vessels || !vesselAssignments.length) {
+      return { vessel: null, assignment: null };
     }
 
     const dateStr = format(date, 'yyyy-MM-dd');
     const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
+
+    // Find the assignment that contains this date
+    for (const assignment of vesselAssignments) {
+      const assignmentStart = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
+      const assignmentEnd = assignment.endDate
+        ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
+        : null;
+
+      // Check if date is within this assignment period [start_date, end_date)
+      const isAfterOrEqualStart = !isBefore(dateObj, assignmentStart);
+      const isBeforeEnd = !assignmentEnd || isBefore(dateObj, assignmentEnd);
+
+      if (isAfterOrEqualStart && isBeforeEnd) {
+        const vessel = vessels.find(v => v.id === assignment.vesselId);
+        return { vessel: vessel || null, assignment };
+      }
+    }
+
+    return { vessel: null, assignment: null };
+  };
+
+  // Helper function to validate if a date is within valid vessel assignment period
+  const isDateValidForStateChange = (date: Date): { valid: boolean; reason?: string; vessel?: Vessel } => {
+    if (!user?.id) {
+      return { valid: false, reason: 'You must be logged in.' };
+    }
+
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
+
+    // Find which vessel this date belongs to
+    const { vessel, assignment } = findVesselForDate(date);
+
+    if (!vessel || !assignment) {
+      return {
+        valid: false,
+        reason: 'This date is not within any of your vessel assignment periods.',
+      };
+    }
 
     // For vessel accounts, allow editing from the vessel's start_date (if set) or vessel creation date
     if (userProfile?.role === 'vessel') {
@@ -351,7 +394,7 @@ export default function CalendarPage() {
       // Fallback to vessel created_at date if start_date is not set
       let earliestAllowedDate: Date | null = userStartDate;
       if (!earliestAllowedDate) {
-        const vesselData = vessels?.find(v => v.id === currentVessel.id);
+        const vesselData = vessels?.find(v => v.id === vessel.id);
         if (vesselData && (vesselData as any).created_at) {
           earliestAllowedDate = startOfDay(new Date((vesselData as any).created_at));
         }
@@ -361,116 +404,58 @@ export default function CalendarPage() {
         return {
           valid: false,
           reason: `You cannot change states before ${format(earliestAllowedDate, 'MMM d, yyyy')}${userStartDate ? ' (your official start date)' : ' (vessel launch date)'}.`,
+          vessel,
         };
       }
       // No end date restriction for vessel accounts - they can edit any date from start to present
-      return { valid: true };
+      return { valid: true, vessel };
     }
 
-    // Find the earliest assignment across ALL vessels (when user first joined any vessel)
-    let earliestAssignment: VesselAssignment | null = null;
-    if (vesselAssignments.length > 0) {
-      earliestAssignment = vesselAssignments.reduce((earliest, assignment) => {
-        const assignmentStart = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
-        if (!earliest) return assignment;
-        const earliestStart = parse(earliest.startDate, 'yyyy-MM-dd', new Date());
-        return assignmentStart < earliestStart ? assignment : earliest;
-      }, null as VesselAssignment | null);
-    }
-
-    // Check if date is before the earliest vessel assignment
-    if (earliestAssignment) {
-      const earliestStart = parse(earliestAssignment.startDate, 'yyyy-MM-dd', new Date());
-      if (isBefore(dateObj, earliestStart)) {
-        return {
-          valid: false,
-          reason: `You cannot change states before ${format(earliestStart, 'MMM d, yyyy')} (when you first joined a vessel).`,
-        };
-      }
-    }
-
-    // Find assignments for the current vessel (ordered by start date, most recent first)
-    const currentVesselAssignments = vesselAssignments
-      .filter(a => a.vesselId === currentVessel.id)
-      .sort((a, b) => {
-        const aStart = parse(a.startDate, 'yyyy-MM-dd', new Date());
-        const bStart = parse(b.startDate, 'yyyy-MM-dd', new Date());
-        return bStart.getTime() - aStart.getTime(); // Most recent first
-      });
-
-    // If no assignments for current vessel, check if it's active
-    if (currentVesselAssignments.length === 0) {
-      // If vessel is active but has no assignment record yet (edge case), allow from today
-      if (userProfile?.activeVesselId === currentVessel.id) {
-        const today = startOfDay(new Date());
-        if (isBefore(dateObj, today)) {
-          return {
-            valid: false,
-            reason: 'You cannot change states for dates before you joined this vessel.',
-          };
-        }
-        return { valid: true };
-      } else {
-        return {
-          valid: false,
-          reason: 'You have no assignment record for this vessel. Please start a service first.',
-        };
-      }
-    }
-
-    // Check if date falls within any assignment period for this vessel
+    // Check if date falls within the assignment period
     // Note: end_date is exclusive '[)' - meaning if end_date = 2025-01-10, 
     // valid dates are < 2025-01-10 (through 2025-01-09 inclusive)
-    let dateInAnyAssignment = false;
-    for (const assignment of currentVesselAssignments) {
-      const assignmentStart = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
-      const assignmentEnd = assignment.endDate
-        ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
-        : null;
+    const assignmentStart = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
+    const assignmentEnd = assignment.endDate
+      ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
+      : null;
 
-      // Check if date is within this assignment period [start_date, end_date)
-      // date >= start_date AND (end_date is null OR date < end_date)
-      const isAfterOrEqualStart = !isBefore(dateObj, assignmentStart);
-      const isBeforeEnd = !assignmentEnd || isBefore(dateObj, assignmentEnd);
-      
-      if (isAfterOrEqualStart && isBeforeEnd) {
-        dateInAnyAssignment = true;
-        break;
-      }
+    // Check if date is within this assignment period [start_date, end_date)
+    // date >= start_date AND (end_date is null OR date < end_date)
+    const isAfterOrEqualStart = !isBefore(dateObj, assignmentStart);
+    const isBeforeEnd = !assignmentEnd || isBefore(dateObj, assignmentEnd);
+
+    if (isAfterOrEqualStart && isBeforeEnd) {
+      return { valid: true, vessel };
     }
 
-    if (!dateInAnyAssignment) {
-      // Find the most recent assignment to show a helpful message
-      const mostRecentAssignment = currentVesselAssignments[0];
-      const assignmentStart = parse(mostRecentAssignment.startDate, 'yyyy-MM-dd', new Date());
-      const assignmentEnd = mostRecentAssignment.endDate
-        ? parse(mostRecentAssignment.endDate, 'yyyy-MM-dd', new Date())
-        : null;
-
-      if (isBefore(dateObj, assignmentStart)) {
-        return {
-          valid: false,
-          reason: `You cannot change states before ${format(assignmentStart, 'MMM d, yyyy')} (when you joined this vessel).`,
-        };
-      }
-
-      // end_date is exclusive, so if end_date = 2025-01-10, dates >= 2025-01-10 are invalid
-      if (assignmentEnd && !isBefore(dateObj, assignmentEnd)) {
-        return {
-          valid: false,
-          reason: `You cannot change states on or after ${format(assignmentEnd, 'MMM d, yyyy')} (when you left this vessel). Join a new vessel to continue logging.`,
-        };
-      }
+    // Date is outside the assignment period
+    if (isBefore(dateObj, assignmentStart)) {
+      return {
+        valid: false,
+        reason: `You cannot change states before ${format(assignmentStart, 'MMM d, yyyy')} (when you joined this vessel).`,
+        vessel,
+      };
     }
 
-    return { valid: true };
+    // end_date is exclusive, so if end_date = 2025-01-10, dates >= 2025-01-10 are invalid
+    if (assignmentEnd && !isBefore(dateObj, assignmentEnd)) {
+      return {
+        valid: false,
+        reason: `You cannot change states on or after ${format(assignmentEnd, 'MMM d, yyyy')} (when you left this vessel). Join a new vessel to continue logging.`,
+        vessel,
+      };
+    }
+
+    return { valid: false, reason: 'This date is not within your vessel assignment period.', vessel };
   };
 
   const handleDateClick = (date: Date) => {
-    if (!currentVessel) {
+    // Validate the date is within a vessel assignment period
+    const validation = isDateValidForStateChange(date);
+    if (!validation.valid) {
       toast({
-        title: 'No Active Vessel',
-        description: 'Please set an active vessel first.',
+        title: 'Invalid Date',
+        description: validation.reason || 'You cannot change the state for this date.',
         variant: 'destructive',
       });
       return;
@@ -494,17 +479,6 @@ export default function CalendarPage() {
       toast({
         title: 'Future Date',
         description: 'You cannot update future dates.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    // Validate date is within valid vessel assignment period
-    const validation = isDateValidForStateChange(date);
-    if (!validation.valid) {
-      toast({
-        title: 'Invalid Date',
-        description: validation.reason || 'You cannot change the state for this date.',
         variant: 'destructive',
       });
       return;
@@ -610,35 +584,41 @@ export default function CalendarPage() {
   };
 
   const handleStateChange = async (state: DailyStatus) => {
-    if (!currentVessel || !user?.id) return;
+    if (!user?.id) return;
 
     setIsSaving(true);
 
     try {
-      let logs: Array<{ date: string; state: DailyStatus }> = [];
+      // Group logs by vessel
+      const logsByVessel = new Map<string, Array<{ date: string; state: DailyStatus }>>();
       
       if (dateRange?.from && dateRange?.to) {
         // Range update
         const today = startOfDay(new Date());
         const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
-        logs = interval
-          .filter(day => {
-            const dayStart = startOfDay(day);
-            // Filter out future dates
-            if (isAfter(dayStart, today)) return false;
-            // Validate each date is within valid vessel assignment period
-            const validation = isDateValidForStateChange(day);
-            return validation.valid;
-          })
-          .map(day => ({
-            date: format(day, 'yyyy-MM-dd'),
-            state: state,
-          }));
         
-        if (logs.length === 0) {
+        for (const day of interval) {
+          const dayStart = startOfDay(day);
+          // Filter out future dates
+          if (isAfter(dayStart, today)) continue;
+          
+          // Validate each date and find which vessel it belongs to
+          const validation = isDateValidForStateChange(day);
+          if (!validation.valid || !validation.vessel) continue;
+          
+          const dateKey = format(day, 'yyyy-MM-dd');
+          const vesselId = validation.vessel.id;
+          
+          if (!logsByVessel.has(vesselId)) {
+            logsByVessel.set(vesselId, []);
+          }
+          logsByVessel.get(vesselId)!.push({ date: dateKey, state });
+        }
+        
+        if (logsByVessel.size === 0) {
           toast({
             title: 'Invalid Range',
-            description: 'No valid dates in the selected range. Dates may be outside your vessel assignment period or in the future.',
+            description: 'No valid dates in the selected range. Dates may be outside your vessel assignment periods or in the future.',
             variant: 'destructive',
           });
           setIsSaving(false);
@@ -647,7 +627,7 @@ export default function CalendarPage() {
       } else if (selectedDate) {
         // Single date update - validate one more time before saving
         const validation = isDateValidForStateChange(selectedDate);
-        if (!validation.valid) {
+        if (!validation.valid || !validation.vessel) {
           toast({
             title: 'Invalid Date',
             description: validation.reason || 'You cannot change the state for this date.',
@@ -657,7 +637,7 @@ export default function CalendarPage() {
           return;
         }
         const dateKey = format(selectedDate, 'yyyy-MM-dd');
-        logs = [{ date: dateKey, state }];
+        logsByVessel.set(validation.vessel.id, [{ date: dateKey, state }]);
       } else {
         setIsSaving(false);
         return;
@@ -674,12 +654,24 @@ export default function CalendarPage() {
         return;
       }
       
-      await updateStateLogsBatch(supabase, user.id, currentVessel.id, logs);
+      // Update logs for each vessel
+      for (const [vesselId, logs] of logsByVessel.entries()) {
+        await updateStateLogsBatch(supabase, user.id, vesselId, logs);
+      }
       
-      // Refresh state logs
-      const userIdToFetch = vesselAccountUserId || user.id;
-      const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, userIdToFetch);
-      setStateLogs(updatedLogs);
+      // Refresh all state logs
+      const allLogs: StateLog[] = [];
+      for (const vesselId of logsByVessel.keys()) {
+        const logs = await getVesselStateLogs(supabase, vesselId, user.id);
+        allLogs.push(...logs);
+      }
+      
+      // Remove duplicates
+      const uniqueLogs = Array.from(
+        new Map(allLogs.map(log => [`${log.date}-${log.vesselId}`, log])).values()
+      );
+      
+      setStateLogs(uniqueLogs);
       
       setIsDialogOpen(false);
       setDateRange(undefined);
@@ -984,33 +976,6 @@ export default function CalendarPage() {
     );
   }
 
-  if (!currentVessel) {
-    return (
-      <div className="flex flex-col gap-6">
-        <div className="space-y-2">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div className="space-y-1">
-              <h1 className="text-3xl font-bold tracking-tight">Calendar</h1>
-              <p className="text-muted-foreground">
-                View and manage your vessel states throughout the year.
-              </p>
-            </div>
-          </div>
-          <Separator />
-        </div>
-        <Card className="rounded-xl border">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <CalendarIcon className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Active Vessel</h3>
-            <p className="text-sm text-muted-foreground text-center max-w-md">
-              You need to have an active vessel to view and manage your calendar. Please set an active vessel first.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-6">
       {/* Header Section */}
@@ -1040,7 +1005,13 @@ export default function CalendarPage() {
             </Button>
             <div className="text-center">
               <h2 className="text-2xl font-bold">{selectedYear}</h2>
-              <p className="text-sm text-muted-foreground">{currentVessel.name}</p>
+              <p className="text-sm text-muted-foreground">
+                {currentVessel 
+                  ? currentVessel.name 
+                  : vesselsWithLogs.length > 0 
+                    ? `${vesselsWithLogs.length} vessel${vesselsWithLogs.length > 1 ? 's' : ''}`
+                    : 'All Vessels'}
+              </p>
             </div>
             <Button
               variant="outline"

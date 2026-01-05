@@ -466,15 +466,31 @@ export async function getVesselAssignments(
   supabase: SupabaseClient,
   userId: string
 ): Promise<VesselAssignment[]> {
+  console.log('[getVesselAssignments] Fetching assignments for user:', userId);
+  
   const { data, error } = await supabase
     .from('vessel_assignments')
     .select('*')
     .eq('user_id', userId)
     .order('start_date', { ascending: false });
 
-  if (error) throw error;
+  if (error) {
+    console.error('[getVesselAssignments] Error fetching assignments:', {
+      error,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw error;
+  }
 
-  return (data || []).map((assignment) => ({
+  console.log('[getVesselAssignments] Raw data from query:', {
+    count: data?.length || 0,
+    data: data,
+  });
+
+  const mapped = (data || []).map((assignment) => ({
     id: assignment.id,
     userId: assignment.user_id,
     vesselId: assignment.vessel_id,
@@ -484,6 +500,19 @@ export async function getVesselAssignments(
     createdAt: timestampToISO(assignment.created_at),
     updatedAt: timestampToISO(assignment.updated_at),
   }));
+
+  console.log('[getVesselAssignments] Mapped assignments:', {
+    count: mapped.length,
+    assignments: mapped.map(a => ({
+      id: a.id,
+      vesselId: a.vesselId,
+      startDate: a.startDate,
+      endDate: a.endDate,
+      isActive: !a.endDate,
+    })),
+  });
+
+  return mapped;
 }
 
 /**

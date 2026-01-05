@@ -129,11 +129,33 @@ export default function CurrentPage() {
   const { supabase } = useSupabase();
   const { toast } = useToast();
 
-  const { data: userProfileRaw, isLoading: isLoadingProfile, forceRefetch: refetchUserProfile } = useDoc<UserProfile>('users', user?.id);
+  const { data: userProfileRaw, isLoading: isLoadingProfile, error: userProfileError, forceRefetch: refetchUserProfile } = useDoc<UserProfile>('users', user?.id);
+  
+  // Log user profile loading state and errors
+  useEffect(() => {
+    console.log('[CURRENT PAGE] User Profile State:', {
+      userId: user?.id,
+      isLoading: isLoadingProfile,
+      hasData: !!userProfileRaw,
+      error: userProfileError,
+      userProfileRaw: userProfileRaw,
+    });
+    
+    if (userProfileError) {
+      console.error('[CURRENT PAGE] Error loading user profile:', {
+        error: userProfileError,
+        message: userProfileError.message,
+        userId: user?.id,
+      });
+    }
+  }, [user?.id, isLoadingProfile, userProfileRaw, userProfileError]);
   
   // Transform user profile to handle both snake_case (from DB) and camelCase (from types)
   const userProfile = useMemo(() => {
-    if (!userProfileRaw) return null;
+    if (!userProfileRaw) {
+      console.log('[CURRENT PAGE] No userProfileRaw, returning null');
+      return null;
+    }
     
     const activeVesselId = (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId;
     
@@ -211,36 +233,79 @@ export default function CurrentPage() {
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
 
   const currentVessel = useMemo(() => {
+    console.log('[CURRENT PAGE] Computing currentVessel:', {
+      hasUserProfile: !!userProfile,
+      hasVessels: !!vessels,
+      vesselsCount: vessels?.length || 0,
+      vesselAssignmentsCount: vesselAssignments?.length || 0,
+      activeVesselId: userProfile?.activeVesselId,
+      allAssignments: vesselAssignments.map(a => ({ 
+        id: a.id, 
+        vesselId: a.vesselId, 
+        startDate: a.startDate, 
+        endDate: a.endDate 
+      })),
+    });
+    
     if (!userProfile || !vessels || vessels.length === 0) {
       console.log('[CURRENT PAGE] No user profile or vessels available');
       return undefined;
     }
     
     const activeVesselId = userProfile.activeVesselId;
+    
+    if (!activeVesselId) {
+      console.log('[CURRENT PAGE] No activeVesselId set in user profile');
+      return undefined;
+    }
+    
     const foundVessel = vessels.find(v => v.id === activeVesselId);
     
     // If no vessel found by activeVesselId, return undefined
     if (!foundVessel) {
-      console.log('[CURRENT PAGE] No vessel found for activeVesselId:', activeVesselId);
+      console.log('[CURRENT PAGE] No vessel found for activeVesselId:', activeVesselId, {
+        availableVesselIds: vessels.map(v => v.id),
+      });
       return undefined;
     }
     
     // Check if there's an active assignment (end_date IS NULL) for this vessel
-    const activeAssignments = vesselAssignments.filter(
-      a => a.vesselId === activeVesselId && !a.endDate
+    const allAssignmentsForVessel = vesselAssignments.filter(
+      a => a.vesselId === activeVesselId
     );
+    
+    const activeAssignments = allAssignmentsForVessel.filter(
+      a => !a.endDate
+    );
+    
+    console.log('[CURRENT PAGE] Assignment check:', {
+      vesselId: activeVesselId,
+      vesselName: foundVessel.name,
+      allAssignmentsForVessel: allAssignmentsForVessel.map(a => ({ 
+        id: a.id, 
+        startDate: a.startDate, 
+        endDate: a.endDate 
+      })),
+      activeAssignmentsCount: activeAssignments.length,
+      activeAssignments: activeAssignments.map(a => ({ 
+        id: a.id, 
+        startDate: a.startDate, 
+        endDate: a.endDate 
+      })),
+    });
     
     // If there's no active assignment, the vessel is not actually active
     if (activeAssignments.length === 0) {
       console.log('[CURRENT PAGE] Vessel found but no active assignment:', {
         vesselId: activeVesselId,
         vesselName: foundVessel.name,
-        allAssignments: vesselAssignments.filter(a => a.vesselId === activeVesselId),
+        allAssignmentsForVessel: allAssignmentsForVessel,
+        totalAssignments: vesselAssignments.length,
       });
       return undefined;
     }
     
-    console.log('[CURRENT PAGE] Active Vessel Debug:', {
+    console.log('[CURRENT PAGE] Active Vessel Found:', {
       userProfileId: userProfile.id,
       activeVesselId,
       vesselName: foundVessel.name,
@@ -537,12 +602,28 @@ export default function CurrentPage() {
 
     const fetchAssignments = async () => {
       try {
+        console.log('[CURRENT PAGE] Fetching vessel assignments for user:', user.id);
         const assignments = await getVesselAssignments(supabase, user.id);
-        console.log('[CURRENT PAGE] Fetched vessel assignments:', assignments.map(a => ({ id: a.id, vesselId: a.vesselId, startDate: a.startDate, endDate: a.endDate })));
+        console.log('[CURRENT PAGE] Fetched vessel assignments:', {
+          count: assignments.length,
+          assignments: assignments.map(a => ({ 
+            id: a.id, 
+            vesselId: a.vesselId, 
+            startDate: a.startDate, 
+            endDate: a.endDate,
+            isActive: !a.endDate 
+          })),
+          activeAssignments: assignments.filter(a => !a.endDate).map(a => ({
+            id: a.id,
+            vesselId: a.vesselId,
+            startDate: a.startDate,
+            endDate: a.endDate,
+          })),
+        });
         setVesselAssignments(assignments);
         previousAssignmentsRef.current = [...assignments];
       } catch (error) {
-        console.error('Error fetching vessel assignments:', error);
+        console.error('[CURRENT PAGE] Error fetching vessel assignments:', error);
         setVesselAssignments([]);
         previousAssignmentsRef.current = [];
       }
@@ -633,6 +714,49 @@ export default function CurrentPage() {
       clearInterval(pollInterval);
     };
   }, [user?.id, supabase, userProfile?.activeVesselId, refetchUserProfile]);
+
+  // Effect to automatically set activeVesselId when there's an active assignment but no activeVesselId
+  useEffect(() => {
+    if (!userProfile || !vesselAssignments.length || !user?.id || isLoadingProfile) {
+      return;
+    }
+
+    // If user already has an activeVesselId, skip
+    if (userProfile.activeVesselId) {
+      return;
+    }
+
+    // Find active assignments (end_date IS NULL)
+    const activeAssignments = vesselAssignments.filter(a => !a.endDate);
+
+    if (activeAssignments.length === 0) {
+      // No active assignments, nothing to do
+      return;
+    }
+
+    // If there's exactly one active assignment, set it as the active vessel
+    // If there are multiple, use the most recent one (first in the sorted list)
+    const activeAssignment = activeAssignments[0];
+    
+    console.log('[CURRENT PAGE] Auto-setting activeVesselId from active assignment:', {
+      vesselId: activeAssignment.vesselId,
+      startDate: activeAssignment.startDate,
+      activeAssignmentsCount: activeAssignments.length,
+    });
+
+    updateUserProfile(supabase, user.id, {
+      activeVesselId: activeAssignment.vesselId,
+    })
+      .then(() => {
+        console.log('[CURRENT PAGE] Successfully set activeVesselId:', activeAssignment.vesselId);
+        if (refetchUserProfile) {
+          refetchUserProfile();
+        }
+      })
+      .catch((error) => {
+        console.error('[CURRENT PAGE] Error setting activeVesselId:', error);
+      });
+  }, [userProfile, vesselAssignments, user?.id, supabase, refetchUserProfile, isLoadingProfile]);
 
   // Effect to automatically clear activeVesselId when all assignments are ended
   useEffect(() => {
