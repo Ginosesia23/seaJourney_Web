@@ -134,7 +134,7 @@ export default function DashboardHeader({ userProfile }: { userProfile: UserProf
       <div className="flex items-center gap-2">
         <Badge 
           variant="outline" 
-          className="rounded-full px-3 py-1 text-xs font-medium border-orange-500/30 bg-orange-500/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400"
+          className="rounded-full px-3 py-1 text-xs font-bold border-orange-500/30 bg-orange-500/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400"
         >
           BETA
         </Badge>

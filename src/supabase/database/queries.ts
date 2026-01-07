@@ -626,12 +626,13 @@ export async function createVesselAssignment(
 }
 
 /**
- * Update vessel assignment (e.g., set end date when leaving)
+ * Update vessel assignment (e.g., set end date when leaving, update start date)
  */
 export async function updateVesselAssignment(
   supabase: SupabaseClient,
   assignmentId: string,
   updates: {
+    startDate?: string; // YYYY-MM-DD format
     endDate?: string | null; // YYYY-MM-DD format
     position?: string | null;
   }
@@ -640,6 +641,9 @@ export async function updateVesselAssignment(
     updated_at: new Date().toISOString(),
   };
 
+  if (updates.startDate !== undefined) {
+    updateData.start_date = updates.startDate;
+  }
   if (updates.endDate !== undefined) {
     updateData.end_date = updates.endDate;
   }

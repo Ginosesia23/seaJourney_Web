@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -97,12 +97,12 @@ const POSITION_OPTIONS = [
   'Other',
 ] as const;
 
-const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
-    { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
-    { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
-    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
-    { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
-    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
+const vesselStates: { value: DailyStatus; label: string; color: string; bgColor: string; icon: React.FC<any> }[] = [
+    { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', bgColor: 'hsl(217, 91%, 95%)', icon: Waves },
+    { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', bgColor: 'hsl(25, 95%, 95%)', icon: Anchor },
+    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', bgColor: 'hsl(142, 76%, 95%)', icon: Building },
+    { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', bgColor: 'hsl(215, 16%, 95%)', icon: Briefcase },
+    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', bgColor: 'hsl(0, 84%, 95%)', icon: Ship },
 ];
 
 export default function CurrentPage() {
@@ -412,185 +412,101 @@ export default function CurrentPage() {
 
   // Fetch state logs using the query function for proper transformation
   // For approved captains, fetch logs from vessel account user only (or all vessel logs if no account exists)
-  // For others, fetch only their own logs
+  // Fetch state logs from ALL vessels the user has assignments for (same as calendar page)
+  // This ensures the calendar preview shows the same data as the calendar page
   useEffect(() => {
-    if (!currentVessel || !user?.id) {
+    if (!user?.id || !vessels || vessels.length === 0) {
       setStateLogs([]);
       setIsLoadingLogs(false);
-      gapFilledRef.current = null; // Reset when vessel changes
+      gapFilledRef.current = null;
       return;
     }
 
     setIsLoadingLogs(true);
     
-    const fetchLogs = async () => {
-      // If captain has approved captaincy, fetch vessel account logs (or all vessel logs if no account exists)
-      // Otherwise, fetch only logs for this user
-      let userIdToFetch: string | undefined = user.id;
-      
-      // Check if this is an approved captain
-      if (userProfile?.role === 'captain') {
-        try {
-          // Check for approved captaincy
-          const { data: captaincyData } = await supabase
-            .from('vessel_claim_requests')
-            .select('id')
-            .eq('requested_by', user.id)
-            .eq('vessel_id', currentVessel.id)
-            .eq('status', 'approved')
-            .maybeSingle();
+    const fetchAllLogs = async () => {
+      try {
+        // Get all unique vessel IDs from assignments
+        const vesselIdsFromAssignments = new Set<string>();
+        vesselAssignments.forEach(assignment => {
+          vesselIdsFromAssignments.add(assignment.vesselId);
+        });
+
+        // Also include current vessel if it exists
+        if (currentVessel) {
+          vesselIdsFromAssignments.add(currentVessel.id);
+        }
+
+        // Fetch logs from all vessels the user has assignments for
+        const allLogs: StateLog[] = [];
+        
+        for (const vesselId of vesselIdsFromAssignments) {
+          const vessel = vessels.find(v => v.id === vesselId);
+          if (!vessel) continue;
+
+          // Use the same logic as calendar page: simple captaincy check
+          let userIdToFetch: string | undefined = user.id;
           
-          if (captaincyData) {
-            // Approved captain - use vessel_manager_id from vessel record (preferred method)
-            // Check both snake_case and camelCase to handle any transformation
-            const vesselManagerId = (currentVessel as any).vessel_manager_id || (currentVessel as any).vesselManagerId;
-            
-            console.log('[CURRENT PAGE] Approved captain - checking vessel_manager_id:', {
-              vesselId: currentVessel.id,
-              vesselManagerId,
-              vesselAccountUserId,
-              vesselKeys: Object.keys(currentVessel),
-              vesselRecord: currentVessel
-            });
-            
-            if (vesselManagerId) {
-              // First, verify if logs exist for this vessel_manager_id
-              // If not, check what user_ids actually have logs for this vessel
-              try {
-                const { data: logsForManager } = await supabase
-                  .from('daily_state_logs')
-                  .select('user_id, date, state')
-                  .eq('vessel_id', currentVessel.id)
-                  .eq('user_id', vesselManagerId)
-                  .limit(5);
-                
-                console.log('[CURRENT PAGE] Logs for vessel_manager_id:', {
-                  vesselManagerId,
-                  logsCount: logsForManager?.length || 0,
-                  logs: logsForManager
-                });
-                
-                // If no logs found for vessel_manager_id, check what user_ids have logs for this vessel
-                if (!logsForManager || logsForManager.length === 0) {
-                  const { data: allLogsForVessel } = await supabase
-                    .from('daily_state_logs')
-                    .select('user_id, date, state')
-                    .eq('vessel_id', currentVessel.id)
-                    .limit(10);
-                  
-                  console.log('[CURRENT PAGE] No logs found for vessel_manager_id. All logs for this vessel:', {
-                    totalLogs: allLogsForVessel?.length || 0,
-                    userIds: allLogsForVessel?.map(l => l.user_id) || [],
-                    uniqueUserIds: [...new Set(allLogsForVessel?.map(l => l.user_id) || [])],
-                    logs: allLogsForVessel
-                  });
-                  
-                  // If we found logs with a different user_id, use that instead
-                  if (allLogsForVessel && allLogsForVessel.length > 0) {
-                    const actualUserId = allLogsForVessel[0].user_id;
-                    console.log('[CURRENT PAGE] Found logs with different user_id, using that:', actualUserId);
-                    userIdToFetch = actualUserId;
-                  } else {
-                    userIdToFetch = vesselManagerId; // Use vessel_manager_id even if no logs found yet
-                  }
-                } else {
-                  userIdToFetch = vesselManagerId;
-                }
-              } catch (verifyError) {
-                console.error('[CURRENT PAGE] Error verifying logs for vessel_manager_id:', verifyError);
-                userIdToFetch = vesselManagerId; // Fall back to vessel_manager_id
-              }
+          if (userProfile?.role === 'captain') {
+            try {
+              const { data: captaincyData } = await supabase
+                .from('vessel_claim_requests')
+                .select('id')
+                .eq('requested_by', user.id)
+                .eq('vessel_id', vesselId)
+                .eq('status', 'approved')
+                .maybeSingle();
               
-              console.log('[CURRENT PAGE] Using vessel_manager_id from vessel record:', userIdToFetch);
-            } else if (vesselAccountUserId) {
-              // Fallback to vesselAccountUserId if vessel_manager_id not available
-              userIdToFetch = vesselAccountUserId;
-              console.log('[CURRENT PAGE] Using vesselAccountUserId from state:', vesselAccountUserId);
-            } else {
-              // Last resort: try to find which user has logs for this vessel
-              try {
-                const { data: logsData } = await supabase
-                  .from('daily_state_logs')
-                  .select('user_id')
-                  .eq('vessel_id', currentVessel.id)
-                  .limit(1)
-                  .maybeSingle();
-                
-                if (logsData?.user_id) {
-                  console.log('[CURRENT PAGE] Found logs with user_id, using that:', logsData.user_id);
-                  userIdToFetch = logsData.user_id;
-                  
-                  // Also update the vessel record with this user_id as vessel_manager_id for future queries
-                  // (This is a one-time backfill, done silently)
-                  try {
-                    await supabase
-                      .from('vessels')
-                      .update({ vessel_manager_id: logsData.user_id })
-                      .eq('id', currentVessel.id);
-                    console.log('[CURRENT PAGE] Updated vessel_manager_id for vessel:', currentVessel.id);
-                  } catch (updateError) {
-                    console.error('[CURRENT PAGE] Could not update vessel_manager_id (non-critical):', updateError);
-                  }
+              if (captaincyData) {
+                const vesselManagerId = (vessel as any).vessel_manager_id || (vessel as any).vesselManagerId;
+                if (vesselManagerId) {
+                  userIdToFetch = vesselManagerId;
                 } else {
-                  // No logs found yet, but approved captain - fetch all logs for vessel (no filter)
-                  console.log('[CURRENT PAGE] No logs found for vessel, will fetch all logs for vessel');
-                  userIdToFetch = undefined;
+                  userIdToFetch = undefined; // Fetch all logs for vessel
                 }
-              } catch (logSearchError) {
-                console.error('[CURRENT PAGE] Error searching for logs:', logSearchError);
-                // Fall back to fetching all logs for vessel
-                userIdToFetch = undefined;
               }
+            } catch (e) {
+              console.error('[CURRENT PAGE] Error checking captaincy for vessel:', vesselId, e);
             }
           }
-        } catch (e) {
-          console.error('[CURRENT PAGE] Error checking captaincy in fetchLogs:', e);
+
+          try {
+            const logs = await getVesselStateLogs(supabase, vesselId, userIdToFetch);
+            console.log('[CURRENT PAGE] Fetched logs for vessel:', {
+              vesselId,
+              vesselName: vessel.name,
+              logsCount: logs.length,
+              userIdToFetch: userIdToFetch || 'ALL'
+            });
+            allLogs.push(...logs);
+          } catch (error) {
+            console.error(`[CURRENT PAGE] Error fetching logs for vessel ${vesselId}:`, error);
+          }
         }
-      }
-      
-      const vesselManagerId = (currentVessel as any).vessel_manager_id || (currentVessel as any).vesselManagerId;
-      
-      console.log('[CURRENT PAGE] Fetching state logs:', {
-        vesselId: currentVessel.id,
-        userIdToFetch: userIdToFetch || 'ALL (no filter)',
-        vesselManagerId,
-        vesselAccountUserId,
-        currentUserId: user.id,
-        userRole: userProfile?.role
-      });
-      
-      try {
-        const logs = await getVesselStateLogs(supabase, currentVessel.id, userIdToFetch);
-        console.log('[CURRENT PAGE] State logs fetched:', {
-          logsCount: logs.length,
-          userIdToFetch: userIdToFetch || 'ALL',
-          vesselId: currentVessel.id,
-          firstFewLogs: logs.slice(0, 5)
+
+        // Remove duplicates (same date + vessel combination)
+        const uniqueLogs = Array.from(
+          new Map(allLogs.map(log => [`${log.date}-${log.vesselId}`, log])).values()
+        );
+
+        console.log('[CURRENT PAGE] Total logs fetched from all vessels:', {
+          totalLogs: uniqueLogs.length,
+          vesselsCount: vesselIdsFromAssignments.size,
         });
-        
-        // If no logs found and we're using a specific userId, check if RLS might be blocking
-        if (logs.length === 0 && userIdToFetch) {
-          console.warn('[CURRENT PAGE] No logs found. Possible RLS issue?', {
-            userIdToFetch,
-            vesselId: currentVessel.id,
-            currentUserId: user.id,
-            userRole: userProfile?.role
-          });
-        }
-        
-        setStateLogs(logs);
+
+        setStateLogs(uniqueLogs);
         setIsLoadingLogs(false);
         gapFilledRef.current = null; // Reset when new logs are loaded
       } catch (error) {
-        console.error('[CURRENT PAGE] Error fetching state logs:', error);
+        console.error('[CURRENT PAGE] Error fetching all logs:', error);
         setStateLogs([]);
         setIsLoadingLogs(false);
         gapFilledRef.current = null;
       }
     };
     
-    fetchLogs();
-  }, [currentVessel?.id, user?.id, vesselAccountUserId, userProfile?.role, supabase]);
+    fetchAllLogs();
+  }, [user?.id, vessels, vesselAssignments, currentVessel, userProfile?.role, supabase]);
 
   // Fetch vessel assignments for date validation
   useEffect(() => {
@@ -793,14 +709,78 @@ export default function CurrentPage() {
     return { standbyPeriods: result.standbyPeriods };
   }, [stateLogs]);
 
+  // Helper function to find which vessel a date belongs to based on assignments
+  const findVesselForDate = useCallback((date: Date): { vessel: Vessel | null; assignment: VesselAssignment | null } => {
+    if (!vessels || !vesselAssignments.length) {
+      return { vessel: null, assignment: null };
+    }
+
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
+
+    // Find the assignment that contains this date
+    for (const assignment of vesselAssignments) {
+      const assignmentStart = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
+      const assignmentEnd = assignment.endDate
+        ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
+        : null;
+
+      // Check if date is within this assignment period [start_date, end_date)
+      const isAfterOrEqualStart = !isBefore(dateObj, assignmentStart);
+      const isBeforeEnd = !assignmentEnd || isBefore(dateObj, assignmentEnd);
+
+      if (isAfterOrEqualStart && isBeforeEnd) {
+        const vessel = vessels.find(v => v.id === assignment.vesselId);
+        return { vessel: vessel || null, assignment };
+      }
+    }
+
+    return { vessel: null, assignment: null };
+  }, [vessels, vesselAssignments]);
+
   // Create a Map for quick state lookup by date
+  // If multiple logs exist for the same date (from different vessels),
+  // prioritize the log from the vessel that the date belongs to according to assignments
   const stateLogMap = useMemo(() => {
     const map = new Map<string, DailyStatus>();
+    
+    // Group logs by date
+    const logsByDate = new Map<string, StateLog[]>();
     stateLogs.forEach(log => {
-      map.set(log.date, log.state);
+      if (!logsByDate.has(log.date)) {
+        logsByDate.set(log.date, []);
+      }
+      logsByDate.get(log.date)!.push(log);
     });
+    
+    // For each date, determine which log to use
+    logsByDate.forEach((logs, dateStr) => {
+      if (logs.length === 1) {
+        // Only one log for this date, use it
+        map.set(dateStr, logs[0].state);
+      } else {
+        // Multiple logs for this date - find which vessel this date belongs to
+        const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
+        const { vessel } = findVesselForDate(dateObj);
+        
+        if (vessel) {
+          // Find the log from the correct vessel
+          const correctLog = logs.find(log => log.vesselId === vessel.id);
+          if (correctLog) {
+            map.set(dateStr, correctLog.state);
+          } else {
+            // Fallback to first log if no match found
+            map.set(dateStr, logs[0].state);
+          }
+        } else {
+          // No vessel found for this date, use first log
+          map.set(dateStr, logs[0].state);
+        }
+      }
+    });
+    
     return map;
-  }, [stateLogs]);
+  }, [stateLogs, vesselAssignments, vessels, findVesselForDate]);
 
   // Create a Set of dates that are counted as standby
   const standbyDatesSet = useMemo(() => {
@@ -1004,13 +984,15 @@ export default function CurrentPage() {
     }
   };
 
-   // Find the most recent service record date for the current vessel
+   // Find the most recent service record date for the current vessel only
   const mostRecentServiceDate = useMemo(() => {
-    if (!stateLogs || stateLogs.length === 0) return null;
-    // Get the most recent date from state logs
-    const sortedLogs = [...stateLogs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    if (!stateLogs || stateLogs.length === 0 || !currentVessel) return null;
+    // Filter logs to only current vessel, then get the most recent date
+    const currentVesselLogs = stateLogs.filter(log => log.vesselId === currentVessel.id);
+    if (currentVesselLogs.length === 0) return null;
+    const sortedLogs = [...currentVesselLogs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return sortedLogs[0] ? new Date(sortedLogs[0].date) : null;
-  }, [stateLogs]);
+  }, [stateLogs, currentVessel]);
 
   // Helper function to validate if a date is within valid vessel assignment period
   const isDateValidForStateChange = (date: Date): { valid: boolean; reason?: string } => {
@@ -1587,6 +1569,7 @@ export default function CurrentPage() {
     }
   };
 
+
   const handleSaveNotes = async () => {
     if (!currentVessel || !user?.id) return;
     setIsSavingNotes(true);
@@ -1827,7 +1810,11 @@ export default function CurrentPage() {
               const count = monthStateCounts[state.value] || 0;
               const StateIcon = state.icon;
               return (
-                <div key={state.value} className="flex items-center gap-2">
+                <div 
+                  key={state.value} 
+                  className="flex items-center gap-2 p-2 rounded-lg"
+                  style={{ backgroundColor: state.bgColor }}
+                >
                   <StateIcon className="h-4 w-4" style={{ color: state.color }} />
                   <div className="flex-1 min-w-0">
                     <div className="text-muted-foreground truncate">{state.label}</div>
@@ -1836,7 +1823,10 @@ export default function CurrentPage() {
                 </div>
               );
             })}
-            <div className="flex items-center gap-2">
+            <div 
+              className="flex items-center gap-2 p-2 rounded-lg"
+              style={{ backgroundColor: 'hsla(271, 70%, 50%, 0.15)' }}
+            >
               <Clock className="h-4 w-4 text-purple-600" />
               <div className="flex-1 min-w-0">
                 <div className="text-muted-foreground truncate">Standby</div>
@@ -1898,10 +1888,53 @@ export default function CurrentPage() {
   
   const serviceDate = mostRecentServiceDate;
   
+  // Get the active assignment start date for the current vessel
+  const assignmentStartDate = useMemo(() => {
+    if (!currentVessel || !vesselAssignments.length) {
+      console.log('[CURRENT PAGE] No assignment start date - missing vessel or assignments:', {
+        hasCurrentVessel: !!currentVessel,
+        vesselAssignmentsCount: vesselAssignments.length
+      });
+      return null;
+    }
+    
+    // Get all assignments for this vessel (not just active ones) to find when they first joined
+    const allAssignmentsForVessel = vesselAssignments.filter(
+      a => a.vesselId === currentVessel.id
+    );
+    
+    if (allAssignmentsForVessel.length === 0) {
+      console.log('[CURRENT PAGE] No assignments found for vessel:', currentVessel.id);
+      return null;
+    }
+    
+    // Get the earliest start date (when they first joined this vessel)
+    const startDates = allAssignmentsForVessel.map(a => {
+      const parsed = parse(a.startDate, 'yyyy-MM-dd', new Date());
+      return parsed;
+    });
+    
+    const earliestDate = startDates.reduce((earliest, date) => 
+      date < earliest ? date : earliest
+    );
+    
+    const result = startOfDay(earliestDate);
+    console.log('[CURRENT PAGE] Assignment start date calculated:', {
+      vesselId: currentVessel.id,
+      vesselName: currentVessel.name,
+      assignmentsCount: allAssignmentsForVessel.length,
+      startDates: allAssignmentsForVessel.map(a => a.startDate),
+      earliestDate: format(result, 'yyyy-MM-dd')
+    });
+    
+    return result;
+  }, [currentVessel, vesselAssignments]);
+
   const { totalDaysByState, atSeaDays, standbyDays } = useMemo(() => {
     console.log('[CURRENT PAGE] Calculating stats from stateLogs:', {
       stateLogsCount: stateLogs?.length || 0,
-      stateLogs: stateLogs?.slice(0, 5) || []
+      stateLogs: stateLogs?.slice(0, 5) || [],
+      assignmentStartDate: assignmentStartDate ? format(assignmentStartDate, 'yyyy-MM-dd') : null
     });
     
     if (!stateLogs || stateLogs.length === 0) {
@@ -1909,29 +1942,93 @@ export default function CurrentPage() {
       return { totalDaysByState: [], atSeaDays: 0, standbyDays: 0 };
     }
     
-    // Filter logs to current year only
-    const currentYearStart = startOfYear(new Date());
-    const currentYearEnd = endOfYear(new Date());
-    const yearLogs = stateLogs.filter(log => {
-      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
-      return isWithinInterval(logDate, { start: currentYearStart, end: currentYearEnd });
-    });
+    // Filter logs to since joining the vessel (assignment start date) or all logs if no assignment date
+    let filteredLogs: StateLog[];
     
-    console.log('[CURRENT PAGE] Filtered to current year logs:', {
-      yearLogsCount: yearLogs.length,
-      currentYear: new Date().getFullYear()
+    if (assignmentStartDate) {
+      const filterStartDate = assignmentStartDate;
+      const filterEndDate = endOfDay(new Date());
+      
+      console.log('[CURRENT PAGE] Filtering logs since joining:', {
+        totalLogs: stateLogs.length,
+        filterStartDate: format(filterStartDate, 'yyyy-MM-dd'),
+        filterEndDate: format(filterEndDate, 'yyyy-MM-dd'),
+        firstFewLogDates: stateLogs.slice(0, 5).map(l => l.date)
+      });
+      
+      filteredLogs = stateLogs.filter(log => {
+        const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+        const isInRange = isWithinInterval(logDate, { start: filterStartDate, end: filterEndDate });
+        return isInRange;
+      });
+    } else {
+      // No assignment date - use all logs
+      console.log('[CURRENT PAGE] No assignment date found - using all logs:', {
+        totalLogs: stateLogs.length
+      });
+      filteredLogs = stateLogs;
+    }
+    
+    console.log('[CURRENT PAGE] Filtered logs result:', {
+      filteredLogsCount: filteredLogs.length,
+      assignmentStartDate: assignmentStartDate ? format(assignmentStartDate, 'yyyy-MM-dd') : 'none',
+      firstFewFilteredLogs: filteredLogs.slice(0, 5).map(l => ({ date: l.date, state: l.state }))
     });
     
     let atSea = 0;
-    const stateCounts = yearLogs.reduce((acc, log) => {
+    const stateCounts = filteredLogs.reduce((acc, log) => {
         acc[log.state] = (acc[log.state] || 0) + 1;
         if (log.state === 'underway') atSea++;
         return acc;
     }, {} as Record<DailyStatus, number>);
 
-    // Calculate MCA/PYA compliant standby days for current year only
-    const { totalStandbyDays } = calculateStandbyDays(yearLogs);
-    const standby = totalStandbyDays;
+    // Calculate MCA/PYA compliant standby days using ALL logs (for proper voyage context)
+    // Then filter standby periods to only count those since joining the vessel
+    const { totalStandbyDays, standbyPeriods } = calculateStandbyDays(stateLogs);
+    
+    // Filter standby periods to only count days since joining the vessel
+    let standby = 0;
+    
+    if (assignmentStartDate) {
+      const filterStartDate = assignmentStartDate;
+      const filterEndDate = endOfDay(new Date());
+      
+      for (const period of standbyPeriods) {
+        const periodStart = period.startDate;
+        const periodEnd = period.endDate;
+        
+        // Find the overlap between the standby period and the period since joining
+        const overlapStart = periodStart > filterStartDate ? periodStart : filterStartDate;
+        const overlapEnd = periodEnd < filterEndDate ? periodEnd : filterEndDate;
+        
+        if (overlapStart <= overlapEnd) {
+          // Count how many of the counted days fall within the period since joining
+          // The counted days are the first N days of the period (up to the limit)
+          const countedDays = period.countedDays;
+          const periodDays = period.days;
+          
+          // Calculate how many counted days are since joining
+          let countedSinceJoining = 0;
+          for (let i = 0; i < Math.min(countedDays, periodDays); i++) {
+            const dayDate = addDays(periodStart, i);
+            if (isWithinInterval(dayDate, { start: filterStartDate, end: filterEndDate })) {
+              countedSinceJoining++;
+            }
+          }
+          
+          standby += countedSinceJoining;
+        }
+      }
+    } else {
+      // No assignment date - use all standby days
+      standby = totalStandbyDays;
+    }
+    
+    console.log('[CURRENT PAGE] Standby calculation:', {
+      totalStandbyDaysFromAllLogs: totalStandbyDays,
+      standbyPeriodsCount: standbyPeriods.length,
+      standbyDaysSinceJoining: standby
+    });
 
     const chartData = vesselStates.map(stateInfo => ({
         name: stateInfo.label,
@@ -1940,7 +2037,7 @@ export default function CurrentPage() {
     })).filter(item => item.days > 0);
 
     return { totalDaysByState: chartData, atSeaDays: atSea, standbyDays: standby };
-  }, [stateLogs]);
+  }, [stateLogs, assignmentStartDate]);
 
   const todayKey = format(new Date(), 'yyyy-MM-dd');
   const todayStatusValue = stateLogs?.find(log => log.date === todayKey)?.state;
@@ -2021,7 +2118,7 @@ export default function CurrentPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-bold">{atSeaDays}</div>
-                        <p className="text-xs text-muted-foreground mt-1">days logged this year on {currentVessel.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">days logged since joining {currentVessel.name}</p>
                     </CardContent>
                 </Card>
                 <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
@@ -2033,7 +2130,7 @@ export default function CurrentPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-bold">{standbyDays}</div>
-                        <p className="text-xs text-muted-foreground mt-1">days logged this year on {currentVessel.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">days logged since joining {currentVessel.name}</p>
                     </CardContent>
                 </Card>
                 <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
@@ -2044,11 +2141,17 @@ export default function CurrentPage() {
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-bold">{stateLogs ? stateLogs.filter(log => {
-                          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
-                          return isWithinInterval(logDate, { start: startOfYear(new Date()), end: endOfYear(new Date()) });
-                        }).length : 0}</div>
-                        <p className="text-xs text-muted-foreground mt-1">total days logged this year on {currentVessel.name}</p>
+                        <div className="text-3xl font-bold">
+                          {assignmentStartDate 
+                            ? stateLogs.filter(log => {
+                                const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+                                const filterEndDate = endOfDay(new Date());
+                                return isWithinInterval(logDate, { start: assignmentStartDate, end: filterEndDate });
+                              }).length
+                            : stateLogs.length
+                          }
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">total days logged since joining {currentVessel.name}</p>
                     </CardContent>
                 </Card>
             </div>
@@ -2871,6 +2974,7 @@ export default function CurrentPage() {
         )}
         </div>
       )}
+
     </div>
   );
 }

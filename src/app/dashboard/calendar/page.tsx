@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { format, startOfYear, endOfYear, eachMonthOfInterval, startOfMonth, endOfMonth, eachDayOfInterval, getDaysInMonth, getDay, isSameMonth, isToday, isWithinInterval, startOfDay, endOfDay, isAfter, isBefore, parse, addDays } from 'date-fns';
 import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, Clock } from 'lucide-react';
@@ -20,12 +20,12 @@ import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, Vessel, StateLog, DailyStatus, VesselAssignment } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 
-const vesselStates: { value: DailyStatus; label: string; color: string; icon: React.FC<any> }[] = [
-  { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
-  { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
-  { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
-  { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
-  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
+const vesselStates: { value: DailyStatus; label: string; color: string; bgColor: string; icon: React.FC<any> }[] = [
+  { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', bgColor: 'hsl(217, 91%, 95%)', icon: Waves },
+  { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', bgColor: 'hsl(25, 95%, 95%)', icon: Anchor },
+  { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', bgColor: 'hsl(142, 76%, 95%)', icon: Building },
+  { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', bgColor: 'hsl(215, 16%, 95%)', icon: Briefcase },
+  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', bgColor: 'hsl(0, 84%, 95%)', icon: Ship },
 ];
 
 export default function CalendarPage() {
@@ -273,14 +273,78 @@ export default function CalendarPage() {
     fetchAssignments();
   }, [user?.id, supabase]);
 
+  // Helper function to find which vessel a date belongs to based on assignments
+  const findVesselForDate = useCallback((date: Date): { vessel: Vessel | null; assignment: VesselAssignment | null } => {
+    if (!vessels || !vesselAssignments.length) {
+      return { vessel: null, assignment: null };
+    }
+
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
+
+    // Find the assignment that contains this date
+    for (const assignment of vesselAssignments) {
+      const assignmentStart = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
+      const assignmentEnd = assignment.endDate
+        ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
+        : null;
+
+      // Check if date is within this assignment period [start_date, end_date)
+      const isAfterOrEqualStart = !isBefore(dateObj, assignmentStart);
+      const isBeforeEnd = !assignmentEnd || isBefore(dateObj, assignmentEnd);
+
+      if (isAfterOrEqualStart && isBeforeEnd) {
+        const vessel = vessels.find(v => v.id === assignment.vesselId);
+        return { vessel: vessel || null, assignment };
+      }
+    }
+
+    return { vessel: null, assignment: null };
+  }, [vessels, vesselAssignments]);
+
   // Create a map of date to state for quick lookup
+  // If multiple logs exist for the same date (from different vessels),
+  // prioritize the log from the vessel that the date belongs to according to assignments
   const stateLogMap = useMemo(() => {
     const map = new Map<string, DailyStatus>();
+    
+    // Group logs by date
+    const logsByDate = new Map<string, StateLog[]>();
     stateLogs.forEach(log => {
-      map.set(log.date, log.state);
+      if (!logsByDate.has(log.date)) {
+        logsByDate.set(log.date, []);
+      }
+      logsByDate.get(log.date)!.push(log);
     });
+    
+    // For each date, determine which log to use
+    logsByDate.forEach((logs, dateStr) => {
+      if (logs.length === 1) {
+        // Only one log for this date, use it
+        map.set(dateStr, logs[0].state);
+      } else {
+        // Multiple logs for this date - find which vessel this date belongs to
+        const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
+        const { vessel } = findVesselForDate(dateObj);
+        
+        if (vessel) {
+          // Find the log from the correct vessel
+          const correctLog = logs.find(log => log.vesselId === vessel.id);
+          if (correctLog) {
+            map.set(dateStr, correctLog.state);
+          } else {
+            // Fallback to first log if no match found
+            map.set(dateStr, logs[0].state);
+          }
+        } else {
+          // No vessel found for this date, use first log
+          map.set(dateStr, logs[0].state);
+        }
+      }
+    });
+    
     return map;
-  }, [stateLogs]);
+  }, [stateLogs, vesselAssignments, vessels, findVesselForDate]);
 
   // Calculate standby periods to identify standby dates
   const { standbyPeriods } = useMemo(() => {
@@ -335,35 +399,6 @@ export default function CalendarPage() {
   // Get current year for navigation restrictions
   const currentYear = new Date().getFullYear();
   const isCurrentYear = selectedYear >= currentYear;
-
-  // Helper function to find which vessel a date belongs to based on assignments
-  const findVesselForDate = (date: Date): { vessel: Vessel | null; assignment: VesselAssignment | null } => {
-    if (!vessels || !vesselAssignments.length) {
-      return { vessel: null, assignment: null };
-    }
-
-    const dateStr = format(date, 'yyyy-MM-dd');
-    const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
-
-    // Find the assignment that contains this date
-    for (const assignment of vesselAssignments) {
-      const assignmentStart = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
-      const assignmentEnd = assignment.endDate
-        ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
-        : null;
-
-      // Check if date is within this assignment period [start_date, end_date)
-      const isAfterOrEqualStart = !isBefore(dateObj, assignmentStart);
-      const isBeforeEnd = !assignmentEnd || isBefore(dateObj, assignmentEnd);
-
-      if (isAfterOrEqualStart && isBeforeEnd) {
-        const vessel = vessels.find(v => v.id === assignment.vesselId);
-        return { vessel: vessel || null, assignment };
-      }
-    }
-
-    return { vessel: null, assignment: null };
-  };
 
   // Helper function to validate if a date is within valid vessel assignment period
   const isDateValidForStateChange = (date: Date): { valid: boolean; reason?: string; vessel?: Vessel } => {
@@ -680,10 +715,14 @@ export default function CalendarPage() {
       const stateLabel = vesselStates.find(s => s.value === state)?.label || state;
       
       if (dateRange?.from && dateRange?.to) {
-        const daysCount = logs.length;
+        // Calculate total days from all vessels
+        let totalDays = 0;
+        for (const vesselLogs of logsByVessel.values()) {
+          totalDays += vesselLogs.length;
+        }
         toast({
           title: 'States Updated',
-          description: `${daysCount} day${daysCount > 1 ? 's' : ''} (${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}) updated to ${stateLabel}.`,
+          description: `${totalDays} day${totalDays > 1 ? 's' : ''} (${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}) updated to ${stateLabel}.`,
         });
       } else {
         toast({
@@ -931,7 +970,11 @@ export default function CalendarPage() {
               const count = monthStateCounts[state.value] || 0;
               const StateIcon = state.icon;
               return (
-                <div key={state.value} className="flex items-center gap-2">
+                <div 
+                  key={state.value} 
+                  className="flex items-center gap-2 p-2 rounded-lg"
+                  style={{ backgroundColor: state.bgColor }}
+                >
                   <StateIcon className="h-4 w-4" style={{ color: state.color }} />
                   <div className="flex-1 min-w-0">
                     <div className="text-muted-foreground truncate">{state.label}</div>
@@ -940,7 +983,10 @@ export default function CalendarPage() {
                 </div>
               );
             })}
-            <div className="flex items-center gap-2">
+            <div 
+              className="flex items-center gap-2 p-2 rounded-lg"
+              style={{ backgroundColor: 'hsla(271, 70%, 50%, 0.15)' }}
+            >
               <Clock className="h-4 w-4 text-purple-600" />
               <div className="flex-1 min-w-0">
                 <div className="text-muted-foreground truncate">Standby</div>

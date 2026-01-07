@@ -19,6 +19,7 @@ import type { Vessel, SeaServiceRecord, StateLog, UserProfile, DailyStatus, Test
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
 import { calculateVisaCompliance, detectVisaRules } from '@/lib/visa-compliance';
+import { cn } from '@/lib/utils';
 
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
   { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
@@ -67,7 +68,7 @@ export default function DashboardPage() {
     recentCrewActivity: Array<{
       userId: string;
       userName: string;
-      lastActivity: string;
+      lastActivity: string | null;
       daysLogged: number;
     }>;
   } | null>(null);
@@ -537,8 +538,9 @@ export default function DashboardPage() {
     fetchActiveVisas();
   }, [user?.id, supabase, isAdmin]);
 
+
   // Quick log today's date for a visa
-  const handleQuickLogVisaDate = async (visa: VisaTracker) => {
+  const handleQuickLogVisaDate = async (visa: VisaTracker, showToast = true) => {
     if (!user?.id) return;
 
     setIsLoggingVisaDate(true);
@@ -625,10 +627,12 @@ export default function DashboardPage() {
       const compliance = calculateVisaCompliance(visaWithRules, entries);
       const daysRemaining = compliance.daysRemaining;
 
-      toast({
-        title: 'Date Logged',
-        description: `Successfully logged today's date for ${visa.areaName}. ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''} remaining.`,
-      });
+      if (showToast) {
+        toast({
+          title: 'Date Logged',
+          description: `Successfully logged today's date for ${visa.areaName}. ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''} remaining.`,
+        });
+      }
 
       // Refresh active visas with updated entries using compliance calculation
       const { data: updatedData, error: fetchError } = await supabase
@@ -1941,7 +1945,7 @@ export default function DashboardPage() {
                   const isTodayValid = !isBefore(today, visaIssue) && !isAfter(today, visaExpire);
 
                   return (
-                    <div key={visa.id} className="flex items-center justify-between gap-2 p-2 rounded-lg border bg-background/50">
+                    <div key={visa.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-background/50">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{visa.areaName}</p>
                         <p className="text-xs text-muted-foreground">
@@ -1953,12 +1957,18 @@ export default function DashboardPage() {
                         size="sm"
                         onClick={() => handleQuickLogVisaDate(visa)}
                         disabled={!isTodayValid || isLoggingVisaDate}
-                        className="rounded-lg h-8 shrink-0"
+                        className="rounded-lg"
                       >
                         {isLoggingVisaDate ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Logging...
+                          </>
                         ) : (
-                          <LogIn className="h-3 w-3" />
+                          <>
+                            <LogIn className="mr-2 h-4 w-4" />
+                            Log Today
+                          </>
                         )}
                       </Button>
                     </div>

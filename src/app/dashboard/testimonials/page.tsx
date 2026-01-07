@@ -293,7 +293,7 @@ export default function TestimonialsPage() {
   const [testimonialToDelete, setTestimonialToDelete] = useState<Testimonial | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const { user } = useUser();
+    const { user } = useUser();
   const { supabase } = useSupabase();
   const { toast } = useToast();
 
@@ -1725,15 +1725,15 @@ export default function TestimonialsPage() {
                                 ) : testimonial.status === 'approved' ? (
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="rounded-xl"
-                                      >
-                                        <Download className="mr-2 h-4 w-4" />
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="rounded-xl"
+                                  >
+                                    <Download className="mr-2 h-4 w-4" />
                                         Download PDF
                                         <ChevronDown className="ml-2 h-4 w-4" />
-                                      </Button>
+                                  </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
                                       <DropdownMenuItem onClick={() => handleGeneratePDF(testimonial, 'mca')}>

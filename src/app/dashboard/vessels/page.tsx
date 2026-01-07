@@ -5,22 +5,23 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { PlusCircle, Loader2, Ship, ChevronDown, Search, LayoutGrid, List, PlayCircle, Trash2, CalendarIcon, ShieldCheck, ChevronsUpDown, Check } from 'lucide-react';
-import { format, eachDayOfInterval, startOfDay, endOfDay, parse } from 'date-fns';
+import { PlusCircle, Loader2, Ship, ChevronDown, Search, LayoutGrid, List, PlayCircle, Trash2, CalendarIcon, ShieldCheck, ChevronsUpDown, Check, Edit } from 'lucide-react';
+import { format, eachDayOfInterval, startOfDay, endOfDay, parse, isAfter, isSameDay, isBefore } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { createVessel, getVesselStateLogs, getVesselSeaService, updateUserProfile, deleteVesselStateLogs, updateStateLogsBatch, getVesselAssignment } from '@/supabase/database/queries';
+import { createVessel, getVesselStateLogs, getVesselSeaService, updateUserProfile, deleteVesselStateLogs, updateStateLogsBatch, getVesselAssignment, getVesselAssignments, updateVesselAssignment } from '@/supabase/database/queries';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
-import type { Vessel, StateLog, UserProfile, SeaServiceRecord, DailyStatus } from '@/lib/types';
+import type { Vessel, StateLog, UserProfile, SeaServiceRecord, DailyStatus, VesselAssignment } from '@/lib/types';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { cn } from '@/lib/utils';
 import { VesselSummaryCard, VesselSummarySkeleton } from '@/components/dashboard/vessel-summary-card';
@@ -95,7 +96,11 @@ export default function VesselsPage() {
   const [isAddVesselDialogOpen, setIsAddVesselDialogOpen] = useState(false);
   const [isSavingVessel, setIsSavingVessel] = useState(false);
   const [vesselSigningAuthorities, setVesselSigningAuthorities] = useState<Map<string, boolean>>(new Map()); // vesselId -> hasActiveCaptain
-  const [vesselAssignments, setVesselAssignments] = useState<Map<string, { startDate: string; endDate: string | null }>>(new Map()); // vesselId -> assignment dates
+  const [vesselAssignments, setVesselAssignments] = useState<Map<string, { startDate: string; endDate: string | null; assignmentId?: string }>>(new Map()); // vesselId -> assignment dates
+  const [allVesselAssignments, setAllVesselAssignments] = useState<VesselAssignment[]>([]); // Full assignment objects for editing
+  const [isEditStartDateDialogOpen, setIsEditStartDateDialogOpen] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState<{ vesselId: string; assignment: VesselAssignment } | null>(null);
+  const [isUpdatingStartDate, setIsUpdatingStartDate] = useState(false);
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -222,29 +227,35 @@ export default function VesselsPage() {
 
   // Fetch vessel assignments for each vessel to get join/leave dates
   useEffect(() => {
-    if (allVessels && user?.id) {
+    if (user?.id) {
       const fetchAssignments = async () => {
-        const assignmentsMap = new Map<string, { startDate: string; endDate: string | null }>();
-        
-        await Promise.all(allVessels.map(async (vessel) => {
-          try {
-            const assignment = await getVesselAssignment(supabase, user.id, vessel.id);
-            if (assignment) {
-              assignmentsMap.set(vessel.id, {
+        try {
+          const assignmentsMap = new Map<string, { startDate: string; endDate: string | null; assignmentId?: string }>();
+          
+          // Fetch all assignments to get full objects with IDs
+          const allAssignments = await getVesselAssignments(supabase, user.id);
+          setAllVesselAssignments(allAssignments);
+          
+          // Create map for quick lookup (get most recent assignment per vessel)
+          allAssignments.forEach((assignment) => {
+            // Get the most recent assignment for each vessel (first one since sorted by start_date desc)
+            if (!assignmentsMap.has(assignment.vesselId)) {
+              assignmentsMap.set(assignment.vesselId, {
                 startDate: assignment.startDate,
                 endDate: assignment.endDate || null,
+                assignmentId: assignment.id,
               });
             }
-          } catch (error) {
-            console.error(`[VESSELS] Error fetching assignment for vessel ${vessel.id}:`, error);
-          }
-        }));
-        
-        setVesselAssignments(assignmentsMap);
+          });
+          
+          setVesselAssignments(assignmentsMap);
+        } catch (error) {
+          console.error('[VESSELS] Error fetching assignments:', error);
+        }
       };
       fetchAssignments();
     }
-  }, [allVessels, user?.id, supabase]);
+  }, [user?.id, supabase]);
 
   // Fetch captaincy requests for vessels (if user is captain)
   // Fetch ALL requests for this captain, not just for vessels they've logged time on
@@ -625,6 +636,121 @@ export default function VesselsPage() {
   }, [user?.id, currentUserProfile, supabase, toast, allVessels, vessels, vesselStateLogs]);
 
   // Handler to add past vessel
+  const handleUpdateStartDate = useCallback(async (newStartDate: Date) => {
+    if (!editingAssignment || !user?.id) return;
+    
+    setIsUpdatingStartDate(true);
+    
+    try {
+      const newStartDateStr = format(newStartDate, 'yyyy-MM-dd');
+      
+      // Validate: new start date must be before end date (if there is one)
+      if (editingAssignment.assignment.endDate) {
+        const endDate = parse(editingAssignment.assignment.endDate, 'yyyy-MM-dd', new Date());
+        if (isAfter(newStartDate, endDate) || isSameDay(newStartDate, endDate)) {
+          toast({
+            title: 'Invalid Date',
+            description: 'Start date must be before the end date.',
+            variant: 'destructive',
+          });
+          setIsUpdatingStartDate(false);
+          return;
+        }
+      }
+      
+      // Validate: new start date cannot be in the future
+      if (isAfter(newStartDate, new Date())) {
+        toast({
+          title: 'Invalid Date',
+          description: 'Start date cannot be in the future.',
+          variant: 'destructive',
+        });
+        setIsUpdatingStartDate(false);
+        return;
+      }
+      
+      // Check for overlapping assignments with OTHER vessels only
+      // The database constraint prevents overlapping date ranges for the same user
+      // But we allow updates to the same vessel as long as no other vessel assignment is in between
+      // The constraint uses '[)' which means start is inclusive, end is exclusive
+      const newEndDate = editingAssignment.assignment.endDate 
+        ? parse(editingAssignment.assignment.endDate, 'yyyy-MM-dd', new Date())
+        : null;
+      
+      // Check all other assignments on DIFFERENT vessels (excluding the current one being edited and same vessel)
+      const otherVesselAssignments = allVesselAssignments.filter(
+        a => a.id !== editingAssignment.assignment.id && a.vesselId !== editingAssignment.vesselId
+      );
+      
+      for (const otherAssignment of otherVesselAssignments) {
+        const otherStart = parse(otherAssignment.startDate, 'yyyy-MM-dd', new Date());
+        const otherEnd = otherAssignment.endDate 
+          ? parse(otherAssignment.endDate, 'yyyy-MM-dd', new Date())
+          : null;
+        
+        // Check if the new date range overlaps with this assignment
+        // For ranges [a, b) and [c, d), they overlap if: a < d AND c < b
+        // Since end dates are exclusive, we need to check if ranges overlap
+        const newStart = newStartDate;
+        const newEnd = newEndDate || new Date('2099-12-31'); // Use far future if no end date
+        const otherEndForComparison = otherEnd || new Date('2099-12-31');
+        
+        // Check for overlap: newStart < otherEnd AND otherStart < newEnd
+        if (isBefore(newStart, otherEndForComparison) && isBefore(otherStart, newEnd)) {
+          // Find the vessel name for the overlapping assignment
+          const overlappingVessel = allVessels?.find(v => v.id === otherAssignment.vesselId);
+          const vesselName = overlappingVessel?.name || 'another vessel';
+          
+          toast({
+            title: 'Date Conflict',
+            description: `This date range overlaps with your assignment on ${vesselName} (${format(otherStart, 'MMM d, yyyy')}${otherEnd ? ` - ${format(otherEnd, 'MMM d, yyyy')}` : ' - ongoing'}). Please choose a different date.`,
+            variant: 'destructive',
+          });
+          setIsUpdatingStartDate(false);
+          return;
+        }
+      }
+      
+      await updateVesselAssignment(supabase, editingAssignment.assignment.id, {
+        startDate: newStartDateStr,
+      });
+      
+      // Refresh assignments
+      const updatedAssignments = await getVesselAssignments(supabase, user.id);
+      setAllVesselAssignments(updatedAssignments);
+      
+      // Update the map
+      const assignmentsMap = new Map<string, { startDate: string; endDate: string | null; assignmentId?: string }>();
+      updatedAssignments.forEach((assignment) => {
+        if (!assignmentsMap.has(assignment.vesselId)) {
+          assignmentsMap.set(assignment.vesselId, {
+            startDate: assignment.startDate,
+            endDate: assignment.endDate || null,
+            assignmentId: assignment.id,
+          });
+        }
+      });
+      setVesselAssignments(assignmentsMap);
+      
+      toast({
+        title: 'Start Date Updated',
+        description: `Your join date has been updated to ${format(newStartDate, 'PPP')}.`,
+      });
+      
+      setIsEditStartDateDialogOpen(false);
+      setEditingAssignment(null);
+    } catch (error: any) {
+      console.error('Error updating start date:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update start date. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUpdatingStartDate(false);
+    }
+  }, [editingAssignment, user?.id, supabase, toast]);
+
   const handleAddPastVessel = useCallback(async (data: PastVesselFormValues) => {
     if (!user?.id || !allVessels) return;
 
@@ -1217,9 +1343,30 @@ export default function VesselsPage() {
                                                                                 <>
                                                                                     <div className="flex justify-between items-center py-1">
                                                                                         <span className="text-sm text-muted-foreground">Join Date</span>
-                                                                                        <span className="text-sm font-medium">
-                                                                                            {format(parse(assignment.startDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
-                                                                                        </span>
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <span className="text-sm font-medium">
+                                                                                                {format(parse(assignment.startDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
+                                                                                            </span>
+                                                                                            {(() => {
+                                                                                                const fullAssignment = allVesselAssignments.find(
+                                                                                                    a => a.vesselId === vessel.id && a.id === assignment.assignmentId
+                                                                                                );
+                                                                                                return fullAssignment ? (
+                                                                                                    <Button
+                                                                                                        variant="ghost"
+                                                                                                        size="sm"
+                                                                                                        className="h-5 w-5 p-0"
+                                                                                                        onClick={() => {
+                                                                                                            setEditingAssignment({ vesselId: vessel.id, assignment: fullAssignment });
+                                                                                                            setIsEditStartDateDialogOpen(true);
+                                                                                                        }}
+                                                                                                        title="Edit join date"
+                                                                                                    >
+                                                                                                        <Edit className="h-3 w-3" />
+                                                                                                    </Button>
+                                                                                                ) : null;
+                                                                                            })()}
+                                                                                        </div>
                                                                 </div>
                                                                                     {assignment.endDate && (
                                                                                         <div className="flex justify-between items-center py-1">
@@ -1629,7 +1776,107 @@ export default function VesselsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit Start Date Dialog */}
+      <EditStartDateDialog
+        isOpen={isEditStartDateDialogOpen}
+        onOpenChange={setIsEditStartDateDialogOpen}
+        assignment={editingAssignment?.assignment}
+        vessel={allVessels?.find(v => v.id === editingAssignment?.vesselId)}
+        onUpdate={handleUpdateStartDate}
+        isUpdating={isUpdatingStartDate}
+      />
     </div>
+  );
+}
+
+// Edit Start Date Dialog Component
+function EditStartDateDialog({
+  isOpen,
+  onOpenChange,
+  assignment,
+  vessel,
+  onUpdate,
+  isUpdating,
+}: {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  assignment: VesselAssignment | undefined;
+  vessel: Vessel | undefined;
+  onUpdate: (date: Date) => void;
+  isUpdating: boolean;
+}) {
+  const [editStartDate, setEditStartDate] = useState<Date | undefined>(undefined);
+
+  useEffect(() => {
+    if (assignment && isOpen) {
+      setEditStartDate(parse(assignment.startDate, 'yyyy-MM-dd', new Date()));
+    }
+  }, [assignment, isOpen]);
+
+  if (!assignment || !vessel) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Edit Join Date</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label htmlFor="start-date">Join Date</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    !editStartDate && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {editStartDate ? format(editStartDate, 'PPP') : 'Pick a date'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={editStartDate}
+                  onSelect={(date) => date && setEditStartDate(date)}
+                  disabled={(date) => isAfter(date, new Date())}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+            <p className="text-xs text-muted-foreground">
+              Select the correct date you joined {vessel.name}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={isUpdating}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => editStartDate && onUpdate(editStartDate)}
+              disabled={isUpdating || !editStartDate}
+            >
+              {isUpdating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                'Update Date'
+              )}
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
     
