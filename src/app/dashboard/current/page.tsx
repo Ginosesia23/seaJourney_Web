@@ -97,13 +97,13 @@ const POSITION_OPTIONS = [
   'Other',
 ] as const;
 
-const vesselStates: { value: DailyStatus; label: string; color: string; bgColor: string; icon: React.FC<any> }[] = [
-    { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', bgColor: 'hsl(217, 91%, 95%)', icon: Waves },
-    { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', bgColor: 'hsl(25, 95%, 95%)', icon: Anchor },
-    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', bgColor: 'hsl(142, 76%, 95%)', icon: Building },
-    { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', bgColor: 'hsl(215, 16%, 95%)', icon: Briefcase },
-    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', bgColor: 'hsl(0, 84%, 95%)', icon: Ship },
-];
+const vesselStates: { value: DailyStatus; label: string; color: string; icon: React.FC<any> }[] = [
+    { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
+    { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
+    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
+    { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
+    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
+  ];
 
 export default function CurrentPage() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
@@ -1812,8 +1812,7 @@ export default function CurrentPage() {
               return (
                 <div 
                   key={state.value} 
-                  className="flex items-center gap-2 p-2 rounded-lg"
-                  style={{ backgroundColor: state.bgColor }}
+                  className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"
                 >
                   <StateIcon className="h-4 w-4" style={{ color: state.color }} />
                   <div className="flex-1 min-w-0">
@@ -1824,8 +1823,7 @@ export default function CurrentPage() {
               );
             })}
             <div 
-              className="flex items-center gap-2 p-2 rounded-lg"
-              style={{ backgroundColor: 'hsla(271, 70%, 50%, 0.15)' }}
+              className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"
             >
               <Clock className="h-4 w-4 text-purple-600" />
               <div className="flex-1 min-w-0">
