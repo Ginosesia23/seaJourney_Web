@@ -130,11 +130,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { token, email, decision, rejectionReason } = body as {
+  const { token, email, decision, rejectionReason, commentConduct, commentAbility, commentGeneral } = body as {
     token?: string;
     email?: string;
     decision?: 'approve' | 'reject';
     rejectionReason?: string;
+    commentConduct?: string;
+    commentAbility?: string;
+    commentGeneral?: string;
   };
 
   if (!token || !email || !decision) {
@@ -146,7 +149,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('testimonials')
-    .select('id, user_id, vessel_id, start_date, end_date, total_days, at_sea_days, standby_days, testimonial_code, status, signoff_token_expires_at, signoff_used_at, notes, captain_user_id, captain_name, captain_email, captain_position')
+    .select('id, user_id, vessel_id, start_date, end_date, total_days, at_sea_days, standby_days, testimonial_code, status, signoff_token_expires_at, signoff_used_at, notes, captain_user_id, captain_name, captain_email, captain_position, captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general')
     .eq('signoff_token', token)
     .eq('signoff_target_email', email)
     .maybeSingle();
@@ -241,6 +244,19 @@ export async function POST(req: NextRequest) {
       : `Rejection reason: ${rejectionReason}`;
   }
 
+  // Add captain comments if approving
+  if (decision === 'approve') {
+    if (commentConduct) {
+      updateData.captain_comment_conduct = commentConduct.trim();
+    }
+    if (commentAbility) {
+      updateData.captain_comment_ability = commentAbility.trim();
+    }
+    if (commentGeneral) {
+      updateData.captain_comment_general = commentGeneral.trim();
+    }
+  }
+
   const { error: updateError } = await supabaseAdmin
     .from('testimonials')
     .update(updateData)
@@ -307,6 +323,10 @@ export async function POST(req: NextRequest) {
         standby_days: data.standby_days,
         captain_name: captainName,
         captain_license: captainLicense,
+        captain_signature: data.captain_signature || null, // Captain's signature saved at approval time
+        captain_comment_conduct: data.captain_comment_conduct || null, // Captain comment on conduct
+        captain_comment_ability: data.captain_comment_ability || null, // Captain comment on ability
+        captain_comment_general: data.captain_comment_general || null, // Captain general comments
         document_id: data.id, // The UUID used as Document ID
         testimonial_code: data.testimonial_code || null,
         approved_at: now.toISOString(),

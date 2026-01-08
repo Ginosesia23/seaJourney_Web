@@ -16,6 +16,7 @@ export interface UserProfile {
   stripeSubscriptionId?: string | null;
   activeVesselId?: string;
   startDate?: string | null; // ISO date string (YYYY-MM-DD) - Official start date for vessel accounts
+  signature?: string | null; // Base64 encoded signature image for captains
 }
 
 export interface Vessel {
@@ -35,6 +36,9 @@ export interface Vessel {
   call_sign?: string | null;
   mmsi?: string | null;
   description?: string | null;
+  management_company?: string | null;
+  company_address?: string | null;
+  company_contact?: string | null;
 }
 
 export type DailyStatus = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';
@@ -87,6 +91,10 @@ export interface Testimonial {
     captain_name: string | null;
     captain_email: string | null;
     captain_position: string | null;  // Captain's position (e.g., "Master", "Chief Officer") saved at approval time
+    captain_signature: string | null; // Base64 encoded signature image saved at approval time
+    captain_comment_conduct?: string | null; // Captain comment on conduct
+    captain_comment_ability?: string | null; // Captain comment on ability
+    captain_comment_general?: string | null; // Captain general comments
     official_body: string | null;
     official_reference: string | null;
     notes: string | null;

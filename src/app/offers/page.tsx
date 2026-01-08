@@ -595,7 +595,7 @@ export default function OffersPage() {
                     ? 'Upgrade or downgrade your subscription to match your needs. Changes take effect immediately.'
                     : isVesselAccount
                     ? 'Select the perfect plan for managing your vessel and crew based on your fleet size and crew numbers.'
-                    : 'Find the perfect fit for your maritime career and get ready to set sail. Start your journey today with a 7-day free trial.'}
+                    : 'Find the perfect fit for your maritime career and get ready to set sail. Start your journey today.'}
               </p>
               </motion.div>
             </div>
@@ -915,11 +915,10 @@ export default function OffersPage() {
               >
                 <Shield className="h-5 w-5 text-blue-400" />
                 <p className="text-blue-200 font-medium">
-                  All plans include a{' '}
                   <span className="text-white font-bold">
-                    7-day free trial
+                    Cancel anytime
                   </span>{' '}
-                  - Cancel anytime
+                  - Flexible billing
                 </p>
               </div>
             </motion.div>

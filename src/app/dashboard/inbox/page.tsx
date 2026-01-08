@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { getVesselStateLogs } from '@/supabase/database/queries';
 import { DateComparisonView } from './date-comparison-view';
 import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog } from '@/lib/types';
@@ -45,6 +46,13 @@ export default function InboxPage() {
   const [password, setPassword] = useState('');
   const [isVerifyingPassword, setIsVerifyingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
+  
+  // Captain comments state
+  const [commentConduct, setCommentConduct] = useState('');
+  const [commentAbility, setCommentAbility] = useState('');
+  const [commentGeneral, setCommentGeneral] = useState('');
+  const [captainSignature, setCaptainSignature] = useState<string | null>(null);
+  const [signatureApproved, setSignatureApproved] = useState(false);
   
   // State for date comparison
   const [vesselStateLogs, setVesselStateLogs] = useState<StateLog[]>([]); // Crew member's logs
@@ -379,6 +387,36 @@ export default function InboxPage() {
   const handleApprove = async () => {
     if (!selectedTestimonial || !user?.id) return;
     
+    // Validate required comment fields
+    if (!commentConduct.trim() || !commentAbility.trim() || !commentGeneral.trim()) {
+      toast({
+        title: 'Comments Required',
+        description: 'Please fill in all comment fields (Conduct, Ability, and General Comments) before approving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    // Check if signature exists
+    if (!captainSignature) {
+      toast({
+        title: 'Signature Required',
+        description: 'Please add your signature in Settings → Signature before approving testimonials.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    // Check if signature approval checkbox is checked
+    if (!signatureApproved) {
+      toast({
+        title: 'Signature Approval Required',
+        description: 'Please confirm that you approve the use of your signature by checking the checkbox.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     // Show password verification dialog first
     setIsPasswordDialogOpen(true);
     setPassword('');
@@ -397,18 +435,28 @@ export default function InboxPage() {
           updated_at: new Date().toISOString(),
       };
 
-      // Always fetch and save captain details (name, email, position) when approving
+      // Add captain comments
+      updateData.captain_comment_conduct = commentConduct.trim();
+      updateData.captain_comment_ability = commentAbility.trim();
+      updateData.captain_comment_general = commentGeneral.trim();
+
+      // Always fetch and save captain details (name, email, position, signature) when approving
       // This ensures the crew member can generate the PDF without needing permission to view the captain's profile
-      if (!selectedTestimonial.captain_name || !selectedTestimonial.captain_email || !selectedTestimonial.captain_position) {
+      if (!selectedTestimonial.captain_name || !selectedTestimonial.captain_email || !selectedTestimonial.captain_position || !selectedTestimonial.captain_signature) {
         // If captain_user_id is set, fetch from that user's profile
         if (selectedTestimonial.captain_user_id) {
           const { data: captainProfile, error: profileError } = await supabase
             .from('users')
-            .select('first_name, last_name, email, position')
+            .select('first_name, last_name, email, position, signature')
             .eq('id', selectedTestimonial.captain_user_id)
             .maybeSingle();
 
           if (!profileError && captainProfile) {
+            console.log('[APPROVAL] Fetched captain profile:', {
+              hasSignature: !!captainProfile.signature,
+              signatureLength: captainProfile.signature?.length || 0
+            });
+            
             const captainFullName = `${captainProfile.first_name || ''} ${captainProfile.last_name || ''}`.trim();
             if (!selectedTestimonial.captain_name && captainFullName) {
               updateData.captain_name = captainFullName;
@@ -419,16 +467,25 @@ export default function InboxPage() {
             if (!selectedTestimonial.captain_position && captainProfile.position) {
               updateData.captain_position = captainProfile.position;
             }
+            if (!selectedTestimonial.captain_signature && captainProfile.signature) {
+              updateData.captain_signature = captainProfile.signature;
+              console.log('[APPROVAL] Adding captain signature to testimonial');
+            }
           }
         } else {
           // If no captain_user_id, try to get from current user (the approving captain)
           const { data: currentCaptainProfile, error: currentProfileError } = await supabase
             .from('users')
-            .select('first_name, last_name, email, position')
+            .select('first_name, last_name, email, position, signature')
             .eq('id', user.id)
             .maybeSingle();
 
           if (!currentProfileError && currentCaptainProfile) {
+            console.log('[APPROVAL] Fetched current captain profile:', {
+              hasSignature: !!currentCaptainProfile.signature,
+              signatureLength: currentCaptainProfile.signature?.length || 0
+            });
+            
             const captainFullName = `${currentCaptainProfile.first_name || ''} ${currentCaptainProfile.last_name || ''}`.trim();
             if (!selectedTestimonial.captain_name && captainFullName) {
               updateData.captain_name = captainFullName;
@@ -438,6 +495,10 @@ export default function InboxPage() {
             }
             if (!selectedTestimonial.captain_position && currentCaptainProfile.position) {
               updateData.captain_position = currentCaptainProfile.position;
+            }
+            if (!selectedTestimonial.captain_signature && currentCaptainProfile.signature) {
+              updateData.captain_signature = currentCaptainProfile.signature;
+              console.log('[APPROVAL] Adding current captain signature to testimonial');
             }
             // Also set captain_user_id if not already set
             if (!selectedTestimonial.captain_user_id) {
@@ -637,7 +698,31 @@ export default function InboxPage() {
     setSelectedTestimonial(testimonial);
     setAction(actionType);
     setRejectionReason('');
+    setCommentConduct('');
+    setCommentAbility('');
+    setCommentGeneral('');
+    setSignatureApproved(false);
     setIsDialogOpen(true);
+    
+    // Fetch captain signature for preview if approving
+    if (actionType === 'approve' && user?.id) {
+      try {
+        const { data: captainProfile, error: sigError } = await supabase
+          .from('users')
+          .select('signature')
+          .eq('id', user.id)
+          .maybeSingle();
+        
+        if (!sigError && captainProfile?.signature) {
+          setCaptainSignature(captainProfile.signature);
+        } else {
+          setCaptainSignature(null);
+        }
+      } catch (error) {
+        console.error('[INBOX] Error fetching captain signature:', error);
+        setCaptainSignature(null);
+      }
+    }
     
     // Fetch vessel state logs for date comparison
     // For captains: fetch both crew member's logs AND all vessel logs (captain has read permission for vessel)
@@ -1739,6 +1824,112 @@ export default function InboxPage() {
                   </div>
                     )}
 
+                  {/* Captain Comments Section */}
+                  <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+                    <div className="space-y-4">
+                      <div>
+                        <h3 className="text-sm font-semibold mb-1">Captain Comments *</h3>
+                        <p className="text-xs text-muted-foreground">
+                          Please provide comments on the following areas. These will be included in the testimonial document.
+                        </p>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="comment-conduct" className="text-sm font-medium">
+                          Conduct *
+                        </Label>
+                        <Textarea
+                          id="comment-conduct"
+                          placeholder="Comment on the seafarer's conduct..."
+                          value={commentConduct}
+                          onChange={(e) => setCommentConduct(e.target.value)}
+                          rows={2}
+                          className="rounded-lg bg-background resize-none"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="comment-ability" className="text-sm font-medium">
+                          Ability *
+                        </Label>
+                        <Textarea
+                          id="comment-ability"
+                          placeholder="Comment on the seafarer's ability..."
+                          value={commentAbility}
+                          onChange={(e) => setCommentAbility(e.target.value)}
+                          rows={2}
+                          className="rounded-lg bg-background resize-none"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="comment-general" className="text-sm font-medium">
+                          General Comments *
+                        </Label>
+                        <Textarea
+                          id="comment-general"
+                          placeholder="Any additional general comments..."
+                          value={commentGeneral}
+                          onChange={(e) => setCommentGeneral(e.target.value)}
+                          rows={2}
+                          className="rounded-lg bg-background resize-none"
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Captain Signature Preview */}
+                  {captainSignature ? (
+                    <div className="bg-muted/30 rounded-lg p-4 border">
+                      <div className="space-y-3">
+                        <Label className="text-sm font-medium">Your Signature Preview</Label>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          This signature will be added to the testimonial PDF. Please confirm it is correct.
+                        </p>
+                        <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border-2 border-dashed border-primary/30 flex items-center justify-center min-h-[80px]">
+                          <img
+                            src={captainSignature}
+                            alt="Captain signature preview"
+                            className="max-h-[60px] max-w-full object-contain"
+                          />
+                        </div>
+                        <div className="flex items-start gap-2 pt-2">
+                          <Checkbox
+                            id="signature-approval"
+                            checked={signatureApproved}
+                            onCheckedChange={(checked) => setSignatureApproved(checked === true)}
+                            className="mt-0.5"
+                          />
+                          <div className="flex-1">
+                            <Label htmlFor="signature-approval" className="text-sm font-medium cursor-pointer">
+                              I approve the use of this signature on the testimonial PDF
+                            </Label>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              You can change your signature at any time in Settings → Signature
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-yellow-50 dark:bg-yellow-950/20 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-1">
+                            No Signature Found
+                          </p>
+                          <p className="text-xs text-yellow-700 dark:text-yellow-300">
+                            You don't have a signature saved. Please add your signature in Settings → Signature before approving testimonials.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Rejection Reason Field - Collapsible section */}
                   <div className="bg-muted/30 rounded-lg p-4 border">
                     <div className="space-y-3">
@@ -1809,6 +2000,11 @@ export default function InboxPage() {
                 setSelectedTestimonial(null);
                 setAction(null);
                 setRejectionReason('');
+                setCommentConduct('');
+                setCommentAbility('');
+                setCommentGeneral('');
+                setCaptainSignature(null);
+                setSignatureApproved(false);
                 setComparisonData(null);
                 setIsPasswordDialogOpen(false);
                 setPassword('');
@@ -1841,7 +2037,7 @@ export default function InboxPage() {
                 </Button>
                 <Button
                   onClick={handleApprove}
-                  disabled={isProcessing || isVerifyingPassword}
+                  disabled={isProcessing || isVerifyingPassword || !commentConduct.trim() || !commentAbility.trim() || !commentGeneral.trim() || !captainSignature || !signatureApproved}
                   className="rounded-xl bg-green-600 hover:bg-green-700"
                 >
                   {isProcessing ? (

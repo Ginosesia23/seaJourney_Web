@@ -63,7 +63,7 @@ export default function PricingPromo() {
                         Choose Your Voyage
                     </h2>
                     <p className="mt-4 text-lg leading-8 text-header-foreground/80">
-                        Find the perfect fit for your maritime career. All plans come with a 7-day free trial.
+                        Find the perfect fit for your maritime career. Flexible billing and cancel anytime.
                     </p>
                 </div>
 

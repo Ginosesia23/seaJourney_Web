@@ -519,6 +519,9 @@ const vesselDetailsSchema = z.object({
   call_sign: z.string().optional().or(z.literal('')),
   mmsi: z.string().optional().or(z.literal('')),
   description: z.string().optional().or(z.literal('')),
+  management_company: z.string().optional().or(z.literal('')),
+  company_address: z.string().optional().or(z.literal('')),
+  company_contact: z.string().optional().or(z.literal('')),
 });
 
 type VesselDetailsFormValues = z.infer<typeof vesselDetailsSchema>;
@@ -730,6 +733,9 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
       call_sign: vessel?.call_sign || '',
       mmsi: vessel?.mmsi || '',
       description: vessel?.description || '',
+      management_company: (vesselData as any)?.management_company || '',
+      company_address: (vesselData as any)?.company_address || '',
+      company_contact: (vesselData as any)?.company_contact || '',
     },
   });
 
@@ -750,6 +756,9 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
         call_sign: vesselData.call_sign || '',
         mmsi: vesselData.mmsi || '',
         description: vesselData.description || '',
+        management_company: vesselData.management_company || '',
+        company_address: vesselData.company_address || '',
+        company_contact: vesselData.company_contact || '',
       });
     }
   }, [vesselData, form]);
@@ -773,6 +782,9 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
         call_sign: data.call_sign === '' ? null : data.call_sign,
         mmsi: data.mmsi === '' ? null : data.mmsi,
         description: data.description === '' ? null : data.description,
+        management_company: data.management_company === '' ? null : data.management_company,
+        company_address: data.company_address === '' ? null : data.company_address,
+        company_contact: data.company_contact === '' ? null : data.company_contact,
       };
 
       const response = await fetch('/api/vessels/update', {
@@ -1066,6 +1078,57 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
                     <FormLabel>Description</FormLabel>
                     <FormControl>
                       <Textarea {...field} placeholder="Additional vessel information, notes, or description..." disabled={!isEditing} rows={4} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Briefcase className="h-5 w-5" />
+                Company Details
+              </CardTitle>
+              <CardDescription>Company information for use in testimonials and official documents</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <FormField
+                control={form.control}
+                name="management_company"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Company Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Company or management company name" disabled={!isEditing} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="company_address"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Company Address</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} placeholder="Full company address" disabled={!isEditing} rows={3} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="company_contact"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Contact Details</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Phone, email, or other contact information" disabled={!isEditing} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -434,7 +434,7 @@ export default function BridgeWatchLogPage() {
 
   if (!hasPremiumAccess) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div className="flex flex-col gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Bridge Watch Log</CardTitle>
@@ -456,8 +456,8 @@ export default function BridgeWatchLogPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Bridge Watch Log</h1>
           <p className="text-muted-foreground mt-1">
@@ -468,7 +468,7 @@ export default function BridgeWatchLogPage() {
 
       {/* Summary Cards */}
       {watches.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-3 mb-6">
+        <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Watch Hours</CardTitle>

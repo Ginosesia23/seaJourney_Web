@@ -70,6 +70,9 @@ export default function SignoffClient() {
   const [message, setMessage] = useState<string | null>(null);
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [commentConduct, setCommentConduct] = useState('');
+  const [commentAbility, setCommentAbility] = useState('');
+  const [commentGeneral, setCommentGeneral] = useState('');
 
   useEffect(() => {
     async function load() {
@@ -120,6 +123,9 @@ export default function SignoffClient() {
         decision,
         rejectionReason:
           decision === 'reject' ? rejectionReason.trim() : undefined,
+        commentConduct: decision === 'approve' ? commentConduct.trim() : undefined,
+        commentAbility: decision === 'approve' ? commentAbility.trim() : undefined,
+        commentGeneral: decision === 'approve' ? commentGeneral.trim() : undefined,
       }),
     });
 
@@ -471,6 +477,60 @@ export default function SignoffClient() {
 
             {/* Action Section */}
             <div className="space-y-4">
+              {/* Captain Comments Section */}
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold mb-3">Comments (Optional)</h3>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    You may provide comments on the following areas. These will be included in the testimonial document.
+                  </p>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="comment-conduct" className="text-sm">
+                    Conduct
+                  </Label>
+                  <Textarea
+                    id="comment-conduct"
+                    placeholder="Comment on the seafarer's conduct..."
+                    value={commentConduct}
+                    onChange={(e) => setCommentConduct(e.target.value)}
+                    rows={2}
+                    className="resize-none"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="comment-ability" className="text-sm">
+                    Ability
+                  </Label>
+                  <Textarea
+                    id="comment-ability"
+                    placeholder="Comment on the seafarer's ability..."
+                    value={commentAbility}
+                    onChange={(e) => setCommentAbility(e.target.value)}
+                    rows={2}
+                    className="resize-none"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="comment-general" className="text-sm">
+                    General Comments
+                  </Label>
+                  <Textarea
+                    id="comment-general"
+                    placeholder="Any additional general comments..."
+                    value={commentGeneral}
+                    onChange={(e) => setCommentGeneral(e.target.value)}
+                    rows={2}
+                    className="resize-none"
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
               <div className="space-y-2">
                 <Label htmlFor="rejection-reason" className="text-sm">
                   Rejection Reason{' '}

@@ -15,7 +15,7 @@ const Hero = () => {
               </span>
             </div>
             <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-6xl">
-              Your Complete<br />Maritime Dashboard
+              Your Complete<br />Maritime Logbook
                 </h1>
             <p className="mt-6 text-lg leading-8 text-blue-100 max-w-3xl mx-auto">
               Track unlimited vessel states, manage your sea time, generate professional testimonials, and advance your career—all in one powerful platform. Built for crew members and vessel owners alike.

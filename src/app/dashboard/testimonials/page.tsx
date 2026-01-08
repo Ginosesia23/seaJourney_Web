@@ -1026,27 +1026,77 @@ export default function TestimonialsPage() {
       return;
     }
 
-    // Fetch captain profile if captain_user_id is available
+    // For approved testimonials, fetch from approved_testimonials table (immutable snapshot with captain signature and comments)
+    let captainSignature = testimonial.captain_signature || null;
+    let captainCommentConduct = (testimonial as any).captain_comment_conduct || null;
+    let captainCommentAbility = (testimonial as any).captain_comment_ability || null;
+    let captainCommentGeneral = (testimonial as any).captain_comment_general || null;
+    
+    if (testimonial.status === 'approved') {
+      try {
+        console.log('[PDF GENERATION] Fetching approved testimonial snapshot for:', testimonial.id);
+        const { data: approvedSnapshot, error: snapshotError } = await supabase
+          .from('approved_testimonials')
+          .select('captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general')
+          .eq('testimonial_id', testimonial.id)
+          .maybeSingle();
+
+        if (snapshotError) {
+          console.error('[PDF GENERATION] Error fetching approved snapshot:', snapshotError);
+        } else if (approvedSnapshot) {
+          if (approvedSnapshot.captain_signature) {
+            captainSignature = approvedSnapshot.captain_signature;
+            console.log('[PDF GENERATION] Using captain signature from approved snapshot:', {
+              hasSignature: true,
+              signatureLength: captainSignature?.length || 0
+            });
+          }
+          if (approvedSnapshot.captain_comment_conduct) {
+            captainCommentConduct = approvedSnapshot.captain_comment_conduct;
+          }
+          if (approvedSnapshot.captain_comment_ability) {
+            captainCommentAbility = approvedSnapshot.captain_comment_ability;
+          }
+          if (approvedSnapshot.captain_comment_general) {
+            captainCommentGeneral = approvedSnapshot.captain_comment_general;
+          }
+        } else {
+          console.log('[PDF GENERATION] No snapshot found in approved_testimonials');
+        }
+      } catch (error) {
+        console.error('[PDF GENERATION] Exception fetching approved snapshot:', error);
+      }
+    }
+
+    // Fetch captain profile if captain_user_id is available (fallback for legacy data)
     let captainProfile = null;
     if (testimonial.captain_user_id) {
       try {
         console.log('[PDF GENERATION] Fetching captain profile for user_id:', testimonial.captain_user_id);
         const { data: captainData, error: captainError } = await supabase
           .from('users')
-          .select('first_name, last_name, position, email')
+          .select('first_name, last_name, position, email, signature')
           .eq('id', testimonial.captain_user_id)
           .maybeSingle();
 
         if (captainError) {
           console.error('[PDF GENERATION] Error fetching captain profile:', captainError);
         } else if (captainData) {
-          console.log('[PDF GENERATION] Captain profile fetched:', captainData);
+          console.log('[PDF GENERATION] Captain profile fetched:', {
+            ...captainData,
+            signature: captainData.signature ? `${captainData.signature.substring(0, 50)}... (length: ${captainData.signature.length})` : null
+          });
           captainProfile = {
             firstName: captainData.first_name || undefined,
             lastName: captainData.last_name || undefined,
             position: captainData.position || null,
             email: captainData.email || undefined,
+            signature: captainData.signature || null,
           };
+          console.log('[PDF GENERATION] Captain profile with signature set:', {
+            hasSignature: !!captainProfile.signature,
+            signatureLength: captainProfile.signature?.length || 0
+          });
         } else {
           console.log('[PDF GENERATION] No captain profile found for user_id:', testimonial.captain_user_id);
         }
@@ -1075,6 +1125,10 @@ export default function TestimonialsPage() {
         captain_name: testimonial.captain_name,
         captain_email: testimonial.captain_email,
         captain_position: (testimonial as any).captain_position || null,
+        captain_signature: captainSignature, // Use signature from approved snapshot or testimonial
+        captain_comment_conduct: captainCommentConduct, // Use comments from approved snapshot or testimonial
+        captain_comment_ability: captainCommentAbility,
+        captain_comment_general: captainCommentGeneral,
         official_body: testimonial.official_body,
         official_reference: testimonial.official_reference,
         notes: testimonial.notes,
@@ -1091,6 +1145,7 @@ export default function TestimonialsPage() {
         email: userProfile.email || '',
         dateOfBirth: null, // Not available in current user profile
         position: userProfile.position || null,
+        dischargeBookNumber: (userProfile as any).discharge_book_number || (userProfile as any).dischargeBookNumber || null,
       },
       vessel: {
         name: vessel.name,
@@ -1102,6 +1157,11 @@ export default function TestimonialsPage() {
         call_sign: vessel.call_sign || null,
       },
       captainProfile: captainProfile,
+      companyDetails: {
+        name: (vessel as any).management_company || null,
+        address: (vessel as any).company_address || null,
+        contactDetails: (vessel as any).company_contact || null,
+      },
     }, format);
     } catch (error) {
       console.error('Error generating PDF:', error);

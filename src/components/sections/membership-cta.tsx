@@ -411,7 +411,7 @@ export default function MembershipCTA() {
             <p className="mt-6 text-xl leading-8 text-blue-100">
               {hasActiveSub && user
                 ? 'Upgrade or downgrade your subscription to match your needs. Changes take effect immediately.'
-                : 'Choose the perfect plan for your maritime career. Start your journey today with a 7-day free trial.'}
+                : 'Choose the perfect plan for your maritime career. Start your journey today.'}
             </p>
           </motion.div>
         </div>
@@ -673,11 +673,10 @@ export default function MembershipCTA() {
           >
             <Shield className="h-5 w-5 text-blue-400" />
             <p className="text-blue-200 font-medium">
-              All plans include a{' '}
               <span className="text-white font-bold">
-                7-day free trial
+                Cancel anytime
               </span>{' '}
-              - Cancel anytime
+              - Flexible billing
             </p>
           </div>
         </motion.div>

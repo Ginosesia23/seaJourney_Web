@@ -39,6 +39,10 @@ export interface TestimonialPDFData {
     captain_name: string | null;
     captain_email: string | null;
     captain_position?: string | null; // Captain position saved at approval time
+    captain_signature?: string | null; // Captain signature saved at approval time
+    captain_comment_conduct?: string | null; // Captain comment on conduct
+    captain_comment_ability?: string | null; // Captain comment on ability
+    captain_comment_general?: string | null; // Captain general comments
     official_body: string | null;
     official_reference: string | null;
     notes: string | null;
@@ -55,7 +59,13 @@ export interface TestimonialPDFData {
     email: string;
     dateOfBirth?: string | null;
     position?: string | null;
+    dischargeBookNumber?: string | null;
   };
+  companyDetails?: {
+    name?: string | null;
+    address?: string | null;
+    contactDetails?: string | null;
+  } | null;
   vessel: {
     name: string;
     type: string | null;
@@ -70,6 +80,7 @@ export interface TestimonialPDFData {
     lastName?: string;
     position?: string | null;
     email?: string;
+    signature?: string | null; // Base64 encoded signature image
   } | null;
 }
 
@@ -312,9 +323,6 @@ export async function generateTestimonialPDF(
   const sectionHeaderHeight = 8;
 
   // ===== Part 1 – Seafarer's Details =====
-  setFillColor(sectionBg);
-  doc.rect(14, currentY - 4, pageWidth - 28, sectionHeaderHeight, 'F');
-
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
   setTextColor(primaryBlue);
@@ -337,6 +345,11 @@ export async function generateTestimonialPDF(
     ['Email address', safeText(userProfile.email, 'Not provided')],
   ];
   if (dateOfBirth) personalRows.push(['Date of birth', dateOfBirth]);
+  if (userProfile.dischargeBookNumber) {
+    personalRows.push(['Discharge Book Number', safeText(userProfile.dischargeBookNumber)]);
+  } else {
+    personalRows.push(['Discharge Book Number', '________________']);
+  }
 
   autoTable(doc, {
     startY: currentY,
@@ -369,27 +382,27 @@ export async function generateTestimonialPDF(
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   setTextColor(textDark);
-  doc.text('has served as:', 18, currentY);
-  currentY += 4;
-
+  
   const userPosition = safeText(userProfile.position, '');
   if (userPosition) {
-    doc.setFontSize(11);
+    // Calculate width of "has served as: " to position the bold position text right after it
+    doc.text('has served as: ', 18, currentY);
+    const prefixWidth = doc.getTextWidth('has served as: ');
+    
+    // Position text in bold, same color
     doc.setFont('helvetica', 'bold');
-    setTextColor(primaryBlue);
-    doc.text(userPosition, 18, currentY);
+    doc.text(userPosition, 18 + prefixWidth, currentY);
   } else {
+    doc.text('has served as: ', 18, currentY);
     doc.setFontSize(9);
     setTextColor(textGray);
-    doc.text('Position not specified', 18, currentY);
+    const prefixWidth = doc.getTextWidth('has served as: ');
+    doc.text('Position not specified', 18 + prefixWidth, currentY);
   }
   currentY += 6;
 
   // ===== Part 2 – Service =====
   currentY = ensureSpace(doc, currentY, 60);
-
-  setFillColor(sectionBg);
-  doc.rect(14, currentY - 4, pageWidth - 28, sectionHeaderHeight, 'F');
 
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
@@ -425,8 +438,6 @@ export async function generateTestimonialPDF(
 
   if (vessel.length_m) vesselRows.push(['Length-metres', `${vessel.length_m.toFixed(2)} m`]);
   if (vessel.gross_tonnage) vesselRows.push(['GT', `${vessel.gross_tonnage.toFixed(2)}`]);
-
-  vesselRows.push(['Main engines KW', '________________']);
 
   autoTable(doc, {
     startY: currentY,
@@ -491,16 +502,6 @@ export async function generateTestimonialPDF(
       '(SHOULD NOT EXCEED DAYS AT SEA - time immediately following a voyage, waiting for owner, uniformed/ready to depart Max. 14 consecutive days without leaving port)',
     ],
     ['Shipyard Service:', `${testimonial.yard_days} days`, '(max. 90 days per application)'],
-    [
-      'Watch keeping for HOLDERS of MCA OOW3000 or higher (ONLY WHILE VESSEL AT SEA AND UNDERWAY)',
-      '_____ days',
-      '',
-    ],
-    [
-      'Watchkeeping or UMS duties for Engineers registered in SV Program (ONLY WHILE VESSEL AT SEA AND UNDERWAY)',
-      '_____ days',
-      '',
-    ],
   ];
 
   autoTable(doc, {
@@ -537,7 +538,6 @@ export async function generateTestimonialPDF(
 
   const cruisingRows: string[][] = [
     ['Areas cruised, rotation', '________________'],
-    ['nautical miles', '________________'],
   ];
 
   autoTable(doc, {
@@ -556,11 +556,148 @@ export async function generateTestimonialPDF(
 
   currentY = (doc as any).lastAutoTable.finalY + 6;
 
-  // ===== Part 3 – Declaration =====
-  currentY = ensureSpace(doc, currentY, 120);
+  // ===== Captain Comments Section =====
+  currentY = ensureSpace(doc, currentY, 100);
+  currentY += 6;
+  
+  // Comments header
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(primaryBlue);
+  doc.text('Comments on the following:', 18, currentY);
+  currentY += 8;
 
-  setFillColor(sectionBg);
-  doc.rect(14, currentY - 4, pageWidth - 28, sectionHeaderHeight, 'F');
+  // Prepare comments data for table
+  const commentsRows: string[][] = [
+    [
+      'Conduct',
+      safeText(testimonial.captain_comment_conduct) || '_______________________________',
+    ],
+    [
+      'Ability',
+      safeText(testimonial.captain_comment_ability) || '_______________________________',
+    ],
+    [
+      'General Comments',
+      safeText(testimonial.captain_comment_general) || '_______________________________',
+    ],
+  ];
+
+  autoTable(doc, {
+    startY: currentY,
+    theme: 'plain',
+    head: [['Category', 'Comments']],
+    body: commentsRows,
+    styles: { fontSize: 9, cellPadding: { top: 2.5, right: 2, bottom: 2.5, left: 2 }, textColor: textDark },
+    headStyles: {
+      fillColor: [235, 237, 240],
+      textColor: primaryBlue,
+      fontStyle: 'bold',
+      fontSize: 9,
+      cellPadding: { top: 2.5, right: 2, bottom: 2.5, left: 2 },
+    },
+    columnStyles: {
+      0: { fontStyle: 'bold', cellWidth: 50, textColor: textDark },
+      1: { cellWidth: 'auto', textColor: textDark },
+    },
+    margin: { left: 18, right: 18 },
+    tableLineColor: borderColor,
+    tableLineWidth: 0.5,
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 6;
+
+  // ===== Company Details Section =====
+  currentY = ensureSpace(doc, currentY, 80);
+  
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(primaryBlue);
+  doc.text('COMPANY DETAILS', 18, currentY + 2);
+
+  setDrawColor(primaryBlue);
+  doc.setLineWidth(0.5);
+  doc.line(18, currentY + 3, pageWidth - 18, currentY + 3);
+
+  currentY += sectionHeaderHeight + 4;
+
+  const companyRows: string[][] = [];
+  
+  if (data.companyDetails?.name) {
+    companyRows.push(['Company Name', safeText(data.companyDetails.name)]);
+  } else {
+    companyRows.push(['Company Name', '________________']);
+  }
+  
+  if (data.companyDetails?.address) {
+    companyRows.push(['Address', safeText(data.companyDetails.address)]);
+  } else {
+    companyRows.push(['Address', '________________']);
+  }
+  
+  if (data.companyDetails?.contactDetails) {
+    companyRows.push(['Contact Details', safeText(data.companyDetails.contactDetails)]);
+  } else {
+    companyRows.push(['Contact Details', '________________']);
+  }
+
+  autoTable(doc, {
+    startY: currentY,
+    theme: 'plain',
+    head: [['Field', 'Details']],
+    body: companyRows,
+    styles: {
+      fontSize: 10,
+      cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
+      textColor: textDark,
+    },
+    headStyles: {
+      fillColor: [235, 237, 240],
+      textColor: primaryBlue,
+      fontStyle: 'bold',
+      fontSize: 10,
+      cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
+    },
+    columnStyles: {
+      0: { fontStyle: 'bold', cellWidth: 50, textColor: textDark },
+      1: { cellWidth: 'auto', textColor: textDark },
+    },
+    margin: { left: 18, right: 18 },
+    tableLineColor: borderColor,
+    tableLineWidth: 0.5,
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 6;
+
+  // ===== Part 3 – Declaration =====
+  // Force Part 3 to start on page 3
+  const currentPageCount = doc.getNumberOfPages();
+  const targetPage = 3;
+  
+  // Add pages until we reach page 3
+  // If we're on page 1, we need 2 more pages (pages 2 and 3)
+  // If we're on page 2, we need 1 more page (page 3)
+  // If we're already on page 3 or beyond, check if we need a new page based on current position
+  if (currentPageCount < targetPage) {
+    const pagesNeeded = targetPage - currentPageCount;
+    for (let i = 0; i < pagesNeeded; i++) {
+      doc.addPage();
+    }
+    currentY = 20; // Start at top of page 3
+  } else if (currentPageCount === targetPage) {
+    // We're on page 3, but might be mid-page - check if we have enough space
+    const pageHeight = doc.internal.pageSize.getHeight();
+    if (currentY > pageHeight - 120) {
+      // Not enough space, add a new page
+      doc.addPage();
+      currentY = 20;
+    }
+    // Otherwise, continue on current page
+  } else {
+    // We're beyond page 3, add a new page to start Part 3 fresh
+    doc.addPage();
+    currentY = 20;
+  }
 
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
@@ -588,16 +725,26 @@ export async function generateTestimonialPDF(
   doc.text(declarationLines, 18, currentY);
   currentY += declarationLines.length * 5 + 6;
 
-  // Signatory details
-  doc.setFontSize(10);
-  setTextColor(primaryBlue);
+  // Signatory details - Redesigned
+  currentY += 6;
+  
+  doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
+  setTextColor(primaryBlue);
   doc.text('Signatory Details', 18, currentY);
+  currentY += 8;
 
-  setTextColor(textDark);
-  doc.setFont('helvetica', 'normal');
+  // Signatory details box
+  const signatoryBoxHeight = 20;
+  const signatoryBoxWidth = pageWidth - 36;
+  
+  // Draw signatory details box
+  setDrawColor(borderColor);
+  doc.setLineWidth(0.5);
+  doc.rect(18, currentY, signatoryBoxWidth, signatoryBoxHeight);
 
-  let lineY = currentY + 5;
+  const padding = 3;
+  let signatoryY = currentY + padding + 3;
 
   let captainName = testimonial.captain_name;
   if (!captainName && captainProfile) {
@@ -611,65 +758,147 @@ export async function generateTestimonialPDF(
 
   const captainEmail = captainProfile?.email || testimonial.captain_email || null;
 
-  doc.text(`Name: ${truncate(captainName, 60, '_______________________________')}`, 18, lineY);
-  lineY += 4;
-  doc.text(`Position: ${truncate(captainPosition, 60, '_______________________________')}`, 18, lineY);
-  lineY += 4;
-  doc.text(`Email: ${truncate(captainEmail, 70, '_______________________________')}`, 18, lineY);
-  lineY += 4;
-  doc.text('Company / Management: _______________________________', 18, lineY);
-  lineY += 4;
-  doc.text('Telephone (office): _______________________________', 18, lineY);
-  lineY += 6;
-
-  // Signature line
-  setDrawColor(borderColor);
-  doc.setLineWidth(0.5);
-  doc.line(18, lineY, 120, lineY);
-  doc.setFontSize(8);
-  setTextColor(textGray);
-  doc.text('Signature of Master / Company Representative', 18, lineY + 4);
-  lineY += 8;
-
-  // Date & ship stamp block (right)
-  const rightX = pageWidth - 76;
-  const dateSectionY = currentY;
-
-  doc.setFontSize(10);
-  setTextColor(primaryBlue);
-  doc.setFont('helvetica', 'bold');
-  doc.text("Date & Ship's Stamp", rightX, dateSectionY);
-
-  setTextColor(textDark);
+  doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.text('Date:', rightX, dateSectionY + 5);
+  setTextColor(textDark);
+  
+  doc.text(`Name: ${truncate(captainName, 60, '_______________________________')}`, 20, signatoryY);
+  signatoryY += 4;
+  doc.text(`Position: ${truncate(captainPosition, 60, '_______________________________')}`, 20, signatoryY);
+  signatoryY += 4;
+  doc.text(`Email: ${truncate(captainEmail, 70, '_______________________________')}`, 20, signatoryY);
 
-  if (approvedDate) {
-    doc.setFont('helvetica', 'bold');
-    doc.text(approvedDate, rightX + 12, dateSectionY + 5);
+  currentY += signatoryBoxHeight + 10;
+
+  // Horizontal alignment: Signature, Date, Ship's Stamp
+  const sectionStartY = currentY;
+  const sectionHeight = 25; // Height for all three sections
+  const sectionWidth = (pageWidth - 36 - 8) / 3; // Divide available width into 3 equal sections (with 4mm gaps)
+  const gap = 4; // Gap between sections
+
+  // Section 1: Signature (left)
+  const signatureX = 18;
+  const signatureY = sectionStartY;
+  
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(primaryBlue);
+  doc.text('Signature', signatureX, signatureY);
+  
+  // Signature - add signature image if available
+  // Priority: testimonial.captain_signature (saved at approval) > captainProfile.signature (legacy/fallback)
+  const captainSignature = testimonial.captain_signature || captainProfile?.signature || null;
+  
+  console.log('[PDF GENERATION] Checking for captain signature:', {
+    hasTestimonialSignature: !!testimonial.captain_signature,
+    hasCaptainProfileSignature: !!captainProfile?.signature,
+    usingSignature: captainSignature ? 'testimonial' : captainProfile?.signature ? 'profile' : 'none',
+    signatureLength: captainSignature?.length || 0,
+    signaturePreview: captainSignature?.substring(0, 50)
+  });
+  
+  const signatureBoxY = signatureY + 4;
+  const signatureBoxHeight = 12;
+  
+  if (captainSignature) {
+    try {
+      console.log('[PDF GENERATION] Adding signature image to PDF');
+      
+      // Detect image format from data URL
+      let imageFormat: 'PNG' | 'JPEG' | 'JPG' = 'PNG';
+      
+      if (captainSignature.includes('data:image/jpeg') || captainSignature.includes('data:image/jpg')) {
+        imageFormat = 'JPEG';
+      } else if (captainSignature.includes('data:image/png')) {
+        imageFormat = 'PNG';
+      }
+      
+      console.log('[PDF GENERATION] Detected image format:', imageFormat);
+      
+      // Add signature image (scaled to fit box)
+      doc.addImage(captainSignature, imageFormat, signatureX, signatureBoxY, sectionWidth - 2, signatureBoxHeight);
+      console.log('[PDF GENERATION] Signature image added successfully');
+    } catch (error) {
+      console.error('[PDF GENERATION] Error adding signature image to PDF:', error);
+      console.error('[PDF GENERATION] Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      // Fall back to signature line if image fails
+      setDrawColor(borderColor);
+      doc.setLineWidth(0.5);
+      doc.rect(signatureX, signatureBoxY, sectionWidth - 2, signatureBoxHeight);
+      doc.line(signatureX + 2, signatureBoxY + signatureBoxHeight / 2, signatureX + sectionWidth - 4, signatureBoxY + signatureBoxHeight / 2);
+    }
   } else {
+    console.log('[PDF GENERATION] No signature available, using signature line');
+    // Signature box (if no signature image)
     setDrawColor(borderColor);
     doc.setLineWidth(0.5);
-    doc.line(rightX + 12, dateSectionY + 5, rightX + 54, dateSectionY + 5);
+    doc.rect(signatureX, signatureBoxY, sectionWidth - 2, signatureBoxHeight);
+    doc.line(signatureX + 2, signatureBoxY + signatureBoxHeight / 2, signatureX + sectionWidth - 4, signatureBoxY + signatureBoxHeight / 2);
   }
-
-  doc.setFontSize(8);
+  
+  doc.setFontSize(7);
   setTextColor(textGray);
-  doc.text("Affix ship's stamp below", rightX + 31, dateSectionY + 12, { align: 'center' });
+  doc.text('Master / Company Representative', signatureX, signatureBoxY + signatureBoxHeight + 3);
 
+  // Section 2: Date (middle)
+  const dateX = signatureX + sectionWidth + gap;
+  const dateY = sectionStartY;
+  
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(primaryBlue);
+  doc.text('Date', dateX, dateY);
+  
+  const dateBoxY = dateY + 4;
+  const dateBoxHeight = signatureBoxHeight;
+  
   setDrawColor(borderColor);
   doc.setLineWidth(0.5);
-  doc.rect(rightX + 6, dateSectionY + 14, 50, 10);
+  doc.rect(dateX, dateBoxY, sectionWidth - 2, dateBoxHeight);
+  
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  setTextColor(textDark);
+  
+  if (approvedDate) {
+    doc.setFont('helvetica', 'bold');
+    // Center the date text in the box
+    const dateTextWidth = doc.getTextWidth(approvedDate);
+    const dateTextX = dateX + (sectionWidth - 2) / 2 - dateTextWidth / 2;
+    doc.text(approvedDate, dateTextX, dateBoxY + dateBoxHeight / 2 + 1.5);
+  } else {
+    // Draw a line for date entry
+    doc.line(dateX + 2, dateBoxY + dateBoxHeight / 2, dateX + sectionWidth - 4, dateBoxY + dateBoxHeight / 2);
+  }
 
-  const dateSectionEnd = dateSectionY + 25;
-  currentY = Math.max(lineY, dateSectionEnd);
+  // Section 3: Ship's Stamp (right)
+  const stampX = dateX + sectionWidth + gap;
+  const stampY = sectionStartY;
+  
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(primaryBlue);
+  doc.text("Ship's Stamp", stampX, stampY);
+  
+  const stampBoxY = stampY + 4;
+  const stampBoxHeight = signatureBoxHeight;
+  
+  setDrawColor(borderColor);
+  doc.setLineWidth(0.5);
+  doc.rect(stampX, stampBoxY, sectionWidth - 2, stampBoxHeight);
+  
+  doc.setFontSize(7);
+  setTextColor(textGray);
+  doc.text("Affix stamp", stampX + (sectionWidth - 2) / 2, stampBoxY + stampBoxHeight / 2 + 1, { align: 'center' });
+
+  currentY = sectionStartY + sectionHeight;
 
   // ===== Part 4 – Official Verification (optional) =====
   if (testimonial.official_body || testimonial.official_reference) {
     currentY = ensureSpace(doc, currentY + 8, 70);
-
-    setFillColor(sectionBg);
-    doc.rect(14, currentY - 4, pageWidth - 28, sectionHeaderHeight, 'F');
 
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
@@ -707,7 +936,7 @@ export async function generateTestimonialPDF(
     currentY = (doc as any).lastAutoTable.finalY + 6;
   }
 
-  // ===== Footer on all pages: Document ID + Page X of Y =====
+  // ===== Footer on all pages: Document ID + Reference Code + Generated Date + Page X of Y =====
   const totalPages = getPageCount(doc);
   for (let page = 1; page <= totalPages; page++) {
     doc.setPage(page);
@@ -717,18 +946,18 @@ export async function generateTestimonialPDF(
     setTextColor(textGray);
 
     const y = pageHeight - 8;
+    const ySecondLine = y - 4;
+    
+    // First line: Document ID (left), Verification link (center), Page number (right)
     doc.text(`Document ID: ${testimonial.id}`, 14, y, { align: 'left' });
-    
-    // Verification link in center
     doc.text('www.seajourney.co.uk/verify', pageWidth / 2, y, { align: 'center' });
-    
     doc.text(`Page ${page} of ${totalPages}`, pageWidth - 14, y, { align: 'right' });
 
-    // Optional: add reference code on the last page only (small)
-    if (page === totalPages && testimonial.testimonial_code) {
-      doc.text(`Reference Code: ${testimonial.testimonial_code}`, 14, y - 4, { align: 'left' });
-      doc.text(`Generated: ${generatedDate}`, pageWidth - 14, y - 4, { align: 'right' });
+    // Second line: Reference Code (left), Generated date (right) - on all pages
+    if (testimonial.testimonial_code) {
+      doc.text(`Reference Code: ${testimonial.testimonial_code}`, 14, ySecondLine, { align: 'left' });
     }
+    doc.text(`Generated: ${generatedDate}`, pageWidth - 14, ySecondLine, { align: 'right' });
   }
 
   // ===== Filename =====

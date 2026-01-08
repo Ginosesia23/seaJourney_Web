@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     // Explicitly select only the columns we need to avoid issues with non-existent columns
     const { data: testimonial, error: testimonialError } = await supabaseAdmin
       .from('testimonials')
-      .select('id, user_id, vessel_id, start_date, end_date, total_days, at_sea_days, standby_days, yard_days, leave_days, status, testimonial_code, captain_name, captain_email, captain_position, captain_user_id, updated_at')
+      .select('id, user_id, vessel_id, start_date, end_date, total_days, at_sea_days, standby_days, yard_days, leave_days, status, testimonial_code, captain_name, captain_email, captain_position, captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general, captain_user_id, updated_at')
       .eq('id', testimonialId)
       .maybeSingle();
 
@@ -169,6 +169,10 @@ export async function POST(req: NextRequest) {
       standby_days: testimonial.standby_days,
       captain_name: captainName,
       captain_license: captainLicense,
+      captain_signature: testimonial.captain_signature || null, // Captain's signature saved at approval time
+      captain_comment_conduct: testimonial.captain_comment_conduct || null, // Captain comment on conduct
+      captain_comment_ability: testimonial.captain_comment_ability || null, // Captain comment on ability
+      captain_comment_general: testimonial.captain_comment_general || null, // Captain general comments
       document_id: testimonial.id, // The UUID used as Document ID
       testimonial_code: currentTestimonialCode || testimonial.testimonial_code || null, // Use the fetched code
       approved_at: testimonial.updated_at || new Date().toISOString(),
@@ -183,6 +187,8 @@ export async function POST(req: NextRequest) {
       testimonial_id: snapshotData.testimonial_id,
       crew_name: snapshotData.crew_name,
       vessel_name: snapshotData.vessel_name,
+      has_captain_signature: !!snapshotData.captain_signature,
+      signature_length: snapshotData.captain_signature?.length || 0,
     });
 
     // Insert snapshot into approved_testimonials
