@@ -17,6 +17,7 @@ export interface UserProfile {
   activeVesselId?: string;
   startDate?: string | null; // ISO date string (YYYY-MM-DD) - Official start date for vessel accounts
   signature?: string | null; // Base64 encoded signature image for captains
+  dischargeBookNumber?: string | null; // Discharge book number for use in testimonials
 }
 
 export interface Vessel {

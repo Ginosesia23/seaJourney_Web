@@ -1031,13 +1031,14 @@ export default function TestimonialsPage() {
     let captainCommentConduct = (testimonial as any).captain_comment_conduct || null;
     let captainCommentAbility = (testimonial as any).captain_comment_ability || null;
     let captainCommentGeneral = (testimonial as any).captain_comment_general || null;
+    let approvedAt = null;
     
     if (testimonial.status === 'approved') {
       try {
         console.log('[PDF GENERATION] Fetching approved testimonial snapshot for:', testimonial.id);
         const { data: approvedSnapshot, error: snapshotError } = await supabase
           .from('approved_testimonials')
-          .select('captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general')
+          .select('captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general, approved_at')
           .eq('testimonial_id', testimonial.id)
           .maybeSingle();
 
@@ -1059,6 +1060,10 @@ export default function TestimonialsPage() {
           }
           if (approvedSnapshot.captain_comment_general) {
             captainCommentGeneral = approvedSnapshot.captain_comment_general;
+          }
+          if (approvedSnapshot.approved_at) {
+            approvedAt = approvedSnapshot.approved_at;
+            console.log('[PDF GENERATION] Using approved_at date from approved snapshot:', approvedAt);
           }
         } else {
           console.log('[PDF GENERATION] No snapshot found in approved_testimonials');
@@ -1135,6 +1140,7 @@ export default function TestimonialsPage() {
         testimonial_code: testimonial.testimonial_code,
         status: testimonial.status,
         signoff_used_at: testimonial.signoff_used_at,
+        approved_at: approvedAt || null, // Use approved_at from approved_testimonials table
         created_at: testimonial.created_at,
         updated_at: testimonial.updated_at,
       },

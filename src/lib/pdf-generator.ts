@@ -49,6 +49,7 @@ export interface TestimonialPDFData {
     testimonial_code: string | null;
     status: 'draft' | 'pending_captain' | 'pending_official' | 'approved' | 'rejected';
     signoff_used_at: string | null;
+    approved_at?: string | null; // Date when testimonial was approved (from approved_testimonials table)
     created_at: string;
     updated_at: string;
   };
@@ -238,8 +239,11 @@ export async function generateTestimonialPDF(
   const endDate = format(parseDateOnly(testimonial.end_date), 'dd MMMM yyyy');
   const generatedDate = format(new Date(), 'dd MMMM yyyy');
 
+  // Use approved_at from approved_testimonials table if available, otherwise fall back to signoff_used_at
   const approvedDate =
-    testimonial.status === 'approved' && testimonial.signoff_used_at
+    testimonial.status === 'approved' && testimonial.approved_at
+      ? format(new Date(testimonial.approved_at), 'dd MMMM yyyy')
+      : testimonial.status === 'approved' && testimonial.signoff_used_at
       ? format(new Date(testimonial.signoff_used_at), 'dd MMMM yyyy')
       : null;
 
@@ -850,14 +854,9 @@ export async function generateTestimonialPDF(
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
   setTextColor(primaryBlue);
-  doc.text('Date', dateX, dateY);
+  doc.text('Approved Date', dateX, dateY);
   
-  const dateBoxY = dateY + 4;
-  const dateBoxHeight = signatureBoxHeight;
-  
-  setDrawColor(borderColor);
-  doc.setLineWidth(0.5);
-  doc.rect(dateX, dateBoxY, sectionWidth - 2, dateBoxHeight);
+  const dateTextY = dateY + 6;
   
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
@@ -865,13 +864,10 @@ export async function generateTestimonialPDF(
   
   if (approvedDate) {
     doc.setFont('helvetica', 'bold');
-    // Center the date text in the box
-    const dateTextWidth = doc.getTextWidth(approvedDate);
-    const dateTextX = dateX + (sectionWidth - 2) / 2 - dateTextWidth / 2;
-    doc.text(approvedDate, dateTextX, dateBoxY + dateBoxHeight / 2 + 1.5);
+    doc.text(approvedDate, dateX, dateTextY);
   } else {
     // Draw a line for date entry
-    doc.line(dateX + 2, dateBoxY + dateBoxHeight / 2, dateX + sectionWidth - 4, dateBoxY + dateBoxHeight / 2);
+    doc.line(dateX, dateTextY, dateX + sectionWidth - 2, dateTextY);
   }
 
   // Section 3: Ship's Stamp (right)
@@ -882,19 +878,12 @@ export async function generateTestimonialPDF(
   doc.setFont('helvetica', 'bold');
   setTextColor(primaryBlue);
   doc.text("Ship's Stamp", stampX, stampY);
-  
-  const stampBoxY = stampY + 4;
-  const stampBoxHeight = signatureBoxHeight;
-  
-  setDrawColor(borderColor);
-  doc.setLineWidth(0.5);
-  doc.rect(stampX, stampBoxY, sectionWidth - 2, stampBoxHeight);
-  
-  doc.setFontSize(7);
-  setTextColor(textGray);
-  doc.text("Affix stamp", stampX + (sectionWidth - 2) / 2, stampBoxY + stampBoxHeight / 2 + 1, { align: 'center' });
 
-  currentY = sectionStartY + sectionHeight;
+  // Calculate final Y position based on the tallest section (signature with box)
+  const signatureSectionEnd = signatureBoxY + signatureBoxHeight + 6; // Box + text below
+  const dateSectionEnd = dateTextY + 4; // Text + spacing
+  const stampSectionEnd = stampY + 4; // Label only
+  currentY = Math.max(signatureSectionEnd, dateSectionEnd, stampSectionEnd);
 
   // ===== Part 4 – Official Verification (optional) =====
   if (testimonial.official_body || testimonial.official_reference) {

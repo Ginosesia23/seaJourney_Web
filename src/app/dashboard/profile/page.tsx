@@ -720,24 +720,27 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
   const form = useForm<VesselDetailsFormValues>({
     resolver: zodResolver(vesselDetailsSchema),
     defaultValues: {
-      name: vessel?.name || '',
-      type: (vessel?.type as any) || '',
-      imo: vessel?.imo || vessel?.officialNumber || '',
-      length_m: vessel?.length_m?.toString() || '',
-      beam: vessel?.beam?.toString() || '',
-      draft: vessel?.draft?.toString() || '',
-      gross_tonnage: vessel?.gross_tonnage?.toString() || '',
-      number_of_crew: vessel?.number_of_crew?.toString() || '',
-      build_year: vessel?.build_year?.toString() || '',
-      flag_state: vessel?.flag_state || '',
-      call_sign: vessel?.call_sign || '',
-      mmsi: vessel?.mmsi || '',
-      description: vessel?.description || '',
-      management_company: (vesselData as any)?.management_company || '',
-      company_address: (vesselData as any)?.company_address || '',
-      company_contact: (vesselData as any)?.company_contact || '',
+      name: vesselData?.name || '',
+      type: (vesselData?.type as any) || '',
+      imo: vesselData?.imo || vesselData?.officialNumber || '',
+      length_m: vesselData?.length_m?.toString() || '',
+      beam: vesselData?.beam?.toString() || '',
+      draft: vesselData?.draft?.toString() || '',
+      gross_tonnage: vesselData?.gross_tonnage?.toString() || '',
+      number_of_crew: vesselData?.number_of_crew?.toString() || '',
+      build_year: vesselData?.build_year?.toString() || '',
+      flag_state: vesselData?.flag_state || '',
+      call_sign: vesselData?.call_sign || '',
+      mmsi: vesselData?.mmsi || '',
+      description: vesselData?.description || '',
+      management_company: vesselData?.management_company || '',
+      company_address: vesselData?.company_address || '',
+      company_contact: vesselData?.company_contact || '',
     },
   });
+
+  // Watch the type value to ensure Select component updates
+  const watchedType = form.watch('type');
 
   // Reset form when vessel data changes
   useEffect(() => {
@@ -759,7 +762,7 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
         management_company: vesselData.management_company || '',
         company_address: vesselData.company_address || '',
         company_contact: vesselData.company_contact || '',
-      });
+      }, { keepDefaultValues: false });
     }
   }, [vesselData, form]);
 
@@ -787,6 +790,16 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
         company_contact: data.company_contact === '' ? null : data.company_contact,
       };
 
+      console.log('[VESSEL PROFILE] Sending update request:', {
+        vesselId: vessel.id,
+        updates: {
+          ...updates,
+          management_company: updates.management_company,
+          company_address: updates.company_address,
+          company_contact: updates.company_contact,
+        },
+      });
+
       const response = await fetch('/api/vessels/update', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -796,9 +809,39 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
         }),
       });
 
+      const responseData = await response.json();
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to update vessel');
+        console.error('[VESSEL PROFILE] Update failed:', responseData);
+        throw new Error(responseData.message || responseData.error || 'Failed to update vessel');
+      }
+
+      console.log('[VESSEL PROFILE] Update successful:', responseData);
+
+      // Verify company fields were saved (check if columns exist in database)
+      if (updates.management_company !== null || updates.company_address !== null || updates.company_contact !== null) {
+        const savedVessel = responseData.vessel;
+        if (savedVessel) {
+          const missingFields: string[] = [];
+          if (updates.management_company !== null && savedVessel.management_company !== updates.management_company) {
+            missingFields.push('management_company');
+          }
+          if (updates.company_address !== null && savedVessel.company_address !== updates.company_address) {
+            missingFields.push('company_address');
+          }
+          if (updates.company_contact !== null && savedVessel.company_contact !== updates.company_contact) {
+            missingFields.push('company_contact');
+          }
+          
+          if (missingFields.length > 0) {
+            console.warn('[VESSEL PROFILE] Some company fields may not have been saved. Missing columns?', missingFields);
+            toast({
+              title: 'Warning',
+              description: `Some company fields may not have been saved. Please ensure the database columns exist: ${missingFields.join(', ')}`,
+              variant: 'destructive',
+            });
+          }
+        }
       }
 
       toast({
@@ -864,7 +907,7 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
 
       {/* Vessel Information Form */}
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" key={`vessel-form-${vesselData?.id}-${vesselData?.type || 'no-type'}`}>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card className="rounded-xl border">
               <CardHeader>
@@ -891,28 +934,34 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
                 <FormField
                   control={form.control}
                   name="type"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Vessel Type</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || ''} disabled={!isEditing}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select vessel type">
-                              {field.value ? vesselTypes.find(t => t.value === field.value)?.label : 'Select vessel type'}
-                            </SelectValue>
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {vesselTypes.map((type) => (
-                            <SelectItem key={type.value} value={type.value}>
-                              {type.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                  render={({ field }) => {
+                    const currentValue = watchedType || field.value || '';
+                    return (
+                      <FormItem>
+                        <FormLabel>Vessel Type</FormLabel>
+                        <Select 
+                          key={`type-select-${vesselData?.id || 'no-id'}-${currentValue || 'empty'}`}
+                          onValueChange={field.onChange} 
+                          value={currentValue} 
+                          disabled={!isEditing}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select vessel type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {vesselTypes.map((type) => (
+                              <SelectItem key={type.value} value={type.value}>
+                                {type.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
                 <FormField
                   control={form.control}

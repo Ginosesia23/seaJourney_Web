@@ -356,6 +356,7 @@ export async function updateUserProfile(
     subscriptionStatus: string;
     email?: string;
     startDate?: string | null;
+    dischargeBookNumber?: string | null;
   }>
 ) {
   // Get user email from auth if not provided (needed for user creation)
@@ -377,6 +378,7 @@ export async function updateUserProfile(
   if (updates.subscriptionTier !== undefined) updateData.subscription_tier = updates.subscriptionTier;
   if (updates.subscriptionStatus !== undefined) updateData.subscription_status = updates.subscriptionStatus;
   if (updates.startDate !== undefined) updateData.start_date = updates.startDate;
+  if (updates.dischargeBookNumber !== undefined) updateData.discharge_book_number = updates.dischargeBookNumber;
 
   // Build insert data (for when user doesn't exist - needs all required fields)
   const insertData: any = {

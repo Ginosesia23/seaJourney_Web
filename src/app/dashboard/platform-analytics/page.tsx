@@ -303,7 +303,7 @@ export default function PlatformAnalyticsPage() {
 
         // Sea time by month
         const seaTimeByMonth: Array<{ month: string; days: number }> = [];
-        months.forEach(month => {
+        for (const month of months) {
           const monthStart = startOfMonth(month);
           const monthEnd = endOfMonth(month);
           let days = 0;
@@ -323,7 +323,7 @@ export default function PlatformAnalyticsPage() {
             month: format(month, 'MMM yyyy'),
             days,
           });
-        });
+        }
 
         // Top active users
         const topActiveUsers = Array.from(stateLogsByUser.entries())

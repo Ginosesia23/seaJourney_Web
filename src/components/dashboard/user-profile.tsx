@@ -21,6 +21,7 @@ const profileSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters.'),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
+  dischargeBookNumber: z.string().optional(),
 });
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
@@ -82,6 +83,7 @@ export function UserProfileCard() {
       bio: userProfileRaw.bio || '',
       profilePicture: (userProfileRaw as any).profile_picture || (userProfileRaw as any).profilePicture || '',
       registrationDate: (userProfileRaw as any).registration_date || (userProfileRaw as any).registrationDate,
+      dischargeBookNumber: (userProfileRaw as any).discharge_book_number || (userProfileRaw as any).dischargeBookNumber || '',
     };
   }, [userProfileRaw, user]);
 
@@ -91,6 +93,7 @@ export function UserProfileCard() {
       username: '',
       firstName: '',
       lastName: '',
+      dischargeBookNumber: '',
     },
   });
 
@@ -101,6 +104,7 @@ export function UserProfileCard() {
         username: userProfile.username || '',
         firstName: userProfile.firstName || '',
         lastName: userProfile.lastName || '',
+        dischargeBookNumber: (userProfile as any).dischargeBookNumber || '',
       });
     }
   }, [userProfile, isLoading, form]);
@@ -114,6 +118,7 @@ export function UserProfileCard() {
         username: data.username,
         firstName: data.firstName || '',
         lastName: data.lastName || '',
+        dischargeBookNumber: data.dischargeBookNumber || null,
       });
       
         toast({
@@ -199,6 +204,22 @@ export function UserProfileCard() {
                       <Input placeholder="Your last name" {...field} className="rounded-xl" />
                     </FormControl>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="dischargeBookNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Discharge Book Number</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Your discharge book number" {...field} className="rounded-xl" />
+                    </FormControl>
+                    <FormMessage />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Used in testimonial PDFs and official documents
+                    </p>
                   </FormItem>
                 )}
               />

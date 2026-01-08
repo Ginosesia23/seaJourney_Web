@@ -37,6 +37,12 @@ export async function PUT(req: NextRequest) {
     if (updates.mmsi !== undefined) updateData.mmsi = updates.mmsi?.trim() || null;
     if (updates.description !== undefined) updateData.description = updates.description?.trim() || null;
     if (updates.vessel_manager_id !== undefined) updateData.vessel_manager_id = updates.vessel_manager_id || null;
+    if (updates.management_company !== undefined) updateData.management_company = updates.management_company?.trim() || null;
+    if (updates.company_address !== undefined) updateData.company_address = updates.company_address?.trim() || null;
+    if (updates.company_contact !== undefined) updateData.company_contact = updates.company_contact?.trim() || null;
+
+    console.log('[UPDATE VESSEL API] Updating vessel:', vesselId);
+    console.log('[UPDATE VESSEL API] Update data:', JSON.stringify(updateData, null, 2));
 
     // Update the vessel
     const { data, error } = await supabaseAdmin
@@ -48,14 +54,18 @@ export async function PUT(req: NextRequest) {
 
     if (error) {
       console.error('[UPDATE VESSEL API] Error:', error);
+      console.error('[UPDATE VESSEL API] Error details:', JSON.stringify(error, null, 2));
       return NextResponse.json(
         {
           error: 'Failed to update vessel',
           message: error.message,
+          details: error.details || error.hint || null,
         },
         { status: 500 }
       );
     }
+
+    console.log('[UPDATE VESSEL API] Success. Updated vessel:', JSON.stringify(data, null, 2));
 
     return NextResponse.json({
       success: true,
