@@ -428,24 +428,40 @@ export async function POST(req: NextRequest) {
         const finalEmail = syncResult?.after?.email || userEmail;
         const finalUserId = syncResult?.userId || userId;
 
+        // Detect if subscription is being canceled (status changed to canceled)
+        const isCanceled = afterStatus === "canceled" && beforeStatus !== "canceled";
+        
+        // Detect if cancellation is scheduled (cancel_at_period_end is true)
+        const isCancellationScheduled = full.cancel_at_period_end === true;
+        
         // Detect if subscription is being resumed (from canceled/inactive to active)
         const isResumed = 
           (beforeStatus === "canceled" || beforeStatus === "inactive" || beforeStatus === "past_due") &&
           (afterStatus === "active");
 
-        // Send email based on what changed
+        // Send email based on what changed - prioritize status changes over tier changes
         if (finalEmail) {
-          // If resumed, send resumed email
-          if (isResumed) {
+          // If canceled, don't send email here - let the deleted event handle it
+          if (isCanceled) {
+            console.log("[STRIPE WEBHOOK] Subscription canceled, should be handled by deleted event");
+          }
+          // If cancellation is scheduled, don't send tier change emails - wait for deletion event
+          else if (isCancellationScheduled) {
+            console.log("[STRIPE WEBHOOK] Cancellation scheduled, skipping tier change email - deletion event will handle");
+          }
+          // If resumed, send resumed email (prioritize over tier changes)
+          else if (isResumed) {
             await sendSubscriptionEmail({
               eventId: event.id,
               emailType: "subscription.resumed",
               toEmail: finalEmail,
               userId: finalUserId,
-              tier: afterTier || "standard",
+              tier: afterTier || beforeTier || "standard",
               eventType: "resumed",
             });
-          } else if (syncResult?.before) {
+          } 
+          // Only check for tier changes if it's not a cancellation, scheduled cancellation, or resumption
+          else if (syncResult?.before && !isCanceled && !isCancellationScheduled && !isResumed) {
             // Detect upgrade/downgrade by comparing tier names
             const tierOrder: Record<string, number> = {
               free: 0,
@@ -466,7 +482,7 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            // Check if this is a scheduled downgrade (cancel_at_period_end)
+            // Check if this is a scheduled downgrade (but not a cancellation)
             const isScheduledDowngrade =
               full.cancel_at_period_end && eventType === "downgraded";
 
