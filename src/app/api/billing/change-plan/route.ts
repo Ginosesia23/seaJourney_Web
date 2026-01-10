@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { sendSubscriptionEmail } from "@/lib/subscription-emails";
 import type Stripe from "stripe";
 
 function tierFromPrice(price: Stripe.Price): string {
@@ -216,13 +217,38 @@ export async function POST(req: Request) {
         pending_change_effective_at: new Date(effectiveAt * 1000).toISOString(),
       };
 
+      // Get user email for notification
+      let userEmail: string | null = null;
       if (userId) {
+        const { data: userData } = await supabaseAdmin
+          .from("users")
+          .select("email")
+          .eq("id", userId)
+          .maybeSingle();
+        userEmail = userData?.email || null;
         await supabaseAdmin.from("users").update(pendingUpdate).eq("id", userId);
       } else if (stripeCustomerId) {
+        const { data: userData } = await supabaseAdmin
+          .from("users")
+          .select("email")
+          .eq("stripe_customer_id", stripeCustomerId)
+          .maybeSingle();
+        userEmail = userData?.email || null;
         await supabaseAdmin
           .from("users")
           .update(pendingUpdate)
           .eq("stripe_customer_id", stripeCustomerId);
+      }
+
+      // Send downgrade notification email
+      if (userEmail) {
+        await sendSubscriptionEmail({
+          toEmail: userEmail,
+          tier: targetTier,
+          previousTier: currentTier,
+          eventType: "downgraded",
+          effectiveDate: new Date(effectiveAt * 1000).toISOString(),
+        });
       }
 
       return NextResponse.json(
@@ -258,13 +284,37 @@ export async function POST(req: Request) {
       pending_change_effective_at: null,
     };
 
+    // Get user email for notification
+    let userEmail: string | null = null;
     if (userId) {
+      const { data: userData } = await supabaseAdmin
+        .from("users")
+        .select("email")
+        .eq("id", userId)
+        .maybeSingle();
+      userEmail = userData?.email || null;
       await supabaseAdmin.from("users").update(clearPending).eq("id", userId);
     } else if (stripeCustomerId) {
+      const { data: userData } = await supabaseAdmin
+        .from("users")
+        .select("email")
+        .eq("stripe_customer_id", stripeCustomerId)
+        .maybeSingle();
+      userEmail = userData?.email || null;
       await supabaseAdmin
         .from("users")
         .update(clearPending)
         .eq("stripe_customer_id", stripeCustomerId);
+    }
+
+    // Send upgrade notification email
+    if (userEmail) {
+      await sendSubscriptionEmail({
+        toEmail: userEmail,
+        tier: targetTier,
+        previousTier: currentTier,
+        eventType: "upgraded",
+      });
     }
 
     const latestInvoice = updated.latest_invoice as Stripe.Invoice | null;

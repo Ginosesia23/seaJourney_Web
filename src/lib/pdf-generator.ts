@@ -179,7 +179,7 @@ function loadLogoImage(logoPath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-
+    
     img.onload = () => {
       try {
         const canvas = document.createElement('canvas');
@@ -201,18 +201,18 @@ function loadLogoImage(logoPath: string): Promise<string> {
         reject(new Error(`Failed to convert image to data URL: ${error}`));
       }
     };
-
+    
     img.onerror = () => {
       reject(new Error(`Failed to load logo from ${logoPath}. Make sure it exists in /public.`));
     };
-
+    
     const absoluteSrc =
       logoPath.startsWith('http')
         ? logoPath
         : `${window.location.origin}${logoPath.startsWith('/') ? '' : '/'}${logoPath}`;
 
     img.src = absoluteSrc;
-
+    
     if (img.complete) {
       img.onload(new Event('load') as any);
     }
@@ -238,14 +238,14 @@ export async function generateTestimonialPDF(
   const startDate = format(parseDateOnly(testimonial.start_date), 'dd MMMM yyyy');
   const endDate = format(parseDateOnly(testimonial.end_date), 'dd MMMM yyyy');
   const generatedDate = format(new Date(), 'dd MMMM yyyy');
-
+  
   // Use approved_at from approved_testimonials table if available, otherwise fall back to signoff_used_at
   const approvedDate =
     testimonial.status === 'approved' && testimonial.approved_at
       ? format(new Date(testimonial.approved_at), 'dd MMMM yyyy')
       : testimonial.status === 'approved' && testimonial.signoff_used_at
-      ? format(new Date(testimonial.signoff_used_at), 'dd MMMM yyyy')
-      : null;
+    ? format(new Date(testimonial.signoff_used_at), 'dd MMMM yyyy')
+    : null;
 
   const dateOfBirth = userProfile.dateOfBirth
     ? format(parseDateOnly(userProfile.dateOfBirth), 'dd MMMM yyyy')
@@ -283,62 +283,62 @@ export async function generateTestimonialPDF(
     doc.line(14, currentY, pageWidth - 14, currentY);
     currentY += 12;
   } else {
-    const headerHeight = 50;
-    setFillColor(headerColor);
-    doc.rect(0, 0, pageWidth, headerHeight, 'F');
+  const headerHeight = 50;
+  setFillColor(headerColor);
+  doc.rect(0, 0, pageWidth, headerHeight, 'F');
 
-    setDrawColor([0, 0, 0]);
-    doc.setLineWidth(0.5);
-    doc.line(0, headerHeight, pageWidth, headerHeight);
+  setDrawColor([0, 0, 0]);
+  doc.setLineWidth(0.5);
+  doc.line(0, headerHeight, pageWidth, headerHeight);
 
     let headerY = 12;
-
-    try {
+  
+  try {
       const logoDataURL = await loadLogoImage('/seajourney_logo_white.png');
-      const logoWidth = 55;
-      const logoHeight = 15;
-      const logoX = (pageWidth - logoWidth) / 2;
+    const logoWidth = 55;
+    const logoHeight = 15;
+    const logoX = (pageWidth - logoWidth) / 2;
       doc.addImage(logoDataURL, 'PNG', logoX, headerY, logoWidth, logoHeight);
       headerY += logoHeight + 8;
-    } catch (error) {
-      console.error('Failed to load logo image:', error);
-      doc.setFontSize(22);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(255, 255, 255);
-      doc.text('SeaJourney', pageWidth / 2, headerY, { align: 'center' });
-      headerY += 8;
-    }
-
-    doc.setFontSize(11);
+  } catch (error) {
+    console.error('Failed to load logo image:', error);
+    doc.setFontSize(22);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(255, 255, 255);
+      doc.text('SeaJourney', pageWidth / 2, headerY, { align: 'center' });
+      headerY += 8;
+  }
+
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 255, 255);
     doc.text('SEA SERVICE TESTIMONIAL', pageWidth / 2, headerY, { align: 'center' });
 
     headerY += 5;
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(220, 220, 220);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(220, 220, 220);
     doc.text('Official Certificate of Service', pageWidth / 2, headerY, { align: 'center' });
-
-    setTextColor(textDark);
-    currentY = headerHeight + 20;
+  
+  setTextColor(textDark);
+  currentY = headerHeight + 20;
   }
 
   const sectionHeaderHeight = 8;
-
+  
   // ===== Part 1 – Seafarer's Details =====
   doc.setFontSize(13);
-  doc.setFont('helvetica', 'bold');
-  setTextColor(primaryBlue);
+    doc.setFont('helvetica', 'bold');
+    setTextColor(primaryBlue);
   doc.text("PART 1 – SEAFARER'S DETAILS", 18, currentY + 2);
-
-  setDrawColor(primaryBlue);
-  doc.setLineWidth(0.5);
+    
+    setDrawColor(primaryBlue);
+    doc.setLineWidth(0.5);
   doc.line(18, currentY + 3, pageWidth - 18, currentY + 3);
-
+    
   currentY += sectionHeaderHeight + 4;
 
-  doc.setFontSize(10);
+    doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   setTextColor(textDark);
   doc.text('This is to certify that:', 18, currentY);
@@ -407,16 +407,16 @@ export async function generateTestimonialPDF(
 
   // ===== Part 2 – Service =====
   currentY = ensureSpace(doc, currentY, 60);
-
+  
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
   setTextColor(primaryBlue);
   doc.text('PART 2 – SERVICE', 18, currentY + 2);
-
+  
   setDrawColor(primaryBlue);
   doc.setLineWidth(0.5);
   doc.line(18, currentY + 3, pageWidth - 18, currentY + 3);
-
+  
   currentY += sectionHeaderHeight + 4;
 
   doc.setFontSize(11);
@@ -534,9 +534,9 @@ export async function generateTestimonialPDF(
   currentY = (doc as any).lastAutoTable.finalY + 4;
   currentY = ensureSpace(doc, currentY, 60);
 
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  setTextColor(textDark);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    setTextColor(textDark);
   doc.text(`Days of leave of absence: ${testimonial.leave_days} days`, 18, currentY);
   currentY += 5;
 
@@ -658,7 +658,7 @@ export async function generateTestimonialPDF(
     headStyles: {
       fillColor: [235, 237, 240],
       textColor: primaryBlue,
-      fontStyle: 'bold',
+        fontStyle: 'bold',
       fontSize: 10,
       cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
     },
@@ -669,10 +669,10 @@ export async function generateTestimonialPDF(
     margin: { left: 18, right: 18 },
     tableLineColor: borderColor,
     tableLineWidth: 0.5,
-  });
+    });
 
   currentY = (doc as any).lastAutoTable.finalY + 6;
-
+  
   // ===== Part 3 – Declaration =====
   // Force Part 3 to start on page 3
   const currentPageCount = doc.getNumberOfPages();
@@ -685,13 +685,13 @@ export async function generateTestimonialPDF(
   if (currentPageCount < targetPage) {
     const pagesNeeded = targetPage - currentPageCount;
     for (let i = 0; i < pagesNeeded; i++) {
-      doc.addPage();
+    doc.addPage();
     }
     currentY = 20; // Start at top of page 3
   } else if (currentPageCount === targetPage) {
     // We're on page 3, but might be mid-page - check if we have enough space
     const pageHeight = doc.internal.pageSize.getHeight();
-    if (currentY > pageHeight - 120) {
+  if (currentY > pageHeight - 120) {
       // Not enough space, add a new page
       doc.addPage();
       currentY = 20;
@@ -702,16 +702,16 @@ export async function generateTestimonialPDF(
     doc.addPage();
     currentY = 20;
   }
-
+  
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
   setTextColor(primaryBlue);
   doc.text('PART 3 – DECLARATION BY MASTER / COMPANY REPRESENTATIVE', 18, currentY + 2);
-
+  
   setDrawColor(primaryBlue);
   doc.setLineWidth(0.5);
   doc.line(18, currentY + 3, pageWidth - 18, currentY + 3);
-
+  
   currentY += sectionHeaderHeight + 4;
 
   doc.setFontSize(10);
@@ -754,7 +754,7 @@ export async function generateTestimonialPDF(
   if (!captainName && captainProfile) {
     const profileName = `${captainProfile.firstName || ''} ${captainProfile.lastName || ''}`.trim();
     if (profileName) captainName = profileName;
-  }
+    }
   captainName = captainName || '_______________________________';
 
   const captainPosition =
@@ -773,7 +773,7 @@ export async function generateTestimonialPDF(
   doc.text(`Email: ${truncate(captainEmail, 70, '_______________________________')}`, 20, signatoryY);
 
   currentY += signatoryBoxHeight + 10;
-
+  
   // Horizontal alignment: Signature, Date, Ship's Stamp
   const sectionStartY = currentY;
   const sectionHeight = 25; // Height for all three sections
@@ -815,7 +815,7 @@ export async function generateTestimonialPDF(
         imageFormat = 'JPEG';
       } else if (captainSignature.includes('data:image/png')) {
         imageFormat = 'PNG';
-      }
+  }
       
       console.log('[PDF GENERATION] Detected image format:', imageFormat);
       
@@ -829,8 +829,8 @@ export async function generateTestimonialPDF(
         stack: error instanceof Error ? error.stack : undefined
       });
       // Fall back to signature line if image fails
-      setDrawColor(borderColor);
-      doc.setLineWidth(0.5);
+  setDrawColor(borderColor);
+  doc.setLineWidth(0.5);
       doc.rect(signatureX, signatureBoxY, sectionWidth - 2, signatureBoxHeight);
       doc.line(signatureX + 2, signatureBoxY + signatureBoxHeight / 2, signatureX + sectionWidth - 4, signatureBoxY + signatureBoxHeight / 2);
     }
@@ -855,7 +855,7 @@ export async function generateTestimonialPDF(
   doc.setFont('helvetica', 'bold');
   setTextColor(primaryBlue);
   doc.text('Approved Date', dateX, dateY);
-  
+
   const dateTextY = dateY + 6;
   
   doc.setFontSize(9);
@@ -888,16 +888,16 @@ export async function generateTestimonialPDF(
   // ===== Part 4 – Official Verification (optional) =====
   if (testimonial.official_body || testimonial.official_reference) {
     currentY = ensureSpace(doc, currentY + 8, 70);
-
+    
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
     setTextColor(primaryBlue);
     doc.text('PART 4 – OFFICIAL VERIFICATION (PYA / NAUTILUS / OTHER)', 18, currentY + 2);
-
+    
     setDrawColor(primaryBlue);
     doc.setLineWidth(0.5);
     doc.line(18, currentY + 3, pageWidth - 18, currentY + 3);
-
+    
     currentY += sectionHeaderHeight + 4;
 
     const verificationRows: string[][] = [];
@@ -984,7 +984,7 @@ export async function generateTestimonialPDF(
     return doc.output('blob');
   }
   if (output === 'newtab') {
-    doc.output('dataurlnewwindow');
+  doc.output('dataurlnewwindow');
     return;
   }
 
@@ -1316,8 +1316,8 @@ export async function generatePassageLogPDF(data: PassageLogExportData) {
   doc.text(`Total passages: ${totalPassages}`, pageWidth - 14, currentY + 9, { align: 'right' });
   if (totalPassages > 0) {
     doc.text(`Total distance: ${totalDistance.toFixed(1)} NM`, pageWidth - 14, currentY + 14, {
-      align: 'right',
-    });
+    align: 'right',
+  });
   }
 
   currentY = headerHeight + 6;

@@ -4,6 +4,7 @@ import type StripeType from "stripe";
 import { stripe } from "@/lib/stripe";
 import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { sendSubscriptionEmail as sendSubscriptionEmailUtil, formatTierName } from "@/lib/subscription-emails";
 
 export const runtime = "nodejs";
 
@@ -128,10 +129,51 @@ function extractTierFromSubscription(sub: StripeType.Subscription) {
 }
 
 /**
- * ✅ The main “Stripe → Supabase” sync function.
- * This is what makes the UI/features update after plan changes.
+ * Send subscription email with idempotency checking (for webhook events)
  */
-async function syncUserFromSubscription(sub: StripeType.Subscription) {
+async function sendSubscriptionEmail(args: {
+  eventId: string;
+  emailType: string;
+  toEmail: string;
+  userId: string | null;
+  tier: string;
+  previousTier?: string | null;
+  eventType: "created" | "updated" | "deleted" | "upgraded" | "downgraded";
+  effectiveDate?: string | null;
+}) {
+  // Check if email already sent (idempotency)
+  if (await emailAlreadySent(args.eventId)) {
+    console.log(`[EMAIL] Skipping duplicate ${args.emailType} email:`, args.eventId);
+    return;
+  }
+
+  // Use shared email utility
+  const result = await sendSubscriptionEmailUtil({
+    toEmail: args.toEmail,
+    tier: args.tier,
+    previousTier: args.previousTier,
+    eventType: args.eventType,
+    effectiveDate: args.effectiveDate,
+  });
+
+  if (result.success) {
+    await markEmailSent({
+      stripe_event_id: args.eventId,
+      email_type: args.emailType,
+      user_id: args.userId,
+      to_email: args.toEmail,
+    });
+  }
+}
+
+/**
+ * ✅ The main "Stripe → Supabase" sync function.
+ * This is what makes the UI/features update after plan changes.
+ * Returns before/after state for email notifications.
+ */
+async function syncUserFromSubscription(
+  sub: StripeType.Subscription,
+): Promise<{ before: any; after: any; userId: string | null } | null> {
   const customerId = sub.customer as string;
 
   // Resolve user id (metadata preferred, fallback to DB lookup by customerId)
@@ -147,7 +189,7 @@ async function syncUserFromSubscription(sub: StripeType.Subscription) {
       subscriptionId: sub.id,
       customerId,
     });
-    return;
+    return null;
   }
 
   const tier = extractTierFromSubscription(sub);
@@ -197,6 +239,8 @@ async function syncUserFromSubscription(sub: StripeType.Subscription) {
 
   console.log("[SYNC] update-by-userId result:", { updated, updateErr });
 
+  const after = updated && updated.length > 0 ? updated[0] : null;
+
   // If no rows updated, try matching by customerId as fallback
   if (!updateErr && (!updated || updated.length === 0)) {
     console.warn("[SYNC] No rows updated by userId. Trying stripe_customer_id...", {
@@ -220,7 +264,13 @@ async function syncUserFromSubscription(sub: StripeType.Subscription) {
       );
 
     console.log("[SYNC] update-by-customerId result:", { updated2, updateErr2 });
+    
+    if (updated2 && updated2.length > 0) {
+      return { before, after: updated2[0], userId };
+    }
   }
+
+  return { before, after, userId };
 }
 
 /** -----------------------
@@ -313,10 +363,92 @@ export async function POST(req: NextRequest) {
       }
 
       /**
-       * ✅ Key fix: subscription changes update your DB
+       * ✅ Key fix: subscription changes update your DB and send emails
        */
-      case "customer.subscription.created":
-      case "customer.subscription.updated":
+      case "customer.subscription.created": {
+        const partial = event.data.object as StripeType.Subscription;
+
+        // Re-fetch full subscription (expanded price/product so metadata is available)
+        const full = await stripe.subscriptions.retrieve(partial.id, {
+          expand: ["items.data.price.product"],
+        });
+
+        const syncResult = await syncUserFromSubscription(full as StripeType.Subscription);
+
+        // Send welcome email for new subscription
+        if (syncResult?.after?.email) {
+          await sendSubscriptionEmail({
+            eventId: event.id,
+            emailType: "subscription.created",
+            toEmail: syncResult.after.email,
+            userId: syncResult.userId,
+            tier: syncResult.after.subscription_tier || "standard",
+            eventType: "created",
+          });
+        }
+
+        break;
+      }
+
+      case "customer.subscription.updated": {
+        const partial = event.data.object as StripeType.Subscription;
+
+        // Re-fetch full subscription (expanded price/product so metadata is available)
+        const full = await stripe.subscriptions.retrieve(partial.id, {
+          expand: ["items.data.price.product"],
+        });
+
+        const syncResult = await syncUserFromSubscription(full as StripeType.Subscription);
+
+        // Send email based on what changed
+        if (syncResult?.after?.email && syncResult.before) {
+          const beforeTier = syncResult.before.subscription_tier;
+          const afterTier = syncResult.after.subscription_tier;
+          const beforeStatus = syncResult.before.subscription_status;
+          const afterStatus = syncResult.after.subscription_status;
+
+          // Detect upgrade/downgrade by comparing tier names (simple comparison)
+          // You might want to enhance this with a tier hierarchy
+          const tierOrder: Record<string, number> = {
+            free: 0,
+            standard: 1,
+            premium: 2,
+            pro: 3,
+          };
+
+          const beforeTierOrder = tierOrder[beforeTier?.toLowerCase() || "free"] || 0;
+          const afterTierOrder = tierOrder[afterTier?.toLowerCase() || "free"] || 0;
+
+          let eventType: "upgraded" | "downgraded" | "updated" = "updated";
+          if (beforeTier !== afterTier) {
+            if (afterTierOrder > beforeTierOrder) {
+              eventType = "upgraded";
+            } else if (afterTierOrder < beforeTierOrder) {
+              eventType = "downgraded";
+            }
+          }
+
+          // Check if this is a scheduled downgrade (cancel_at_period_end)
+          const isScheduledDowngrade =
+            full.cancel_at_period_end && eventType === "downgraded";
+
+          await sendSubscriptionEmail({
+            eventId: event.id,
+            emailType: "subscription.updated",
+            toEmail: syncResult.after.email,
+            userId: syncResult.userId,
+            tier: afterTier || "standard",
+            previousTier: beforeTier,
+            eventType: isScheduledDowngrade ? "downgraded" : eventType,
+            effectiveDate: isScheduledDowngrade
+              ? syncResult.after.current_period_end
+              : null,
+          });
+        }
+
+        break;
+      }
+
       case "customer.subscription.deleted": {
         const partial = event.data.object as StripeType.Subscription;
 
@@ -325,7 +457,20 @@ export async function POST(req: NextRequest) {
           expand: ["items.data.price.product"],
         });
 
-        await syncUserFromSubscription(full as StripeType.Subscription);
+        const syncResult = await syncUserFromSubscription(full as StripeType.Subscription);
+
+        // Send cancellation email
+        if (syncResult?.after?.email) {
+          await sendSubscriptionEmail({
+            eventId: event.id,
+            emailType: "subscription.deleted",
+            toEmail: syncResult.after.email,
+            userId: syncResult.userId,
+            tier: syncResult.after.subscription_tier || "standard",
+            eventType: "deleted",
+          });
+        }
+
         break;
       }
 

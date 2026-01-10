@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, CheckCircle2, XCircle, Ship, Calendar, User, Mail, AlertCircle, Clock, FileText, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format, parse, eachDayOfInterval, startOfDay, endOfDay, isAfter, isBefore, differenceInDays } from 'date-fns';
+import { format, parse, eachDayOfInterval, startOfDay, endOfDay, isAfter, isBefore, differenceInDays, isValid } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { getVesselStateLogs } from '@/supabase/database/queries';
 import { DateComparisonView } from './date-comparison-view';
-import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog } from '@/lib/types';
+import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog, SeaTimeRequest } from '@/lib/types';
 
 export default function InboxPage() {
   const { user } = useUser();
@@ -29,6 +29,9 @@ export default function InboxPage() {
   const [approvedTestimonials, setApprovedTestimonials] = useState<(Testimonial & { user?: { email: string; first_name?: string; last_name?: string; username?: string } })[]>([]);
   const [captaincyRequests, setCaptaincyRequests] = useState<(VesselClaimRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } })[]>([]);
   const [captainRoleApplications, setCaptainRoleApplications] = useState<any[]>([]);
+  const [seaTimeRequests, setSeaTimeRequests] = useState<(SeaTimeRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } })[]>([]);
+  const [selectedSeaTimeRequest, setSelectedSeaTimeRequest] = useState<(SeaTimeRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } }) | null>(null);
+  const [isSeaTimeDialogOpen, setIsSeaTimeDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pending' | 'approved'>('pending');
   const [selectedTestimonial, setSelectedTestimonial] = useState<(Testimonial & { user?: { email: string; first_name?: string; last_name?: string; username?: string } }) | null>(null);
@@ -269,6 +272,56 @@ export default function InboxPage() {
 
           // Set captaincy requests to empty for non-admins
           setCaptaincyRequests([]);
+
+          // Fetch sea time requests for this vessel (if user is vessel manager)
+          if (userProfile?.active_vessel_id) {
+            const { data: seaTimeData, error: seaTimeError } = await supabase
+              .from('sea_time_requests')
+              .select('*')
+              .eq('vessel_id', userProfile.active_vessel_id)
+              .eq('status', 'pending')
+              .order('created_at', { ascending: false });
+
+            if (seaTimeError) {
+              console.error('[INBOX] Error fetching sea time requests:', seaTimeError);
+            } else if (seaTimeData && seaTimeData.length > 0) {
+              const seaTimeWithDetails = await Promise.all(
+                seaTimeData.map(async (request) => {
+                  const [userResult, vesselResult] = await Promise.all([
+                    supabase
+                      .from('users')
+                      .select('email, first_name, last_name, username')
+                      .eq('id', request.crew_user_id)
+                      .maybeSingle(),
+                    supabase
+                      .from('vessels')
+                      .select('name')
+                      .eq('id', request.vessel_id)
+                      .maybeSingle(),
+                  ]);
+
+                  return {
+                    id: request.id,
+                    crewUserId: request.crew_user_id,
+                    vesselId: request.vessel_id,
+                    startDate: request.start_date,
+                    endDate: request.end_date,
+                    status: request.status,
+                    rejectionReason: request.rejection_reason,
+                    createdAt: request.created_at,
+                    updatedAt: request.updated_at,
+                    user: userResult.data || undefined,
+                    vessel: vesselResult.data || undefined,
+                  };
+                })
+              );
+              setSeaTimeRequests(seaTimeWithDetails as any);
+            } else {
+              setSeaTimeRequests([]);
+            }
+          } else {
+            setSeaTimeRequests([]);
+          }
         }
       } catch (error: any) {
         console.error('Error fetching pending data:', error);
@@ -1207,6 +1260,102 @@ export default function InboxPage() {
     }
   };
 
+  const handleApproveSeaTimeRequest = async () => {
+    if (!selectedSeaTimeRequest) return;
+
+    setIsProcessing(true);
+    try {
+      const response = await fetch('/api/sea-time-requests/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: selectedSeaTimeRequest.id,
+          action: 'approve',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to approve sea time request');
+      }
+
+      toast({
+        title: 'Request Approved',
+        description: data.warning || `Sea time logs have been copied to the crew member. ${data.logsCopied ? `(${data.logsCopied} days)` : ''}`,
+      });
+
+      // Remove from list
+      setSeaTimeRequests(prev => prev.filter(r => r.id !== selectedSeaTimeRequest.id));
+      setIsSeaTimeDialogOpen(false);
+      setSelectedSeaTimeRequest(null);
+      setAction(null);
+      setRejectionReason('');
+    } catch (error: any) {
+      console.error('Error approving sea time request:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to approve request. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRejectSeaTimeRequest = async () => {
+    if (!selectedSeaTimeRequest) return;
+
+    if (action === 'reject' && !rejectionReason.trim()) {
+      toast({
+        title: 'Rejection Reason Required',
+        description: 'Please provide a reason for rejecting this request.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const response = await fetch('/api/sea-time-requests/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: selectedSeaTimeRequest.id,
+          action: 'reject',
+          rejectionReason: rejectionReason || null,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to reject sea time request');
+      }
+
+      toast({
+        title: 'Request Rejected',
+        description: 'The sea time request has been rejected.',
+      });
+
+      // Remove from list
+      setSeaTimeRequests(prev => prev.filter(r => r.id !== selectedSeaTimeRequest.id));
+      setIsSeaTimeDialogOpen(false);
+      setSelectedSeaTimeRequest(null);
+      setAction(null);
+      setRejectionReason('');
+    } catch (error: any) {
+      console.error('Error rejecting sea time request:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to reject request. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   if (!isCaptain) {
     return (
       <div className="flex flex-col gap-6">
@@ -1243,7 +1392,7 @@ export default function InboxPage() {
           </div>
           {(testimonials.length > 0 || captaincyRequests.length > 0 || captainRoleApplications.length > 0) && (
             <Badge variant="secondary" className="text-sm">
-              {testimonials.length + captaincyRequests.length + captainRoleApplications.length} pending request{(testimonials.length + captaincyRequests.length + captainRoleApplications.length) !== 1 ? 's' : ''}
+              {testimonials.length + captaincyRequests.length + captainRoleApplications.length + seaTimeRequests.length} pending request{(testimonials.length + captaincyRequests.length + captainRoleApplications.length + seaTimeRequests.length) !== 1 ? 's' : ''}
             </Badge>
           )}
         </div>
@@ -1257,7 +1406,7 @@ export default function InboxPage() {
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </CardContent>
         </Card>
-      ) : (isAdmin && captaincyRequests.length === 0 && captainRoleApplications.length === 0) || (!isAdmin && testimonials.length === 0 && approvedTestimonials.length === 0) ? (
+      ) : (isAdmin && captaincyRequests.length === 0 && captainRoleApplications.length === 0) || (!isAdmin && testimonials.length === 0 && approvedTestimonials.length === 0 && seaTimeRequests.length === 0) ? (
         <Card className="rounded-xl border">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Mail className="h-12 w-12 text-muted-foreground mb-4" />
@@ -1400,6 +1549,116 @@ export default function InboxPage() {
                               </Button>
                               <Button
                                 onClick={() => openCaptaincyActionDialog(request, 'reject')}
+                                size="sm"
+                                variant="destructive"
+                                className="rounded-lg"
+                              >
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Reject
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Sea Time Requests Section (Vessel Managers/Captains only) */}
+          {!isAdmin && seaTimeRequests.length > 0 && (
+            <Card className="rounded-xl border shadow-sm">
+              <CardHeader>
+                <CardTitle>Sea Time Requests</CardTitle>
+                <CardDescription>Review and approve requests from crew members to copy vessel sea time logs</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Requested By</TableHead>
+                        <TableHead>Date Range</TableHead>
+                        <TableHead>Days</TableHead>
+                        <TableHead>Requested</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {seaTimeRequests.map((request) => (
+                        <TableRow key={request.id}>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{getUserName(request as any)}</div>
+                              {(request.user as any)?.email && (
+                                <div className="text-xs text-muted-foreground">
+                                  {(request.user as any).email}
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Calendar className="h-4 w-4 text-muted-foreground" />
+                              {(() => {
+                                const startDateStr = request.startDate;
+                                const endDateStr = request.endDate;
+                                if (!startDateStr || !endDateStr) return '—';
+                                
+                                const startDate = parse(startDateStr, 'yyyy-MM-dd', new Date());
+                                const endDate = parse(endDateStr, 'yyyy-MM-dd', new Date());
+                                if (isValid(startDate) && isValid(endDate)) {
+                                  return `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`;
+                                }
+                                return `${startDateStr} - ${endDateStr}`;
+                              })()}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {(() => {
+                              const startDateStr = request.startDate;
+                              const endDateStr = request.endDate;
+                              if (!startDateStr || !endDateStr) return '—';
+                              
+                              const startDate = parse(startDateStr, 'yyyy-MM-dd', new Date());
+                              const endDate = parse(endDateStr, 'yyyy-MM-dd', new Date());
+                              if (isValid(startDate) && isValid(endDate)) {
+                                return `${differenceInDays(endDate, startDate) + 1} days`;
+                              }
+                              return '—';
+                            })()}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Clock className="h-4 w-4" />
+                              {request.createdAt ? (() => {
+                                const date = new Date(request.createdAt);
+                                return isValid(date) ? format(date, 'MMM d, yyyy') : '—';
+                              })() : '—'}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                onClick={() => {
+                                  setSelectedSeaTimeRequest(request);
+                                  setAction('approve');
+                                  setIsSeaTimeDialogOpen(true);
+                                }}
+                                size="sm"
+                                className="rounded-lg bg-green-600 hover:bg-green-700"
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-2" />
+                                Approve
+                              </Button>
+                              <Button
+                                onClick={() => {
+                                  setSelectedSeaTimeRequest(request);
+                                  setAction('reject');
+                                  setIsSeaTimeDialogOpen(true);
+                                }}
                                 size="sm"
                                 variant="destructive"
                                 className="rounded-lg"
@@ -2288,6 +2547,121 @@ export default function InboxPage() {
             </Button>
             <Button
               onClick={action === 'approve' ? handleApproveCaptaincy : handleRejectCaptaincy}
+              disabled={isProcessing}
+              className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                action === 'approve' ? 'Approve' : 'Reject'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sea Time Request Action Dialog */}
+      <Dialog open={isSeaTimeDialogOpen} onOpenChange={setIsSeaTimeDialogOpen}>
+        <DialogContent className="rounded-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {action === 'approve' ? 'Approve Sea Time Request' : 'Reject Sea Time Request'}
+            </DialogTitle>
+            <DialogDescription>
+              {action === 'approve' 
+                ? 'Are you sure you want to approve this request? The vessel\'s sea time logs for this date range will be copied to the crew member.'
+                : 'Please provide a reason for rejecting this sea time request.'}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedSeaTimeRequest && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Requested By:</span>
+                  <span className="font-medium">{getUserName(selectedSeaTimeRequest as any)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Vessel:</span>
+                  <span className="font-medium">{(selectedSeaTimeRequest.vessel as any)?.name || getVesselName(selectedSeaTimeRequest.vesselId)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Date Range:</span>
+                  <span className="font-medium">
+                    {(() => {
+                      const startDateStr = selectedSeaTimeRequest.startDate;
+                      const endDateStr = selectedSeaTimeRequest.endDate;
+                      if (!startDateStr || !endDateStr) return '—';
+                      
+                      const startDate = parse(startDateStr, 'yyyy-MM-dd', new Date());
+                      const endDate = parse(endDateStr, 'yyyy-MM-dd', new Date());
+                      if (isValid(startDate) && isValid(endDate)) {
+                        return `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`;
+                      }
+                      return `${startDateStr} - ${endDateStr}`;
+                    })()}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Days:</span>
+                  <span className="font-medium">
+                    {(() => {
+                      const startDateStr = selectedSeaTimeRequest.startDate;
+                      const endDateStr = selectedSeaTimeRequest.endDate;
+                      if (!startDateStr || !endDateStr) return '—';
+                      
+                      const startDate = parse(startDateStr, 'yyyy-MM-dd', new Date());
+                      const endDate = parse(endDateStr, 'yyyy-MM-dd', new Date());
+                      if (isValid(startDate) && isValid(endDate)) {
+                        return `${differenceInDays(endDate, startDate) + 1} days`;
+                      }
+                      return '—';
+                    })()}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Requested:</span>
+                  <span className="font-medium">
+                    {selectedSeaTimeRequest.createdAt ? (() => {
+                      const date = new Date(selectedSeaTimeRequest.createdAt);
+                      return isValid(date) ? format(date, 'MMM d, yyyy') : '—';
+                    })() : '—'}
+                  </span>
+                </div>
+              </div>
+
+              {action === 'reject' && (
+                <div className="space-y-2">
+                  <Label htmlFor="sea-time-rejection-reason">Rejection Reason</Label>
+                  <Textarea
+                    id="sea-time-rejection-reason"
+                    placeholder="Please provide a reason for rejecting this request..."
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    className="resize-none"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsSeaTimeDialogOpen(false);
+                setSelectedSeaTimeRequest(null);
+                setAction(null);
+                setRejectionReason('');
+              }}
+              disabled={isProcessing}
+              className="rounded-xl"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={action === 'approve' ? handleApproveSeaTimeRequest : handleRejectSeaTimeRequest}
               disabled={isProcessing}
               className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
             >

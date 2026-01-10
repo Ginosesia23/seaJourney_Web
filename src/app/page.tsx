@@ -10,10 +10,12 @@ import HowToUse from '@/components/sections/how-to-use';
 import MembershipCTA from '@/components/sections/membership-cta';
 import ShopPromo from '@/components/sections/shop-promo';
 import AndroidTesterSignup from '@/components/sections/android-tester-signup';
+import { AuthRecoveryHandler } from '@/components/auth-recovery-handler';
 
 export default function Home() {
   return (
     <div className="flex min-h-screen flex-col" style={{ backgroundColor: '#000b15' }}>
+      <AuthRecoveryHandler />
       <Header />
       <main className="flex-1">
         <Hero />

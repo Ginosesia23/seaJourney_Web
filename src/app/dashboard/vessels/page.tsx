@@ -1001,14 +1001,14 @@ export default function VesselsPage() {
                       <TableHead>Vessel Name</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Official Number</TableHead>
-                      <TableHead>Total Days Logged</TableHead>
+                      {isAdmin && <TableHead>Official</TableHead>}
                       <TableHead>Status</TableHead>
                       {isCaptain && <TableHead>Actions</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     <TableRow>
-                      <TableCell colSpan={7} className="h-24 text-center">
+                      <TableCell colSpan={5 + (isAdmin ? 1 : 0) + (isCaptain ? 1 : 0)} className="h-24 text-center">
                         <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                       </TableCell>
                     </TableRow>
@@ -1048,7 +1048,7 @@ export default function VesselsPage() {
                         <TableHead>Vessel Name</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Official Number</TableHead>
-                                <TableHead>Total Days Logged</TableHead>
+                        {isAdmin && <TableHead>Official</TableHead>}
                         <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                         </TableRow>
@@ -1128,7 +1128,23 @@ export default function VesselsPage() {
                                                 </Badge>
                                     </TableCell>
                                             <TableCell className="text-muted-foreground">{vessel.officialNumber || '—'}</TableCell>
-                                            <TableCell className="font-medium">{totalDays || (isCaptain && request ? '0' : '—')}</TableCell>
+                                            {isAdmin && (
+                                              <TableCell>
+                                                {(() => {
+                                                  const isOfficial = (vesselData as any)?.is_official === true || (vesselData as any)?.is_official === 'true';
+                                                  const hasManager = (vesselData as any)?.vessel_manager_id || (vesselData as any)?.vesselManagerId;
+                                                  if (isOfficial && hasManager) {
+                                                    return (
+                                                      <Badge variant="default" className="bg-blue-600 hover:bg-blue-700 text-white border-0">
+                                                        <ShieldCheck className="mr-1 h-3 w-3" />
+                                                        Official
+                                                      </Badge>
+                                                    );
+                                                  }
+                                                  return <span className="text-muted-foreground">—</span>;
+                                                })()}
+                                              </TableCell>
+                                            )}
                                     <TableCell>
                                         <div className="flex flex-col gap-1">
                                           {(() => {

@@ -103,7 +103,7 @@ const vesselStates: { value: DailyStatus; label: string; color: string; icon: Re
     { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
     { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
     { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
-  ];
+];
 
 export default function CurrentPage() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
@@ -445,37 +445,37 @@ export default function CurrentPage() {
           if (!vessel) continue;
 
           // Use the same logic as calendar page: simple captaincy check
-          let userIdToFetch: string | undefined = user.id;
-          
-          if (userProfile?.role === 'captain') {
-            try {
-              const { data: captaincyData } = await supabase
-                .from('vessel_claim_requests')
-                .select('id')
-                .eq('requested_by', user.id)
+      let userIdToFetch: string | undefined = user.id;
+      
+      if (userProfile?.role === 'captain') {
+        try {
+          const { data: captaincyData } = await supabase
+            .from('vessel_claim_requests')
+            .select('id')
+            .eq('requested_by', user.id)
                 .eq('vessel_id', vesselId)
-                .eq('status', 'approved')
-                .maybeSingle();
-              
-              if (captaincyData) {
+            .eq('status', 'approved')
+            .maybeSingle();
+          
+          if (captaincyData) {
                 const vesselManagerId = (vessel as any).vessel_manager_id || (vessel as any).vesselManagerId;
-                if (vesselManagerId) {
+            if (vesselManagerId) {
                   userIdToFetch = vesselManagerId;
-                } else {
+            } else {
                   userIdToFetch = undefined; // Fetch all logs for vessel
-                }
-              }
-            } catch (e) {
+            }
+          }
+        } catch (e) {
               console.error('[CURRENT PAGE] Error checking captaincy for vessel:', vesselId, e);
             }
           }
-
-          try {
+      
+      try {
             const logs = await getVesselStateLogs(supabase, vesselId, userIdToFetch);
             console.log('[CURRENT PAGE] Fetched logs for vessel:', {
               vesselId,
               vesselName: vessel.name,
-              logsCount: logs.length,
+          logsCount: logs.length,
               userIdToFetch: userIdToFetch || 'ALL'
             });
             allLogs.push(...logs);
@@ -1927,7 +1927,7 @@ export default function CurrentPage() {
     
     return result;
   }, [currentVessel, vesselAssignments]);
-
+  
   const { totalDaysByState, atSeaDays, standbyDays } = useMemo(() => {
     console.log('[CURRENT PAGE] Calculating stats from stateLogs:', {
       stateLogsCount: stateLogs?.length || 0,
@@ -1955,10 +1955,10 @@ export default function CurrentPage() {
       });
       
       filteredLogs = stateLogs.filter(log => {
-        const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
         const isInRange = isWithinInterval(logDate, { start: filterStartDate, end: filterEndDate });
         return isInRange;
-      });
+    });
     } else {
       // No assignment date - use all logs
       console.log('[CURRENT PAGE] No assignment date found - using all logs:', {
@@ -2142,7 +2142,7 @@ export default function CurrentPage() {
                         <div className="text-3xl font-bold">
                           {assignmentStartDate 
                             ? stateLogs.filter(log => {
-                                const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+                          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
                                 const filterEndDate = endOfDay(new Date());
                                 return isWithinInterval(logDate, { start: assignmentStartDate, end: filterEndDate });
                               }).length

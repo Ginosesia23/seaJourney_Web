@@ -192,38 +192,38 @@ export default function CalendarPage() {
           if (!vessel) continue;
 
           // For captains with approved captaincy, fetch vessel account logs
-          // Otherwise, fetch only logs for this user
-          let userIdToFetch: string | undefined = user.id;
-          
-          if (userProfile?.role === 'captain') {
-            try {
-              const { data: captaincyData } = await supabase
-                .from('vessel_claim_requests')
-                .select('id')
-                .eq('requested_by', user.id)
+      // Otherwise, fetch only logs for this user
+      let userIdToFetch: string | undefined = user.id;
+      
+      if (userProfile?.role === 'captain') {
+        try {
+          const { data: captaincyData } = await supabase
+            .from('vessel_claim_requests')
+            .select('id')
+            .eq('requested_by', user.id)
                 .eq('vessel_id', vesselId)
-                .eq('status', 'approved')
-                .maybeSingle();
-              
-              if (captaincyData) {
+            .eq('status', 'approved')
+            .maybeSingle();
+          
+          if (captaincyData) {
                 const vesselManagerId = (vessel as any).vessel_manager_id || (vessel as any).vesselManagerId;
-                if (vesselManagerId) {
-                  userIdToFetch = vesselManagerId;
-                } else {
+            if (vesselManagerId) {
+              userIdToFetch = vesselManagerId;
+            } else {
                   userIdToFetch = undefined; // Fetch all logs for vessel
-                }
-              }
-            } catch (e) {
+            }
+          }
+        } catch (e) {
               console.error('[CALENDAR PAGE] Error checking captaincy for vessel:', vesselId, e);
             }
           }
-
-          try {
+      
+      try {
             const logs = await getVesselStateLogs(supabase, vesselId, userIdToFetch);
             console.log('[CALENDAR PAGE] Fetched logs for vessel:', {
               vesselId,
               vesselName: vessel.name,
-              logsCount: logs.length,
+          logsCount: logs.length,
             });
             allLogs.push(...logs);
           } catch (error) {
@@ -449,36 +449,36 @@ export default function CalendarPage() {
     // Check if date falls within the assignment period
     // Note: end_date is exclusive '[)' - meaning if end_date = 2025-01-10, 
     // valid dates are < 2025-01-10 (through 2025-01-09 inclusive)
-    const assignmentStart = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
-    const assignmentEnd = assignment.endDate
-      ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
-      : null;
+      const assignmentStart = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
+      const assignmentEnd = assignment.endDate
+        ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
+        : null;
 
-    // Check if date is within this assignment period [start_date, end_date)
-    // date >= start_date AND (end_date is null OR date < end_date)
-    const isAfterOrEqualStart = !isBefore(dateObj, assignmentStart);
-    const isBeforeEnd = !assignmentEnd || isBefore(dateObj, assignmentEnd);
-
-    if (isAfterOrEqualStart && isBeforeEnd) {
+      // Check if date is within this assignment period [start_date, end_date)
+      // date >= start_date AND (end_date is null OR date < end_date)
+      const isAfterOrEqualStart = !isBefore(dateObj, assignmentStart);
+      const isBeforeEnd = !assignmentEnd || isBefore(dateObj, assignmentEnd);
+      
+      if (isAfterOrEqualStart && isBeforeEnd) {
       return { valid: true, vessel };
-    }
+      }
 
     // Date is outside the assignment period
-    if (isBefore(dateObj, assignmentStart)) {
-      return {
-        valid: false,
-        reason: `You cannot change states before ${format(assignmentStart, 'MMM d, yyyy')} (when you joined this vessel).`,
+      if (isBefore(dateObj, assignmentStart)) {
+        return {
+          valid: false,
+          reason: `You cannot change states before ${format(assignmentStart, 'MMM d, yyyy')} (when you joined this vessel).`,
         vessel,
-      };
-    }
+        };
+      }
 
-    // end_date is exclusive, so if end_date = 2025-01-10, dates >= 2025-01-10 are invalid
-    if (assignmentEnd && !isBefore(dateObj, assignmentEnd)) {
-      return {
-        valid: false,
-        reason: `You cannot change states on or after ${format(assignmentEnd, 'MMM d, yyyy')} (when you left this vessel). Join a new vessel to continue logging.`,
+      // end_date is exclusive, so if end_date = 2025-01-10, dates >= 2025-01-10 are invalid
+      if (assignmentEnd && !isBefore(dateObj, assignmentEnd)) {
+        return {
+          valid: false,
+          reason: `You cannot change states on or after ${format(assignmentEnd, 'MMM d, yyyy')} (when you left this vessel). Join a new vessel to continue logging.`,
         vessel,
-      };
+        };
     }
 
     return { valid: false, reason: 'This date is not within your vessel assignment period.', vessel };
@@ -633,12 +633,12 @@ export default function CalendarPage() {
         const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
         
         for (const day of interval) {
-          const dayStart = startOfDay(day);
-          // Filter out future dates
+            const dayStart = startOfDay(day);
+            // Filter out future dates
           if (isAfter(dayStart, today)) continue;
           
           // Validate each date and find which vessel it belongs to
-          const validation = isDateValidForStateChange(day);
+            const validation = isDateValidForStateChange(day);
           if (!validation.valid || !validation.vessel) continue;
           
           const dateKey = format(day, 'yyyy-MM-dd');

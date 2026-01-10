@@ -57,52 +57,166 @@ export default function ResetPasswordClient() {
   });
 
   useEffect(() => {
+    let mounted = true;
+
     const checkSession = async () => {
-      // 1) See if Supabase already has an active recovery session
+      // 1) Check for existing session first
       const {
         data: { session },
       } = await supabase.auth.getSession();
 
       if (session) {
-        setIsValidSession(true);
+        if (mounted) setIsValidSession(true);
         return;
       }
 
-      // 2) Otherwise, try to verify the hash token from the URL
-      const hashParams = window.location.hash; // e.g. #access_token=...&type=recovery
+      // 2) Handle URL hash parameters (Supabase sends tokens in hash after redirect)
+      const hashParams = window.location.hash;
       if (hashParams) {
-        const tokenHash = hashParams.split('access_token=')[1]?.split('&')[0];
+        const params = new URLSearchParams(hashParams.substring(1));
+        const accessToken = params.get('access_token');
+        const type = params.get('type');
+        const refreshToken = params.get('refresh_token');
 
-        if (!tokenHash) {
-          setIsValidSession(false);
-          toast({
-            title: 'Invalid Link',
-            description:
-              'This password reset link is invalid or has expired. Please request a new one.',
-            variant: 'destructive',
+        if (accessToken && type === 'recovery' && refreshToken) {
+          try {
+            const { data, error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+
+            if (error) {
+              console.error('[RESET PASSWORD] Error setting session:', error);
+              if (mounted) {
+                setIsValidSession(false);
+                toast({
+                  title: 'Invalid Link',
+                  description:
+                    'This password reset link is invalid or has expired. Please request a new one.',
+                  variant: 'destructive',
+                });
+              }
+              return;
+            }
+
+            if (data.session && mounted) {
+              setIsValidSession(true);
+              // Clean up URL
+              window.history.replaceState({}, '', '/reset-password');
+            }
+            return;
+          } catch (error) {
+            console.error('[RESET PASSWORD] Exception setting session:', error);
+            if (mounted) setIsValidSession(false);
+            return;
+          }
+        }
+      }
+
+      // 3) Handle query parameters (some email clients or Supabase configs might use query params)
+      const searchParams = new URLSearchParams(window.location.search);
+      const tokenHash = searchParams.get('token_hash') || searchParams.get('token');
+      const typeParam = searchParams.get('type');
+      const redirectTo = searchParams.get('redirect_to');
+
+      if (tokenHash && typeParam === 'recovery') {
+        try {
+          const { data, error } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: 'recovery',
           });
+
+          if (error || !data.session) {
+            console.error('[RESET PASSWORD] Error verifying OTP:', error);
+            if (mounted) {
+              setIsValidSession(false);
+              toast({
+                title: 'Invalid Link',
+                description:
+                  'This password reset link is invalid or has expired. Please request a new one.',
+                variant: 'destructive',
+              });
+            }
+            return;
+          }
+
+          if (data.session && mounted) {
+            setIsValidSession(true);
+            // Clean up URL
+            window.history.replaceState({}, '', '/reset-password');
+          }
+          return;
+        } catch (error) {
+          console.error('[RESET PASSWORD] Exception verifying OTP:', error);
+          if (mounted) setIsValidSession(false);
+          return;
+        }
+      }
+
+      // 4) Set up auth state change listener to catch PASSWORD_RECOVERY events
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log('[RESET PASSWORD] Auth state change:', event, !!session);
+        
+        if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
+          if (mounted) {
+            setIsValidSession(true);
+            // Clean up URL
+            window.history.replaceState({}, '', '/reset-password');
+          }
+        } else if (event === 'SIGNED_OUT') {
+          if (mounted) setIsValidSession(false);
+        }
+      });
+
+      // 5) Poll for session (Supabase's /auth/v1/verify might establish session server-side)
+      // Check multiple times with increasing delays to catch async session establishment
+      let checkCount = 0;
+      const maxChecks = 5;
+      
+      const pollForSession = async () => {
+        if (!mounted || checkCount >= maxChecks) {
+          if (!mounted) return;
+          
+          // Final check - if still no session, mark as invalid
+          const {
+            data: { session: finalSession },
+          } = await supabase.auth.getSession();
+          
+          if (!finalSession && mounted) {
+            setIsValidSession(false);
+          } else if (finalSession && mounted) {
+            setIsValidSession(true);
+            window.history.replaceState({}, '', '/reset-password');
+          }
           return;
         }
 
-        const { data, error } = await supabase.auth.verifyOtp({
-          token_hash: tokenHash,
-          type: 'recovery',
-        });
+        checkCount++;
+        const {
+          data: { session: polledSession },
+        } = await supabase.auth.getSession();
 
-        if (error || !data.session) {
-          setIsValidSession(false);
-          toast({
-            title: 'Invalid Link',
-            description:
-              'This password reset link is invalid or has expired. Please request a new one.',
-            variant: 'destructive',
-          });
-        } else {
+        if (polledSession && mounted) {
           setIsValidSession(true);
+          // Clean up URL
+          if (window.location.hash || window.location.search) {
+            window.history.replaceState({}, '', '/reset-password');
+          }
+        } else if (mounted) {
+          // Check again with exponential backoff
+          setTimeout(pollForSession, Math.min(500 * Math.pow(2, checkCount - 1), 3000));
         }
-      } else {
-        setIsValidSession(false);
-      }
+      };
+
+      // Start polling after a short initial delay
+      setTimeout(pollForSession, 300);
+
+      return () => {
+        mounted = false;
+        subscription.unsubscribe();
+      };
     };
 
     checkSession();

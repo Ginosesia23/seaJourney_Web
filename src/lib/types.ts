@@ -184,6 +184,19 @@ export interface VesselClaimRequest {
     updated_at?: string;               // timestamp with time zone
 }
 
+export interface SeaTimeRequest {
+    id: string;                        // uuid PK
+    crewUserId: string;                // uuid FK → auth.users.id (crew member requesting)
+    vesselId: string;                  // uuid FK → vessels.id
+    startDate: string;                 // Date in YYYY-MM-DD format
+    endDate: string;                   // Date in YYYY-MM-DD format
+    status: 'pending' | 'approved' | 'rejected'; // Request status
+    notes?: string | null;             // Optional notes from crew member
+    rejectionReason?: string | null;   // Optional rejection reason from vessel manager
+    createdAt?: string;                // ISO timestamp
+    updatedAt?: string;                // ISO timestamp
+}
+
 export interface VisaTracker {
     id: string;                        // uuid PK
     userId: string;                    // uuid FK → auth.users.id

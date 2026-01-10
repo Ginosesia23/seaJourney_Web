@@ -86,6 +86,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/current", label: "Current", icon: MapPin, disabled: false },
       { href: "/dashboard/calendar", label: "Calendar", icon: Calendar, disabled: false },
+      { href: "/dashboard/sea-time-request", label: "Request Sea Time", icon: FileText, disabled: false, hideForRoles: ['vessel'] }, // Only for crew members
     ]
   },
   {
@@ -212,22 +213,35 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           setInboxCount(captaincyCount + applicationsCount);
         } else {
           // Captains/vessel managers see testimonials addressed to them
-          let query = supabase
+          let testimonialQuery = supabase
             .from('testimonials')
             .select('id', { count: 'exact', head: true })
             .eq('status', 'pending_captain');
           
           // Match by captain_user_id OR captain_email
           if (user?.id && user?.email) {
-            query = query.or(`captain_user_id.eq.${user.id},captain_email.ilike.${user.email}`);
+            testimonialQuery = testimonialQuery.or(`captain_user_id.eq.${user.id},captain_email.ilike.${user.email}`);
           } else if (user?.id) {
-            query = query.eq('captain_user_id', user.id);
+            testimonialQuery = testimonialQuery.eq('captain_user_id', user.id);
           } else if (user?.email) {
-            query = query.ilike('captain_email', user.email);
+            testimonialQuery = testimonialQuery.ilike('captain_email', user.email);
           }
           
-          const { count } = await query;
-          setInboxCount(count || 0);
+          const { count: testimonialCount } = await testimonialQuery;
+          
+          // Also fetch sea time requests for vessel accounts
+          let seaTimeCount = 0;
+          if (activeVesselId) {
+            const { count: seaTimeRequestCount } = await supabase
+              .from('sea_time_requests')
+              .select('id', { count: 'exact', head: true })
+              .eq('vessel_id', activeVesselId)
+              .eq('status', 'pending');
+            
+            seaTimeCount = seaTimeRequestCount || 0;
+          }
+          
+          setInboxCount((testimonialCount || 0) + seaTimeCount);
         }
       } catch (error) {
         console.error('[SIDEBAR] Error fetching inbox count:', error);
@@ -275,13 +289,30 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
         () => {
           fetchInboxCount();
         }
-      )
-      .subscribe();
+      );
+    
+    // Add sea time requests subscription for vessel accounts
+    if (activeVesselId) {
+      channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'sea_time_requests',
+          filter: `vessel_id=eq.${activeVesselId},status=eq.pending`,
+        },
+        () => {
+          fetchInboxCount();
+        }
+      );
+    }
+    
+    channel.subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, user?.email, userProfile, supabase]);
+  }, [user?.id, user?.email, userProfile, supabase, activeVesselId]);
   
   // Get display username and email from userProfile or user object
   // For vessel role, use vessel name instead of username
