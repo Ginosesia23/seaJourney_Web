@@ -138,7 +138,7 @@ async function sendSubscriptionEmail(args: {
   userId: string | null;
   tier: string;
   previousTier?: string | null;
-  eventType: "created" | "updated" | "deleted" | "upgraded" | "downgraded";
+  eventType: "created" | "updated" | "deleted" | "upgraded" | "downgraded" | "resumed";
   effectiveDate?: string | null;
 }) {
   // Check if email already sent (idempotency)
@@ -392,6 +392,26 @@ export async function POST(req: NextRequest) {
 
       case "customer.subscription.updated": {
         const partial = event.data.object as StripeType.Subscription;
+        const customerId = partial.customer as string;
+
+        // Get user info BEFORE syncing (in case subscription was previously canceled/deleted)
+        let userEmail: string | null = null;
+        let userTier: string | null = null;
+        let userId: string | null = null;
+
+        if (customerId) {
+          const { data: userData } = await supabaseAdmin
+            .from("users")
+            .select("id, email, subscription_tier, subscription_status")
+            .eq("stripe_customer_id", customerId)
+            .maybeSingle();
+
+          if (userData) {
+            userId = userData.id;
+            userEmail = userData.email || null;
+            userTier = userData.subscription_tier || null;
+          }
+        }
 
         // Re-fetch full subscription (expanded price/product so metadata is available)
         const full = await stripe.subscriptions.retrieve(partial.id, {
@@ -400,49 +420,74 @@ export async function POST(req: NextRequest) {
 
         const syncResult = await syncUserFromSubscription(full as StripeType.Subscription);
 
+        // Use syncResult data if available, otherwise use what we fetched
+        const beforeStatus = syncResult?.before?.subscription_status;
+        const afterStatus = syncResult?.after?.subscription_status || mapStripeStatusToAppStatus(full.status);
+        const beforeTier = syncResult?.before?.subscription_tier || userTier;
+        const afterTier = syncResult?.after?.subscription_tier || extractTierFromSubscription(full);
+        const finalEmail = syncResult?.after?.email || userEmail;
+        const finalUserId = syncResult?.userId || userId;
+
+        // Detect if subscription is being resumed (from canceled/inactive to active)
+        const isResumed = 
+          (beforeStatus === "canceled" || beforeStatus === "inactive" || beforeStatus === "past_due") &&
+          (afterStatus === "active");
+
         // Send email based on what changed
-        if (syncResult?.after?.email && syncResult.before) {
-          const beforeTier = syncResult.before.subscription_tier;
-          const afterTier = syncResult.after.subscription_tier;
-          const beforeStatus = syncResult.before.subscription_status;
-          const afterStatus = syncResult.after.subscription_status;
+        if (finalEmail) {
+          // If resumed, send resumed email
+          if (isResumed) {
+            await sendSubscriptionEmail({
+              eventId: event.id,
+              emailType: "subscription.resumed",
+              toEmail: finalEmail,
+              userId: finalUserId,
+              tier: afterTier || "standard",
+              eventType: "resumed",
+            });
+          } else if (syncResult?.before) {
+            // Detect upgrade/downgrade by comparing tier names
+            const tierOrder: Record<string, number> = {
+              free: 0,
+              standard: 1,
+              premium: 2,
+              pro: 3,
+            };
 
-          // Detect upgrade/downgrade by comparing tier names (simple comparison)
-          // You might want to enhance this with a tier hierarchy
-          const tierOrder: Record<string, number> = {
-            free: 0,
-            standard: 1,
-            premium: 2,
-            pro: 3,
-          };
+            const beforeTierOrder = tierOrder[beforeTier?.toLowerCase() || "free"] || 0;
+            const afterTierOrder = tierOrder[afterTier?.toLowerCase() || "free"] || 0;
 
-          const beforeTierOrder = tierOrder[beforeTier?.toLowerCase() || "free"] || 0;
-          const afterTierOrder = tierOrder[afterTier?.toLowerCase() || "free"] || 0;
-
-          let eventType: "upgraded" | "downgraded" | "updated" = "updated";
-          if (beforeTier !== afterTier) {
-            if (afterTierOrder > beforeTierOrder) {
-              eventType = "upgraded";
-            } else if (afterTierOrder < beforeTierOrder) {
-              eventType = "downgraded";
+            let eventType: "upgraded" | "downgraded" | "updated" = "updated";
+            if (beforeTier !== afterTier) {
+              if (afterTierOrder > beforeTierOrder) {
+                eventType = "upgraded";
+              } else if (afterTierOrder < beforeTierOrder) {
+                eventType = "downgraded";
+              }
             }
+
+            // Check if this is a scheduled downgrade (cancel_at_period_end)
+            const isScheduledDowngrade =
+              full.cancel_at_period_end && eventType === "downgraded";
+
+            await sendSubscriptionEmail({
+              eventId: event.id,
+              emailType: "subscription.updated",
+              toEmail: finalEmail,
+              userId: finalUserId,
+              tier: afterTier || "standard",
+              previousTier: beforeTier,
+              eventType: isScheduledDowngrade ? "downgraded" : eventType,
+              effectiveDate: isScheduledDowngrade
+                ? syncResult.after.current_period_end
+                : null,
+            });
           }
-
-          // Check if this is a scheduled downgrade (cancel_at_period_end)
-          const isScheduledDowngrade =
-            full.cancel_at_period_end && eventType === "downgraded";
-
-          await sendSubscriptionEmail({
-            eventId: event.id,
-            emailType: "subscription.updated",
-            toEmail: syncResult.after.email,
-            userId: syncResult.userId,
-            tier: afterTier || "standard",
-            previousTier: beforeTier,
-            eventType: isScheduledDowngrade ? "downgraded" : eventType,
-            effectiveDate: isScheduledDowngrade
-              ? syncResult.after.current_period_end
-              : null,
+        } else {
+          console.warn("[STRIPE WEBHOOK] No email found for subscription update:", {
+            customerId,
+            subscriptionId: partial.id,
+            userId: finalUserId,
           });
         }
 
@@ -451,23 +496,74 @@ export async function POST(req: NextRequest) {
 
       case "customer.subscription.deleted": {
         const partial = event.data.object as StripeType.Subscription;
+        const customerId = partial.customer as string;
 
-        // Re-fetch full subscription (expanded price/product so metadata is available)
-        const full = await stripe.subscriptions.retrieve(partial.id, {
-          expand: ["items.data.price.product"],
-        });
+        // For deleted subscriptions, we need to get user info BEFORE syncing
+        // because the subscription might not be retrievable from Stripe
+        let userEmail: string | null = null;
+        let userTier: string | null = null;
+        let userId: string | null = null;
 
-        const syncResult = await syncUserFromSubscription(full as StripeType.Subscription);
+        // Try to get user info from database using customer ID
+        if (customerId) {
+          const { data: userData } = await supabaseAdmin
+            .from("users")
+            .select("id, email, subscription_tier")
+            .eq("stripe_customer_id", customerId)
+            .maybeSingle();
+
+          if (userData) {
+            userId = userData.id;
+            userEmail = userData.email || null;
+            userTier = userData.subscription_tier || null;
+          }
+        }
+
+        // Try to retrieve subscription (might fail if already deleted)
+        let syncResult: { before: any; after: any; userId: string | null } | null = null;
+        try {
+          const full = await stripe.subscriptions.retrieve(partial.id, {
+            expand: ["items.data.price.product"],
+          });
+          syncResult = await syncUserFromSubscription(full as StripeType.Subscription);
+        } catch (retrieveError: any) {
+          console.warn("[STRIPE WEBHOOK] Could not retrieve deleted subscription:", retrieveError?.message);
+          // If we can't retrieve, update status manually
+          if (userId) {
+            const { error: updateError } = await supabaseAdmin
+              .from("users")
+              .update({
+                subscription_status: "canceled",
+                subscription_tier: userTier || "standard",
+              })
+              .eq("id", userId);
+
+            if (updateError) {
+              console.error("[STRIPE WEBHOOK] Failed to update user status:", updateError);
+            }
+          }
+        }
+
+        // Use syncResult data if available, otherwise use what we fetched
+        const finalEmail = syncResult?.after?.email || userEmail;
+        const finalTier = syncResult?.after?.subscription_tier || userTier || "standard";
+        const finalUserId = syncResult?.userId || userId;
 
         // Send cancellation email
-        if (syncResult?.after?.email) {
+        if (finalEmail) {
           await sendSubscriptionEmail({
             eventId: event.id,
             emailType: "subscription.deleted",
-            toEmail: syncResult.after.email,
-            userId: syncResult.userId,
-            tier: syncResult.after.subscription_tier || "standard",
+            toEmail: finalEmail,
+            userId: finalUserId,
+            tier: finalTier,
             eventType: "deleted",
+          });
+        } else {
+          console.warn("[STRIPE WEBHOOK] No email found for deleted subscription:", {
+            customerId,
+            subscriptionId: partial.id,
+            userId: finalUserId,
           });
         }
 
