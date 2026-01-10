@@ -147,22 +147,37 @@ async function sendSubscriptionEmail(args: {
     return;
   }
 
-  // Use shared email utility
-  const result = await sendSubscriptionEmailUtil({
+  console.log(`[EMAIL] Attempting to send ${args.emailType} email:`, {
+    eventId: args.eventId,
     toEmail: args.toEmail,
+    userId: args.userId,
     tier: args.tier,
-    previousTier: args.previousTier,
     eventType: args.eventType,
-    effectiveDate: args.effectiveDate,
   });
 
-  if (result.success) {
-    await markEmailSent({
-      stripe_event_id: args.eventId,
-      email_type: args.emailType,
-      user_id: args.userId,
-      to_email: args.toEmail,
+  try {
+    // Use shared email utility
+    const result = await sendSubscriptionEmailUtil({
+      toEmail: args.toEmail,
+      tier: args.tier,
+      previousTier: args.previousTier,
+      eventType: args.eventType,
+      effectiveDate: args.effectiveDate,
     });
+
+    if (result.success) {
+      console.log(`[EMAIL] ✅ Successfully sent ${args.emailType} email to ${args.toEmail}`);
+      await markEmailSent({
+        stripe_event_id: args.eventId,
+        email_type: args.emailType,
+        user_id: args.userId,
+        to_email: args.toEmail,
+      });
+    } else {
+      console.error(`[EMAIL] ❌ Failed to send ${args.emailType} email:`, result.error);
+    }
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Exception sending ${args.emailType} email:`, error);
   }
 }
 
@@ -434,6 +449,11 @@ export async function POST(req: NextRequest) {
         // Detect if cancellation is scheduled (cancel_at_period_end is true)
         const isCancellationScheduled = full.cancel_at_period_end === true;
         
+        // Detect if cancellation was just scheduled (cancel_at_period_end changed from false to true)
+        const cancellationJustScheduled = 
+          syncResult?.before?.cancel_at_period_end === false && 
+          full.cancel_at_period_end === true;
+        
         // Detect if subscription is being resumed (from canceled/inactive to active)
         // Check both database status and Stripe status
         const stripeStatus = full.status;
@@ -458,6 +478,7 @@ export async function POST(req: NextRequest) {
           afterTier,
           isCanceled,
           isCancellationScheduled,
+          cancellationJustScheduled,
           isResumed,
           wasCanceledInDb,
           wasCanceledInStripe,
@@ -482,9 +503,21 @@ export async function POST(req: NextRequest) {
               eventType: "deleted",
             });
           }
-          // If cancellation is scheduled, don't send tier change emails - wait for deletion event
+          // If cancellation was just scheduled, send cancellation email immediately
+          else if (cancellationJustScheduled) {
+            console.log("[STRIPE WEBHOOK] Cancellation scheduled, sending cancellation email");
+            await sendSubscriptionEmail({
+              eventId: event.id,
+              emailType: "subscription.deleted",
+              toEmail: finalEmail,
+              userId: finalUserId,
+              tier: beforeTier || afterTier || "standard",
+              eventType: "deleted",
+            });
+          }
+          // If cancellation is already scheduled, don't send tier change emails
           else if (isCancellationScheduled) {
-            console.log("[STRIPE WEBHOOK] Cancellation scheduled, skipping tier change email - deletion event will handle");
+            console.log("[STRIPE WEBHOOK] Cancellation already scheduled, skipping tier change email");
           }
           // If resumed, send resumed email (prioritize over tier changes)
           else if (isResumed) {
@@ -501,7 +534,7 @@ export async function POST(req: NextRequest) {
             });
           } 
           // Only check for tier changes if it's not a cancellation, scheduled cancellation, or resumption
-          else if (syncResult?.before && !isCanceled && !isCancellationScheduled && !isResumed) {
+          else if (syncResult?.before && !isCanceled && !isCancellationScheduled && !cancellationJustScheduled && !isResumed) {
             // Detect upgrade/downgrade by comparing tier names
             const tierOrder: Record<string, number> = {
               free: 0,
@@ -554,6 +587,11 @@ export async function POST(req: NextRequest) {
         const partial = event.data.object as StripeType.Subscription;
         const customerId = partial.customer as string;
 
+        console.log("[STRIPE WEBHOOK] Processing deleted subscription:", {
+          subscriptionId: partial.id,
+          customerId,
+        });
+
         // For deleted subscriptions, we need to get user info BEFORE syncing
         // because the subscription might not be retrievable from Stripe
         let userEmail: string | null = null;
@@ -562,16 +600,27 @@ export async function POST(req: NextRequest) {
 
         // Try to get user info from database using customer ID
         if (customerId) {
-          const { data: userData } = await supabaseAdmin
+          const { data: userData, error: userError } = await supabaseAdmin
             .from("users")
             .select("id, email, subscription_tier")
             .eq("stripe_customer_id", customerId)
             .maybeSingle();
 
+          if (userError) {
+            console.error("[STRIPE WEBHOOK] Error fetching user by customer ID:", userError);
+          }
+
           if (userData) {
             userId = userData.id;
             userEmail = userData.email || null;
             userTier = userData.subscription_tier || null;
+            console.log("[STRIPE WEBHOOK] Found user from database:", {
+              userId,
+              email: userEmail,
+              tier: userTier,
+            });
+          } else {
+            console.warn("[STRIPE WEBHOOK] No user found for customer ID:", customerId);
           }
         }
 
@@ -582,6 +631,11 @@ export async function POST(req: NextRequest) {
             expand: ["items.data.price.product"],
           });
           syncResult = await syncUserFromSubscription(full as StripeType.Subscription);
+          console.log("[STRIPE WEBHOOK] Successfully synced deleted subscription:", {
+            userId: syncResult?.userId,
+            email: syncResult?.after?.email,
+            tier: syncResult?.after?.subscription_tier,
+          });
         } catch (retrieveError: any) {
           console.warn("[STRIPE WEBHOOK] Could not retrieve deleted subscription:", retrieveError?.message);
           // If we can't retrieve, update status manually
@@ -596,6 +650,8 @@ export async function POST(req: NextRequest) {
 
             if (updateError) {
               console.error("[STRIPE WEBHOOK] Failed to update user status:", updateError);
+            } else {
+              console.log("[STRIPE WEBHOOK] Updated user status to canceled");
             }
           }
         }
@@ -611,6 +667,8 @@ export async function POST(req: NextRequest) {
           userId: finalUserId,
           email: finalEmail,
           tier: finalTier,
+          userEmailFromDb: userEmail,
+          syncResultEmail: syncResult?.after?.email,
         });
 
         // Send cancellation email
@@ -625,12 +683,13 @@ export async function POST(req: NextRequest) {
             eventType: "deleted",
           });
         } else {
-          console.warn("[STRIPE WEBHOOK] No email found for deleted subscription:", {
+          console.error("[STRIPE WEBHOOK] ❌ No email found for deleted subscription - cannot send email:", {
             customerId,
             subscriptionId: partial.id,
             userId: finalUserId,
-            userEmail,
+            userEmailFromDb: userEmail,
             syncResultEmail: syncResult?.after?.email,
+            syncResultUserId: syncResult?.userId,
           });
         }
 
