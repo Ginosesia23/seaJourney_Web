@@ -435,15 +435,52 @@ export async function POST(req: NextRequest) {
         const isCancellationScheduled = full.cancel_at_period_end === true;
         
         // Detect if subscription is being resumed (from canceled/inactive to active)
+        // Check both database status and Stripe status
+        const stripeStatus = full.status;
+        const wasCanceledInDb = beforeStatus === "canceled" || beforeStatus === "inactive";
+        const wasCanceledInStripe = stripeStatus === "canceled" || stripeStatus === "incomplete_expired";
+        const isNowActiveInDb = afterStatus === "active";
+        const isNowActiveInStripe = stripeStatus === "active" || stripeStatus === "trialing";
+        
+        // Also check if cancel_at_period_end changed from true to false (cancellation was canceled)
+        const cancellationWasRemoved = syncResult?.before?.cancel_at_period_end === true && full.cancel_at_period_end === false;
+        
+        // Resumed if: was canceled and now active, OR cancellation was removed
         const isResumed = 
-          (beforeStatus === "canceled" || beforeStatus === "inactive" || beforeStatus === "past_due") &&
-          (afterStatus === "active");
+          ((wasCanceledInDb || wasCanceledInStripe) && (isNowActiveInDb || isNowActiveInStripe)) ||
+          cancellationWasRemoved;
+
+        console.log("[STRIPE WEBHOOK] Subscription updated:", {
+          beforeStatus,
+          afterStatus,
+          stripeStatus: full.status,
+          beforeTier,
+          afterTier,
+          isCanceled,
+          isCancellationScheduled,
+          isResumed,
+          wasCanceledInDb,
+          wasCanceledInStripe,
+          isNowActiveInDb,
+          isNowActiveInStripe,
+          cancellationWasRemoved,
+          cancel_at_period_end: full.cancel_at_period_end,
+          beforeCancelAtPeriodEnd: syncResult?.before?.cancel_at_period_end,
+        });
 
         // Send email based on what changed - prioritize status changes over tier changes
         if (finalEmail) {
-          // If canceled, don't send email here - let the deleted event handle it
+          // If canceled, send cancellation email (in case deleted event doesn't fire)
           if (isCanceled) {
-            console.log("[STRIPE WEBHOOK] Subscription canceled, should be handled by deleted event");
+            console.log("[STRIPE WEBHOOK] Subscription canceled, sending cancellation email");
+            await sendSubscriptionEmail({
+              eventId: event.id,
+              emailType: "subscription.deleted",
+              toEmail: finalEmail,
+              userId: finalUserId,
+              tier: beforeTier || afterTier || "standard",
+              eventType: "deleted",
+            });
           }
           // If cancellation is scheduled, don't send tier change emails - wait for deletion event
           else if (isCancellationScheduled) {
@@ -451,12 +488,15 @@ export async function POST(req: NextRequest) {
           }
           // If resumed, send resumed email (prioritize over tier changes)
           else if (isResumed) {
+            console.log("[STRIPE WEBHOOK] Subscription resumed, sending resumed email");
+            // Use beforeTier (the tier they had before cancellation) or afterTier
+            const resumedTier = beforeTier || afterTier || "standard";
             await sendSubscriptionEmail({
               eventId: event.id,
               emailType: "subscription.resumed",
               toEmail: finalEmail,
               userId: finalUserId,
-              tier: afterTier || beforeTier || "standard",
+              tier: resumedTier,
               eventType: "resumed",
             });
           } 
@@ -565,8 +605,17 @@ export async function POST(req: NextRequest) {
         const finalTier = syncResult?.after?.subscription_tier || userTier || "standard";
         const finalUserId = syncResult?.userId || userId;
 
+        console.log("[STRIPE WEBHOOK] Deleted subscription details:", {
+          customerId,
+          subscriptionId: partial.id,
+          userId: finalUserId,
+          email: finalEmail,
+          tier: finalTier,
+        });
+
         // Send cancellation email
         if (finalEmail) {
+          console.log("[STRIPE WEBHOOK] Sending cancellation email to:", finalEmail);
           await sendSubscriptionEmail({
             eventId: event.id,
             emailType: "subscription.deleted",
@@ -580,6 +629,8 @@ export async function POST(req: NextRequest) {
             customerId,
             subscriptionId: partial.id,
             userId: finalUserId,
+            userEmail,
+            syncResultEmail: syncResult?.after?.email,
           });
         }
 
