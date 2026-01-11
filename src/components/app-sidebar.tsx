@@ -158,6 +158,23 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     return group
   })
   
+  // Check if user has premium/pro subscription for visa tracker access
+  const hasPremiumAccess = React.useMemo(() => {
+    if (!userProfile) return false;
+    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
+    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
+    const role = (userProfile as any).role || userProfile.role || 'crew';
+    
+    // Vessel accounts: allow all active vessel tiers
+    if (role === 'vessel') {
+      const tierLower = tier.toLowerCase();
+      return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && status === 'active';
+    }
+    
+    // Crew accounts: premium or pro only
+    return (tier === 'premium' || tier === 'pro') && status === 'active';
+  }, [userProfile]);
+
   // Use admin navGroups for admin, regular navGroups for others
   const displayNavGroups = isAdmin ? adminNavGroups : navGroups
   const router = useRouter()
@@ -490,6 +507,12 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     return null
                   }
 
+                  // Check if feature requires premium access (visa tracker, passage log, bridge watch)
+                  const isVisaTracker = item.href === '/dashboard/visa-tracker';
+                  const isPassageLog = item.href === '/dashboard/passage-logbook';
+                  const isBridgeWatch = item.href === '/dashboard/bridge-watch-log';
+                  const requiresPremium = (isVisaTracker || isPassageLog || isBridgeWatch) && !hasPremiumAccess;
+
                   const isActive = pathname === item.href
                   
                   // Use a combination of href and label for unique keys (since two items can have the same href)
@@ -502,30 +525,44 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   
                   return (
                     <SidebarMenuItem key={uniqueKey}>
-                      <SidebarMenuButton tooltip={item.label} asChild isActive={isActive}>
-                        <Link href={item.href} className="flex items-center justify-between w-full">
-                          <div className="flex items-center gap-2">
-                          <item.icon />
-                          <span>{item.label}</span>
+                      {requiresPremium ? (
+                        <SidebarMenuButton tooltip={`${item.label} - Premium Required`} disabled>
+                          <div className="flex items-center justify-between w-full">
+                            <div className="flex items-center gap-2">
+                              <item.icon />
+                              <span>{item.label}</span>
+                            </div>
+                            <Badge variant="secondary" className="ml-auto text-xs">
+                              Premium
+                            </Badge>
                           </div>
-                          {isInbox && inboxCount > 0 && (
-                            <Badge 
-                              variant="destructive" 
-                              className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold"
-                            >
-                              {inboxCount > 99 ? '99+' : inboxCount}
-                            </Badge>
-                          )}
-                          {isFeedback && feedbackCount > 0 && (
-                            <Badge 
-                              variant="destructive" 
-                              className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold"
-                            >
-                              {feedbackCount > 99 ? '99+' : feedbackCount}
-                            </Badge>
-                          )}
-                        </Link>
-                      </SidebarMenuButton>
+                        </SidebarMenuButton>
+                      ) : (
+                        <SidebarMenuButton tooltip={item.label} asChild isActive={isActive}>
+                          <Link href={item.href} className="flex items-center justify-between w-full">
+                            <div className="flex items-center gap-2">
+                            <item.icon />
+                            <span>{item.label}</span>
+                            </div>
+                            {isInbox && inboxCount > 0 && (
+                              <Badge 
+                                variant="destructive" 
+                                className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold"
+                              >
+                                {inboxCount > 99 ? '99+' : inboxCount}
+                              </Badge>
+                            )}
+                            {isFeedback && feedbackCount > 0 && (
+                              <Badge 
+                                variant="destructive" 
+                                className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold"
+                              >
+                                {feedbackCount > 99 ? '99+' : feedbackCount}
+                              </Badge>
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      )}
                     </SidebarMenuItem>
                   )
                 })}

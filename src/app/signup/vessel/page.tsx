@@ -23,6 +23,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import { Checkbox } from '@/components/ui/checkbox';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useToast } from '@/hooks/use-toast';
 import { useSupabase, useUser } from '@/supabase';
@@ -41,6 +42,9 @@ const vesselSignupSchema = z.object({
   password: z
     .string()
     .min(8, { message: 'Password must be at least 8 characters long.' }),
+  agreeToTerms: z.boolean().refine((val) => val === true, {
+    message: 'You must agree to the Terms & Conditions and Privacy Policy to create an account.',
+  }),
 }).refine((data) => {
   // If vesselId is not provided, vesselType is required
   if (!data.vesselId && !data.vesselType) {
@@ -82,7 +86,8 @@ function VesselSignupPageInner() {
       vesselType: undefined,
       officialNumber: '',
       email: '', 
-      password: '', 
+      password: '',
+      agreeToTerms: false
     },
   });
 
@@ -710,6 +715,47 @@ function VesselSignupPageInner() {
                     )}
                   />
                 </div>
+                
+                <FormField
+                  control={form.control}
+                  name="agreeToTerms"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          className="rounded-sm"
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel className="text-sm font-normal cursor-pointer">
+                          I agree to the{' '}
+                          <Link
+                            href="/terms-of-service"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Terms & Conditions
+                          </Link>
+                          {' '}and{' '}
+                          <Link
+                            href="/privacy-policy"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Privacy Policy
+                          </Link>
+                        </FormLabel>
+                        <FormMessage />
+                      </div>
+                    </FormItem>
+                  )}
+                />
                 
                 <Button
                   type="submit"

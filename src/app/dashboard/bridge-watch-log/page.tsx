@@ -114,10 +114,14 @@ export default function BridgeWatchLogPage() {
   
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
+    const role = (userProfileRaw as any).role || userProfileRaw.role || 'crew';
+    const subscriptionTier = (userProfileRaw as any).subscription_tier || userProfileRaw.subscriptionTier || 'free';
+    const subscriptionStatus = (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive';
     return {
       ...userProfileRaw,
-      subscriptionTier: (userProfileRaw as any).subscription_tier || userProfileRaw.subscriptionTier || 'free',
-      subscriptionStatus: (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive',
+      role: role,
+      subscriptionTier: subscriptionTier,
+      subscriptionStatus: subscriptionStatus,
     } as UserProfile;
   }, [userProfileRaw]);
 
@@ -212,19 +216,32 @@ export default function BridgeWatchLogPage() {
     }
   }, [watchedStartTime, watchedEndTime, form]);
 
-  // Check if user has premium subscription
-  const hasPremiumAccess = useMemo(() => {
+  // Check if user has access (premium/pro for crew, any active tier for vessels)
+  const hasAccess = useMemo(() => {
     if (!userProfile) return false;
     const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
     const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
+    const role = (userProfile as any).role || userProfile.role || 'crew';
+    
+    // Vessel accounts: allow all active vessel tiers
+    if (role === 'vessel') {
+      const tierLower = tier.toLowerCase();
+      return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && status === 'active';
+    }
+    
+    // Crew accounts: premium or pro only
     return (tier === 'premium' || tier === 'pro') && status === 'active';
   }, [userProfile]);
 
   const onSubmit = async (data: BridgeWatchFormValues) => {
-    if (!user?.id || !hasPremiumAccess) {
+    if (!user?.id || !hasAccess) {
+      const role = (userProfile as any)?.role || userProfile?.role || 'crew';
+      const message = role === 'vessel' 
+        ? 'Bridge Watch Log requires an active vessel subscription.'
+        : 'Bridge Watch Log is available for Premium and Pro subscribers.';
       toast({
-        title: 'Premium Feature',
-        description: 'Bridge Watch Log is available for Premium and Pro subscribers.',
+        title: 'Subscription Required',
+        description: message,
         variant: 'destructive',
       });
       return;
@@ -432,22 +449,28 @@ export default function BridgeWatchLogPage() {
     );
   }
 
-  if (!hasPremiumAccess) {
+  if (!hasAccess) {
+    const role = (userProfile as any)?.role || userProfile?.role || 'crew';
+    const message = role === 'vessel' 
+      ? 'The Bridge Watch Log requires an active vessel subscription. Please subscribe to a plan to access this feature.'
+      : 'The Bridge Watch Log is available for Premium and Pro subscribers. Upgrade your plan to access this feature.';
+    const buttonText = role === 'vessel' ? 'View Plans' : 'Upgrade to Premium';
+    
     return (
       <div className="flex flex-col gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Bridge Watch Log</CardTitle>
-            <CardDescription>Premium Feature</CardDescription>
+            <CardDescription>Subscription Required</CardDescription>
           </CardHeader>
           <CardContent className="text-center py-12">
             <Navigation className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
+            <h3 className="text-xl font-semibold mb-2">Subscription Required</h3>
             <p className="text-muted-foreground mb-6">
-              The Bridge Watch Log is available for Premium and Pro subscribers. Upgrade your plan to access this feature.
+              {message}
             </p>
             <Button className="rounded-xl" asChild>
-              <a href="/offers">Upgrade to Premium</a>
+              <a href="/offers">{buttonText}</a>
             </Button>
           </CardContent>
         </Card>

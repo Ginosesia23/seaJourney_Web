@@ -103,11 +103,33 @@ export default function VisaTrackerPage() {
   
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
+    const role = (userProfileRaw as any).role || userProfileRaw.role || 'crew';
+    const subscriptionTier = (userProfileRaw as any).subscription_tier || userProfileRaw.subscriptionTier || 'free';
+    const subscriptionStatus = (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive';
     return {
       ...userProfileRaw,
-      role: (userProfileRaw as any).role || userProfileRaw.role || 'crew',
+      role: role,
+      subscriptionTier: subscriptionTier,
+      subscriptionStatus: subscriptionStatus,
     } as UserProfile;
   }, [userProfileRaw]);
+
+  // Check if user has access (premium/pro for crew, any active tier for vessels)
+  const hasAccess = useMemo(() => {
+    if (!userProfile) return false;
+    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
+    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
+    const role = (userProfile as any).role || userProfile.role || 'crew';
+    
+    // Vessel accounts: allow all active vessel tiers
+    if (role === 'vessel') {
+      const tierLower = tier.toLowerCase();
+      return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && status === 'active';
+    }
+    
+    // Crew accounts: premium or pro only
+    return (tier === 'premium' || tier === 'pro') && status === 'active';
+  }, [userProfile]);
 
   const form = useForm<VisaFormValues>({
     resolver: zodResolver(visaSchema),
@@ -612,6 +634,35 @@ export default function VisaTrackerPage() {
         <Card className="rounded-xl">
           <CardContent className="p-6">
             <div className="h-64 bg-muted animate-pulse rounded" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!hasAccess) {
+    const role = (userProfile as any)?.role || userProfile?.role || 'crew';
+    const message = role === 'vessel' 
+      ? 'The Visa Tracker requires an active vessel subscription. Please subscribe to a plan to access this feature.'
+      : 'The Visa Tracker is available for Premium and Pro subscribers. Upgrade your plan to access this feature.';
+    const buttonText = role === 'vessel' ? 'View Plans' : 'Upgrade to Premium';
+    
+    return (
+      <div className="flex flex-col gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Visa Tracker</CardTitle>
+            <CardDescription>Subscription Required</CardDescription>
+          </CardHeader>
+          <CardContent className="text-center py-12">
+            <Globe className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="text-xl font-semibold mb-2">Subscription Required</h3>
+            <p className="text-muted-foreground mb-6">
+              {message}
+            </p>
+            <Button className="rounded-xl" asChild>
+              <a href="/offers">{buttonText}</a>
+            </Button>
           </CardContent>
         </Card>
       </div>
