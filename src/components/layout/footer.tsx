@@ -53,7 +53,6 @@ const Footer = () => {
             <h3 className="font-headline text-lg font-bold text-accent">Officials</h3>
             <ul className="mt-4 space-y-2 text-sm">
               <li><Link href="/verify" className="text-header-foreground/80 hover:text-accent transition-colors">Verify Records</Link></li>
-              <li><Link href="/verification-process" className="text-header-foreground/80 hover:text-accent transition-colors">Verification Process</Link></li>
             </ul>
           </div>
         </div>

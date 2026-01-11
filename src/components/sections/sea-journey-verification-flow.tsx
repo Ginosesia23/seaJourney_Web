@@ -3,6 +3,7 @@
 
 import React, { useState } from "react";
 import Link from 'next/link';
+import Image from 'next/image';
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle, Fingerprint, FileText, ShieldCheck, UserPlus, Search } from 'lucide-react';
@@ -108,16 +109,28 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
 
   return (
     <section className="w-full max-w-6xl mx-auto">
+      {/* Branding Header */}
+      <div className="flex items-center justify-center mb-10 py-8 border-b border-white/10">
+        <Image
+          src="/seajourney_logo_white.png"
+          alt="SeaJourney"
+          width={200}
+          height={72}
+          className="h-16 w-auto"
+          priority
+        />
+      </div>
+
       <header className="text-center mb-12">
         <div className="flex justify-center mb-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
                 <ShieldCheck className="h-6 w-6 text-primary" />
             </div>
         </div>
-        <h2 className="font-headline text-3xl font-bold tracking-tight text-primary sm:text-4xl">
+        <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
           SeaJourney Verification Ecosystem
         </h2>
-        <p className="mt-4 max-w-3xl mx-auto text-lg leading-8 text-foreground/80">
+        <p className="mt-4 max-w-3xl mx-auto text-lg leading-8 text-white/70">
           SeaJourney offers multiple paths to turn your sea time into verifiable evidence for authorities like the MCA. Select a tier below to see how each process works.
         </p>
       </header>
@@ -137,8 +150,8 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
                 className="text-left h-full"
             >
                 <Card className={cn(
-                    "h-full flex flex-col transition-all duration-300 rounded-2xl",
-                    isActive ? "border-primary ring-2 ring-primary shadow-2xl -translate-y-2" : "hover:shadow-xl hover:-translate-y-1"
+                    "h-full flex flex-col transition-all duration-300 rounded-2xl bg-card/80 backdrop-blur-sm border-white/10",
+                    isActive ? "border-primary ring-2 ring-primary shadow-2xl -translate-y-2" : "hover:shadow-xl hover:-translate-y-1 hover:border-white/20"
                 )}>
                     <CardHeader>
                         <div className="flex justify-between items-start">
@@ -151,7 +164,7 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
                         <CardDescription>{plan.subtitle}</CardDescription>
                     </CardHeader>
                     <CardContent className="flex-grow space-y-3">
-                         <p className="text-sm text-foreground/80">{plan.description}</p>
+                         <p className="text-sm text-muted-foreground">{plan.description}</p>
                     </CardContent>
                 </Card>
             </button>
@@ -161,14 +174,14 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
 
        {/* Breakdown Section */}
       <div className="mt-16">
-        <h3 className="text-center font-headline text-2xl font-bold tracking-tight text-primary mb-8">
+        <h3 className="text-center font-headline text-2xl font-bold tracking-tight text-white mb-8">
             How It Works: <span className="capitalize">{activePlan}</span>
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {breakdownDetails[activePlan].map((step, index) => {
                 const BreakdownIcon = step.icon;
                 return (
-                    <Card key={index} className="bg-card/50 rounded-xl">
+                    <Card key={index} className="bg-card/80 backdrop-blur-sm rounded-xl border-white/10">
                         <CardHeader className="text-center items-center">
                             <div className={cn("flex h-12 w-12 items-center justify-center rounded-full mb-2", activeColors.bg)}>
                                 <BreakdownIcon className={cn("h-6 w-6", activeColors.icon)} />
@@ -176,7 +189,7 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
                             <CardTitle className="font-headline text-lg">{step.title}</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <p className="text-center text-sm text-foreground/80">{step.description}</p>
+                            <p className="text-center text-sm text-muted-foreground">{step.description}</p>
                         </CardContent>
                     </Card>
                 );
@@ -186,11 +199,11 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
       
       {/* CTA Section */}
       <div className="mt-24">
-         <h3 className="text-center font-headline text-2xl font-bold tracking-tight text-primary mb-8">
+         <h3 className="text-center font-headline text-2xl font-bold tracking-tight text-white mb-8">
             What's Next?
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            <Card className="text-center hover:shadow-xl transition-shadow rounded-2xl">
+            <Card className="text-center hover:shadow-xl transition-shadow rounded-2xl bg-card/80 backdrop-blur-sm border-white/10">
                 <CardHeader>
                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 mb-2">
                         <Search className="h-6 w-6 text-primary" />
@@ -204,7 +217,7 @@ export const SeaJourneyVerificationFlow: React.FC = () => {
                     </Button>
                 </CardContent>
             </Card>
-             <Card className="text-center hover:shadow-xl transition-shadow rounded-2xl">
+             <Card className="text-center hover:shadow-xl transition-shadow rounded-2xl bg-card/80 backdrop-blur-sm border-white/10">
                 <CardHeader>
                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 mb-2">
                         <UserPlus className="h-6 w-6 text-accent" />
