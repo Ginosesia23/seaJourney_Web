@@ -25,6 +25,7 @@ import {
   LogIn,
   DollarSign,
   PenTool,
+  MessageSquare,
 } from "lucide-react"
 
 import {
@@ -122,6 +123,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
   {
     title: "Resources",
     items: [
+      { href: "/dashboard/feedback", label: "Feedback", icon: MessageSquare, disabled: false },
       { href: "/dashboard/support", label: "Support", icon: HelpCircle, disabled: true },
       { href: "/dashboard/legal", label: "Legal", icon: FileText, disabled: true },
     ]
@@ -137,6 +139,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const { supabase } = useSupabase()
   const { user } = useUser()
   const [inboxCount, setInboxCount] = React.useState<number>(0)
+  const [feedbackCount, setFeedbackCount] = React.useState<number>(0)
 
   // Create admin-specific navGroups with updated Management section
   const isAdmin = userProfile?.role === 'admin'
@@ -313,6 +316,65 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
       supabase.removeChannel(channel);
     };
   }, [user?.id, user?.email, userProfile, supabase, activeVesselId]);
+
+  // Fetch feedback count for all users
+  React.useEffect(() => {
+    const fetchFeedbackCount = async () => {
+      if (!user?.id || !userProfile) {
+        setFeedbackCount(0);
+        return;
+      }
+
+      try {
+        const userRole = userProfile.role?.toLowerCase() || '';
+        
+        if (userRole === 'admin') {
+          // Admins see count of open/in_progress feedback
+          const { count } = await supabase
+            .from('feedback')
+            .select('id', { count: 'exact', head: true })
+            .in('status', ['open', 'in_progress']);
+          
+          setFeedbackCount(count || 0);
+        } else {
+          // Regular users see count of feedback with admin responses
+          const { count } = await supabase
+            .from('feedback')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .not('admin_response', 'is', null);
+          
+          setFeedbackCount(count || 0);
+        }
+      } catch (error) {
+        console.error('[SIDEBAR] Error fetching feedback count:', error);
+        setFeedbackCount(0);
+      }
+    };
+
+    fetchFeedbackCount();
+    
+    // Set up realtime subscription to update count when feedback changes
+    const channel = supabase
+      .channel('feedback-count-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'feedback',
+        },
+        () => {
+          fetchFeedbackCount();
+        }
+      );
+    
+    channel.subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, userProfile, supabase]);
   
   // Get display username and email from userProfile or user object
   // For vessel role, use vessel name instead of username
@@ -431,6 +493,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   
                   // Check if this is the inbox item and show count badge
                   const isInbox = item.href === '/dashboard/inbox';
+                  // Check if this is the feedback item and show count badge
+                  const isFeedback = item.href === '/dashboard/feedback';
                   
                   return (
                     <SidebarMenuItem key={uniqueKey}>
@@ -446,6 +510,14 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                               className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold"
                             >
                               {inboxCount > 99 ? '99+' : inboxCount}
+                            </Badge>
+                          )}
+                          {isFeedback && feedbackCount > 0 && (
+                            <Badge 
+                              variant="destructive" 
+                              className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold"
+                            >
+                              {feedbackCount > 99 ? '99+' : feedbackCount}
                             </Badge>
                           )}
                         </Link>

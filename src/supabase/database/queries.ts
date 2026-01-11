@@ -1212,3 +1212,196 @@ export async function deleteBridgeWatchLog(
   if (error) throw error;
 }
 
+
+/**
+ * Feedback types
+ */
+export type FeedbackType = 'bug' | 'feature' | 'other';
+export type FeedbackStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+
+export interface Feedback {
+  id: string;
+  userId: string;
+  type: FeedbackType;
+  subject: string;
+  message: string;
+  status: FeedbackStatus;
+  adminResponse: string | null;
+  adminResponseAt: string | null;
+  respondedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Create a new feedback entry
+ */
+export async function createFeedback(
+  supabase: SupabaseClient,
+  feedbackData: {
+    userId: string;
+    type: FeedbackType;
+    subject: string;
+    message: string;
+  }
+): Promise<Feedback> {
+  const { data, error } = await supabase
+    .from('feedback')
+    .insert({
+      user_id: feedbackData.userId,
+      type: feedbackData.type,
+      subject: feedbackData.subject,
+      message: feedbackData.message,
+      status: 'open',
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    userId: data.user_id,
+    type: data.type,
+    subject: data.subject,
+    message: data.message,
+    status: data.status,
+    adminResponse: data.admin_response || null,
+    adminResponseAt: data.admin_response_at || null,
+    respondedBy: data.responded_by || null,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  };
+}
+
+/**
+ * Get all feedback for a user
+ */
+export async function getUserFeedback(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<Feedback[]> {
+  const { data, error } = await supabase
+    .from('feedback')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || []).map((item) => ({
+    id: item.id,
+    userId: item.user_id,
+    type: item.type,
+    subject: item.subject,
+    message: item.message,
+    status: item.status,
+    adminResponse: item.admin_response || null,
+    adminResponseAt: item.admin_response_at || null,
+    respondedBy: item.responded_by || null,
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+  }));
+}
+
+/**
+ * Get all feedback (admin only)
+ */
+export async function getAllFeedback(
+  supabase: SupabaseClient,
+  options?: {
+    status?: FeedbackStatus;
+    type?: FeedbackType;
+    limit?: number;
+  }
+): Promise<Feedback[]> {
+  let query = supabase
+    .from('feedback')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (options?.status) {
+    query = query.eq('status', options.status);
+  }
+
+  if (options?.type) {
+    query = query.eq('type', options.type);
+  }
+
+  if (options?.limit) {
+    query = query.limit(options.limit);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw error;
+
+  return (data || []).map((item) => ({
+    id: item.id,
+    userId: item.user_id,
+    type: item.type,
+    subject: item.subject,
+    message: item.message,
+    status: item.status,
+    adminResponse: item.admin_response || null,
+    adminResponseAt: item.admin_response_at || null,
+    respondedBy: item.responded_by || null,
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+  }));
+}
+
+/**
+ * Update feedback (admin only - to respond or change status)
+ */
+export async function updateFeedback(
+  supabase: SupabaseClient,
+  feedbackId: string,
+  updates: {
+    status?: FeedbackStatus;
+    adminResponse?: string;
+    respondedBy?: string;
+  }
+): Promise<Feedback> {
+  const updateData: any = {};
+
+  if (updates.status !== undefined) {
+    updateData.status = updates.status;
+  }
+
+  if (updates.adminResponse !== undefined) {
+    updateData.admin_response = updates.adminResponse;
+    if (updates.adminResponse) {
+      updateData.admin_response_at = new Date().toISOString();
+    } else {
+      updateData.admin_response_at = null;
+    }
+  }
+
+  if (updates.respondedBy !== undefined) {
+    updateData.responded_by = updates.respondedBy;
+  }
+
+  const { data, error } = await supabase
+    .from('feedback')
+    .update(updateData)
+    .eq('id', feedbackId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    userId: data.user_id,
+    type: data.type,
+    subject: data.subject,
+    message: data.message,
+    status: data.status,
+    adminResponse: data.admin_response || null,
+    adminResponseAt: data.admin_response_at || null,
+    respondedBy: data.responded_by || null,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  };
+}
