@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from '@/hooks/use-toast';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { createFeedback, getUserFeedback, getAllFeedback, updateFeedback, type Feedback, type FeedbackType, type FeedbackStatus } from '@/supabase/database/queries';
+import { createFeedback, getUserFeedback, getAllFeedback, updateFeedback, markFeedbackResponseAsRead, type Feedback, type FeedbackType, type FeedbackStatus } from '@/supabase/database/queries';
 import { Loader2, MessageSquare, Bug, Sparkles, HelpCircle, CheckCircle2, Clock, XCircle, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import type { UserProfile } from '@/lib/types';
@@ -58,6 +58,7 @@ export default function FeedbackPage() {
   const [isResponseDialogOpen, setIsResponseDialogOpen] = useState(false);
   const [adminResponse, setAdminResponse] = useState('');
   const [isUpdatingFeedback, setIsUpdatingFeedback] = useState(false);
+  const [isMarkingAsRead, setIsMarkingAsRead] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<FeedbackStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<FeedbackType | 'all'>('all');
 
@@ -203,6 +204,44 @@ export default function FeedbackPage() {
     setIsResponseDialogOpen(true);
   };
 
+  const handleMarkAsRead = async (feedbackId: string) => {
+    if (!user?.id) return;
+    
+    setIsMarkingAsRead(feedbackId);
+    try {
+      await markFeedbackResponseAsRead(supabase, feedbackId);
+      
+      // Update local state
+      if (isAdmin) {
+        setAllFeedback(prev => prev.map(f => 
+          f.id === feedbackId 
+            ? { ...f, adminResponseReadAt: new Date().toISOString() }
+            : f
+        ));
+      } else {
+        setUserFeedback(prev => prev.map(f => 
+          f.id === feedbackId 
+            ? { ...f, adminResponseReadAt: new Date().toISOString() }
+            : f
+        ));
+      }
+      
+      toast({
+        title: 'Marked as Read',
+        description: 'The response has been marked as read.',
+      });
+    } catch (error: any) {
+      console.error('[FEEDBACK] Error marking as read:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to mark as read. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsMarkingAsRead(null);
+    }
+  };
+
   const displayFeedback = isAdmin ? allFeedback : userFeedback;
 
   return (
@@ -332,13 +371,35 @@ export default function FeedbackPage() {
                       {feedback.adminResponse && (
                         <>
                           <Separator />
-                          <div className="bg-muted/50 rounded-lg p-4">
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="text-sm font-semibold">Admin Response</span>
-                              {feedback.adminResponseAt && (
-                                <span className="text-xs text-muted-foreground">
-                                  {format(new Date(feedback.adminResponseAt), 'PPP p')}
-                                </span>
+                          <div className={`rounded-lg p-4 ${!feedback.adminResponseReadAt && !isAdmin ? 'bg-primary/10 border border-primary/20' : 'bg-muted/50'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold">Admin Response</span>
+                                {!feedback.adminResponseReadAt && !isAdmin && (
+                                  <Badge variant="default" className="text-xs">New</Badge>
+                                )}
+                                {feedback.adminResponseAt && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {format(new Date(feedback.adminResponseAt), 'PPP p')}
+                                  </span>
+                                )}
+                              </div>
+                              {!feedback.adminResponseReadAt && !isAdmin && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleMarkAsRead(feedback.id)}
+                                  disabled={isMarkingAsRead === feedback.id}
+                                >
+                                  {isMarkingAsRead === feedback.id ? (
+                                    <>
+                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                      Marking...
+                                    </>
+                                  ) : (
+                                    'Mark as Read'
+                                  )}
+                                </Button>
                               )}
                             </div>
                             <p className="text-sm whitespace-pre-wrap">{feedback.adminResponse}</p>
@@ -537,13 +598,35 @@ export default function FeedbackPage() {
                       {feedback.adminResponse && (
                         <>
                           <Separator />
-                          <div className="bg-muted/50 rounded-lg p-4">
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="text-sm font-semibold">Admin Response</span>
-                              {feedback.adminResponseAt && (
-                                <span className="text-xs text-muted-foreground">
-                                  {format(new Date(feedback.adminResponseAt), 'PPP p')}
-                                </span>
+                          <div className={`rounded-lg p-4 ${!feedback.adminResponseReadAt && !isAdmin ? 'bg-primary/10 border border-primary/20' : 'bg-muted/50'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold">Admin Response</span>
+                                {!feedback.adminResponseReadAt && !isAdmin && (
+                                  <Badge variant="default" className="text-xs">New</Badge>
+                                )}
+                                {feedback.adminResponseAt && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {format(new Date(feedback.adminResponseAt), 'PPP p')}
+                                  </span>
+                                )}
+                              </div>
+                              {!feedback.adminResponseReadAt && !isAdmin && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleMarkAsRead(feedback.id)}
+                                  disabled={isMarkingAsRead === feedback.id}
+                                >
+                                  {isMarkingAsRead === feedback.id ? (
+                                    <>
+                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                      Marking...
+                                    </>
+                                  ) : (
+                                    'Mark as Read'
+                                  )}
+                                </Button>
                               )}
                             </div>
                             <p className="text-sm whitespace-pre-wrap">{feedback.adminResponse}</p>

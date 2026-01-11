@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Ship, Anchor, Calendar, Waves, Building, Briefcase, PlayCircle, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
+import { format } from 'date-fns';
 
 const vesselStates: { value: string; label: string, color: string, icon: React.FC<any> }[] = [
     { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
@@ -24,6 +25,7 @@ type VesselSummary = {
     tripCount: number;
     dayCountByState: Record<string, number>;
     isCurrent: boolean;
+    officialStartDate?: string; // ISO date string (YYYY-MM-DD) - Official start date for vessel accounts
 };
 
 type VesselSummaryCardProps = {
@@ -54,6 +56,12 @@ export function VesselSummaryCard({
                         <div className="flex-1 min-w-0">
                             <CardTitle className="text-xl font-semibold truncate">{vesselSummary.name}</CardTitle>
                             <CardDescription className="truncate">{vesselSummary.type}</CardDescription>
+                            {vesselSummary.officialStartDate && (
+                                <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
+                                    <Calendar className="h-3 w-3" />
+                                    <span>Started: {format(new Date(vesselSummary.officialStartDate), 'MMM d, yyyy')}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
                     {vesselSummary.isCurrent && (

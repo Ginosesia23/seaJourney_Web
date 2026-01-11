@@ -232,9 +232,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           
           const { count: testimonialCount } = await testimonialQuery;
           
-          // Also fetch sea time requests for vessel accounts
+          // Also fetch sea time requests for vessel accounts only (not captains)
           let seaTimeCount = 0;
-          if (activeVesselId) {
+          const isVesselRole = userRole === 'vessel';
+          if (isVesselRole && activeVesselId) {
             const { count: seaTimeRequestCount } = await supabase
               .from('sea_time_requests')
               .select('id', { count: 'exact', head: true })
@@ -294,8 +295,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
         }
       );
     
-    // Add sea time requests subscription for vessel accounts
-    if (activeVesselId) {
+    // Add sea time requests subscription for vessel accounts only (not captains)
+    const userRoleForSub = userProfile?.role?.toLowerCase() || '';
+    const isVesselRoleForSub = userRoleForSub === 'vessel';
+    if (isVesselRoleForSub && activeVesselId) {
       channel.on(
         'postgres_changes',
         {
@@ -337,12 +340,13 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           
           setFeedbackCount(count || 0);
         } else {
-          // Regular users see count of feedback with admin responses
+          // Regular users see count of feedback with unread admin responses
           const { count } = await supabase
             .from('feedback')
             .select('id', { count: 'exact', head: true })
             .eq('user_id', user.id)
-            .not('admin_response', 'is', null);
+            .not('admin_response', 'is', null)
+            .is('admin_response_read_at', null);
           
           setFeedbackCount(count || 0);
         }

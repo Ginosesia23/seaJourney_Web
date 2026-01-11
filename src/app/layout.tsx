@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { CartProvider } from '@/context/cart-context';
 import { ThemeProvider } from '@/context/theme-provider';
 import { SupabaseProvider } from '@/supabase';
+import { MainSiteThemeWrapper } from '@/components/main-site-theme-wrapper';
 
 export const metadata: Metadata = {
   title: 'SeaJourney - Seatime Tracker for Maritime Professionals',
@@ -31,15 +32,17 @@ export default function RootLayout({
       <body className={cn('font-body antialiased bg-background text-foreground')}>
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
-          enableSystem
+          defaultTheme="dark"
+          enableSystem={false}
           disableTransitionOnChange
         >
-          <SupabaseProvider>
+          <MainSiteThemeWrapper>
+            <SupabaseProvider>
               <CartProvider>
                 {children}
               </CartProvider>
-          </SupabaseProvider>
+            </SupabaseProvider>
+          </MainSiteThemeWrapper>
         </ThemeProvider>
         <Toaster />
       </body>

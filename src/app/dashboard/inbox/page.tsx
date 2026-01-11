@@ -273,8 +273,9 @@ export default function InboxPage() {
           // Set captaincy requests to empty for non-admins
           setCaptaincyRequests([]);
 
-          // Fetch sea time requests for this vessel (if user is vessel manager)
-          if (userProfile?.active_vessel_id) {
+          // Fetch sea time requests for this vessel (only if user is vessel role, not captain)
+          const isVesselRole = userProfile?.role?.toLowerCase() === 'vessel';
+          if (isVesselRole && userProfile?.active_vessel_id) {
             const { data: seaTimeData, error: seaTimeError } = await supabase
               .from('sea_time_requests')
               .select('*')
@@ -1390,9 +1391,9 @@ export default function InboxPage() {
                 : 'Review and respond to testimonial sign-off requests from crew members'}
             </p>
           </div>
-          {(testimonials.length > 0 || captaincyRequests.length > 0 || captainRoleApplications.length > 0) && (
+          {(testimonials.length > 0 || captaincyRequests.length > 0 || captainRoleApplications.length > 0 || (userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0)) && (
             <Badge variant="secondary" className="text-sm">
-              {testimonials.length + captaincyRequests.length + captainRoleApplications.length + seaTimeRequests.length} pending request{(testimonials.length + captaincyRequests.length + captainRoleApplications.length + seaTimeRequests.length) !== 1 ? 's' : ''}
+              {testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0)} pending request{(testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0)) !== 1 ? 's' : ''}
             </Badge>
           )}
         </div>
@@ -1406,7 +1407,7 @@ export default function InboxPage() {
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </CardContent>
         </Card>
-      ) : (isAdmin && captaincyRequests.length === 0 && captainRoleApplications.length === 0) || (!isAdmin && testimonials.length === 0 && approvedTestimonials.length === 0 && seaTimeRequests.length === 0) ? (
+      ) : (isAdmin && captaincyRequests.length === 0 && captainRoleApplications.length === 0) || (!isAdmin && testimonials.length === 0 && approvedTestimonials.length === 0 && (userProfile?.role?.toLowerCase() !== 'vessel' || seaTimeRequests.length === 0)) ? (
         <Card className="rounded-xl border">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Mail className="h-12 w-12 text-muted-foreground mb-4" />
@@ -1567,8 +1568,8 @@ export default function InboxPage() {
             </Card>
           )}
 
-          {/* Sea Time Requests Section (Vessel Managers/Captains only) */}
-          {!isAdmin && seaTimeRequests.length > 0 && (
+          {/* Sea Time Requests Section (Vessel accounts only) */}
+          {!isAdmin && userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0 && (
             <Card className="rounded-xl border shadow-sm">
               <CardHeader>
                 <CardTitle>Sea Time Requests</CardTitle>

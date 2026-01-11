@@ -1000,18 +1000,26 @@ export default function CurrentPage() {
       return { valid: false, reason: 'No vessel selected.' };
     }
 
-    const dateStr = format(date, 'yyyy-MM-dd');
-    const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
+    // Normalize the input date to start of day for comparison
+    const dateObj = startOfDay(date);
 
-    // For vessel accounts, allow editing from the vessel's start_date (if set) or vessel creation date
+    // For vessel accounts, allow editing from the vessel's official start_date (if set) or vessel creation date
     if (userProfile?.role === 'vessel') {
-      // Check if user has a start_date set
-      const userStartDate = userProfile?.startDate 
-        ? startOfDay(new Date(userProfile.startDate))
-        : null;
+      // Check if user has a start_date set - this is the official start date for the vessel account
+      let userStartDate: Date | null = null;
+      if (userProfile?.startDate) {
+        try {
+          // Parse the start_date string (format: YYYY-MM-DD) and normalize to start of day
+          userStartDate = startOfDay(parse(userProfile.startDate, 'yyyy-MM-dd', new Date()));
+        } catch (e) {
+          console.error('Error parsing start_date:', userProfile.startDate, e);
+        }
+      }
       
-      // Fallback to vessel created_at date if start_date is not set
+      // Use the official start_date as the earliest allowed date (priority over vessel creation date)
       let earliestAllowedDate: Date | null = userStartDate;
+      
+      // Fallback to vessel created_at date only if start_date is not set
       if (!earliestAllowedDate) {
         const vesselData = vessels?.find(v => v.id === currentVessel.id);
         if (vesselData && (vesselData as any).created_at) {
@@ -1019,13 +1027,26 @@ export default function CurrentPage() {
         }
       }
 
+      // Validate: date must be on or after the earliest allowed date
+      // Use isBefore to check if date is BEFORE the earliest allowed date (invalid)
+      // If date is equal to or after earliestAllowedDate, isBefore returns false (valid)
       if (earliestAllowedDate && isBefore(dateObj, earliestAllowedDate)) {
         return {
           valid: false,
           reason: `You cannot change states before ${format(earliestAllowedDate, 'MMM d, yyyy')}${userStartDate ? ' (your official start date)' : ' (vessel launch date)'}.`,
         };
       }
-      // No end date restriction for vessel accounts - they can edit any date from start to present
+
+      // Check if date is in the future
+      const today = startOfDay(new Date());
+      if (isAfter(dateObj, today)) {
+        return {
+          valid: false,
+          reason: 'You cannot change states for future dates.',
+        };
+      }
+
+      // No end date restriction for vessel accounts - they can edit any date from start_date to present
       return { valid: true };
     }
 

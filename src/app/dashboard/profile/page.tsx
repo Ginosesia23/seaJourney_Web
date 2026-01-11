@@ -1261,9 +1261,11 @@ export default function ProfilePage() {
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
     const activeVesselId = (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId;
+    const startDate = (userProfileRaw as any).start_date || (userProfileRaw as any).startDate || null;
     return {
       ...userProfileRaw,
       activeVesselId: activeVesselId || undefined,
+      startDate: startDate || undefined,
       role: (userProfileRaw as any).role || userProfileRaw.role || 'crew',
     } as UserProfile;
   }, [userProfileRaw]);

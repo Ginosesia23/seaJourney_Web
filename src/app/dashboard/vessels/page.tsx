@@ -173,12 +173,14 @@ export default function VesselsPage() {
     const activeVesselId = (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId;
     const position = (userProfileRaw as any).position || (userProfileRaw as any).position || '';
     const role = (userProfileRaw as any).role || userProfileRaw.role || 'crew';
+    const startDate = (userProfileRaw as any).start_date || (userProfileRaw as any).startDate || null;
     
     return {
       ...userProfileRaw,
       activeVesselId: activeVesselId || undefined,
       position: position,
       role: role,
+      startDate: startDate || undefined,
       subscriptionTier: (userProfileRaw as any).subscription_tier || userProfileRaw.subscriptionTier || 'free',
       subscriptionStatus: (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive',
     } as UserProfile;
@@ -499,13 +501,19 @@ export default function VesselsPage() {
       }, {} as Record<string, number>);
 
       const isCurrent = vessel.id === currentUserProfile?.activeVesselId;
+      
+      // Include official start date for vessel accounts
+      const officialStartDate = currentUserProfile?.role === 'vessel' && currentUserProfile?.startDate 
+        ? currentUserProfile.startDate 
+        : undefined;
 
       return {
         ...vessel,
         totalDays,
         tripCount: vesselServices.length,
         dayCountByState,
-        isCurrent
+        isCurrent,
+        officialStartDate
       };
     });
   }, [filteredVessels, allSeaService, vesselStateLogs, currentUserProfile]);

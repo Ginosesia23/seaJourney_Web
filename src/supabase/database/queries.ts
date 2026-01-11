@@ -33,6 +33,7 @@ export async function getUserProfile(supabase: SupabaseClient, userId: string) {
     subscriptionTier: data.subscription_tier,
     subscriptionStatus: data.subscription_status,
     activeVesselId: data.active_vessel_id,
+    startDate: data.start_date || null,
   };
 }
 
@@ -1212,7 +1213,6 @@ export async function deleteBridgeWatchLog(
   if (error) throw error;
 }
 
-
 /**
  * Feedback types
  */
@@ -1228,6 +1228,7 @@ export interface Feedback {
   status: FeedbackStatus;
   adminResponse: string | null;
   adminResponseAt: string | null;
+  adminResponseReadAt: string | null;
   respondedBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -1268,6 +1269,7 @@ export async function createFeedback(
     status: data.status,
     adminResponse: data.admin_response || null,
     adminResponseAt: data.admin_response_at || null,
+    adminResponseReadAt: data.admin_response_read_at || null,
     respondedBy: data.responded_by || null,
     createdAt: data.created_at,
     updatedAt: data.updated_at,
@@ -1298,6 +1300,7 @@ export async function getUserFeedback(
     status: item.status,
     adminResponse: item.admin_response || null,
     adminResponseAt: item.admin_response_at || null,
+    adminResponseReadAt: item.admin_response_read_at || null,
     respondedBy: item.responded_by || null,
     createdAt: item.created_at,
     updatedAt: item.updated_at,
@@ -1345,10 +1348,55 @@ export async function getAllFeedback(
     status: item.status,
     adminResponse: item.admin_response || null,
     adminResponseAt: item.admin_response_at || null,
+    adminResponseReadAt: item.admin_response_read_at || null,
     respondedBy: item.responded_by || null,
     createdAt: item.created_at,
     updatedAt: item.updated_at,
   }));
+}
+
+/**
+ * Mark admin response as read
+ */
+export async function markFeedbackResponseAsRead(
+  supabase: SupabaseClient,
+  feedbackId: string
+): Promise<Feedback> {
+  const { data, error } = await supabase
+    .from('feedback')
+    .update({
+      admin_response_read_at: new Date().toISOString(),
+    })
+    .eq('id', feedbackId)
+    .select()
+    .single();
+
+  if (error) {
+    // Handle the case where no rows are returned (RLS or not found)
+    if (error.code === 'PGRST116') {
+      throw new Error('Feedback not found or you do not have permission to update it.');
+    }
+    throw error;
+  }
+  
+  if (!data) {
+    throw new Error('Feedback not found or you do not have permission to update it.');
+  }
+
+  return {
+    id: data.id,
+    userId: data.user_id,
+    type: data.type,
+    subject: data.subject,
+    message: data.message,
+    status: data.status,
+    adminResponse: data.admin_response || null,
+    adminResponseAt: data.admin_response_at || null,
+    adminResponseReadAt: data.admin_response_read_at || null,
+    respondedBy: data.responded_by || null,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  };
 }
 
 /**
@@ -1373,8 +1421,11 @@ export async function updateFeedback(
     updateData.admin_response = updates.adminResponse;
     if (updates.adminResponse) {
       updateData.admin_response_at = new Date().toISOString();
+      // Reset read status when admin updates/responds (mark as unread)
+      updateData.admin_response_read_at = null;
     } else {
       updateData.admin_response_at = null;
+      updateData.admin_response_read_at = null;
     }
   }
 
@@ -1400,6 +1451,7 @@ export async function updateFeedback(
     status: data.status,
     adminResponse: data.admin_response || null,
     adminResponseAt: data.admin_response_at || null,
+    adminResponseReadAt: data.admin_response_read_at || null,
     respondedBy: data.responded_by || null,
     createdAt: data.created_at,
     updatedAt: data.updated_at,
