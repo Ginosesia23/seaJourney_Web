@@ -96,11 +96,10 @@ export default function LoginActivityPage() {
       setIsLoading(true);
       try {
         // Fetch all crew users (excluding vessel accounts and admins)
-        // Note: Supabase Auth stores last_sign_in_at, but we need to check if it's accessible
-        // For now, we'll use the users table and check for any auth metadata
+        // Include last_sign_in_at which is synced from auth.users via database trigger
         const { data: allCrew, error: crewError } = await supabase
           .from('users')
-          .select('id, first_name, last_name, username, email, role, created_at')
+          .select('id, first_name, last_name, username, email, role, created_at, last_sign_in_at')
           .in('role', ['crew', 'captain'])
           .order('created_at', { ascending: false });
 
@@ -111,17 +110,9 @@ export default function LoginActivityPage() {
           return;
         }
 
-        // Fetch login activity data
-        // Note: To get last_sign_in_at, you'll need to either:
-        // 1. Add a trigger to sync auth.users.last_sign_in_at to users table
-        // 2. Create a Supabase Edge Function with admin privileges
-        // 3. Use a database function that joins with auth.users
-        // For now, we'll check if last_sign_in_at exists in the users table
-        
+        // Map crew data to activity format
         const crewActivityData: CrewLoginActivity[] = (allCrew || []).map(crewMember => {
-          // Check if last_sign_in_at is available in users table
-          // This would need to be synced via a database trigger
-          const lastSignInAt = (crewMember as any).last_sign_in_at || null;
+          const lastSignInAt = crewMember.last_sign_in_at || null;
           const createdAt = new Date(crewMember.created_at);
           const today = startOfDay(new Date());
           const daysSinceAccountCreation = differenceInDays(today, createdAt);
@@ -262,10 +253,10 @@ export default function LoginActivityPage() {
         <p className="text-muted-foreground">
           Track crew member login activity and engagement.
         </p>
-        {stats.neverLoggedIn === stats.total && (
+        {stats.neverLoggedIn === stats.total && stats.total > 0 && (
           <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
-            <strong>Note:</strong> Login data requires syncing <code>auth.users.last_sign_in_at</code> to the <code>users</code> table via a database trigger. 
-            Contact your database administrator to set this up for accurate login tracking.
+            <strong>Note:</strong> No login data available. If you've just set up the login sync trigger, login data will appear after users sign in. 
+            Make sure the database trigger <code>sync_last_sign_in_trigger</code> is active on the <code>auth.users</code> table.
           </div>
         )}
       </div>

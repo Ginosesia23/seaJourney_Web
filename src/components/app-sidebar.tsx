@@ -527,27 +527,23 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     <SidebarMenuItem key={uniqueKey}>
                       {requiresPremium ? (
                         <SidebarMenuButton tooltip={`${item.label} - Premium Required`} disabled>
-                          <div className="flex items-center justify-between w-full">
-                            <div className="flex items-center gap-2">
-                              <item.icon />
-                              <span>{item.label}</span>
-                            </div>
-                            <Badge variant="secondary" className="ml-auto text-xs">
+                          <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+                            <item.icon />
+                            <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
+                            <Badge variant="secondary" className="ml-auto text-xs group-data-[collapsible=icon]:hidden">
                               Premium
                             </Badge>
                           </div>
                         </SidebarMenuButton>
                       ) : (
                         <SidebarMenuButton tooltip={item.label} asChild isActive={isActive}>
-                          <Link href={item.href} className="flex items-center justify-between w-full">
-                            <div className="flex items-center gap-2">
+                          <Link href={item.href} className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
                             <item.icon />
-                            <span>{item.label}</span>
-                            </div>
+                            <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
                             {isInbox && inboxCount > 0 && (
                               <Badge 
                                 variant="destructive" 
-                                className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold"
+                                className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold group-data-[collapsible=icon]:hidden"
                               >
                                 {inboxCount > 99 ? '99+' : inboxCount}
                               </Badge>
@@ -555,7 +551,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                             {isFeedback && feedbackCount > 0 && (
                               <Badge 
                                 variant="destructive" 
-                                className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold"
+                                className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold group-data-[collapsible=icon]:hidden"
                               >
                                 {feedbackCount > 99 ? '99+' : feedbackCount}
                               </Badge>
