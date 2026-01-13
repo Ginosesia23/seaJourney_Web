@@ -327,6 +327,7 @@ export default function TestimonialsPage() {
     isPrimary: boolean;
     name?: string;
     email?: string;
+    onboard?: boolean;
   }>>([]);
 
   // Fetch user profile
@@ -510,6 +511,28 @@ export default function TestimonialsPage() {
           return;
         }
 
+        // Fetch onboard status for captains from vessel_assignments
+        const { data: captainAssignments, error: assignmentsError } = await supabase
+          .from('vessel_assignments')
+          .select('user_id, onboard')
+          .eq('vessel_id', watchedVesselId)
+          .in('user_id', captainIds)
+          .is('end_date', null); // Only active assignments
+        
+        console.log('[TESTIMONIALS] Fetched captain assignments for onboard status:', {
+          assignments: captainAssignments,
+          error: assignmentsError,
+          count: captainAssignments?.length || 0
+        });
+
+        // Create a map of captain_id -> onboard status
+        const onboardMap = new Map<string, boolean>();
+        if (captainAssignments) {
+          captainAssignments.forEach(assignment => {
+            onboardMap.set(assignment.user_id, assignment.onboard || false);
+          });
+        }
+
         // Fetch captain profiles (RLS should work now with the fixed function)
         const captainProfiles = await Promise.all(
           captainIds.map(async (captainId) => {
@@ -533,6 +556,7 @@ export default function TestimonialsPage() {
               const isPrimary = signingAuthorities.some(sa => 
                 sa.captain_user_id === captainId && sa.is_primary
               );
+              const onboard = onboardMap.get(captainId) || false;
               const name = profile.first_name && profile.last_name
                 ? `${profile.first_name} ${profile.last_name}`.trim()
                 : profile.username || 'Captain';
@@ -540,6 +564,7 @@ export default function TestimonialsPage() {
               return {
                 id: profile.id,
                 isPrimary: isPrimary || false,
+                onboard: onboard,
                 name: name,
                 email: profile.email || '',
               };
@@ -550,22 +575,32 @@ export default function TestimonialsPage() {
 
         const validCaptains = captainProfiles.filter((c): c is NonNullable<typeof c> => c !== null);
         
-        console.log('[TESTIMONIALS] Fetched captain profiles:', {
-          captains: validCaptains,
+        console.log('[TESTIMONIALS] Fetched captain profiles with onboard status:', {
+          captains: validCaptains.map(c => ({
+            id: c.id,
+            name: c.name,
+            onboard: c.onboard,
+            isPrimary: c.isPrimary
+          })),
           count: validCaptains.length
         });
 
         setAvailableCaptains(validCaptains);
 
-        // Automatically select the primary captain, or first captain if no primary
-        const defaultCaptain = validCaptains.find(c => c.isPrimary) || validCaptains[0];
+        // Automatically select the onboard captain first, then primary, then first
+        const defaultCaptain = validCaptains.find(c => c.onboard) 
+          || validCaptains.find(c => c.isPrimary) 
+          || validCaptains[0];
+        
         if (defaultCaptain) {
           setActiveCaptain({ id: defaultCaptain.id });
           console.log('[TESTIMONIALS] Auto-selected captain:', {
             captainId: defaultCaptain.id,
             name: defaultCaptain.name,
             isPrimary: defaultCaptain.isPrimary,
-            totalCaptains: validCaptains.length
+            onboard: defaultCaptain.onboard,
+            totalCaptains: validCaptains.length,
+            selectionReason: defaultCaptain.onboard ? 'onboard' : defaultCaptain.isPrimary ? 'primary' : 'first'
           });
         }
 
