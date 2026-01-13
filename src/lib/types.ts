@@ -165,6 +165,7 @@ export interface VesselAssignment {
     startDate: string;                 // Date in YYYY-MM-DD format
     endDate?: string | null;           // Date in YYYY-MM-DD format, NULL if still active
     position?: string | null;          // User's position/role on this vessel
+    onboard?: boolean;                 // Whether the crew member is currently onboard
     createdAt?: string;                // ISO timestamp
     updatedAt?: string;                // ISO timestamp
 }

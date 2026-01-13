@@ -580,6 +580,7 @@ export async function getActiveVesselAssignmentsByVessel(
     startDate: assignment.start_date,
     endDate: assignment.end_date || null,
     position: assignment.position || null,
+    onboard: assignment.onboard || false,
     createdAt: timestampToISO(assignment.created_at),
     updatedAt: timestampToISO(assignment.updated_at),
   }));

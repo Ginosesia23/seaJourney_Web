@@ -177,7 +177,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     // Crew accounts: premium or pro only
     return (tier === 'premium' || tier === 'pro') && status === 'active';
   }, [userProfile]);
-
+  
   // Use admin navGroups for admin, regular navGroups for others
   const displayNavGroups = isAdmin ? adminNavGroups : navGroups
   const router = useRouter()
@@ -219,12 +219,13 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
 
       try {
         if (userRole === 'admin') {
-          // Admins see captaincy requests and captain role applications
+          // Admins see captaincy requests that need approval (pending, vessel_approved, admin_approved)
+          // and captain role applications
           const [captaincyResult, applicationsResult] = await Promise.all([
             supabase
               .from('vessel_claim_requests')
               .select('id', { count: 'exact', head: true })
-              .eq('status', 'pending'),
+              .in('status', ['pending', 'vessel_approved', 'admin_approved']),
             supabase
               .from('captain_role_applications')
               .select('id', { count: 'exact', head: true })
@@ -233,6 +234,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           
           const captaincyCount = captaincyResult.count || 0;
           const applicationsCount = applicationsResult.count || 0;
+          console.log('[SIDEBAR] Admin inbox count:', { captaincyCount, applicationsCount, total: captaincyCount + applicationsCount });
           setInboxCount(captaincyCount + applicationsCount);
         } else {
           // Captains/vessel managers see testimonials addressed to them
@@ -301,13 +303,14 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           fetchInboxCount();
         }
       )
+      // Subscribe to vessel_claim_requests for admins (all statuses that need admin attention)
+      // For non-admins, this will be filtered by the fetchInboxCount function
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'vessel_claim_requests',
-          filter: `status=eq.pending`,
         },
         () => {
           fetchInboxCount();
@@ -624,7 +627,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                       {requiresPremium ? (
                         <SidebarMenuButton tooltip={`${item.label} - Premium Required`} disabled>
                           <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
-                            <item.icon />
+                          <item.icon />
                             <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
                             <Badge variant="secondary" className="ml-auto text-xs group-data-[collapsible=icon]:hidden">
                               Premium
@@ -636,14 +639,14 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                           <Link href={item.href} className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
                             <item.icon />
                             <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
-                            {isInbox && inboxCount > 0 && (
-                              <Badge 
-                                variant="destructive" 
+                          {isInbox && inboxCount > 0 && (
+                            <Badge 
+                              variant="destructive" 
                                 className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold group-data-[collapsible=icon]:hidden"
-                              >
-                                {inboxCount > 99 ? '99+' : inboxCount}
-                              </Badge>
-                            )}
+                            >
+                              {inboxCount > 99 ? '99+' : inboxCount}
+                            </Badge>
+                          )}
                             {isFeedback && feedbackCount > 0 && (
                               <Badge 
                                 variant="destructive" 
@@ -652,8 +655,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                                 {feedbackCount > 99 ? '99+' : feedbackCount}
                               </Badge>
                             )}
-                          </Link>
-                        </SidebarMenuButton>
+                        </Link>
+                      </SidebarMenuButton>
                       )}
                     </SidebarMenuItem>
                   )

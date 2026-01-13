@@ -4,7 +4,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon } from 'lucide-react';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor } from 'lucide-react';
 import { format } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, ArrowUpCircle } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import type { UserProfile, VesselAssignment, Vessel } from '@/lib/types';
 import { getActiveVesselAssignmentsByVessel } from '@/supabase/database/queries';
@@ -39,6 +41,7 @@ export default function CrewPage() {
     const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
     const [hasPendingCaptaincyRequest, setHasPendingCaptaincyRequest] = useState(false);
     const [isCheckingCaptaincy, setIsCheckingCaptaincy] = useState(false);
+    const [updatingOnboardStatus, setUpdatingOnboardStatus] = useState<string | null>(null);
 
     // The user's own profile is needed to check their role and active vessel.
     const { data: currentUserProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -241,6 +244,7 @@ export default function CrewPage() {
                             startDate: activeAssignment.start_date,
                             endDate: activeAssignment.end_date || null,
                             position: activeAssignment.position || null,
+                            onboard: activeAssignment.onboard || false,
                         } : {
                             // Create a placeholder assignment if user has no active assignment
                             id: `placeholder-${profile.id}`,
@@ -354,6 +358,53 @@ export default function CrewPage() {
 
         fetchCrew();
     }, [supabase, currentUserProfile?.activeVesselId, isAuthorized, user?.id, currentUserProfile?.role]);
+
+    // Function to toggle onboard status (vessel accounts only)
+    const handleToggleOnboard = async (assignmentId: string, currentOnboardStatus: boolean, userId: string) => {
+        if (currentUserProfile?.role !== 'vessel') return;
+        
+        setUpdatingOnboardStatus(assignmentId);
+        try {
+            const newOnboardStatus = !currentOnboardStatus;
+            
+            const { error } = await supabase
+                .from('vessel_assignments')
+                .update({ onboard: newOnboardStatus })
+                .eq('id', assignmentId);
+            
+            if (error) {
+                throw error;
+            }
+            
+            // Update local state
+            setCrewMembers(prev => prev.map(member => {
+                if (member.assignment.id === assignmentId) {
+                    return {
+                        ...member,
+                        assignment: {
+                            ...member.assignment,
+                            onboard: newOnboardStatus
+                        }
+                    };
+                }
+                return member;
+            }));
+            
+            toast({
+                title: newOnboardStatus ? 'Crew member marked as onboard' : 'Crew member marked as offboard',
+                description: `The crew member's onboard status has been updated.`,
+            });
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error updating onboard status:', error);
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to update onboard status. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setUpdatingOnboardStatus(null);
+        }
+    };
     
     // Filter crew members by search term and apply tier-based limits
     const filteredCrewMembers = useMemo(() => {
@@ -535,6 +586,7 @@ export default function CrewPage() {
                                 ) : (
                                     <TableHead>Joined Vessel</TableHead>
                                 )}
+                                {currentUserProfile?.role === 'vessel' && <TableHead>Onboard</TableHead>}
                                 <TableHead className="w-[50px]"></TableHead>
                             </TableRow>
                         </TableHeader>
@@ -649,6 +701,32 @@ export default function CrewPage() {
                                                         ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
                                                         : 'N/A'}
                                             </TableCell>
+                                            )}
+                                            {currentUserProfile?.role === 'vessel' && (
+                                                <TableCell>
+                                                    <div className="flex items-center gap-2">
+                                                        <Switch
+                                                            checked={assignment.onboard || false}
+                                                            onCheckedChange={() => {
+                                                                if (assignment.id && !assignment.id.startsWith('placeholder-')) {
+                                                                    handleToggleOnboard(assignment.id, assignment.onboard || false, assignment.userId);
+                                                                }
+                                                            }}
+                                                            disabled={updatingOnboardStatus === assignment.id || assignment.id.startsWith('placeholder-')}
+                                                        />
+                                                        <span className="text-xs text-muted-foreground">
+                                                            {assignment.onboard ? (
+                                                                <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                                                                    <Ship className="h-3 w-3" /> Onboard
+                                                                </span>
+                                                            ) : (
+                                                                <span className="flex items-center gap-1 text-muted-foreground">
+                                                                    <Anchor className="h-3 w-3" /> Offboard
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    </div>
+                                                </TableCell>
                                             )}
                                             <TableCell>
                                                 <DropdownMenu>

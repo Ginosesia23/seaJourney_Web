@@ -252,6 +252,24 @@ export default function InboxPage() {
           }
           
           const { data: pendingData, error: pendingError } = await pendingQuery.order('created_at', { ascending: false });
+          
+          console.log('[INBOX] Fetched pending testimonials:', {
+            count: pendingData?.length || 0,
+            captainFilter,
+            userId: user?.id,
+            userEmail: user?.email,
+            testimonials: pendingData?.map(t => ({
+              id: t.id,
+              captain_user_id: t.captain_user_id,
+              captain_email: t.captain_email,
+              status: t.status,
+              vessel_id: t.vessel_id
+            }))
+          });
+          
+          if (pendingError) {
+            console.error('[INBOX] Error fetching pending testimonials:', pendingError);
+          }
 
           // Fetch approved testimonials (where captain approved them)
           let approvedQuery = supabase

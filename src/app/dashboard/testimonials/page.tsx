@@ -321,6 +321,13 @@ export default function TestimonialsPage() {
   // Track active captain for selected vessel (just the ID - profile fetched in inbox)
   const [activeCaptain, setActiveCaptain] = useState<{ id: string } | null>(null);
   const [isCheckingCaptain, setIsCheckingCaptain] = useState(false);
+  // Track all active captains with their profiles
+  const [availableCaptains, setAvailableCaptains] = useState<Array<{
+    id: string;
+    isPrimary: boolean;
+    name?: string;
+    email?: string;
+  }>>([]);
 
   // Fetch user profile
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -405,6 +412,8 @@ export default function TestimonialsPage() {
       setTimeout(() => {
         form.reset();
         setActiveCaptain(null);
+      setAvailableCaptains([]);
+        setAvailableCaptains([]);
         setUseDifferentVessel(false);
       }, 150);
     }
@@ -420,6 +429,7 @@ export default function TestimonialsPage() {
   useEffect(() => {
     if (!watchedVesselId) {
       setActiveCaptain(null);
+      setAvailableCaptains([]);
       form.setValue('captain_email', '', { shouldValidate: false });
       return;
     }
@@ -431,69 +441,142 @@ export default function TestimonialsPage() {
       console.log('[TESTIMONIALS] Checking for active captain for vessel:', watchedVesselId);
       
       try {
-        // Check for active signing authority (primary captain) for this vessel
-        // This is the source of truth for who can sign testimonials
-        const { data: signingAuthority, error: signingAuthorityError } = await supabase
+        // Fetch all active signing authorities (captains) for this vessel
+        // Include both primary and non-primary captains
+        console.log('[TESTIMONIALS] Querying signing authorities for vessel:', watchedVesselId);
+        
+        const { data: signingAuthorities, error: signingAuthorityError } = await supabase
           .from('vessel_signing_authorities')
-          .select('captain_user_id, is_primary')
+          .select('captain_user_id, is_primary, vessel_id, end_date')
           .eq('vessel_id', watchedVesselId)
-          .eq('is_primary', true)
           .is('end_date', null)
-          .limit(1)
-          .maybeSingle();
+          .order('is_primary', { ascending: false }); // Primary first
 
-        console.log('[TESTIMONIALS] Signing authority query result:', { signingAuthority, signingAuthorityError });
+        console.log('[TESTIMONIALS] Signing authorities query result:', { 
+          signingAuthorities, 
+          signingAuthorityError,
+          vesselId: watchedVesselId,
+          count: signingAuthorities?.length || 0
+        });
+        
+        // Also check ALL signing authorities (including inactive) for debugging
+        const { data: allSigningAuthorities } = await supabase
+          .from('vessel_signing_authorities')
+          .select('captain_user_id, is_primary, vessel_id, end_date')
+          .eq('vessel_id', watchedVesselId);
+        
+        console.log('[TESTIMONIALS] ALL signing authorities (including inactive):', {
+          allSigningAuthorities,
+          count: allSigningAuthorities?.length || 0
+        });
 
         if (isCancelled) return;
 
         if (signingAuthorityError) {
-          console.error('[TESTIMONIALS] Error querying for signing authority:', {
+          console.error('[TESTIMONIALS] Error querying for signing authorities:', {
             error: signingAuthorityError,
             code: signingAuthorityError.code,
             message: signingAuthorityError.message,
-            details: signingAuthorityError.details,
-            hint: signingAuthorityError.hint,
           });
           setActiveCaptain(null);
+          setAvailableCaptains([]);
           form.setValue('captain_email', '', { shouldValidate: false });
           return;
         }
 
-        if (!signingAuthority || !signingAuthority.captain_user_id) {
-          console.log('[TESTIMONIALS] No active signing authority found for vessel:', {
-            vesselId: watchedVesselId,
-            signingAuthority: signingAuthority,
-            hasCaptainUserId: !!signingAuthority?.captain_user_id
+        if (!signingAuthorities || signingAuthorities.length === 0) {
+          console.log('[TESTIMONIALS] No active signing authorities found for vessel:', {
+            vesselId: watchedVesselId
           });
           setActiveCaptain(null);
+          setAvailableCaptains([]);
           form.setValue('captain_email', '', { shouldValidate: false });
           return;
         }
 
-        console.log('[TESTIMONIALS] Found signing authority:', {
-          vesselId: watchedVesselId,
-          captainUserId: signingAuthority.captain_user_id,
-          isPrimary: signingAuthority.is_primary
+        // Get captain user IDs from signing authorities
+        const captainIds = signingAuthorities.map(sa => sa.captain_user_id).filter(Boolean);
+        
+        console.log('[TESTIMONIALS] Found captain IDs from signing_authorities:', {
+          captainIds,
+          count: captainIds.length
         });
 
-        if (isCancelled) return;
+        if (captainIds.length === 0) {
+          console.log('[TESTIMONIALS] No captains found');
+          setActiveCaptain(null);
+          setAvailableCaptains([]);
+          form.setValue('captain_email', '', { shouldValidate: false });
+          return;
+        }
 
-        // We only need the captain's user ID - no need to fetch profile
-        // The captain's info can be fetched when they view their inbox
-        console.log('[TESTIMONIALS] Active captain found - user ID:', signingAuthority.captain_user_id);
+        // Fetch captain profiles (RLS should work now with the fixed function)
+        const captainProfiles = await Promise.all(
+          captainIds.map(async (captainId) => {
+            const { data: profile, error: profileError } = await supabase
+              .from('users')
+              .select('id, email, first_name, last_name, username')
+              .eq('id', captainId)
+              .maybeSingle();
+            
+            if (profileError) {
+              console.error('[TESTIMONIALS] Error fetching captain profile:', {
+                captainId,
+                error: profileError,
+                code: profileError.code,
+                message: profileError.message,
+              });
+              return null;
+            }
+            
+            if (profile) {
+              const isPrimary = signingAuthorities.some(sa => 
+                sa.captain_user_id === captainId && sa.is_primary
+              );
+              const name = profile.first_name && profile.last_name
+                ? `${profile.first_name} ${profile.last_name}`.trim()
+                : profile.username || 'Captain';
+              
+              return {
+                id: profile.id,
+                isPrimary: isPrimary || false,
+                name: name,
+                email: profile.email || '',
+              };
+            }
+            return null;
+          })
+        );
 
-        // Set active captain with just the ID - profile will be fetched when captain views inbox
-        setActiveCaptain({
-          id: signingAuthority.captain_user_id,
+        const validCaptains = captainProfiles.filter((c): c is NonNullable<typeof c> => c !== null);
+        
+        console.log('[TESTIMONIALS] Fetched captain profiles:', {
+          captains: validCaptains,
+          count: validCaptains.length
         });
+
+        setAvailableCaptains(validCaptains);
+
+        // Automatically select the primary captain, or first captain if no primary
+        const defaultCaptain = validCaptains.find(c => c.isPrimary) || validCaptains[0];
+        if (defaultCaptain) {
+          setActiveCaptain({ id: defaultCaptain.id });
+          console.log('[TESTIMONIALS] Auto-selected captain:', {
+            captainId: defaultCaptain.id,
+            name: defaultCaptain.name,
+            isPrimary: defaultCaptain.isPrimary,
+            totalCaptains: validCaptains.length
+          });
+        }
 
         // Don't set captain_email - we're using captain_user_id for inbox matching
         form.setValue('captain_email', '', { shouldValidate: false });
-        console.log('[TESTIMONIALS] Using captain_user_id for inbox matching, no email needed');
+        console.log('[TESTIMONIALS] Using onboard captain_user_id for inbox matching, no email needed');
       } catch (error) {
         if (isCancelled) return;
         console.error('[TESTIMONIALS] Error checking for active captain:', error);
         setActiveCaptain(null);
+      setAvailableCaptains([]);
         form.setValue('captain_email', '', { shouldValidate: false });
       } finally {
         if (!isCancelled) {
@@ -779,7 +862,7 @@ export default function TestimonialsPage() {
     return calculateDayCounts(selectedVesselLogs, startDateStr, endDateStr);
   }, [watchedStartDate, watchedEndDate, selectedVesselLogs]);
 
-  // Fetch testimonials
+  // Fetch testimonials with captain profiles
   useEffect(() => {
     if (!user?.id) return;
 
@@ -795,9 +878,68 @@ export default function TestimonialsPage() {
         if (error) {
           console.error('Error fetching testimonials:', error);
           setTestimonials([]);
-        } else {
-          setTestimonials((data || []) as Testimonial[]);
+          setIsLoadingTestimonials(false);
+          return;
         }
+
+        // Fetch captain profiles for testimonials with captain_user_id
+        const testimonialsWithCaptains = await Promise.all(
+          (data || []).map(async (testimonial: any) => {
+            // Always fetch captain profile if captain_user_id exists (even if captain_email is already set)
+            if (testimonial.captain_user_id) {
+              try {
+                // Fetch captain profile
+                const { data: captainProfile, error: profileError } = await supabase
+                  .from('users')
+                  .select('email, first_name, last_name, username')
+                  .eq('id', testimonial.captain_user_id)
+                  .maybeSingle();
+                
+                if (profileError) {
+                  console.error('[TESTIMONIALS] Error fetching captain profile:', {
+                    error: profileError,
+                    code: profileError.code,
+                    message: profileError.message,
+                    details: profileError.details,
+                    hint: profileError.hint,
+                    captain_user_id: testimonial.captain_user_id,
+                  });
+                  // Return testimonial with existing data even if profile fetch fails
+                  return testimonial;
+                }
+                
+                if (captainProfile) {
+                  const captainFullName = captainProfile.first_name && captainProfile.last_name
+                    ? `${captainProfile.first_name} ${captainProfile.last_name}`.trim()
+                    : captainProfile.username || null;
+                  
+                  console.log('[TESTIMONIALS] Fetched captain profile:', {
+                    captain_user_id: testimonial.captain_user_id,
+                    name: captainFullName,
+                    email: captainProfile.email,
+                  });
+                  
+                  return {
+                    ...testimonial,
+                    captain_email: captainProfile.email || testimonial.captain_email || null,
+                    captain_name: captainFullName || testimonial.captain_name || null,
+                  };
+                } else {
+                  console.warn('[TESTIMONIALS] Captain profile not found for captain_user_id:', testimonial.captain_user_id);
+                  // Return testimonial with existing data
+                  return testimonial;
+                }
+              } catch (error) {
+                console.error('[TESTIMONIALS] Exception fetching captain profile:', error);
+                // Return testimonial with existing data
+                return testimonial;
+              }
+            }
+            return testimonial;
+          })
+        );
+
+        setTestimonials(testimonialsWithCaptains as Testimonial[]);
       } catch (error) {
         console.error('Error fetching testimonials:', error);
         setTestimonials([]);
@@ -900,14 +1042,22 @@ export default function TestimonialsPage() {
       const captainEmail = captainUserId ? null : (data.captain_email || null); // Only use email for external captains
       const captainName = data.captain_name || null; // Optional name field
 
+      console.log('[TESTIMONIALS] Creating testimonial with captain info:', {
+        activeCaptain: activeCaptain,
+        captainUserId,
+        captainEmail,
+        captainName,
+        vesselId: data.vessel_id
+      });
+
       // If we have an active captain (SeaJourney user), set status to pending_captain
       // They will see it in their inbox automatically
       const finalStatus: TestimonialStatus = captainUserId ? 'pending_captain' : initialStatus;
 
+      console.log('[TESTIMONIALS] Final testimonial status:', finalStatus);
+
       // Create testimonial (testimonial_code will be auto-generated by database trigger when approved)
-      const result = await supabase
-        .from('testimonials')
-        .insert({
+      const testimonialData = {
           user_id: user.id,
           vessel_id: data.vessel_id,
           start_date: startDateStr,
@@ -925,15 +1075,34 @@ export default function TestimonialsPage() {
           official_reference: data.official_reference || null,
           notes: data.notes || null,
           // testimonial_code is NOT set here - it will be auto-generated by database trigger when status changes to 'approved'
-        })
+      };
+
+      console.log('[TESTIMONIALS] Inserting testimonial with data:', {
+        ...testimonialData,
+        // Don't log notes if it's long
+        notes: testimonialData.notes ? (testimonialData.notes.length > 50 ? testimonialData.notes.substring(0, 50) + '...' : testimonialData.notes) : null
+      });
+
+      const result = await supabase
+        .from('testimonials')
+        .insert(testimonialData)
         .select()
         .single();
 
       if (result.error) {
+        console.error('[TESTIMONIALS] Error creating testimonial:', result.error);
         throw result.error;
       }
 
-      const testimonialData = result.data;
+      const createdTestimonial = result.data;
+      
+      console.log('[TESTIMONIALS] ✅ Testimonial created successfully:', {
+        id: createdTestimonial.id,
+        captain_user_id: createdTestimonial.captain_user_id,
+        status: createdTestimonial.status,
+        vessel_id: createdTestimonial.vessel_id,
+        user_id: createdTestimonial.user_id
+      });
 
       // Send email to captain if captain_email is provided AND there's no active captain (SeaJourney user)
       // If there's an active captain (captain_user_id), the testimonial will appear in their inbox automatically
@@ -944,9 +1113,9 @@ export default function TestimonialsPage() {
         await requestCaptainSignoff(
           supabase,
           {
-            ...testimonialData,
+            ...createdTestimonial,
             vessel_name: vesselName,
-          },
+          } as Testimonial & { vessel_name: string },
           toast
         );
       } else if (captainUserId) {
@@ -964,18 +1133,67 @@ export default function TestimonialsPage() {
 
 
       form.reset();
-      setActiveCaptain(null); // Clear active captain when dialog closes
+      setActiveCaptain(null);
+      setAvailableCaptains([]); // Clear active captain when dialog closes
       setIsDialogOpen(false);
       
-      // Refresh testimonials list
-      const { data: updatedData } = await supabase
+      // Refresh testimonials list with captain profiles
+      const { data: updatedData, error: refreshError } = await supabase
         .from('testimonials')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
       
-      if (updatedData) {
-        setTestimonials(updatedData as Testimonial[]);
+      if (refreshError) {
+        console.error('[TESTIMONIALS] Error refreshing testimonials:', refreshError);
+      } else if (updatedData) {
+        // Fetch captain profiles for testimonials with captain_user_id (same logic as main fetch)
+        const testimonialsWithCaptains = await Promise.all(
+          updatedData.map(async (testimonial: any) => {
+            if (testimonial.captain_user_id) {
+              try {
+                const { data: captainProfile, error: profileError } = await supabase
+                  .from('users')
+                  .select('email, first_name, last_name, username')
+                  .eq('id', testimonial.captain_user_id)
+                  .maybeSingle();
+                
+                if (profileError) {
+                  console.error('[TESTIMONIALS] Error fetching captain profile after creation:', {
+                    error: profileError,
+                    code: profileError.code,
+                    message: profileError.message,
+                    captain_user_id: testimonial.captain_user_id,
+                  });
+                  return testimonial;
+                }
+                
+                if (captainProfile) {
+                  const captainFullName = captainProfile.first_name && captainProfile.last_name
+                    ? `${captainProfile.first_name} ${captainProfile.last_name}`.trim()
+                    : captainProfile.username || null;
+                  
+                  console.log('[TESTIMONIALS] Fetched captain profile after creation:', {
+                    captain_user_id: testimonial.captain_user_id,
+                    name: captainFullName,
+                    email: captainProfile.email,
+                  });
+                  
+                  return {
+                    ...testimonial,
+                    captain_email: captainProfile.email || testimonial.captain_email || null,
+                    captain_name: captainFullName || testimonial.captain_name || null,
+                  };
+                }
+              } catch (error) {
+                console.error('[TESTIMONIALS] Exception fetching captain profile after creation:', error);
+              }
+            }
+            return testimonial;
+          })
+        );
+        
+        setTestimonials(testimonialsWithCaptains as Testimonial[]);
       }
     } catch (error: any) {
       console.error('Error creating testimonial:', error);
@@ -1085,7 +1303,14 @@ export default function TestimonialsPage() {
           .maybeSingle();
 
         if (captainError) {
-          console.error('[PDF GENERATION] Error fetching captain profile:', captainError);
+          console.error('[PDF GENERATION] Error fetching captain profile:', {
+            error: captainError,
+            code: captainError?.code,
+            message: captainError?.message,
+            details: captainError?.details,
+            hint: captainError?.hint,
+            captain_user_id: testimonial.captain_user_id,
+          });
         } else if (captainData) {
           console.log('[PDF GENERATION] Captain profile fetched:', {
             ...captainData,
@@ -1304,174 +1529,229 @@ export default function TestimonialsPage() {
                 Request Testimonial
               </Button>
             </DialogTrigger>
-            <DialogContent className="rounded-xl max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="rounded-xl max-w-5xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Request Testimonial</DialogTitle>
               </DialogHeader>
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                  {/* Show current vessel info if available */}
-                  {currentVessel && !useDifferentVessel && (
-                    <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10">
-                      <CardContent className="pt-6">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex items-start gap-3 w-full">
-                            <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0">
-                              <Ship className="h-5 w-5 text-primary" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <h3 className="text-sm font-semibold">Current Vessel</h3>
-                              <p className="text-lg font-medium mt-1">{currentVessel.name}</p>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {currentVessel.type} • {currentVessel.officialNumber || 'No IMO'}
-                              </p>
+                <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+                  {/* Main Content Grid */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Left Column: Vessel & Captain Info */}
+                    <div className="lg:col-span-1 space-y-4">
+                      {/* Show current vessel info if available */}
+                      {currentVessel && !useDifferentVessel && (
+                        <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10">
+                          <CardContent className="pt-4">
+                            <div className="space-y-3">
+                              <div className="flex items-center gap-2">
+                                <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0">
+                                  <Ship className="h-4 w-4 text-primary" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h3 className="text-xs font-semibold text-muted-foreground">Current Vessel</h3>
+                                  <p className="text-sm font-medium mt-0.5">{currentVessel.name}</p>
+                                  <p className="text-xs text-muted-foreground mt-0.5">
+                                    {currentVessel.type} • {currentVessel.officialNumber || 'No IMO'}
+                                  </p>
+                                </div>
+                              </div>
                               
                               {/* Captain Info */}
-                              <div className="mt-3 pt-3 border-t border-primary/20">
+                              <div className="pt-3 border-t border-primary/20">
                                 {isCheckingCaptain ? (
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                     <Loader2 className="h-3 w-3 animate-spin" />
-                                    <span>Checking for active captain...</span>
+                                    <span>Checking...</span>
                                   </div>
-                                ) : activeCaptain ? (
-                                  <div className="space-y-1">
-                                    <div className="flex items-center gap-2">
-                                      <Badge variant="outline" className="text-xs bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
-                                        <CheckCircle2 className="h-3 w-3 mr-1" />
-                                        Active Captain Found
-                                      </Badge>
-                                    </div>
-                                    <p className="text-xs text-muted-foreground mt-1 italic">
-                                      Your request will be sent directly to this captain's inbox
-                                    </p>
+                                ) : availableCaptains.length > 0 ? (
+                                  // Show captain info (auto-selected, allow change if multiple)
+                                  <div className="space-y-2">
+                                    <Badge variant="outline" className="text-xs bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
+                                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                                      {availableCaptains.length === 1 
+                                        ? 'Active Captain' 
+                                        : `${availableCaptains.length} Captains`}
+                                    </Badge>
+                                    
+                                    {availableCaptains.length === 1 ? (
+                                      // Single captain - just show info
+                                      <div className="p-2.5 rounded-lg border border-primary/20 bg-primary/5 dark:bg-primary/10">
+                                        <div className="flex items-center gap-2">
+                                          <Ship className="h-3.5 w-3.5 text-primary" />
+                                          <div className="flex-1 min-w-0">
+                                            {availableCaptains[0].name && (
+                                              <div className="font-medium text-xs">
+                                                {availableCaptains[0].name}
+                                              </div>
+                                            )}
+                                            {availableCaptains[0].email && (
+                                              <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                                                {availableCaptains[0].email}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      // Multiple captains - allow selection
+                                      <div className="space-y-1.5">
+                                        {availableCaptains.map((captain) => (
+                                          <div
+                                            key={captain.id}
+                                            onClick={() => setActiveCaptain({ id: captain.id })}
+                                            className={`p-2.5 rounded-lg border cursor-pointer transition-all ${
+                                              activeCaptain?.id === captain.id
+                                                ? 'border-primary bg-primary/5 dark:bg-primary/10'
+                                                : 'border-border hover:border-primary/50 hover:bg-muted/50'
+                                            }`}
+                                          >
+                                            <div className="flex items-start justify-between gap-2">
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-1.5">
+                                                  <Ship className="h-3.5 w-3.5 text-primary shrink-0" />
+                                                  {captain.name && (
+                                                    <span className="font-medium text-xs">
+                                                      {captain.name}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                {captain.email && (
+                                                  <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                                                    {captain.email}
+                                                  </div>
+                                                )}
+                                              </div>
+                                              <div className={`h-3.5 w-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                                activeCaptain?.id === captain.id
+                                                  ? 'border-primary bg-primary'
+                                                  : 'border-muted-foreground/30'
+                                              }`}>
+                                                {activeCaptain?.id === captain.id && (
+                                                  <CheckCircle2 className="h-2.5 w-2.5 text-primary-foreground" />
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 ) : (
                                   <div className="text-xs text-muted-foreground">
                                     <Badge variant="outline" className="text-xs">
-                                      No active captain found
+                                      No active captain
                                     </Badge>
-                                    <p className="mt-1">You can enter a captain email manually below</p>
+                                    <p className="mt-1 text-[10px]">Enter email manually</p>
                                   </div>
                                 )}
                               </div>
                             </div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
+                          </CardContent>
+                        </Card>
+                      )}
 
-                  {/* Option to select different vessel */}
-                  {currentVessel && (
-                    <div className="flex items-center space-x-2 pb-2">
-                      <Checkbox
-                        id="use-different-vessel"
-                        checked={useDifferentVessel}
-                        onCheckedChange={(checked) => {
-                          setUseDifferentVessel(checked as boolean);
-                          if (!checked && currentVessel) {
-                            // Reset to current vessel
-                            form.setValue('vessel_id', currentVessel.id, { shouldValidate: false });
-                          } else {
-                            // Clear selection so user can choose
-                            form.setValue('vessel_id', '', { shouldValidate: false });
-                          }
-                        }}
-                      />
-                      <label
-                        htmlFor="use-different-vessel"
-                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                      >
-                        Select a different vessel
-                      </label>
-                    </div>
-                  )}
-
-                  {/* Vessel selector - always rendered but hidden when using current vessel */}
-                  <FormField
-                    control={form.control}
-                    name="vessel_id"
-                    render={({ field }) => (
-                      <FormItem className={currentVessel && !useDifferentVessel ? 'sr-only' : ''}>
-                        <FormLabel>Vessel</FormLabel>
-                        <FormControl>
-                          <SearchableSelect
-                            options={vessels.map(vessel => ({
-                              value: vessel.id,
-                              label: vessel.name,
-                            }))}
-                            value={field.value || ''}
-                            onValueChange={field.onChange}
-                            placeholder="Select a vessel..."
+                      {/* Option to select different vessel */}
+                      {currentVessel && (
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="use-different-vessel"
+                            checked={useDifferentVessel}
+                            onCheckedChange={(checked) => {
+                              setUseDifferentVessel(checked as boolean);
+                              if (!checked && currentVessel) {
+                                form.setValue('vessel_id', currentVessel.id, { shouldValidate: false });
+                              } else {
+                                form.setValue('vessel_id', '', { shouldValidate: false });
+                              }
+                            }}
                           />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-
-                  {/* Quick Date Range Options */}
-                  {watchedVesselId && (
-                    <div className="space-y-3">
-                      <FormLabel className="text-base font-semibold">Quick Select Date Range</FormLabel>
-                      {dateRangeOptions && dateRangeOptions.length > 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {dateRangeOptions.map((option, index) => {
-                            const daysDiff = differenceInDays(option.endDate, option.startDate) + 1;
-                            return (
-                              <button
-                                key={index}
-                                type="button"
-                                onClick={() => applyDateRangeOption(option)}
-                                className="group relative rounded-xl border-2 border-border bg-card p-4 text-left hover:border-primary hover:bg-accent transition-all hover:shadow-md"
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="font-semibold text-sm mb-1.5 group-hover:text-primary transition-colors">
-                                      {option.label}
-                                    </div>
-                                    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                                      <div className="flex items-center gap-1.5">
-                                        <CalendarIcon className="h-3.5 w-3.5" />
-                                        <span>{format(option.startDate, 'MMM d, yyyy')}</span>
-                                      </div>
-                                      <div className="flex items-center gap-1.5">
-                                        <CalendarIcon className="h-3.5 w-3.5" />
-                                        <span>{format(option.endDate, 'MMM d, yyyy')}</span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="flex-shrink-0 text-right">
-                                    <div className="text-lg font-bold text-primary">
-                                      {daysDiff}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">
-                                      {daysDiff === 1 ? 'day' : 'days'}
-                                    </div>
-                                  </div>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : selectedVesselLogs.length === 0 ? (
-                        <div className="rounded-lg border border-dashed p-4 text-center">
-                          <p className="text-sm text-muted-foreground">
-                            Loading vessel data...
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="rounded-lg border border-dashed p-4 text-center">
-                          <p className="text-sm text-muted-foreground">
-                            No date range options available. Ensure you have logged time on this vessel.
-                          </p>
+                          <label
+                            htmlFor="use-different-vessel"
+                            className="text-xs font-medium leading-none cursor-pointer"
+                          >
+                            Select different vessel
+                          </label>
                         </div>
                       )}
-                    </div>
-                  )}
 
-                  <div className="grid grid-cols-2 gap-4">
+                      {/* Vessel selector */}
+                      <FormField
+                        control={form.control}
+                        name="vessel_id"
+                        render={({ field }) => (
+                          <FormItem className={currentVessel && !useDifferentVessel ? 'sr-only' : ''}>
+                            <FormLabel className="text-xs">Vessel</FormLabel>
+                            <FormControl>
+                              <SearchableSelect
+                                options={vessels.map(vessel => ({
+                                  value: vessel.id,
+                                  label: vessel.name,
+                                }))}
+                                value={field.value || ''}
+                                onValueChange={field.onChange}
+                                placeholder="Select a vessel..."
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    {/* Right Column: Form Fields */}
+                    <div className="lg:col-span-2 space-y-4">
+                      {/* Quick Date Range Options */}
+                      {watchedVesselId && (
+                        <div className="space-y-2">
+                          <FormLabel className="text-sm font-semibold">Quick Select Date Range</FormLabel>
+                          {dateRangeOptions && dateRangeOptions.length > 0 ? (
+                            <div className="grid grid-cols-2 gap-2">
+                              {dateRangeOptions.map((option, index) => {
+                                const daysDiff = differenceInDays(option.endDate, option.startDate) + 1;
+                                return (
+                                  <button
+                                    key={index}
+                                    type="button"
+                                    onClick={() => applyDateRangeOption(option)}
+                                    className="group relative rounded-lg border border-border bg-card p-3 text-left hover:border-primary hover:bg-accent transition-all"
+                                  >
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="font-semibold text-xs mb-1 group-hover:text-primary transition-colors">
+                                          {option.label}
+                                        </div>
+                                        <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+                                          <span>{format(option.startDate, 'MMM d, yyyy')}</span>
+                                          <span>{format(option.endDate, 'MMM d, yyyy')}</span>
+                                        </div>
+                                      </div>
+                                      <div className="flex-shrink-0 text-right">
+                                        <div className="text-base font-bold text-primary">
+                                          {daysDiff}
+                                        </div>
+                                        <div className="text-[10px] text-muted-foreground">
+                                          {daysDiff === 1 ? 'day' : 'days'}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : selectedVesselLogs.length === 0 ? (
+                            <div className="rounded-lg border border-dashed p-3 text-center">
+                              <p className="text-xs text-muted-foreground">Loading vessel data...</p>
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border border-dashed p-3 text-center">
+                              <p className="text-xs text-muted-foreground">No date range options available.</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3">
                     <FormField
                       control={form.control}
                       name="start_date"
@@ -1545,59 +1825,61 @@ export default function TestimonialsPage() {
                     />
             </div>
 
-                  {/* Day Counts Preview */}
-                  {dayCountsPreview && (
-                    <div className="p-4 bg-muted/50 rounded-xl border">
-                      <div className="text-sm font-medium mb-2">Service Summary</div>
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
-                        <div>
-                          <div className="text-muted-foreground">Total Days</div>
-                          <div className="font-semibold">{dayCountsPreview.total_days}</div>
+                      {/* Day Counts Preview */}
+                      {dayCountsPreview && (
+                        <div className="p-3 bg-muted/50 rounded-lg border">
+                          <div className="text-xs font-medium mb-2">Service Summary</div>
+                          <div className="grid grid-cols-5 gap-2 text-xs">
+                            <div>
+                              <div className="text-muted-foreground text-[10px]">Total</div>
+                              <div className="font-semibold">{dayCountsPreview.total_days}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground text-[10px]">At Sea</div>
+                              <div className="font-semibold">{dayCountsPreview.at_sea_days}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground text-[10px]">Standby</div>
+                              <div className="font-semibold">{dayCountsPreview.standby_days}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground text-[10px]">Yard</div>
+                              <div className="font-semibold">{dayCountsPreview.yard_days}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground text-[10px]">Leave</div>
+                              <div className="font-semibold">{dayCountsPreview.leave_days}</div>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="text-muted-foreground">At Sea</div>
-                          <div className="font-semibold">{dayCountsPreview.at_sea_days}</div>
-                        </div>
-                        <div>
-                          <div className="text-muted-foreground">Standby</div>
-                          <div className="font-semibold">{dayCountsPreview.standby_days}</div>
-                        </div>
-                        <div>
-                          <div className="text-muted-foreground">Yard</div>
-                          <div className="font-semibold">{dayCountsPreview.yard_days}</div>
-                </div>
-                                        <div>
-                          <div className="text-muted-foreground">Leave</div>
-                          <div className="font-semibold">{dayCountsPreview.leave_days}</div>
-                        </div>
-                                        </div>
-                                    </div>
-                  )}
-
-                  {/* Only show captain email field if no active captain found (captain info already shown in Current Vessel card above) */}
-                  {!activeCaptain && !isCheckingCaptain && (
-                    <FormField
-                      control={form.control}
-                      name="captain_email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Captain Email (Optional)</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="email"
-                              placeholder="captain@vessel.com"
-                              className="rounded-xl"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            If provided, the captain will receive an email to sign off on this testimonial. If this vessel has an active captain on SeaJourney, they will be selected automatically.
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
                       )}
-                    />
-                  )}
+
+                      {/* Only show captain email field if no active captain found */}
+                      {!activeCaptain && !isCheckingCaptain && (
+                        <FormField
+                          control={form.control}
+                          name="captain_email"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">Captain Email (Optional)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="email"
+                                  placeholder="captain@vessel.com"
+                                  className="rounded-lg h-9"
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormDescription className="text-xs">
+                                Enter captain email if no active captain found.
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
+                    </div>
+                  </div>
 
 
                   <DialogFooter>
@@ -1607,6 +1889,7 @@ export default function TestimonialsPage() {
                       onClick={() => {
                         form.reset();
                         setActiveCaptain(null);
+      setAvailableCaptains([]);
                         setIsDialogOpen(false);
                       }}
                       className="rounded-xl"
@@ -1734,14 +2017,22 @@ export default function TestimonialsPage() {
                                 </div>
                               </TableCell>
                               <TableCell>
-                                {testimonial.captain_email ? (
+                                {testimonial.captain_user_id || testimonial.captain_email ? (
                                   <div className="flex items-center gap-2">
+                                    {testimonial.captain_user_id ? (
+                                      <Ship className="h-4 w-4 text-primary" />
+                                    ) : (
                                     <Mail className="h-4 w-4 text-muted-foreground" />
+                                    )}
                                     <div>
-                                      {testimonial.captain_name && (
+                                      {testimonial.captain_name ? (
                                         <div className="font-medium text-sm">{testimonial.captain_name}</div>
-                                      )}
-                                      <div className="text-sm text-muted-foreground">{testimonial.captain_email}</div>
+                                      ) : null}
+                                      {testimonial.captain_email ? (
+                                        <div className="text-sm text-muted-foreground">{testimonial.captain_email}</div>
+                                      ) : testimonial.captain_user_id && !testimonial.captain_name ? (
+                                        <div className="text-xs text-muted-foreground italic">Captain profile unavailable</div>
+                                      ) : null}
                                     </div>
                                   </div>
                                 ) : (

@@ -206,6 +206,21 @@ export async function POST(req: NextRequest) {
         .is('end_date', null)
         .maybeSingle();
 
+      // Check if there are any other onboard captains for this vessel
+      // If this is the first captain or no other captains are onboard, set this one as onboard
+      const { data: otherOnboardCaptains } = await supabaseAdmin
+        .from('vessel_assignments')
+        .select('user_id')
+        .eq('vessel_id', vesselId)
+        .eq('onboard', true)
+        .is('end_date', null)
+        .neq('user_id', captainUserId);
+
+      // Set onboard to true if:
+      // 1. This is the first captain (no other onboard captains)
+      // 2. OR if this captain is being set as primary and no other captains are onboard
+      const shouldSetOnboard = !otherOnboardCaptains || otherOnboardCaptains.length === 0;
+
       // Create vessel assignment if it doesn't exist
       if (!existingAssignment) {
         const { error: assignmentError } = await supabaseAdmin
@@ -216,20 +231,30 @@ export async function POST(req: NextRequest) {
             start_date: today,
             end_date: null, // Active assignment
             position: position,
+            onboard: shouldSetOnboard, // Set as onboard if first captain or no other onboard captains
           });
 
         if (assignmentError) {
           console.error('[APPROVE CAPTAINCY API] Error creating vessel assignment:', assignmentError);
           // Don't fail the approval if assignment creation fails - log and continue
         } else {
-          console.log('[APPROVE CAPTAINCY API] Created vessel assignment for captain:', captainUserId, 'vessel:', vesselId);
+          console.log('[APPROVE CAPTAINCY API] Created vessel assignment for captain:', captainUserId, 'vessel:', vesselId, 'onboard:', shouldSetOnboard);
         }
       } else {
-        // Update position if assignment already exists
+        // Update position and potentially onboard status if assignment already exists
+        const updateData: any = { position: position };
+        
+        // If no other captains are onboard, set this one as onboard
+        if (shouldSetOnboard) {
+          updateData.onboard = true;
+        }
+        
         await supabaseAdmin
           .from('vessel_assignments')
-          .update({ position: position })
+          .update(updateData)
           .eq('id', existingAssignment.id);
+        
+        console.log('[APPROVE CAPTAINCY API] Updated vessel assignment for captain:', captainUserId, 'onboard:', shouldSetOnboard);
       }
 
       // Update vessel's vessel_manager_id if not already set
@@ -263,33 +288,55 @@ export async function POST(req: NextRequest) {
         .eq('id', captainUserId);
 
       // Handle vessel_signing_authorities table
-      // End any existing active primary signing authorities for this vessel
-      const { data: existingActivePrimary } = await supabaseAdmin
+      // Check if this captain already has a signing authority (active or inactive)
+      const { data: existingAuthority } = await supabaseAdmin
         .from('vessel_signing_authorities')
-        .select('id')
+        .select('id, is_primary, end_date')
         .eq('vessel_id', vesselId)
-        .eq('is_primary', true)
-        .is('end_date', null);
+        .eq('captain_user_id', captainUserId)
+        .order('start_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (existingActivePrimary && existingActivePrimary.length > 0) {
-        await supabaseAdmin
+      if (existingAuthority) {
+        // Captain already has a signing authority - reactivate it if needed
+        if (existingAuthority.end_date) {
+          // Reactivate the existing signing authority
+          await supabaseAdmin
+            .from('vessel_signing_authorities')
+            .update({ 
+              end_date: null,
+              start_date: today // Update start_date to today when reactivating
+            })
+            .eq('id', existingAuthority.id);
+          console.log('[APPROVE CAPTAINCY API] Reactivated existing signing authority for captain:', captainUserId);
+        }
+        // If already active, no action needed
+      } else {
+        // No existing signing authority - create a new one
+        // Check if there's already a primary captain
+        const { data: existingActivePrimary } = await supabaseAdmin
           .from('vessel_signing_authorities')
-          .update({ end_date: today })
+          .select('id')
           .eq('vessel_id', vesselId)
           .eq('is_primary', true)
-          .is('end_date', null);
-      }
+          .is('end_date', null)
+          .limit(1)
+          .maybeSingle();
 
-      // Insert new signing authority record for the approved captain
-      await supabaseAdmin
-        .from('vessel_signing_authorities')
-        .insert({
-          vessel_id: vesselId,
-          captain_user_id: captainUserId,
-          start_date: today,
-          end_date: null,
-          is_primary: true,
-        });
+        // Insert new signing authority record for the approved captain
+        // Set as primary only if there's no existing primary
+        await supabaseAdmin
+          .from('vessel_signing_authorities')
+          .insert({
+            vessel_id: vesselId,
+            captain_user_id: captainUserId,
+            start_date: today,
+            end_date: null,
+            is_primary: !existingActivePrimary, // Only primary if no existing primary
+          });
+        console.log('[APPROVE CAPTAINCY API] Created new signing authority for captain:', captainUserId, 'is_primary:', !existingActivePrimary);
+      }
     }
 
     return NextResponse.json({
