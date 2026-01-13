@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { format, startOfYear, endOfYear, eachMonthOfInterval, startOfMonth, endOfMonth, eachDayOfInterval, getDaysInMonth, getDay, isSameMonth, isToday, isWithinInterval, startOfDay, endOfDay, isAfter, isBefore, parse, addDays } from 'date-fns';
-import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, Clock } from 'lucide-react';
+import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, Clock, User } from 'lucide-react';
 import { DateRange } from 'react-day-picker';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +39,9 @@ export default function CalendarPage() {
   const [selectionMode, setSelectionMode] = useState<'single' | 'range'>('single');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
+  
+  // View mode for captains: 'personal' (their own sea time) or 'vessel' (vessel's sea time)
+  const [captainViewMode, setCaptainViewMode] = useState<'personal' | 'vessel'>('personal');
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -72,6 +75,11 @@ export default function CalendarPage() {
     } as UserProfile;
   }, [userProfileRaw]);
 
+  // Check if user is captain
+  const isCaptain = useMemo(() => {
+    return userProfile?.role === 'captain';
+  }, [userProfile?.role]);
+
   // Query all vessels
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
     user?.id ? 'vessels' : null,
@@ -86,17 +94,20 @@ export default function CalendarPage() {
 
   // Check if captain has approved captaincy for current vessel and find vessel account user
   const [vesselAccountUserId, setVesselAccountUserId] = useState<string | null>(null);
+  const [isApprovedCaptain, setIsApprovedCaptain] = useState(false);
   
   useEffect(() => {
     const checkCaptaincyAndFindVesselAccount = async () => {
       if (!currentVessel || !user?.id) {
         setVesselAccountUserId(null);
+        setIsApprovedCaptain(false);
         return;
       }
 
       // Only check for captains
       if (userProfile?.role !== 'captain') {
         setVesselAccountUserId(null);
+        setIsApprovedCaptain(false);
         return;
       }
 
@@ -112,8 +123,12 @@ export default function CalendarPage() {
 
         if (captaincyError || !captaincyData) {
           setVesselAccountUserId(null);
+          setIsApprovedCaptain(false);
           return;
         }
+
+        // User is an approved captain
+        setIsApprovedCaptain(true);
 
         // Use vessel_manager_id from the vessel record (preferred method)
         const vesselManagerId = (currentVessel as any).vessel_manager_id || (currentVessel as any).vesselManagerId;
@@ -154,11 +169,19 @@ export default function CalendarPage() {
       } catch (error) {
         console.error('[CALENDAR PAGE] Exception checking captaincy/vessel account:', error);
         setVesselAccountUserId(null);
+        setIsApprovedCaptain(false);
       }
     };
 
     checkCaptaincyAndFindVesselAccount();
   }, [currentVessel?.id, user?.id, userProfile?.role, supabase]);
+
+  // Reset view mode to 'personal' if user is no longer an approved captain
+  useEffect(() => {
+    if (!isApprovedCaptain && captainViewMode === 'vessel') {
+      setCaptainViewMode('personal');
+    }
+  }, [isApprovedCaptain, captainViewMode]);
 
   // Fetch state logs from ALL vessels the user has assignments for
   // This allows viewing states from previous vessels and current vessel
@@ -191,11 +214,11 @@ export default function CalendarPage() {
           const vessel = vessels.find(v => v.id === vesselId);
           if (!vessel) continue;
 
-          // For captains with approved captaincy, fetch vessel account logs
-      // Otherwise, fetch only logs for this user
+          // For captains: check view mode to determine which logs to fetch
       let userIdToFetch: string | undefined = user.id;
       
-      if (userProfile?.role === 'captain') {
+      if (userProfile?.role === 'captain' && captainViewMode === 'vessel') {
+        // Captain wants to see vessel logs - check if they have approved captaincy
         try {
           const { data: captaincyData } = await supabase
             .from('vessel_claim_requests')
@@ -212,11 +235,19 @@ export default function CalendarPage() {
             } else {
                   userIdToFetch = undefined; // Fetch all logs for vessel
             }
+          } else {
+            // No approved captaincy - fall back to personal logs
+            userIdToFetch = user.id;
           }
         } catch (e) {
               console.error('[CALENDAR PAGE] Error checking captaincy for vessel:', vesselId, e);
+              // On error, fall back to personal logs
+              userIdToFetch = user.id;
             }
-          }
+      } else {
+        // Personal view mode or not a captain - always fetch personal logs
+        userIdToFetch = user.id;
+      }
       
       try {
             const logs = await getVesselStateLogs(supabase, vesselId, userIdToFetch);
@@ -251,7 +282,7 @@ export default function CalendarPage() {
     };
     
     fetchAllLogs();
-  }, [user?.id, vessels, vesselAssignments, userProfile?.role, supabase]);
+  }, [user?.id, vessels, vesselAssignments, userProfile?.role, captainViewMode, supabase]);
 
   // Fetch vessel assignments to determine valid date ranges
   useEffect(() => {
@@ -711,8 +742,8 @@ export default function CalendarPage() {
         return;
       }
 
-      // For approved captains viewing vessel account logs, they should not be able to edit
-      if (vesselAccountUserId) {
+      // For captains viewing vessel logs (vessel view mode), they should not be able to edit
+      if (isCaptain && captainViewMode === 'vessel') {
         toast({
           title: 'Cannot Edit',
           description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
@@ -1064,6 +1095,35 @@ export default function CalendarPage() {
                 View and manage your vessel states throughout the year. Click on any date to change its state, or use range mode to select multiple dates at once.
               </p>
           </div>
+          {/* Captain View Mode Toggle - Only show for approved captains */}
+          {isApprovedCaptain && (
+            <div className="flex items-center gap-2 rounded-lg border bg-card p-1">
+              <Button
+                variant={captainViewMode === 'personal' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setCaptainViewMode('personal')}
+                className={cn(
+                  "rounded-md",
+                  captainViewMode === 'personal' && "bg-primary text-primary-foreground"
+                )}
+              >
+                <User className="h-4 w-4 mr-2" />
+                My Sea Time
+              </Button>
+              <Button
+                variant={captainViewMode === 'vessel' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setCaptainViewMode('vessel')}
+                className={cn(
+                  "rounded-md",
+                  captainViewMode === 'vessel' && "bg-primary text-primary-foreground"
+                )}
+              >
+                <Ship className="h-4 w-4 mr-2" />
+                Vessel Sea Time
+              </Button>
+            </div>
+          )}
         </div>
         <Separator />
       </div>

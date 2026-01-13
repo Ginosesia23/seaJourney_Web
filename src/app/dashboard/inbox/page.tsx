@@ -69,10 +69,12 @@ export default function InboxPage() {
   
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
+    const activeVesselId = (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId;
     return {
       ...userProfileRaw,
       email: (userProfileRaw as any).email || user?.email || '',
       role: (userProfileRaw as any).role || userProfileRaw.role || 'crew',
+      activeVesselId: activeVesselId || undefined,
     } as UserProfile;
   }, [userProfileRaw, user]);
 
@@ -93,9 +95,23 @@ export default function InboxPage() {
     return userProfile?.role?.toLowerCase() === 'admin';
   }, [userProfile]);
 
+  // Debug: Log when captaincyRequests changes
+  useEffect(() => {
+    console.log('[INBOX] captaincyRequests state changed:', {
+      length: captaincyRequests.length,
+      requests: captaincyRequests.map(r => ({ id: r.id, vessel_id: r.vessel_id, status: r.status }))
+    });
+  }, [captaincyRequests]);
+
   // Fetch pending testimonials and captaincy requests
   useEffect(() => {
-    if (!isCaptain) {
+    // Allow captains, vessel accounts, and admins to access inbox
+    const userRole = userProfile?.role?.toLowerCase() || '';
+    const isVesselAccount = userRole === 'vessel' && userProfile?.active_vessel_id;
+    const isAdmin = userRole === 'admin';
+    const isCaptainRole = userRole === 'captain';
+    
+    if (!isCaptain && !isVesselAccount && !isAdmin) {
       setIsLoading(false);
       return;
     }
@@ -107,23 +123,49 @@ export default function InboxPage() {
         
         // For admins: fetch captaincy requests and captain role applications (testimonials are vessel-specific)
         // For captains/vessel managers: only fetch testimonials addressed to them
-        if (userIsAdmin) {
-          // Admins see captaincy requests and captain role applications
-          console.log('[INBOX] Fetching captaincy requests and captain role applications for admin user:', user?.id);
+        // Check if user is vessel account
+        const activeVesselId = userProfile?.activeVesselId || (userProfile as any)?.active_vessel_id;
+        const isVesselAccount = userProfile?.role?.toLowerCase() === 'vessel' && activeVesselId;
+        
+        if (userIsAdmin || isVesselAccount) {
+          // Admins see all captaincy requests, vessel accounts see requests for their vessel
+          console.log('[INBOX] Fetching captaincy requests for', userIsAdmin ? 'admin' : 'vessel account', 'user:', user?.id, 'activeVesselId:', activeVesselId);
           
-          // Fetch captaincy requests
-          const { data: captaincyData, error: captaincyError } = await supabase
+          // Build query for captaincy requests
+          let captaincyQuery = supabase
             .from('vessel_claim_requests')
-            .select('*')
-            .eq('status', 'pending')
-            .order('created_at', { ascending: false });
+            .select('id, vessel_id, requested_by, requested_role, status, supporting_documents, reviewed_by, reviewed_at, review_notes, vessel_approved_by, vessel_approved_at, admin_approved_by, admin_approved_at, created_at, updated_at');
+          
+          // Vessel accounts only see requests for their vessel
+          if (isVesselAccount && activeVesselId) {
+            captaincyQuery = captaincyQuery.eq('vessel_id', activeVesselId);
+            // Vessel accounts see requests that need their approval: pending (needs both) or admin_approved (needs vessel)
+            captaincyQuery = captaincyQuery.in('status', ['pending', 'admin_approved']);
+          } else if (userIsAdmin) {
+            // Admins see all requests that need approval: pending, vessel_approved, admin_approved
+            captaincyQuery = captaincyQuery.in('status', ['pending', 'vessel_approved', 'admin_approved']);
+          }
+          
+          captaincyQuery = captaincyQuery.order('created_at', { ascending: false });
+          
+          const { data: captaincyData, error: captaincyError } = await captaincyQuery;
 
-          console.log('[INBOX] Captaincy requests query result:', { captaincyData, captaincyError });
+          console.log('[INBOX] Captaincy requests query result:', { 
+            captaincyData, 
+            captaincyError,
+            isVesselAccount,
+            activeVesselId: activeVesselId,
+            userRole: userProfile?.role,
+            queryStatus: isVesselAccount ? ['pending', 'admin_approved'] : ['pending', 'vessel_approved', 'admin_approved'],
+            vesselIdFilter: isVesselAccount ? activeVesselId : 'all',
+            dataLength: captaincyData?.length || 0
+          });
 
           if (captaincyError) {
             console.error('[INBOX] Error fetching pending captaincy requests:', captaincyError);
             setCaptaincyRequests([]);
           } else if (captaincyData && captaincyData.length > 0) {
+            console.log('[INBOX] Processing', captaincyData.length, 'captaincy requests');
             const captaincyRequestsWithDetails = await Promise.all(
               captaincyData.map(async (request) => {
                 const [userResult, vesselResult] = await Promise.all([
@@ -1168,16 +1210,38 @@ export default function InboxPage() {
   const handleApproveCaptaincy = async () => {
     if (!selectedCaptaincyRequest || !user?.id) return;
 
+    // Determine approval type based on user role
+    const approvalType = isAdmin ? 'admin' : 'vessel';
+    
+    // Check if this approval type has already been given
+    if (approvalType === 'vessel' && selectedCaptaincyRequest.vessel_approved_by) {
+      toast({
+        title: 'Already Approved',
+        description: 'Vessel approval has already been given for this request.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    if (approvalType === 'admin' && selectedCaptaincyRequest.admin_approved_by) {
+      toast({
+        title: 'Already Approved',
+        description: 'Admin approval has already been given for this request.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsProcessing(true);
     try {
       // Call API route to approve captaincy request
-      // This uses supabaseAdmin to bypass RLS and create vessel assignment
       const response = await fetch('/api/vessel-claim-requests/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           requestId: selectedCaptaincyRequest.id,
           reviewedBy: user.id,
+          approvalType: approvalType,
         }),
       });
 
@@ -1187,16 +1251,40 @@ export default function InboxPage() {
         throw new Error(result.message || result.error || 'Failed to approve captaincy request');
       }
 
+      const isFullyApproved = result.fullyApproved;
+      
       toast({
-        title: 'Captaincy Request Approved',
-        description: 'The captaincy request has been approved and the captain has been assigned to the vessel.',
+        title: isFullyApproved ? 'Captaincy Request Fully Approved' : 'Captaincy Request Approved',
+        description: isFullyApproved 
+          ? 'The captaincy request has been fully approved by both vessel and admin. The captain has been assigned to the vessel.'
+          : `Your ${approvalType} approval has been recorded. ${approvalType === 'vessel' ? 'Admin approval is still pending.' : 'Vessel approval is still pending.'}`,
       });
 
-      // Remove from list
-      setCaptaincyRequests(prev => prev.filter(r => r.id !== selectedCaptaincyRequest.id));
-      setIsCaptaincyDialogOpen(false);
-      setSelectedCaptaincyRequest(null);
-      setAction(null);
+      // Refresh the list or remove if fully approved
+      if (isFullyApproved) {
+        setCaptaincyRequests(prev => prev.filter(r => r.id !== selectedCaptaincyRequest.id));
+        setIsCaptaincyDialogOpen(false);
+        setSelectedCaptaincyRequest(null);
+        setAction(null);
+      } else {
+        // Update the request in the list with new approval status
+        setCaptaincyRequests(prev => prev.map(r => {
+          if (r.id === selectedCaptaincyRequest.id) {
+            return {
+              ...r,
+              status: result.status,
+              vessel_approved_by: approvalType === 'vessel' ? user.id : r.vessel_approved_by,
+              vessel_approved_at: approvalType === 'vessel' ? new Date().toISOString() : r.vessel_approved_at,
+              admin_approved_by: approvalType === 'admin' ? user.id : r.admin_approved_by,
+              admin_approved_at: approvalType === 'admin' ? new Date().toISOString() : r.admin_approved_at,
+            };
+          }
+          return r;
+        }));
+        setIsCaptaincyDialogOpen(false);
+        setSelectedCaptaincyRequest(null);
+        setAction(null);
+      }
     } catch (error: any) {
       console.error('Error approving captaincy request:', error);
       toast({
@@ -1407,15 +1495,34 @@ export default function InboxPage() {
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </CardContent>
         </Card>
-      ) : (isAdmin && captaincyRequests.length === 0 && captainRoleApplications.length === 0) || (!isAdmin && testimonials.length === 0 && approvedTestimonials.length === 0 && (userProfile?.role?.toLowerCase() !== 'vessel' || seaTimeRequests.length === 0)) ? (
+      ) : (() => {
+        const userRole = userProfile?.role?.toLowerCase() || '';
+        const isVesselRole = userRole === 'vessel';
+        const hasAnyRequests = 
+          (isAdmin && (captaincyRequests.length > 0 || captainRoleApplications.length > 0)) ||
+          (!isAdmin && (
+            testimonials.length > 0 || 
+            approvedTestimonials.length > 0 || 
+            (isVesselRole && (seaTimeRequests.length > 0 || captaincyRequests.length > 0))
+          ));
+        
+        return !hasAnyRequests;
+      })() ? (
         <Card className="rounded-xl border">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Mail className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">No Requests</h3>
             <p className="text-sm text-muted-foreground max-w-md">
-              {isAdmin 
-                ? 'You don\'t have any pending captaincy requests at this time.'
-                : 'You don\'t have any testimonial sign-off requests at this time.'}
+              {(() => {
+                const userRole = userProfile?.role?.toLowerCase() || '';
+                if (userRole === 'admin') {
+                  return 'You don\'t have any pending captaincy requests at this time.';
+                } else if (userRole === 'vessel') {
+                  return 'You don\'t have any pending requests at this time.';
+                } else {
+                  return 'You don\'t have any testimonial sign-off requests at this time.';
+                }
+              })()}
             </p>
           </CardContent>
         </Card>
@@ -1491,12 +1598,36 @@ export default function InboxPage() {
             </Card>
           )}
 
-          {/* Captaincy Requests Section (Admin only) */}
-          {isAdmin && captaincyRequests.length > 0 && (
+          {/* Captaincy Requests Section (Admin and Vessel accounts) */}
+          {(() => {
+            const userRole = userProfile?.role?.toLowerCase() || '';
+            const isVesselRole = userRole === 'vessel';
+            const userIsAdmin = userRole === 'admin';
+            const hasRequests = captaincyRequests.length > 0;
+            const shouldShow = (userIsAdmin || isVesselRole) && hasRequests;
+            
+            console.log('[INBOX] Captaincy Requests Section render check:', {
+              userIsAdmin,
+              isAdmin,
+              isVesselRole,
+              hasRequests,
+              captaincyRequestsLength: captaincyRequests.length,
+              shouldShow,
+              userRole,
+              userProfile: userProfile ? { role: userProfile.role, activeVesselId: userProfile.activeVesselId } : null,
+              requests: captaincyRequests.map(r => ({ id: r.id, vessel_id: r.vessel_id, status: r.status }))
+            });
+            
+            return shouldShow;
+          })() ? (
             <Card className="rounded-xl border shadow-sm">
               <CardHeader>
                 <CardTitle>Vessel Captaincy Requests</CardTitle>
-                <CardDescription>Review and approve captaincy requests for vessels</CardDescription>
+                <CardDescription>
+                  {isAdmin 
+                    ? 'Review and approve captaincy requests. Both vessel and admin approval required.'
+                    : 'Review and approve captaincy requests for your vessel. Admin approval is also required.'}
+                </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -1506,67 +1637,104 @@ export default function InboxPage() {
                         <TableHead>Requested By</TableHead>
                         <TableHead>Vessel</TableHead>
                         <TableHead>Role</TableHead>
+                        <TableHead>Status</TableHead>
                         <TableHead>Requested</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {captaincyRequests.map((request) => (
-                        <TableRow key={request.id}>
-                          <TableCell>
-                              <div>
-                                <div>{getUserName(request as any)}</div>
-                                {(request.user as any)?.email && (
-                                  <div className="text-xs text-muted-foreground">
-                                    {(request.user as any).email}
-                                  </div>
-                                )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Ship className="h-4 w-4 text-muted-foreground" />
-                              {(request.vessel as any)?.name || getVesselName(request.vessel_id)}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{request.requested_role || 'captain'}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Clock className="h-4 w-4" />
-                              {format(new Date(request.created_at || new Date()), 'MMM d, yyyy')}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                onClick={() => openCaptaincyActionDialog(request, 'approve')}
-                                size="sm"
-                                className="rounded-lg bg-green-600 hover:bg-green-700"
-                              >
-                                <CheckCircle2 className="h-4 w-4 mr-2" />
-                                Approve
-                              </Button>
-                              <Button
-                                onClick={() => openCaptaincyActionDialog(request, 'reject')}
-                                size="sm"
-                                variant="destructive"
-                                className="rounded-lg"
-                              >
-                                <XCircle className="h-4 w-4 mr-2" />
-                                Reject
-                              </Button>
-                            </div>
+                      {captaincyRequests.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                            No requests found
                           </TableCell>
                         </TableRow>
-                      ))}
+                      ) : (
+                        captaincyRequests.map((request) => {
+                          console.log('[INBOX] Rendering request row:', { id: request.id, vessel_id: request.vessel_id, status: request.status, request });
+                          const vesselApproved = !!request.vessel_approved_by;
+                          const adminApproved = !!request.admin_approved_by;
+                          const userRoleForApprove = userProfile?.role?.toLowerCase() || '';
+                          const userIsAdminForApprove = userRoleForApprove === 'admin';
+                          const canApprove = userIsAdminForApprove 
+                            ? !adminApproved 
+                            : !vesselApproved;
+                          
+                          return (
+                          <TableRow key={request.id}>
+                            <TableCell>
+                                <div>
+                                  <div>{getUserName(request as any)}</div>
+                                  {(request.user as any)?.email && (
+                                    <div className="text-xs text-muted-foreground">
+                                      {(request.user as any).email}
+                                    </div>
+                                  )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Ship className="h-4 w-4 text-muted-foreground" />
+                                {(request.vessel as any)?.name || getVesselName(request.vessel_id)}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{request.requested_role || 'captain'}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-1">
+                                <Badge 
+                                  variant={vesselApproved ? "default" : "secondary"}
+                                  className="w-fit text-xs"
+                                >
+                                  {vesselApproved ? "✓ Vessel Approved" : "Vessel Pending"}
+                                </Badge>
+                                <Badge 
+                                  variant={adminApproved ? "default" : "secondary"}
+                                  className="w-fit text-xs"
+                                >
+                                  {adminApproved ? "✓ Admin Approved" : "Admin Pending"}
+                                </Badge>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Clock className="h-4 w-4" />
+                                {format(new Date(request.created_at || new Date()), 'MMM d, yyyy')}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  onClick={() => openCaptaincyActionDialog(request, 'approve')}
+                                  size="sm"
+                                  className="rounded-lg bg-green-600 hover:bg-green-700"
+                                  disabled={!canApprove}
+                                >
+                                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                                  {canApprove ? 'Approve' : 'Already Approved'}
+                                </Button>
+                                <Button
+                                  onClick={() => openCaptaincyActionDialog(request, 'reject')}
+                                  size="sm"
+                                  variant="destructive"
+                                  className="rounded-lg"
+                                >
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Reject
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          );
+                        })
+                      )}
                     </TableBody>
                   </Table>
                 </div>
               </CardContent>
             </Card>
-          )}
+          ) : null}
 
           {/* Sea Time Requests Section (Vessel accounts only) */}
           {!isAdmin && userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0 && (
@@ -1910,82 +2078,6 @@ export default function InboxPage() {
             </Card>
           )}
 
-          {/* Captaincy Requests Section (Admin only) */}
-          {isAdmin && captaincyRequests.length > 0 && (
-            <Card className="rounded-xl border shadow-sm">
-              <CardHeader>
-                <CardTitle>Captaincy Requests</CardTitle>
-                <CardDescription>Review and respond to captaincy/claim requests from captains</CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Requested By</TableHead>
-                        <TableHead>Vessel</TableHead>
-                        <TableHead>Requested Role</TableHead>
-                        <TableHead>Requested</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {captaincyRequests.map((request) => (
-                        <TableRow key={request.id} className="hover:bg-muted/50 transition-colors">
-                          <TableCell className="font-medium">
-                              <div>
-                                <div>{getUserName(request as any)}</div>
-                                {(request.user as any)?.email && (
-                                  <div className="text-xs text-muted-foreground">
-                                    {(request.user as any).email}
-                                  </div>
-                                )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Ship className="h-4 w-4 text-muted-foreground" />
-                              {(request.vessel as any)?.name || getVesselName(request.vessel_id)}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{request.requested_role || 'captain'}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Clock className="h-4 w-4" />
-                              {format(new Date(request.created_at || new Date()), 'MMM d, yyyy')}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                onClick={() => openCaptaincyActionDialog(request, 'approve')}
-                                size="sm"
-                                className="rounded-lg bg-green-600 hover:bg-green-700"
-                              >
-                                <CheckCircle2 className="h-4 w-4 mr-2" />
-                                Approve
-                              </Button>
-                              <Button
-                                onClick={() => openCaptaincyActionDialog(request, 'reject')}
-                                size="sm"
-                                variant="destructive"
-                                className="rounded-lg"
-                              >
-                                <XCircle className="h-4 w-4 mr-2" />
-                                Reject
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
       )}
 
@@ -2496,70 +2588,181 @@ export default function InboxPage() {
                 : 'Please provide a reason for rejecting this captaincy request.'}
             </DialogDescription>
           </DialogHeader>
-          {selectedCaptaincyRequest && (
+          {selectedCaptaincyRequest && (() => {
+            const vesselApproved = !!selectedCaptaincyRequest.vessel_approved_by;
+            const adminApproved = !!selectedCaptaincyRequest.admin_approved_by;
+            const userRoleForApprove = userProfile?.role?.toLowerCase() || '';
+            const userIsAdminForApprove = userRoleForApprove === 'admin';
+            const canApprove = userIsAdminForApprove 
+              ? !adminApproved 
+              : !vesselApproved;
+            
+            return (
             <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Requested By:</span>
-                  <span className="font-medium">{getUserName(selectedCaptaincyRequest as any)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Vessel:</span>
-                  <span className="font-medium">{(selectedCaptaincyRequest.vessel as any)?.name || getVesselName(selectedCaptaincyRequest.vessel_id)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Requested Role:</span>
-                  <span className="font-medium">{selectedCaptaincyRequest.requested_role || 'captain'}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Requested:</span>
-                  <span className="font-medium">
-                    {format(new Date(selectedCaptaincyRequest.created_at || new Date()), 'MMM d, yyyy')}
-                  </span>
-                </div>
-              </div>
-              {action === 'reject' && (
                 <div className="space-y-2">
-                  <Label htmlFor="captaincy-rejection-reason">Rejection Reason *</Label>
-                  <Textarea
-                    id="captaincy-rejection-reason"
-                    placeholder="Please provide a reason for rejecting this request..."
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                    className="rounded-lg min-h-[100px]"
-                  />
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Requested By:</span>
+                    <span className="font-medium">{getUserName(selectedCaptaincyRequest as any)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Vessel:</span>
+                    <span className="font-medium">{(selectedCaptaincyRequest.vessel as any)?.name || getVesselName(selectedCaptaincyRequest.vessel_id)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Requested Role:</span>
+                    <span className="font-medium">{selectedCaptaincyRequest.requested_role || 'captain'}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Requested:</span>
+                    <span className="font-medium">
+                      {format(new Date(selectedCaptaincyRequest.created_at || new Date()), 'MMM d, yyyy')}
+                    </span>
+                  </div>
                 </div>
-              )}
+                
+                {/* Approval Status */}
+                <div className="space-y-2 border-t pt-4">
+                  <Label className="text-sm font-semibold">Approval Status</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className={`p-3 rounded-lg border ${vesselApproved ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : 'bg-muted/30'}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-muted-foreground">Vessel Approval</span>
+                        {vesselApproved ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                        ) : (
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </div>
+                      {vesselApproved && selectedCaptaincyRequest.vessel_approved_at ? (
+                        <div className="text-xs text-muted-foreground">
+                          Approved {format(new Date(selectedCaptaincyRequest.vessel_approved_at), 'MMM d, yyyy')}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground">Pending</div>
+                      )}
+                    </div>
+                    <div className={`p-3 rounded-lg border ${adminApproved ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : 'bg-muted/30'}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-muted-foreground">Admin Approval</span>
+                        {adminApproved ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                        ) : (
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </div>
+                      {adminApproved && selectedCaptaincyRequest.admin_approved_at ? (
+                        <div className="text-xs text-muted-foreground">
+                          Approved {format(new Date(selectedCaptaincyRequest.admin_approved_at), 'MMM d, yyyy')}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground">Pending</div>
+                      )}
+                    </div>
+                  </div>
+                  {vesselApproved && adminApproved && (
+                    <div className="mt-2 p-2 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
+                      <p className="text-xs font-medium text-green-900 dark:text-green-100">
+                        ✓ Fully approved - Captain will be assigned once both approvals are complete
+                      </p>
+                    </div>
+                  )}
+                </div>
+              
+              {/* Supporting Documents Section */}
+              <div className="space-y-2">
+                <Label>Supporting Documents</Label>
+                {(() => {
+                  const docs = (selectedCaptaincyRequest.supporting_documents || 
+                               (selectedCaptaincyRequest as any).supportingDocuments) || [];
+                  const documentsArray = Array.isArray(docs) ? docs : [];
+                  
+                  if (documentsArray.length > 0) {
+                    return (
+                      <div className="space-y-2">
+                        {documentsArray.map((docUrl: string, index: number) => (
+                          <div key={index} className="flex items-center gap-2 p-2 rounded-lg border bg-muted/30">
+                            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <a 
+                              href={docUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-sm text-primary hover:underline flex-1 truncate"
+                            >
+                              {docUrl}
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <p className="text-sm text-muted-foreground italic">
+                        No supporting documents provided
+                      </p>
+                    );
+                  }
+                })()}
+              </div>
+              
+                {action === 'reject' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="captaincy-rejection-reason">Rejection Reason *</Label>
+                    <Textarea
+                      id="captaincy-rejection-reason"
+                      placeholder="Please provide a reason for rejecting this request..."
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      className="rounded-lg min-h-[100px]"
+                    />
+                  </div>
+                )}
             </div>
-          )}
+            );
+          })()}
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsCaptaincyDialogOpen(false);
-                setSelectedCaptaincyRequest(null);
-                setAction(null);
-                setRejectionReason('');
-              }}
-              disabled={isProcessing}
-              className="rounded-xl"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={action === 'approve' ? handleApproveCaptaincy : handleRejectCaptaincy}
-              disabled={isProcessing}
-              className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
-            >
-              {isProcessing ? (
+            {selectedCaptaincyRequest && (() => {
+              const vesselApproved = !!selectedCaptaincyRequest.vessel_approved_by;
+              const adminApproved = !!selectedCaptaincyRequest.admin_approved_by;
+              const userRoleForApprove = userProfile?.role?.toLowerCase() || '';
+              const userIsAdminForApprove = userRoleForApprove === 'admin';
+              const canApprove = userIsAdminForApprove 
+                ? !adminApproved 
+                : !vesselApproved;
+              
+              return (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsCaptaincyDialogOpen(false);
+                      setSelectedCaptaincyRequest(null);
+                      setAction(null);
+                      setRejectionReason('');
+                    }}
+                    disabled={isProcessing}
+                    className="rounded-xl"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={action === 'approve' ? handleApproveCaptaincy : handleRejectCaptaincy}
+                    disabled={isProcessing || (action === 'approve' && !canApprove)}
+                    className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      action === 'approve' 
+                        ? (canApprove ? 'Approve' : 'Already Approved')
+                        : 'Reject'
+                    )}
+                  </Button>
                 </>
-              ) : (
-                action === 'approve' ? 'Approve' : 'Reject'
-              )}
-            </Button>
+              );
+            })()}
           </DialogFooter>
         </DialogContent>
       </Dialog>

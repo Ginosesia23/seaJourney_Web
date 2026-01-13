@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { PlusCircle, Loader2, Ship, ChevronDown, Search, LayoutGrid, List, PlayCircle, Trash2, CalendarIcon, ShieldCheck, ChevronsUpDown, Check, Edit } from 'lucide-react';
+import { PlusCircle, Loader2, Ship, ChevronDown, Search, LayoutGrid, List, PlayCircle, Trash2, CalendarIcon, ShieldCheck, ChevronsUpDown, Check, Edit, XCircle } from 'lucide-react';
 import { format, eachDayOfInterval, startOfDay, endOfDay, parse, isAfter, isSameDay, isBefore } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { createVessel, getVesselStateLogs, getVesselSeaService, updateUserProfile, deleteVesselStateLogs, updateStateLogsBatch, getVesselAssignment, getVesselAssignments, updateVesselAssignment } from '@/supabase/database/queries';
+import { createVessel, getVesselStateLogs, getVesselSeaService, updateUserProfile, deleteVesselStateLogs, updateStateLogsBatch, getVesselAssignment, getVesselAssignments, updateVesselAssignment, createVesselAssignment } from '@/supabase/database/queries';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import type { Vessel, StateLog, UserProfile, SeaServiceRecord, DailyStatus, VesselAssignment } from '@/lib/types';
@@ -28,7 +28,6 @@ import { VesselSummaryCard, VesselSummarySkeleton } from '@/components/dashboard
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,7 +52,6 @@ const pastVesselSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
   startDate: z.date({ required_error: 'A start date is required.' }),
   endDate: z.date({ required_error: 'An end date is required.' }),
-  initialState: z.enum(['underway', 'at-anchor', 'in-port', 'on-leave', 'in-yard']),
 }).refine((data) => {
   if (data.endDate && data.endDate < data.startDate) {
     return false;
@@ -88,6 +86,8 @@ export default function VesselsPage() {
   const [isSavingPastVessel, setIsSavingPastVessel] = useState(false);
   const [requestingCaptaincyVesselId, setRequestingCaptaincyVesselId] = useState<string | null>(null);
   const [isRequestingCaptaincy, setIsRequestingCaptaincy] = useState(false);
+  const [isCaptaincyDialogOpen, setIsCaptaincyDialogOpen] = useState(false);
+  const [captaincyDocumentUrls, setCaptaincyDocumentUrls] = useState<string[]>(['']);
   const [captaincyRequests, setCaptaincyRequests] = useState<Map<string, { id: string; status: string; created_at?: string }>>(new Map());
   const [vesselSearchTerm, setVesselSearchTerm] = useState('');
   const [vesselSearchResults, setVesselSearchResults] = useState<Array<{ id: string; name: string; type: string }>>([]);
@@ -111,8 +111,7 @@ export default function VesselsPage() {
     defaultValues: { 
       vesselId: '', 
       startDate: undefined, 
-      endDate: undefined, 
-      initialState: 'underway' 
+      endDate: undefined
     },
   });
 
@@ -808,18 +807,22 @@ export default function VesselsPage() {
         }
       }
 
-      // Create state logs for all dates from start to end
-      const dateRange = eachDayOfInterval({ start: startDate, end: endDate });
-      const logs = dateRange.map(day => ({
-        date: format(day, 'yyyy-MM-dd'),
-        state: data.initialState,
-      }));
+      // Create vessel assignment without creating state logs
+      // Users will manually add state logs for specific dates later
+      const startDateStr = format(startDate, 'yyyy-MM-dd');
+      const endDateStr = format(endDate, 'yyyy-MM-dd');
       
-      await updateStateLogsBatch(supabase, user.id, data.vesselId, logs);
+      await createVesselAssignment(supabase, {
+        userId: user.id,
+        vesselId: data.vesselId,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        position: null,
+      });
       
       toast({ 
         title: 'Past Vessel Added', 
-        description: `Successfully logged ${logs.length} day(s) from ${format(startDate, 'PPP')} to ${format(endDate, 'PPP')}.` 
+        description: `Vessel assignment created from ${format(startDate, 'PPP')} to ${format(endDate, 'PPP')}. You can now manually add state logs for specific dates.` 
       });
       
       // Refresh data
@@ -858,11 +861,48 @@ export default function VesselsPage() {
     }
   }, [user?.id, allVessels, supabase, toast, pastVesselForm]);
 
-  // Handler to request captaincy
-  const handleRequestCaptaincy = useCallback(async (vesselId: string) => {
-    if (!user?.id || !isCaptain) return;
-    
+  // Handler to open captaincy request dialog
+  const handleOpenCaptaincyDialog = useCallback((vesselId: string) => {
     setRequestingCaptaincyVesselId(vesselId);
+    setCaptaincyDocumentUrls(['']);
+    setIsCaptaincyDialogOpen(true);
+  }, []);
+
+  // Handler to add document URL
+  const handleAddCaptaincyDocumentUrl = () => {
+    setCaptaincyDocumentUrls([...captaincyDocumentUrls, '']);
+  };
+
+  // Handler to remove document URL
+  const handleRemoveCaptaincyDocumentUrl = (index: number) => {
+    if (captaincyDocumentUrls.length > 1) {
+      setCaptaincyDocumentUrls(captaincyDocumentUrls.filter((_, i) => i !== index));
+    }
+  };
+
+  // Handler to update document URL
+  const handleCaptaincyDocumentUrlChange = (index: number, value: string) => {
+    const newUrls = [...captaincyDocumentUrls];
+    newUrls[index] = value;
+    setCaptaincyDocumentUrls(newUrls);
+  };
+
+  // Handler to request captaincy
+  const handleRequestCaptaincy = useCallback(async () => {
+    if (!user?.id || !isCaptain || !requestingCaptaincyVesselId) return;
+    
+    // Filter out empty URLs
+    const validDocuments = captaincyDocumentUrls.filter(url => url.trim() !== '');
+
+    if (validDocuments.length === 0) {
+      toast({
+        title: 'Documents Required',
+        description: 'Please provide at least one supporting document URL to prove your captaincy of this vessel.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     setIsRequestingCaptaincy(true);
     
     try {
@@ -871,9 +911,10 @@ export default function VesselsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          vesselId,
+          vesselId: requestingCaptaincyVesselId,
           requestedRole: 'captain',
           userId: user.id, // Pass userId from authenticated user
+          supportingDocuments: validDocuments,
         }),
       });
 
@@ -903,11 +944,16 @@ export default function VesselsPage() {
           const newMap = new Map(prev);
           // Ensure status is lowercase to match our checks
           const status = (data.status || 'pending').toLowerCase();
-          newMap.set(vesselId, { id: data.id, status });
+          newMap.set(requestingCaptaincyVesselId, { id: data.id, status });
           console.log('[CAPTAINCY REQUEST] Updated local state. Map now has:', Array.from(newMap.entries()));
-          console.log('[CAPTAINCY REQUEST] For vessel', vesselId, 'status is:', status);
+          console.log('[CAPTAINCY REQUEST] For vessel', requestingCaptaincyVesselId, 'status is:', status);
           return newMap;
         });
+        
+        // Close dialog and reset form
+        setIsCaptaincyDialogOpen(false);
+        setCaptaincyDocumentUrls(['']);
+        setRequestingCaptaincyVesselId(null);
         
         // Refetch after a brief delay to ensure database is updated
         setTimeout(() => {
@@ -928,9 +974,8 @@ export default function VesselsPage() {
       });
     } finally {
       setIsRequestingCaptaincy(false);
-      setRequestingCaptaincyVesselId(null);
     }
-  }, [user?.id, isCaptain, toast, fetchCaptaincyRequests]);
+  }, [user?.id, isCaptain, toast, fetchCaptaincyRequests, requestingCaptaincyVesselId, captaincyDocumentUrls]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -1243,24 +1288,14 @@ export default function VesselsPage() {
                                 )}
                                 {!isAdmin && isCaptain && !hasPendingRequest && !hasApprovedRequest && !hasRejectedRequest && (
                                   <Button
-                                    onClick={() => handleRequestCaptaincy(vessel.id)}
-                                    disabled={isRequestingCaptaincy && requestingCaptaincyVesselId === vessel.id}
+                                    onClick={() => handleOpenCaptaincyDialog(vessel.id)}
                                     variant="outline"
                                     size="sm"
                                     className="rounded-lg"
                                     title="Request captaincy for this vessel"
                                   >
-                                    {isRequestingCaptaincy && requestingCaptaincyVesselId === vessel.id ? (
-                                      <>
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        Requesting...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <ShieldCheck className="mr-2 h-4 w-4" />
-                                        Request Captaincy
-                                      </>
-                                    )}
+                                    <ShieldCheck className="mr-2 h-4 w-4" />
+                                    Request Captaincy
                                   </Button>
                                 )}
                                 <Button
@@ -1452,7 +1487,7 @@ export default function VesselsPage() {
           <DialogHeader>
             <DialogTitle>Add Vessel Service</DialogTitle>
             <DialogDescription>
-              Add vessel service by selecting a vessel, dates, and initial state. Leave end date empty for active service.
+              Add vessel service by selecting a vessel and dates. You can manually add state logs for specific dates later.
             </DialogDescription>
           </DialogHeader>
           <Form {...pastVesselForm}>
@@ -1640,37 +1675,6 @@ export default function VesselsPage() {
                     )}
                   />
                 </div>
-                <div className="space-y-6">
-                  <FormField
-                    control={pastVesselForm.control}
-                    name="initialState"
-                    render={({ field }) => (
-                      <FormItem className="space-y-3">
-                        <FormLabel>Initial State</FormLabel>
-                        <FormControl>
-                          <RadioGroup
-                            onValueChange={field.onChange}
-                            value={field.value}
-                            className="flex flex-col space-y-3"
-                          >
-                            {vesselStates.map((state) => (
-                              <div key={state.value} className="flex items-center space-x-3 space-y-0">
-                                <RadioGroupItem value={state.value} id={state.value} className="rounded-lg" />
-                                <label
-                                  htmlFor={state.value}
-                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                                >
-                                  {state.label}
-                                </label>
-                              </div>
-                            ))}
-                          </RadioGroup>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
               </div>
               <DialogFooter className="pt-4 gap-2">
                 <DialogClose asChild>
@@ -1761,6 +1765,78 @@ export default function VesselsPage() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Captaincy Request Dialog */}
+      <Dialog open={isCaptaincyDialogOpen} onOpenChange={(open) => {
+        setIsCaptaincyDialogOpen(open);
+        if (!open) {
+          setCaptaincyDocumentUrls(['']);
+          setRequestingCaptaincyVesselId(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-[600px] rounded-xl">
+          <DialogHeader>
+            <DialogTitle>Request Vessel Captaincy</DialogTitle>
+            <DialogDescription>
+              Provide supporting documents (URLs to certificates, licenses, contracts, or other relevant documents) to prove you are the captain of this vessel.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Supporting Documents (URLs)</Label>
+              {captaincyDocumentUrls.map((url, index) => (
+                <div key={index} className="flex gap-2">
+                  <Input
+                    type="url"
+                    placeholder="https://example.com/document.pdf"
+                    value={url}
+                    onChange={(e) => handleCaptaincyDocumentUrlChange(index, e.target.value)}
+                    className="rounded-lg"
+                  />
+                  {captaincyDocumentUrls.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => handleRemoveCaptaincyDocumentUrl(index)}
+                      className="rounded-lg"
+                    >
+                      <XCircle className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddCaptaincyDocumentUrl}
+                className="w-full rounded-lg"
+              >
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Add Another Document
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Provide at least one document URL that proves you are the captain of this vessel (e.g., employment contract, captain's license, vessel registration).
+              </p>
+            </div>
+            <DialogFooter className="pt-4 gap-2">
+              <DialogClose asChild>
+                <Button type="button" variant="ghost" className="rounded-xl">Cancel</Button>
+              </DialogClose>
+              <Button 
+                type="button" 
+                onClick={handleRequestCaptaincy} 
+                disabled={isRequestingCaptaincy}
+                className="rounded-lg"
+              >
+                {isRequestingCaptaincy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Submit Request
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 

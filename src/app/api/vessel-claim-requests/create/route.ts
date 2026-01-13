@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { vesselId, requestedRole, userId } = body;
+    const { vesselId, requestedRole, userId, supportingDocuments } = body;
 
     if (!vesselId) {
       return NextResponse.json(
@@ -20,6 +20,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Validate supporting documents
+    const validDocuments = Array.isArray(supportingDocuments) 
+      ? supportingDocuments.filter((doc: string) => doc && doc.trim() !== '')
+      : [];
+    
+    if (validDocuments.length === 0) {
+      return NextResponse.json(
+        { error: 'At least one supporting document URL is required to prove captaincy of the vessel.' },
+        { status: 400 }
+      );
+    }
+
     // Use supabaseAdmin to insert the request
     // Security note: userId comes from the authenticated client (useUser hook)
     // The client-side code ensures only authenticated users can call this API
@@ -31,6 +43,7 @@ export async function POST(req: NextRequest) {
         requested_by: userId,
         requested_role: requestedRole || 'captain',
         status: 'pending',
+        supporting_documents: validDocuments,
       })
       .select()
       .single();

@@ -50,15 +50,27 @@ export function useDoc<T = any>(
       .single();
 
     if (fetchError) {
-      console.error(`[useDoc] Error fetching ${tableName}:`, {
-        table: tableName,
-        docId,
-        error: fetchError,
-        code: fetchError.code,
-        message: fetchError.message,
-        details: fetchError.details,
-        hint: fetchError.hint,
-      });
+      // Only log error if it's not a "not found" error (PGRST116) or permission error (PGRST301)
+      // These are expected in some cases and don't need to be logged as errors
+      if (fetchError.code !== 'PGRST116' && fetchError.code !== 'PGRST301') {
+        try {
+          const errorDetails: any = {
+            table: tableName,
+            docId,
+            code: fetchError.code || 'UNKNOWN',
+            message: fetchError.message || 'Unknown error',
+          };
+          
+          // Only add these if they exist and are serializable
+          if (fetchError.details) errorDetails.details = fetchError.details;
+          if (fetchError.hint) errorDetails.hint = fetchError.hint;
+          
+          console.error(`[useDoc] Error fetching ${tableName}:`, errorDetails);
+        } catch (e) {
+          // If error object can't be serialized, log a simple message
+          console.error(`[useDoc] Error fetching ${tableName} with id ${docId}:`, fetchError.message || 'Unknown error');
+        }
+      }
       setError(fetchError);
       setData(null);
       setIsLoading(false);

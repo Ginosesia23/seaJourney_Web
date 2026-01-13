@@ -26,6 +26,7 @@ import {
   DollarSign,
   PenTool,
   MessageSquare,
+  ClipboardList,
 } from "lucide-react"
 
 import {
@@ -106,6 +107,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
       { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false, hideForRoles: ['vessel'] }, // Hide Profile for vessel role
       { href: "/dashboard/profile", label: "Vessel", icon: Ship, disabled: false, requiredRole: "vessel", hideForRoles: ['captain'] }, // Show Vessel page for vessel role only (not captain)
       { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, requiredRole: "captain", disabled: false }, // Captains and vessel roles can access
+      { href: "/dashboard/requests", label: "Requests", icon: ClipboardList, requiredRole: "captain", disabled: false }, // Captains can view their requests
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false },
       { href: "/dashboard/testimonials", label: "Testimonials", icon: LifeBuoy, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'] },
       { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false }, // Captain signature management
@@ -140,6 +142,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const { user } = useUser()
   const [inboxCount, setInboxCount] = React.useState<number>(0)
   const [feedbackCount, setFeedbackCount] = React.useState<number>(0)
+  const [requestsCount, setRequestsCount] = React.useState<number>(0)
 
   // Create admin-specific navGroups with updated Management section
   const isAdmin = userProfile?.role === 'admin'
@@ -251,8 +254,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           
           // Also fetch sea time requests for vessel accounts only (not captains)
           let seaTimeCount = 0;
+          let captaincyCount = 0;
           const isVesselRole = userRole === 'vessel';
           if (isVesselRole && activeVesselId) {
+            // Fetch sea time requests
             const { count: seaTimeRequestCount } = await supabase
               .from('sea_time_requests')
               .select('id', { count: 'exact', head: true })
@@ -260,9 +265,18 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
               .eq('status', 'pending');
             
             seaTimeCount = seaTimeRequestCount || 0;
+            
+            // Fetch captaincy requests that need vessel approval
+            const { count: captaincyRequestCount } = await supabase
+              .from('vessel_claim_requests')
+              .select('id', { count: 'exact', head: true })
+              .eq('vessel_id', activeVesselId)
+              .in('status', ['pending', 'admin_approved']);
+            
+            captaincyCount = captaincyRequestCount || 0;
           }
           
-          setInboxCount((testimonialCount || 0) + seaTimeCount);
+          setInboxCount((testimonialCount || 0) + seaTimeCount + captaincyCount);
         }
       } catch (error) {
         console.error('[SIDEBAR] Error fetching inbox count:', error);
@@ -312,10 +326,11 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
         }
       );
     
-    // Add sea time requests subscription for vessel accounts only (not captains)
+    // Add sea time requests and captaincy requests subscriptions for vessel accounts only (not captains)
     const userRoleForSub = userProfile?.role?.toLowerCase() || '';
     const isVesselRoleForSub = userRoleForSub === 'vessel';
     if (isVesselRoleForSub && activeVesselId) {
+      // Subscribe to sea time requests
       channel.on(
         'postgres_changes',
         {
@@ -323,6 +338,20 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           schema: 'public',
           table: 'sea_time_requests',
           filter: `vessel_id=eq.${activeVesselId},status=eq.pending`,
+        },
+        () => {
+          fetchInboxCount();
+        }
+      );
+      
+      // Subscribe to captaincy requests for this vessel
+      channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'vessel_claim_requests',
+          filter: `vessel_id=eq.${activeVesselId}`,
         },
         () => {
           fetchInboxCount();
@@ -387,6 +416,61 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
         },
         () => {
           fetchFeedbackCount();
+        }
+      );
+    
+    channel.subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, userProfile, supabase]);
+
+  // Fetch requests count for captains (only show link if there are active requests)
+  React.useEffect(() => {
+    const fetchRequestsCount = async () => {
+      if (!user?.id || !userProfile) {
+        setRequestsCount(0);
+        return;
+      }
+
+      // Only check for captains (users who can make requests)
+      const userRole = userProfile.role?.toLowerCase() || '';
+      if (userRole !== 'captain') {
+        setRequestsCount(0);
+        return;
+      }
+
+      try {
+        // Count active requests (not approved or rejected)
+        const { count } = await supabase
+          .from('vessel_claim_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('requested_by', user.id)
+          .in('status', ['pending', 'vessel_approved', 'admin_approved']);
+        
+        setRequestsCount(count || 0);
+      } catch (error) {
+        console.error('[SIDEBAR] Error fetching requests count:', error);
+        setRequestsCount(0);
+      }
+    };
+
+    fetchRequestsCount();
+    
+    // Set up realtime subscription to update count when requests change
+    const channel = supabase
+      .channel('requests-count-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'vessel_claim_requests',
+          filter: `requested_by=eq.${user.id}`,
+        },
+        () => {
+          fetchRequestsCount();
         }
       );
     
@@ -522,6 +606,18 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const isInbox = item.href === '/dashboard/inbox';
                   // Check if this is the feedback item and show count badge
                   const isFeedback = item.href === '/dashboard/feedback';
+                  // Check if this is the requests item - only show if there are active requests
+                  const isRequests = item.href === '/dashboard/requests';
+                  
+                  // Hide inbox link if no active messages
+                  if (isInbox && inboxCount === 0) {
+                    return null;
+                  }
+                  
+                  // Hide requests link if no active requests
+                  if (isRequests && requestsCount === 0) {
+                    return null;
+                  }
                   
                   return (
                     <SidebarMenuItem key={uniqueKey}>

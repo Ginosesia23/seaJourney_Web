@@ -174,11 +174,16 @@ export interface VesselClaimRequest {
     vessel_id: string;                 // uuid FK → vessels.id
     requested_by: string;              // uuid FK → auth.users.id
     requested_role: string;            // text - role being requested (e.g., 'captain')
-    status: string;                    // text - 'pending', 'approved', 'rejected'
+    status: 'pending' | 'vessel_approved' | 'admin_approved' | 'approved' | 'rejected'; // text - status with dual approval
+    supporting_documents?: string[] | null; // text[] - array of document URLs proving captaincy
     verification_method?: string | null; // text - method used for verification
     verification_payload?: any;        // jsonb - verification data
-    reviewed_by?: string | null;       // uuid FK → auth.users.id
-    reviewed_at?: string | null;       // timestamp with time zone
+    reviewed_by?: string | null;       // uuid FK → auth.users.id (deprecated, use vessel_approved_by/admin_approved_by)
+    reviewed_at?: string | null;       // timestamp with time zone (deprecated)
+    vessel_approved_by?: string | null; // uuid FK → auth.users.id (vessel account that approved)
+    vessel_approved_at?: string | null; // timestamp with time zone
+    admin_approved_by?: string | null;  // uuid FK → auth.users.id (admin that approved)
+    admin_approved_at?: string | null;  // timestamp with time zone
     review_notes?: string | null;      // text
     created_at?: string;               // timestamp with time zone
     updated_at?: string;               // timestamp with time zone
