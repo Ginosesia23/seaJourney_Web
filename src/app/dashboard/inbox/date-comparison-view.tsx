@@ -153,9 +153,13 @@ export function DateComparisonView({
       return logDate >= startDate && logDate <= endDate;
     });
     
-    const vesselAtSeaDays = vesselLogsInRange.filter(log => log.state === 'underway').length;
+    // At sea includes both 'underway' and 'at-anchor' states
+    const vesselAtSeaDays = vesselLogsInRange.filter(log => 
+      log.state === 'underway' || log.state === 'at-anchor'
+    ).length;
+    // Standby now only includes 'in-port' (at-anchor counts as sea time)
     const vesselStandbyDays = vesselLogsInRange.filter(log => 
-      log.state === 'at-anchor' || log.state === 'in-port'
+      log.state === 'in-port'
     ).length;
     const vesselYardDays = vesselLogsInRange.filter(log => log.state === 'in-yard').length;
     const vesselLeaveDays = vesselLogsInRange.filter(log => log.state === 'on-leave').length;

@@ -389,18 +389,32 @@ export default function CalendarPage() {
   // Create a Set of dates that are counted as standby (for visual differentiation)
   const standbyDatesSet = useMemo(() => {
     const dates = new Set<string>();
-    standbyPeriods.forEach(period => {
+    console.log('[CALENDAR] Building standby dates set from periods:', standbyPeriods.length);
+    standbyPeriods.forEach((period, idx) => {
       // Only include dates that are actually counted (within the allowed limit)
       // period.startDate is already a Date object from calculateStandbyDays
       const startDate = period.startDate instanceof Date 
         ? period.startDate 
         : new Date(period.startDate);
       const countedDays = period.countedDays;
+      const periodDays = period.days;
+      
+      console.log(`[CALENDAR] Period ${idx + 1}: ${format(startDate, 'yyyy-MM-dd')} to ${format(period.endDate, 'yyyy-MM-dd')}, period.days=${periodDays}, countedDays=${countedDays}, precedingVoyageDays=${period.precedingVoyageDays}`);
+      
+      if (countedDays > periodDays) {
+        console.warn(`[CALENDAR] WARNING: countedDays (${countedDays}) > period.days (${periodDays}) for period ${idx + 1}`);
+      }
+      
+      const periodDates: string[] = [];
       for (let i = 0; i < countedDays; i++) {
         const date = addDays(startDate, i);
-        dates.add(format(date, 'yyyy-MM-dd'));
+        const dateStr = format(date, 'yyyy-MM-dd');
+        dates.add(dateStr);
+        periodDates.push(dateStr);
       }
+      console.log(`[CALENDAR] Period ${idx + 1} counted dates: ${periodDates.join(', ')}`);
     });
+    console.log(`[CALENDAR] Total standby dates in set: ${dates.size}`);
     return dates;
   }, [standbyPeriods]);
 

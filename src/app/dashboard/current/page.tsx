@@ -2053,7 +2053,8 @@ export default function CurrentPage() {
     let atSea = 0;
     const stateCounts = filteredLogs.reduce((acc, log) => {
         acc[log.state] = (acc[log.state] || 0) + 1;
-        if (log.state === 'underway') atSea++;
+        // At sea includes both 'underway' and 'at-anchor' states
+        if (log.state === 'underway' || log.state === 'at-anchor') atSea++;
         return acc;
     }, {} as Record<DailyStatus, number>);
 

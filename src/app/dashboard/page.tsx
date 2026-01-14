@@ -824,7 +824,8 @@ export default function DashboardPage() {
         if (yearMatch) {
             days++;
           filteredLogs.push(log);
-            if (log.state === 'underway') {
+            // At sea includes both 'underway' and 'at-anchor' states
+            if (log.state === 'underway' || log.state === 'at-anchor') {
                 atSea++;
           }
             }
@@ -1032,8 +1033,11 @@ export default function DashboardPage() {
     });
 
     // Calculate stats with state breakdown
+    // At sea includes both 'underway' and 'at-anchor' states
     const totalDays = past7DaysLogs.length;
-    const atSeaDays = past7DaysLogs.filter(log => log.state === 'underway').length;
+    const atSeaDays = past7DaysLogs.filter(log => 
+      log.state === 'underway' || log.state === 'at-anchor'
+    ).length;
     const atAnchorDays = past7DaysLogs.filter(log => log.state === 'at-anchor').length;
     const inPortDays = past7DaysLogs.filter(log => log.state === 'in-port').length;
     const onLeaveDays = past7DaysLogs.filter(log => log.state === 'on-leave').length;
@@ -1073,8 +1077,11 @@ export default function DashboardPage() {
     });
 
     // Calculate stats with state breakdown
+    // At sea includes both 'underway' and 'at-anchor' states
     const totalDays = thisMonthLogs.length;
-    const atSeaDays = thisMonthLogs.filter(log => log.state === 'underway').length;
+    const atSeaDays = thisMonthLogs.filter(log => 
+      log.state === 'underway' || log.state === 'at-anchor'
+    ).length;
     const atAnchorDays = thisMonthLogs.filter(log => log.state === 'at-anchor').length;
     const inPortDays = thisMonthLogs.filter(log => log.state === 'in-port').length;
     const onLeaveDays = thisMonthLogs.filter(log => log.state === 'on-leave').length;
@@ -1124,8 +1131,8 @@ export default function DashboardPage() {
       // Count by state
       stateBreakdown[log.state] = (stateBreakdown[log.state] || 0) + 1;
       
-      // Count at sea
-      if (log.state === 'underway') atSea++;
+      // Count at sea (includes both 'underway' and 'at-anchor' states)
+      if (log.state === 'underway' || log.state === 'at-anchor') atSea++;
       
       // Find earliest date
       const logDate = new Date(log.date);

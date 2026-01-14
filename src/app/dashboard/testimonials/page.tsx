@@ -256,12 +256,15 @@ function calculateDayCounts(stateLogs: StateLog[], startDate: string, endDate: s
   });
   
   // Calculate individual day counts
-  const atSeaDays = rangeLogs.filter(log => log.state === 'underway').length;
+  // At sea includes both 'underway' and 'at-anchor' states
+  const atSeaDays = rangeLogs.filter(log => 
+    log.state === 'underway' || log.state === 'at-anchor'
+  ).length;
   const yardDays = rangeLogs.filter(log => log.state === 'in-yard').length;
   const leaveDays = rangeLogs.filter(log => log.state === 'on-leave').length;
   
   // Calculate standby days using the standby calculation function
-  // Standby includes 'at-anchor' and 'in-port' states
+  // Standby now only includes 'in-port' states (at-anchor is counted as at sea)
   const { totalStandbyDays } = calculateStandbyDays(rangeLogs);
   const standbyDays = totalStandbyDays;
   
