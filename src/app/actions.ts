@@ -2,10 +2,11 @@
 
 import { createSupabaseServerClient } from '@/supabase/server';
 import type { SeaServiceRecord, UserProfile, Vessel, StateLog } from '@/lib/types';
-import { isWithinInterval, startOfDay, endOfDay } from 'date-fns';
+import { isWithinInterval, startOfDay, endOfDay, parse, differenceInDays } from 'date-fns';
 import { stripe } from '@/lib/stripe';
 import type { Stripe } from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { calculateStandbyDays } from '@/lib/standby-calculation';
 
 //
 // SUPABASE ADMIN CLIENT (server-only)
@@ -279,13 +280,217 @@ export async function generateSeaTimeReportData(
   vesselId?: string,
   dateRange?: { from: Date; to: Date },
 ): Promise<SeaTimeReportData> {
-  const supabase = await createSupabaseServerClient();
+  // Use admin client for server actions to bypass RLS
+  // This is safe because we're only fetching the requesting user's own data
+  
+  // Fetch user profile
+  const { data: userProfileData, error: profileError } = await supabaseAdmin
+    .from('users')
+    .select('*')
+    .eq('id', userId)
+    .single();
 
-  // ----- your existing logic continues unchanged below -----
-  // (keep the rest of your function exactly as you had it,
-  // just make sure any createSupabaseServerClient() usage is awaited)
-  // --------------------------------------------------------
+  if (profileError || !userProfileData) {
+    console.error('[generateSeaTimeReportData] Error fetching user profile:', {
+      error: profileError,
+      code: profileError?.code,
+      message: profileError?.message,
+      userId,
+    });
+    throw new Error(`Failed to fetch user profile: ${profileError?.message || 'User profile not found'}`);
+  }
 
-  // ...PASTE YOUR EXISTING FUNCTION BODY HERE (unchanged)...
-  throw new Error('generateSeaTimeReportData body not pasted in this snippet.');
+  const userProfile: UserProfile = {
+    id: userProfileData.id,
+    email: userProfileData.email || '',
+    firstName: userProfileData.first_name || null,
+    lastName: userProfileData.last_name || null,
+    username: userProfileData.username || `user_${userId.slice(0, 8)}`,
+    role: userProfileData.role || 'crew',
+    activeVesselId: userProfileData.active_vessel_id || null,
+    position: userProfileData.position || null,
+    subscriptionTier: userProfileData.subscription_tier || 'free',
+    subscriptionStatus: userProfileData.subscription_status || 'inactive',
+  };
+
+  // Build query for state logs - use admin client for server actions
+  let logsQuery = supabaseAdmin
+    .from('daily_state_logs')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: true });
+
+  // Apply filters
+  if (filterType === 'vessel' && vesselId) {
+    logsQuery = logsQuery.eq('vessel_id', vesselId);
+  } else if (filterType === 'date_range' && dateRange) {
+    const startDateStr = dateRange.from.toISOString().split('T')[0];
+    const endDateStr = dateRange.to.toISOString().split('T')[0];
+    logsQuery = logsQuery.gte('date', startDateStr).lte('date', endDateStr);
+  }
+
+  const { data: logsData, error: logsError } = await logsQuery;
+
+  if (logsError) {
+    throw new Error(`Failed to fetch state logs: ${logsError.message}`);
+  }
+
+  const stateLogs: StateLog[] = (logsData || []).map(log => ({
+    id: log.id,
+    userId: log.user_id,
+    vesselId: log.vessel_id,
+    state: log.state,
+    date: log.date,
+    createdAt: log.created_at,
+    updatedAt: log.updated_at,
+  }));
+
+  if (stateLogs.length === 0) {
+    return {
+      userProfile,
+      serviceRecords: [],
+      vesselDetails: undefined,
+      totalDays: 0,
+      totalSeaDays: 0,
+      totalStandbyDays: 0,
+    };
+  }
+
+  // Fetch vessels to get vessel names - use admin client for server actions
+  const vesselIds = [...new Set(stateLogs.map(log => log.vesselId))];
+  const { data: vesselsData, error: vesselsError } = await supabaseAdmin
+    .from('vessels')
+    .select('*')
+    .in('id', vesselIds);
+
+  if (vesselsError) {
+    throw new Error(`Failed to fetch vessels: ${vesselsError.message}`);
+  }
+
+  const vesselsMap = new Map((vesselsData || []).map(v => [v.id, v]));
+
+  // Group logs by vessel and find continuous service periods
+  const serviceRecords: (SeaServiceRecord & { 
+    vesselName: string; 
+    totalDays: number; 
+    start_date: string;
+    end_date: string;
+    at_sea_days?: number; 
+    standby_days?: number; 
+    yard_days?: number; 
+    leave_days?: number;
+  })[] = [];
+  const logsByVessel = new Map<string, StateLog[]>();
+
+  // Group logs by vessel
+  stateLogs.forEach(log => {
+    if (!logsByVessel.has(log.vesselId)) {
+      logsByVessel.set(log.vesselId, []);
+    }
+    logsByVessel.get(log.vesselId)!.push(log);
+  });
+
+
+  // Process each vessel's logs to create service records
+  for (const [vesselId, vesselLogs] of logsByVessel.entries()) {
+    if (vesselLogs.length === 0) continue;
+
+    const vessel = vesselsMap.get(vesselId);
+    const vesselName = vessel?.name || 'Unknown Vessel';
+
+    // Sort logs by date
+    vesselLogs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Find continuous periods (group consecutive dates)
+    const periods: { startDate: string; endDate: string; logs: StateLog[] }[] = [];
+    let currentPeriod: { startDate: string; endDate: string; logs: StateLog[] } | null = null;
+
+    vesselLogs.forEach(log => {
+      if (!currentPeriod) {
+        currentPeriod = {
+          startDate: log.date,
+          endDate: log.date,
+          logs: [log],
+        };
+      } else {
+        const lastDate = new Date(currentPeriod.endDate);
+        const currentDate = new Date(log.date);
+        const daysDiff = differenceInDays(currentDate, lastDate);
+
+        if (daysDiff === 1) {
+          // Consecutive day - extend period
+          currentPeriod.endDate = log.date;
+          currentPeriod.logs.push(log);
+        } else {
+          // Gap detected - save current period and start new one
+          periods.push(currentPeriod);
+          currentPeriod = {
+            startDate: log.date,
+            endDate: log.date,
+            logs: [log],
+          };
+        }
+      }
+    });
+
+    if (currentPeriod) {
+      periods.push(currentPeriod);
+    }
+
+    // Calculate day counts for each period
+    for (const period of periods) {
+      const { totalStandbyDays } = calculateStandbyDays(period.logs);
+      
+      const atSeaDays = period.logs.filter(log => 
+        log.state === 'underway' || log.state === 'at-anchor'
+      ).length;
+      const yardDays = period.logs.filter(log => log.state === 'in-yard').length;
+      const leaveDays = period.logs.filter(log => log.state === 'on-leave').length;
+      const totalDays = period.logs.length;
+
+      serviceRecords.push({
+        id: `${vesselId}-${period.startDate}-${period.endDate}`,
+        userId,
+        vesselId,
+        date: period.startDate,
+        state: period.logs[0].state, // Use first log's state
+        vesselName,
+        totalDays,
+        start_date: period.startDate,
+        end_date: period.endDate,
+        at_sea_days: atSeaDays,
+        standby_days: totalStandbyDays,
+        yard_days: yardDays,
+        leave_days: leaveDays,
+      });
+    }
+  }
+
+  // Calculate totals
+  const totalDays = serviceRecords.reduce((sum, record) => sum + record.totalDays, 0);
+  const totalSeaDays = serviceRecords.reduce((sum, record) => sum + (record.at_sea_days || 0), 0);
+  const totalStandbyDays = serviceRecords.reduce((sum, record) => sum + (record.standby_days || 0), 0);
+
+  // Get vessel details if filtering by vessel
+  let vesselDetails: Vessel | undefined;
+  if (filterType === 'vessel' && vesselId) {
+    const vessel = vesselsMap.get(vesselId);
+    if (vessel) {
+      vesselDetails = {
+        id: vessel.id,
+        name: vessel.name,
+        type: vessel.type,
+        officialNumber: vessel.imo || undefined,
+      };
+    }
+  }
+
+  return {
+    userProfile,
+    serviceRecords,
+    vesselDetails,
+    totalDays,
+    totalSeaDays,
+    totalStandbyDays,
+  };
 }

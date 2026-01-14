@@ -6,7 +6,7 @@ import { useUser, useSupabase } from '@/supabase';
 import { useDoc, useCollection } from '@/supabase/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Loader2, Ship, Map, Navigation } from 'lucide-react';
+import { Sparkles, Loader2, Ship, Map, Navigation, FileText } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -67,12 +67,13 @@ export function SubscriptionCard() {
     vesselCount: 0,
     passageCount: 0,
     watchCount: 0,
+    seaTimeRequestCount: 0,
     isLoading: true,
   });
 
   useEffect(() => {
     if (!user?.id || !allVessels) {
-      setUsageData({ vesselCount: 0, passageCount: 0, watchCount: 0, isLoading: false });
+      setUsageData({ vesselCount: 0, passageCount: 0, watchCount: 0, seaTimeRequestCount: 0, isLoading: false });
       return;
     }
 
@@ -105,7 +106,19 @@ export function SubscriptionCard() {
           // Table might not exist yet
         }
 
-        setUsageData({ vesselCount, passageCount, watchCount, isLoading: false });
+        // Count sea time requests (only for Premium/Pro)
+        let seaTimeRequestCount = 0;
+        try {
+          const { count } = await supabase
+            .from('sea_time_requests')
+            .select('*', { count: 'exact', head: true })
+            .eq('crew_user_id', user.id);
+          seaTimeRequestCount = count || 0;
+        } catch (e) {
+          // Table might not exist yet
+        }
+
+        setUsageData({ vesselCount, passageCount, watchCount, seaTimeRequestCount, isLoading: false });
       } catch (error) {
         console.error('Error fetching usage data:', error);
         setUsageData(prev => ({ ...prev, isLoading: false }));
@@ -226,6 +239,13 @@ export function SubscriptionCard() {
                         <span className="text-muted-foreground">Bridge Watches</span>
                       </div>
                       <span className="font-medium">{usageData.watchCount}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-muted-foreground">Request Past Sea Time</span>
+                      </div>
+                      <span className="font-medium">{usageData.seaTimeRequestCount}</span>
                     </div>
                   </>
                 )}

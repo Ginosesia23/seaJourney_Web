@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, startOfDay, isAfter, parse, eachDayOfInterval, isWithinInterval, subMonths, addDays, differenceInDays } from 'date-fns';
-import { LifeBuoy, Loader2, PlusCircle, Mail, Calendar, CalendarIcon, Ship, Clock, CheckCircle2, XCircle, FileText, Download, Trash2, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { LifeBuoy, Loader2, PlusCircle, Mail, Calendar, CalendarIcon, Ship, Clock, CheckCircle2, XCircle, FileText, Download, Trash2, AlertCircle, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -294,7 +295,11 @@ export default function TestimonialsPage() {
   const [activeTab, setActiveTab] = useState<'all' | 'draft' | 'pending' | 'approved' | 'rejected'>('all');
   const [selectedVesselLogs, setSelectedVesselLogs] = useState<StateLog[]>([]);
   const [testimonialToDelete, setTestimonialToDelete] = useState<Testimonial | null>(null);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [isVerifyingPassword, setIsVerifyingPassword] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const isVerifyingRef = useRef(false);
 
     const { user } = useUser();
   const { supabase } = useSupabase();
@@ -1442,6 +1447,47 @@ export default function TestimonialsPage() {
     }
   };
 
+  const verifyPasswordAndDelete = async (testimonial: Testimonial) => {
+    if (!user?.id || !userProfile?.email || !deletePassword) {
+      setPasswordError('Password is required');
+      return;
+    }
+
+    setIsVerifyingPassword(true);
+    isVerifyingRef.current = true;
+    setPasswordError('');
+
+    try {
+      // Verify password by attempting to sign in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: userProfile.email,
+        password: deletePassword,
+      });
+
+      if (signInError) {
+        // Ensure dialog stays open by keeping testimonialToDelete set
+        setPasswordError('Incorrect password. Please try again.');
+        setIsVerifyingPassword(false);
+        isVerifyingRef.current = false;
+        // Explicitly ensure testimonialToDelete is still set
+        if (!testimonialToDelete) {
+          setTestimonialToDelete(testimonial);
+        }
+        return;
+      }
+
+      // Password is correct, proceed with deletion
+      // Don't clear password yet - let handleDeleteTestimonial handle cleanup
+      await handleDeleteTestimonial(testimonial);
+    } catch (error: any) {
+      console.error('Error verifying password:', error);
+      setPasswordError('An error occurred. Please try again.');
+      setIsVerifyingPassword(false);
+      isVerifyingRef.current = false;
+      // Keep dialog open on error
+    }
+  };
+
   const handleDeleteTestimonial = async (testimonial: Testimonial) => {
     if (!user?.id) {
       toast({
@@ -1506,6 +1552,8 @@ export default function TestimonialsPage() {
       }
 
       setTestimonialToDelete(null);
+      setDeletePassword('');
+      setPasswordError('');
     } catch (error: any) {
       console.error('Error deleting testimonial:', error);
       console.error('Full error object:', JSON.stringify(error, null, 2));
@@ -2135,14 +2183,6 @@ export default function TestimonialsPage() {
                                         <FileText className="mr-2 h-4 w-4" />
                                         MCA Format
                                       </DropdownMenuItem>
-                                      <DropdownMenuItem onClick={() => handleGeneratePDF(testimonial, 'mlc')}>
-                                        <FileText className="mr-2 h-4 w-4" />
-                                        MLC Format
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem onClick={() => handleGeneratePDF(testimonial, 'pya')}>
-                                        <FileText className="mr-2 h-4 w-4" />
-                                        PYA Format
-                                      </DropdownMenuItem>
                                       <DropdownMenuItem onClick={() => handleGeneratePDF(testimonial, 'seajourney')}>
                                         <FileText className="mr-2 h-4 w-4" />
                                         SeaJourney Format
@@ -2154,18 +2194,14 @@ export default function TestimonialsPage() {
                                 )}
                               </TableCell>
                               <TableCell>
-                                {testimonial.status !== 'approved' ? (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => setTestimonialToDelete(testimonial)}
-                                    className="rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                ) : (
-                                  <span className="text-sm text-muted-foreground">—</span>
-                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setTestimonialToDelete(testimonial)}
+                                  className="rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
                               </TableCell>
                             </TableRow>
                             {isExpanded && hasRejectionMessage && (
@@ -2259,34 +2295,121 @@ export default function TestimonialsPage() {
             )}
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!testimonialToDelete} onOpenChange={(open) => !open && setTestimonialToDelete(null)}>
-        <AlertDialogContent className="rounded-xl">
+      <AlertDialog 
+        open={!!testimonialToDelete} 
+        onOpenChange={(open) => {
+          // Prevent closing during password verification or deletion
+          if (!open && (isVerifyingPassword || isDeleting || isVerifyingRef.current)) {
+            // Force dialog to stay open by preventing state change
+            return;
+          }
+          if (!open) {
+            setTestimonialToDelete(null);
+            setDeletePassword('');
+            setPasswordError('');
+            isVerifyingRef.current = false;
+          }
+        }}
+      >
+        <AlertDialogContent className="rounded-xl max-w-xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Testimonial?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this testimonial? This action cannot be undone.
-              {testimonialToDelete && (
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Delete Testimonial?
+            </AlertDialogTitle>
+            {testimonialToDelete && (
+              <AlertDialogDescription>
+                {testimonialToDelete.status === 'approved' 
+                  ? 'This approved testimonial will be permanently deleted. You will need to request it again and have it signed off again.'
+                  : 'Are you sure you want to delete this testimonial? This action cannot be undone.'}
+              </AlertDialogDescription>
+            )}
+          </AlertDialogHeader>
+          {testimonialToDelete && (
+            <div className="space-y-3 pt-2">
+              <div>
+                <span className="font-medium text-sm">
+                  {getVesselName(testimonialToDelete.vessel_id)} - {format(new Date(testimonialToDelete.start_date), 'MMM d, yyyy')} to {format(new Date(testimonialToDelete.end_date), 'MMM d, yyyy')}
+                </span>
+              </div>
+              
+              {testimonialToDelete.status === 'approved' && (
                 <>
-                  <br />
-                  <br />
-                  <span className="font-medium">
-                    {getVesselName(testimonialToDelete.vessel_id)} - {format(new Date(testimonialToDelete.start_date), 'MMM d, yyyy')} to {format(new Date(testimonialToDelete.end_date), 'MMM d, yyyy')}
-                  </span>
+                  <div className="bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-yellow-900 dark:text-yellow-100 space-y-1">
+                        <p className="font-semibold">Warning: This testimonial is approved</p>
+                        <p>If you delete this approved testimonial:</p>
+                        <ul className="list-disc list-inside space-y-1 ml-2">
+                          <li>You will need to request it again</li>
+                          <li>You will need to have it signed off again by the captain</li>
+                          <li>This action cannot be undone</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2 pt-2">
+                    <Label htmlFor="delete-password" className="text-sm font-medium">
+                      Confirm your password to delete
+                    </Label>
+                    <Input
+                      id="delete-password"
+                      type="password"
+                      placeholder="Enter your password"
+                      value={deletePassword}
+                      onChange={(e) => {
+                        setDeletePassword(e.target.value);
+                        setPasswordError('');
+                      }}
+                      className={cn(
+                        "rounded-lg",
+                        passwordError && "border-destructive"
+                      )}
+                      disabled={isVerifyingPassword || isDeleting}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && deletePassword && !isVerifyingPassword && !isDeleting) {
+                          verifyPasswordAndDelete(testimonialToDelete);
+                        }
+                      }}
+                    />
+                    {passwordError && (
+                      <p className="text-sm text-destructive">{passwordError}</p>
+                    )}
+                  </div>
                 </>
               )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+            </div>
+          )}
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting} className="rounded-xl">Cancel</AlertDialogCancel>
+            <AlertDialogCancel 
+              disabled={isDeleting || isVerifyingPassword} 
+              className="rounded-xl"
+              onClick={() => {
+                setDeletePassword('');
+                setPasswordError('');
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => testimonialToDelete && handleDeleteTestimonial(testimonialToDelete)}
-              disabled={isDeleting}
+              onClick={() => {
+                if (testimonialToDelete) {
+                  if (testimonialToDelete.status === 'approved') {
+                    verifyPasswordAndDelete(testimonialToDelete);
+                  } else {
+                    handleDeleteTestimonial(testimonialToDelete);
+                  }
+                }
+              }}
+              disabled={isDeleting || isVerifyingPassword || (testimonialToDelete?.status === 'approved' && !deletePassword)}
               className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? (
+              {isDeleting || isVerifyingPassword ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Deleting...
+                  {isVerifyingPassword ? 'Verifying...' : 'Deleting...'}
                 </>
               ) : (
                 <>

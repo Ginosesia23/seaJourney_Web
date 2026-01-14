@@ -16,7 +16,7 @@
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { format, parse, differenceInHours } from 'date-fns';
+import { format, parse, differenceInHours, addDays } from 'date-fns';
 import type { SeaTimeReportData } from '@/app/actions';
 
 // Re-export the type for use in this file
@@ -1011,10 +1011,10 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
 
   const generatedDate = format(new Date(), 'dd MMM yyyy');
 
-  const textDark: RGB = [30, 30, 30];
-  const textGray: RGB = [100, 100, 100];
+  const textDark: RGB = [20, 20, 20];
+  const textGray: RGB = [80, 80, 80];
   const primaryBlue: RGB = [0, 29, 55];
-  const borderColor: RGB = [200, 200, 200];
+  const borderColor: RGB = [180, 180, 180];
   const headerColor: RGB = [0, 29, 55];
 
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -1022,46 +1022,62 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
 
   const setFillColor = (c: RGB) => doc.setFillColor(c[0], c[1], c[2]);
   const setTextColor = (c: RGB) => doc.setTextColor(c[0], c[1], c[2]);
+  const setDrawColor = (c: RGB) => doc.setDrawColor(c[0], c[1], c[2]);
+
+  let currentY = 20;
 
   // ===== HEADER =====
-  const headerHeight = 35;
+  const headerHeight = 50;
   setFillColor(headerColor);
   doc.rect(0, 0, pageWidth, headerHeight, 'F');
 
-  let currentY = 10;
+  setDrawColor([0, 0, 0]);
+  doc.setLineWidth(0.5);
+  doc.line(0, headerHeight, pageWidth, headerHeight);
+
+  let headerY = 12;
 
   try {
-    const logoData = await loadLogoImage('/seajourney_logo_white.png');
-    doc.addImage(logoData, 'PNG', 14, currentY, 35, 8);
+    const logoDataURL = await loadLogoImage('/seajourney_logo_white.png');
+    const logoWidth = 55;
+    const logoHeight = 15;
+    const logoX = (pageWidth - logoWidth) / 2;
+    doc.addImage(logoDataURL, 'PNG', logoX, headerY, logoWidth, logoHeight);
+    headerY += logoHeight + 8;
   } catch (error) {
-    console.warn('Could not load logo:', error);
+    console.error('Failed to load logo image:', error);
+    doc.setFontSize(22);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text('SeaJourney', pageWidth / 2, headerY, { align: 'center' });
+    headerY += 8;
   }
 
-  setTextColor([255, 255, 255]);
+  doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text('Sea Time Summary Report', pageWidth / 2, currentY + 4, { align: 'center' });
+  doc.setTextColor(255, 255, 255);
+  doc.text('SEA TIME SUMMARY REPORT', pageWidth / 2, headerY, { align: 'center' });
 
+  headerY += 5;
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
-  doc.text(
-    'Overview of logged sea service for use as supporting documentation alongside formal testimonials.',
-    pageWidth / 2,
-    currentY + 10,
-    { align: 'center' },
-  );
+  doc.setTextColor(220, 220, 220);
+  doc.text('Overview of logged sea service for use as supporting documentation', pageWidth / 2, headerY, { align: 'center' });
 
-  doc.setFontSize(8);
-  doc.text(`Generated: ${generatedDate}`, pageWidth - 14, currentY + 4, { align: 'right' });
-
-  currentY = headerHeight + 8;
+  setTextColor(textDark);
+  currentY = headerHeight + 20;
 
   // ===== Seafarer Information =====
-  setTextColor(textDark);
+  doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('Seafarer Information', 14, currentY);
-  currentY += 4;
+  setTextColor(primaryBlue);
+  doc.text('SEAFARER INFORMATION', 18, currentY + 2);
+  
+  setDrawColor(primaryBlue);
+  doc.setLineWidth(0.5);
+  doc.line(18, currentY + 3, pageWidth - 18, currentY + 3);
+  
+  currentY += 12;
 
   const seafarerRows = [
     ['Full Name:', safeText(fullName, 'Not provided')],
@@ -1081,20 +1097,25 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
       0: { fontStyle: 'bold', cellWidth: 55 },
       1: { cellWidth: 'auto' },
     },
-    margin: { left: 14, right: 14 },
+    margin: { left: 18, right: 18 },
     tableLineColor: borderColor,
     tableLineWidth: 0.2,
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 8;
+  currentY = (doc as any).lastAutoTable.finalY + 12;
 
   // ===== Vessel Information =====
   if (vesselDetails) {
-    setTextColor(textDark);
+    doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text('Primary Vessel Information', 14, currentY);
-    currentY += 4;
+    setTextColor(primaryBlue);
+    doc.text('PRIMARY VESSEL INFORMATION', 18, currentY + 2);
+    
+    setDrawColor(primaryBlue);
+    doc.setLineWidth(0.5);
+    doc.line(18, currentY + 3, pageWidth - 18, currentY + 3);
+    
+    currentY += 12;
 
     const vesselRows: string[][] = [
       ['Vessel Name:', safeText(vesselDetails.name, 'Not specified')],
@@ -1118,20 +1139,25 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
         0: { fontStyle: 'bold', cellWidth: 60 },
         1: { cellWidth: 'auto' },
       },
-      margin: { left: 14, right: 14 },
+      margin: { left: 18, right: 18 },
       tableLineColor: borderColor,
       tableLineWidth: 0.2,
     });
 
-    currentY = (doc as any).lastAutoTable.finalY + 8;
+    currentY = (doc as any).lastAutoTable.finalY + 12;
   }
 
   // ===== Summary Statistics =====
-  setTextColor(textDark);
+  doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('Sea Time Summary', 14, currentY);
-  currentY += 4;
+  setTextColor(primaryBlue);
+  doc.text('SEA TIME SUMMARY', 18, currentY + 2);
+  
+  setDrawColor(primaryBlue);
+  doc.setLineWidth(0.5);
+  doc.line(18, currentY + 3, pageWidth - 18, currentY + 3);
+  
+  currentY += 12;
 
   const summaryRows: string[][] = [
     ['Total Days Logged:', `${totalDays} days`],
@@ -1152,20 +1178,25 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
       0: { fontStyle: 'bold', cellWidth: 80 },
       1: { cellWidth: 'auto' },
     },
-    margin: { left: 14, right: 14 },
+    margin: { left: 18, right: 18 },
     tableLineColor: borderColor,
     tableLineWidth: 0.2,
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 10;
+  currentY = (doc as any).lastAutoTable.finalY + 12;
 
   // ===== Service Records by Vessel (grouped) =====
   if (serviceRecords && serviceRecords.length > 0) {
-    setTextColor(textDark);
+    doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text('Service Records by Vessel', 14, currentY);
-    currentY += 6;
+    setTextColor(primaryBlue);
+    doc.text('SERVICE RECORDS BY VESSEL', 18, currentY + 2);
+    
+    setDrawColor(primaryBlue);
+    doc.setLineWidth(0.5);
+    doc.line(18, currentY + 3, pageWidth - 18, currentY + 3);
+    
+    currentY += 12;
 
     const vesselGroups = serviceRecords.reduce((acc, record) => {
       const vesselName = record.vesselName || 'Unknown Vessel';
@@ -1180,21 +1211,29 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
       doc.setFontSize(10);
       doc.setFont('helvetica', 'bold');
       setTextColor(primaryBlue);
-      doc.text(`Vessel: ${truncate(vesselName, 70, 'Unknown Vessel')}`, 14, currentY);
-      currentY += 4;
+      doc.text(`Vessel: ${truncate(vesselName, 70, 'Unknown Vessel')}`, 18, currentY);
+      currentY += 6;
 
-      const dates = records.map((r) => r.date).sort();
+      // Get the overall date range from all periods
+      const allStartDates = records.map(r => r.start_date).sort();
+      const allEndDates = records.map(r => r.end_date).sort();
       const start =
-        dates[0] ? format(parseDateOnly(dates[0]), 'dd MMM yyyy') : 'N/A';
+        allStartDates[0] ? format(parseDateOnly(allStartDates[0]), 'dd MMM yyyy') : 'N/A';
       const end =
-        dates[dates.length - 1]
-          ? format(parseDateOnly(dates[dates.length - 1]), 'dd MMM yyyy')
+        allEndDates[allEndDates.length - 1]
+          ? format(parseDateOnly(allEndDates[allEndDates.length - 1]), 'dd MMM yyyy')
           : 'N/A';
-      const days = records[0]?.totalDays || records.length;
+      
+      // Sum up total days from all periods for this vessel
+      const totalDays = records.reduce((sum, record) => sum + record.totalDays, 0);
+      const totalAtSeaDays = records.reduce((sum, record) => sum + (record.at_sea_days || 0), 0);
+      const totalStandbyDays = records.reduce((sum, record) => sum + (record.standby_days || 0), 0);
 
       const vesselSummaryRows: string[][] = [
         ['Period:', `${start} to ${end}`],
-        ['Total Days (this vessel):', `${days} days`],
+        ['Total Days:', `${totalDays} days`],
+        ['At Sea Days:', `${totalAtSeaDays} days`],
+        ['Standby Days:', `${totalStandbyDays} days`],
       ];
 
       autoTable(doc, {
@@ -1206,7 +1245,7 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
           0: { fontStyle: 'bold', cellWidth: 50 },
           1: { cellWidth: 'auto' },
         },
-        margin: { left: 14, right: 14 },
+        margin: { left: 18, right: 18 },
         tableLineColor: borderColor,
         tableLineWidth: 0.2,
       });
@@ -1356,7 +1395,7 @@ export async function generatePassageLogPDF(data: PassageLogExportData) {
       0: { fontStyle: 'bold', cellWidth: 55 },
       1: { cellWidth: 'auto' },
     },
-    margin: { left: 14, right: 14 },
+    margin: { left: 18, right: 18 },
     tableLineColor: borderColor,
     tableLineWidth: 0.2,
   });

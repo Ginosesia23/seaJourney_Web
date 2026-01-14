@@ -42,6 +42,7 @@ import {
   SidebarRail,
   SidebarFooter,
 } from "@/components/ui/sidebar"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import Logo from "@/components/logo"
 import {
   DropdownMenu,
@@ -89,6 +90,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
       { href: "/dashboard/current", label: "Current", icon: MapPin, disabled: false },
       { href: "/dashboard/calendar", label: "Calendar", icon: Calendar, disabled: false },
       { href: "/dashboard/sea-time-request", label: "Request Sea Time", icon: FileText, disabled: false, hideForRoles: ['vessel'] }, // Only for crew members
+      { href: "/dashboard/export", label: "Export", icon: Download, disabled: false },
     ]
   },
   {
@@ -513,6 +515,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   };
 
   return (
+    <TooltipProvider delayDuration={300}>
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
         <SidebarMenu>
@@ -594,11 +597,13 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     return null
                   }
 
-                  // Check if feature requires premium access (visa tracker, passage log, bridge watch)
+                  // Check if feature requires premium access (visa tracker, passage log, bridge watch, export, request sea time)
                   const isVisaTracker = item.href === '/dashboard/visa-tracker';
                   const isPassageLog = item.href === '/dashboard/passage-logbook';
                   const isBridgeWatch = item.href === '/dashboard/bridge-watch-log';
-                  const requiresPremium = (isVisaTracker || isPassageLog || isBridgeWatch) && !hasPremiumAccess;
+                  const isExport = item.href === '/dashboard/export';
+                  const isSeaTimeRequest = item.href === '/dashboard/sea-time-request';
+                  const requiresPremium = (isVisaTracker || isPassageLog || isBridgeWatch || isExport || isSeaTimeRequest) && !hasPremiumAccess;
 
                   const isActive = pathname === item.href
                   
@@ -625,15 +630,30 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   return (
                     <SidebarMenuItem key={uniqueKey}>
                       {requiresPremium ? (
-                        <SidebarMenuButton tooltip={`${item.label} - Premium Required`} disabled>
-                          <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
-                          <item.icon />
-                            <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
-                            <Badge variant="secondary" className="ml-auto text-xs group-data-[collapsible=icon]:hidden">
-                              Premium
-                            </Badge>
-                          </div>
-                        </SidebarMenuButton>
+                        <Tooltip delayDuration={200}>
+                          <TooltipTrigger asChild>
+                            <div className="w-full">
+                              <SidebarMenuButton 
+                                disabled
+                                className="group/button w-full"
+                              >
+                                <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center w-full">
+                                  <item.icon className="h-4 w-4 shrink-0" />
+                                  <span className="group-data-[collapsible=icon]:hidden flex-1">{item.label}</span>
+                                  <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-400 group-data-[collapsible=icon]:hidden ml-auto shrink-0" />
+                                </div>
+                              </SidebarMenuButton>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs z-[100]" sideOffset={8} align="start">
+                            <div className="space-y-1">
+                              <p className="font-semibold">{item.label}</p>
+                              <p className="text-xs text-muted-foreground">
+                                This feature requires a Premium or Pro subscription. Upgrade to unlock advanced features.
+                              </p>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
                       ) : (
                         <SidebarMenuButton tooltip={item.label} asChild isActive={isActive}>
                           <Link href={item.href} className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
@@ -755,5 +775,6 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
+    </TooltipProvider>
   )
 }

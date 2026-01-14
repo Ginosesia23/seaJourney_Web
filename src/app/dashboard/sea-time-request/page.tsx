@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, isBefore, isAfter, startOfDay, parse, isValid } from 'date-fns';
-import { CalendarIcon, Loader2, Ship, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { CalendarIcon, Loader2, Ship, CheckCircle2, XCircle, Clock, Lock, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
@@ -14,13 +14,16 @@ import { Calendar } from '@/components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useUser, useSupabase } from '@/supabase';
-import { useCollection } from '@/supabase/database';
+import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments } from '@/supabase/database/queries';
 import { useToast } from '@/hooks/use-toast';
 import { DateRange } from 'react-day-picker';
-import type { Vessel, SeaTimeRequest, VesselAssignment } from '@/lib/types';
+import type { Vessel, SeaTimeRequest, VesselAssignment, UserProfile } from '@/lib/types';
+import Link from 'next/link';
 
 const requestSeaTimeSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
@@ -47,6 +50,39 @@ export default function SeaTimeRequestPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
   const [isLoadingAssignments, setIsLoadingAssignments] = useState(true);
+
+  // Fetch user profile to check subscription
+  const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
+  
+  const userProfile = useMemo(() => {
+    if (!userProfileRaw) return null;
+    const role = (userProfileRaw as any).role || userProfileRaw.role || 'crew';
+    const subscriptionTier = (userProfileRaw as any).subscription_tier || userProfileRaw.subscriptionTier || 'free';
+    const subscriptionStatus = (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive';
+    return {
+      ...userProfileRaw,
+      role: role,
+      subscriptionTier: subscriptionTier,
+      subscriptionStatus: subscriptionStatus,
+    } as UserProfile;
+  }, [userProfileRaw]);
+
+  // Check if user has access (premium/pro for crew, any active tier for vessels)
+  const hasAccess = useMemo(() => {
+    if (!userProfile) return false;
+    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
+    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
+    const role = (userProfile as any).role || userProfile.role || 'crew';
+    
+    // Vessel accounts: allow all active vessel tiers
+    if (role === 'vessel') {
+      const tierLower = tier.toLowerCase();
+      return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && status === 'active';
+    }
+    
+    // Crew accounts: premium or pro only
+    return (tier === 'premium' || tier === 'pro') && status === 'active';
+  }, [userProfile]);
 
   const form = useForm<RequestSeaTimeFormValues>({
     resolver: zodResolver(requestSeaTimeSchema),
@@ -187,6 +223,56 @@ export default function SeaTimeRequestPage() {
   const getVesselName = (vesselId: string) => {
     return availableVessels.find(v => v.id === vesselId)?.name || vesselId;
   };
+
+  // Show loading state for profile
+  if (isLoadingProfile) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center">
+              <Ship className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <Skeleton className="h-7 w-48 mb-1" />
+              <Skeleton className="h-4 w-64" />
+            </div>
+          </div>
+        </div>
+        <Skeleton className="h-96 w-full" />
+      </div>
+    );
+  }
+
+  // If user does not have access, show upgrade message
+  if (!hasAccess) {
+    return (
+      <div className="flex flex-col gap-6">
+        {/* Header */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center">
+              <Ship className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">Request Sea Time</h1>
+              <p className="text-muted-foreground">Request past sea time from vessels you've been assigned to</p>
+            </div>
+          </div>
+        </div>
+        <Alert variant="premium">
+          <Lock className="h-4 w-4" />
+          <AlertTitle>Premium Feature</AlertTitle>
+          <AlertDescription>
+            This feature is available to Premium and Pro subscribers only. Upgrade your plan to request past sea time from vessels.
+            <Button asChild className="mt-3">
+              <Link href="/dashboard/subscription">Upgrade Now</Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
