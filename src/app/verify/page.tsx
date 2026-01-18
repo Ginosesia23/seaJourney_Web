@@ -103,36 +103,36 @@ export default function VerificationPage() {
   const isCodeComplete = code.every(char => char !== '') && code.join('').length === 8;
 
   return (
-    <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4 py-8">
-      <div className="mb-8">
+    <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4 py-6 sm:py-8">
+      <div className="mb-6 sm:mb-8">
         <LogoOnboarding />
       </div>
-      <div className="relative w-full max-w-2xl p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
-        <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
-        <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
-        <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
-        <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
+      <div className="relative w-full max-w-md sm:max-w-2xl p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
+        <div className="absolute -top-px -left-px h-3 w-3 sm:h-4 sm:w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
+        <div className="absolute -top-px -right-px h-3 w-3 sm:h-4 sm:w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
+        <div className="absolute -bottom-px -left-px h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
+        <div className="absolute -bottom-px -right-px h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
         
         <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
-          <CardHeader className="text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              <Search className="h-6 w-6 text-primary" />
+          <CardHeader className="text-center px-4 sm:px-6 pt-6 pb-4">
+            <div className="mx-auto flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-full bg-primary/10">
+              <Search className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
             </div>
-            <CardTitle className="mt-4 font-headline text-3xl">Sea Time Verification</CardTitle>
-            <CardDescription className="mt-2 text-lg text-muted-foreground">
+            <CardTitle className="mt-3 sm:mt-4 font-headline text-2xl sm:text-3xl">Sea Time Verification</CardTitle>
+            <CardDescription className="mt-2 text-sm sm:text-lg text-muted-foreground px-2">
               Enter the document verification code from the PDF to verify the record's authenticity.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
+          <CardContent className="px-4 sm:px-6 pb-6">
+            <div className="space-y-4 sm:space-y-6">
               {/* Code Input */}
-              <div className="space-y-3">
-                <label className="text-sm font-semibold text-muted-foreground text-center block">
+              <div className="space-y-2 sm:space-y-3">
+                <label className="text-xs sm:text-sm font-semibold text-muted-foreground text-center block">
                   Document Verification Code
                 </label>
-                <div className="flex items-center justify-center gap-2">
-                  <span className="text-2xl font-bold text-primary">SJ-</span>
-                  <div className="flex gap-2">
+                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-wrap">
+                  <span className="text-xl sm:text-2xl font-bold text-primary">SJ-</span>
+                  <div className="flex gap-1 sm:gap-2">
                     {code.map((char, index) => (
                       <input
                         key={index}
@@ -146,7 +146,7 @@ export default function VerificationPage() {
                         onChange={(e) => handleInputChange(index, e.target.value)}
                         onKeyDown={(e) => handleKeyDown(index, e)}
                         onPaste={index === 0 ? handlePaste : undefined}
-                        className="w-12 h-14 text-center text-2xl font-bold uppercase bg-background border-2 border-primary/30 rounded-lg focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+                        className="w-9 h-11 sm:w-12 sm:h-14 text-center text-xl sm:text-2xl font-bold uppercase bg-background border-2 border-primary/30 rounded-lg focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
                         disabled={isLoading}
                         autoComplete="off"
                         autoCorrect="off"
@@ -156,7 +156,7 @@ export default function VerificationPage() {
                     ))}
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground text-center mt-2">
+                <p className="text-[10px] sm:text-xs text-muted-foreground text-center mt-1 sm:mt-2 px-2">
                   Enter the 8-character code from the PDF footer
                 </p>
               </div>
@@ -165,17 +165,17 @@ export default function VerificationPage() {
               <Button
                 onClick={handleVerification}
                 size="lg"
-                className="h-12 w-full rounded-lg"
+                className="h-11 sm:h-12 w-full rounded-lg text-sm sm:text-base"
                 disabled={isLoading || !isCodeComplete}
               >
                 {isLoading ? (
                   <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    <Loader2 className="mr-2 h-4 w-4 sm:h-5 sm:w-5 animate-spin" />
                     Verifying...
                   </>
                 ) : (
                   <>
-                    <Search className="mr-2 h-5 w-5" />
+                    <Search className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
                     Verify Record
                   </>
                 )}

@@ -203,43 +203,43 @@ function VerificationResultContent() {
       <div className="min-h-screen bg-background flex flex-col">
         {/* Header */}
         <div className="border-b bg-muted/30">
-          <div className="container mx-auto px-6 py-4 flex justify-center">
+          <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
             <LogoOnboarding />
           </div>
         </div>
 
         {/* Main Content - Centered */}
-        <div className="flex-1 flex items-center justify-center px-4 py-12">
+        <div className="flex-1 flex items-center justify-center px-4 py-8 sm:py-12">
           <div className="w-full max-w-md">
             <Card className="border-2 shadow-xl">
-              <CardContent className="pt-8 pb-8">
-                <div className="flex flex-col items-center text-center space-y-6">
+              <CardContent className="pt-6 sm:pt-8 pb-6 sm:pb-8 px-4 sm:px-6">
+                <div className="flex flex-col items-center text-center space-y-4 sm:space-y-6">
                   {/* Icon */}
-                  <div className="rounded-full bg-red-100 dark:bg-red-900/20 p-4">
-                    <XCircle className="h-12 w-12 text-red-600 dark:text-red-400" />
+                  <div className="rounded-full bg-red-100 dark:bg-red-900/20 p-3 sm:p-4">
+                    <XCircle className="h-10 w-10 sm:h-12 sm:w-12 text-red-600 dark:text-red-400" />
                   </div>
 
                   {/* Title */}
                   <div>
-                    <h2 className="text-2xl font-bold text-foreground mb-2">
+                    <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-2">
                       Code Not Found
                     </h2>
-                    <p className="text-muted-foreground">
+                    <p className="text-sm sm:text-base text-muted-foreground px-2">
                       No record found for the provided verification code. Please verify the code and try again.
                     </p>
                   </div>
 
                   {/* Buttons */}
                   <div className="flex flex-col gap-3 w-full pt-2">
-                    <Button asChild variant="default" size="lg" className="w-full">
+                    <Button asChild variant="default" size="lg" className="w-full text-sm sm:text-base">
                       <Link href="/verify">
-                        <Search className="mr-2 h-5 w-5" />
+                        <Search className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
                         Try Another Code
                       </Link>
                     </Button>
-                    <Button asChild variant="outline" size="lg" className="w-full">
+                    <Button asChild variant="outline" size="lg" className="w-full text-sm sm:text-base">
                       <Link href="/">
-                        <ArrowLeft className="mr-2 h-5 w-5" />
+                        <ArrowLeft className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
                         Back to Home
                       </Link>
                     </Button>
@@ -258,32 +258,32 @@ function VerificationResultContent() {
       <div className="min-h-screen bg-background">
         {/* Header */}
         <div className="border-b bg-muted/30">
-          <div className="container mx-auto px-6 py-4 flex justify-center">
+          <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
             <LogoOnboarding />
           </div>
         </div>
 
         {/* Main Content */}
-        <div className="container mx-auto px-6 py-8 max-w-2xl">
+        <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-2xl">
           <Card className="border-2 shadow-lg">
-            <CardContent className="pt-6">
-              <Alert variant="destructive" className="mb-6">
-                <AlertTriangle className="h-5 w-5" />
-                <AlertTitle className="font-bold flex items-center gap-2">
+            <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
+              <Alert variant="destructive" className="mb-4 sm:mb-6">
+                <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />
+                <AlertTitle className="font-bold flex items-center gap-2 text-sm sm:text-base">
                   ⚠️ Voided
                 </AlertTitle>
-                <AlertDescription>
+                <AlertDescription className="text-xs sm:text-sm">
                   This record has been voided. The original testimonial is no longer valid or has been removed.
                 </AlertDescription>
               </Alert>
-              <div className="flex gap-3">
-                <Button asChild variant="default" className="flex-1">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button asChild variant="default" className="flex-1 text-sm sm:text-base">
                   <Link href="/verify">
                     <Search className="mr-2 h-4 w-4" />
                     Try Another Code
                   </Link>
                 </Button>
-                <Button asChild variant="outline" className="flex-1">
+                <Button asChild variant="outline" className="flex-1 text-sm sm:text-base">
                   <Link href="/">
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Back to Home
@@ -302,28 +302,28 @@ function VerificationResultContent() {
       <div className="min-h-screen bg-background">
         {/* Header */}
         <div className="border-b bg-muted/30">
-          <div className="container mx-auto px-6 py-4 flex justify-center">
+          <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
             <LogoOnboarding />
           </div>
         </div>
 
         {/* Main Content */}
-        <div className="container mx-auto px-6 py-8 max-w-7xl">
-          <div className="space-y-6">
+        <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-7xl">
+          <div className="space-y-4 sm:space-y-6">
             {/* Status Header */}
-            <div className="rounded-xl border-2 border-green-500 bg-green-500/10 p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <CheckCircle2 className="h-8 w-8 text-green-500" />
-                  <div>
-                    <h1 className="text-2xl font-bold text-green-500">Verified</h1>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      <code className="font-mono font-semibold">{data.testimonial_code}</code> matches an official record approved by {data.captain_name}
+            <div className="rounded-xl border-2 border-green-500 bg-green-500/10 p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-start sm:items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                  <CheckCircle2 className="h-6 w-6 sm:h-8 sm:w-8 text-green-500 flex-shrink-0 mt-1 sm:mt-0" />
+                  <div className="flex-1 min-w-0">
+                    <h1 className="text-xl sm:text-2xl font-bold text-green-500">Verified</h1>
+                    <p className="text-xs sm:text-sm text-muted-foreground mt-1 break-words">
+                      <code className="font-mono font-semibold break-all">{data.testimonial_code}</code> matches an official record approved by {data.captain_name}
                     </p>
                   </div>
                 </div>
-                <Badge variant="outline" className="bg-green-500/20 text-green-500 border-green-500 text-base px-4 py-2">
-                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                <Badge variant="outline" className="bg-green-500/20 text-green-500 border-green-500 text-sm sm:text-base px-3 sm:px-4 py-1.5 sm:py-2 flex-shrink-0">
+                  <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" />
                   Verified
                 </Badge>
               </div>
@@ -331,18 +331,18 @@ function VerificationResultContent() {
 
             {/* Part 1 - Seafarer's Details */}
             <Card className="border-2 shadow-lg">
-              <CardHeader className="bg-muted/50 border-b">
-                <CardTitle className="text-xl font-bold text-primary">PART 1 – SEAFARER'S DETAILS</CardTitle>
+              <CardHeader className="bg-muted/50 border-b px-4 sm:px-6 py-3 sm:py-4">
+                <CardTitle className="text-lg sm:text-xl font-bold text-primary">PART 1 – SEAFARER'S DETAILS</CardTitle>
               </CardHeader>
-              <CardContent className="pt-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                   <div>
-                    <p className="text-sm font-semibold text-muted-foreground mb-2">Name</p>
-                    <p className="text-lg font-medium">{data.crew_name}</p>
+                    <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Name</p>
+                    <p className="text-base sm:text-lg font-medium break-words">{data.crew_name}</p>
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-muted-foreground mb-2">Position / Rank</p>
-                    <p className="text-lg font-medium">{data.rank}</p>
+                    <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Position / Rank</p>
+                    <p className="text-base sm:text-lg font-medium break-words">{data.rank}</p>
                   </div>
                 </div>
               </CardContent>
@@ -350,23 +350,23 @@ function VerificationResultContent() {
 
             {/* Part 2 - Service */}
             <Card className="border-2 shadow-lg">
-              <CardHeader className="bg-muted/50 border-b">
-                <CardTitle className="text-xl font-bold text-primary">PART 2 – SERVICE</CardTitle>
+              <CardHeader className="bg-muted/50 border-b px-4 sm:px-6 py-3 sm:py-4">
+                <CardTitle className="text-lg sm:text-xl font-bold text-primary">PART 2 – SERVICE</CardTitle>
               </CardHeader>
-              <CardContent className="pt-6">
-                <div className="space-y-8">
+              <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
+                <div className="space-y-6 sm:space-y-8">
                   {/* Vessel Information */}
                   <div>
-                    <h4 className="text-base font-bold text-primary mb-4">ON BOARD:</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <h4 className="text-sm sm:text-base font-bold text-primary mb-3 sm:mb-4">ON BOARD:</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                       <div>
-                        <p className="text-sm font-semibold text-muted-foreground mb-2">Vessel Name</p>
-                        <p className="text-lg font-medium">{data.vessel_name}</p>
+                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Vessel Name</p>
+                        <p className="text-base sm:text-lg font-medium break-words">{data.vessel_name}</p>
                       </div>
                       {data.imo && (
                         <div>
-                          <p className="text-sm font-semibold text-muted-foreground mb-2">IMO Number</p>
-                          <p className="text-lg font-medium">{data.imo}</p>
+                          <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">IMO Number</p>
+                          <p className="text-base sm:text-lg font-medium break-words">{data.imo}</p>
                         </div>
                       )}
                     </div>
@@ -376,15 +376,15 @@ function VerificationResultContent() {
 
                   {/* Service Dates */}
                   <div>
-                    <h4 className="text-base font-bold text-primary mb-4">SERVICE DATES:</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <h4 className="text-sm sm:text-base font-bold text-primary mb-3 sm:mb-4">SERVICE DATES:</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                       <div>
-                        <p className="text-sm font-semibold text-muted-foreground mb-2">From (Onboard Service)</p>
-                        <p className="text-lg font-medium">{format(new Date(data.start_date), 'dd MMMM yyyy')}</p>
+                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">From (Onboard Service)</p>
+                        <p className="text-base sm:text-lg font-medium">{format(new Date(data.start_date), 'dd MMMM yyyy')}</p>
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-muted-foreground mb-2">Until</p>
-                        <p className="text-lg font-medium">{format(new Date(data.end_date), 'dd MMMM yyyy')}</p>
+                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Until</p>
+                        <p className="text-base sm:text-lg font-medium">{format(new Date(data.end_date), 'dd MMMM yyyy')}</p>
                       </div>
                     </div>
                   </div>
@@ -393,19 +393,19 @@ function VerificationResultContent() {
 
                   {/* Service Breakdown */}
                   <div>
-                    <h4 className="text-base font-bold text-primary mb-4">SERVICE BREAKDOWN (DAYS):</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                    <h4 className="text-sm sm:text-base font-bold text-primary mb-3 sm:mb-4">SERVICE BREAKDOWN (DAYS):</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
                       <div>
-                        <p className="text-sm font-semibold text-muted-foreground mb-2">Total Days</p>
-                        <p className="text-2xl font-bold">{data.total_days} days</p>
+                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Total Days</p>
+                        <p className="text-xl sm:text-2xl font-bold">{data.total_days} days</p>
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-muted-foreground mb-2">Sea Days</p>
-                        <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{data.sea_days} days</p>
+                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Sea Days</p>
+                        <p className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">{data.sea_days} days</p>
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-muted-foreground mb-2">Standby Days</p>
-                        <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{data.standby_days} days</p>
+                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Standby Days</p>
+                        <p className="text-xl sm:text-2xl font-bold text-purple-600 dark:text-purple-400">{data.standby_days} days</p>
                       </div>
                     </div>
                   </div>
@@ -415,26 +415,26 @@ function VerificationResultContent() {
 
             {/* Part 3 - Declaration by Master */}
             <Card className="border-2 shadow-lg">
-              <CardHeader className="bg-muted/50 border-b">
-                <CardTitle className="text-xl font-bold text-primary">PART 3 – DECLARATION BY MASTER</CardTitle>
+              <CardHeader className="bg-muted/50 border-b px-4 sm:px-6 py-3 sm:py-4">
+                <CardTitle className="text-lg sm:text-xl font-bold text-primary">PART 3 – DECLARATION BY MASTER</CardTitle>
               </CardHeader>
-              <CardContent className="pt-6">
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
+                <div className="space-y-4 sm:space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                     <div>
-                      <p className="text-sm font-semibold text-muted-foreground mb-2">Captain Name</p>
-                      <p className="text-lg font-medium">{data.captain_name}</p>
+                      <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Captain Name</p>
+                      <p className="text-base sm:text-lg font-medium break-words">{data.captain_name}</p>
                     </div>
                     {data.captain_license && (
                       <div>
-                        <p className="text-sm font-semibold text-muted-foreground mb-2">License / Certification</p>
-                        <p className="text-lg font-medium">{data.captain_license}</p>
+                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">License / Certification</p>
+                        <p className="text-base sm:text-lg font-medium break-words">{data.captain_license}</p>
                       </div>
                     )}
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-muted-foreground mb-2">Approved Date</p>
-                    <p className="text-lg font-medium">{format(new Date(data.approved_at), 'dd MMMM yyyy \'at\' HH:mm')}</p>
+                    <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Approved Date</p>
+                    <p className="text-base sm:text-lg font-medium">{format(new Date(data.approved_at), 'dd MMMM yyyy \'at\' HH:mm')}</p>
                   </div>
                 </div>
               </CardContent>
@@ -442,27 +442,27 @@ function VerificationResultContent() {
 
             {/* Document Verification */}
             <Card className="border-2 border-primary/20 bg-primary/5 shadow-lg">
-              <CardHeader className="bg-primary/10 border-b border-primary/20">
-                <CardTitle className="text-xl font-bold text-primary">DOCUMENT VERIFICATION</CardTitle>
+              <CardHeader className="bg-primary/10 border-b border-primary/20 px-4 sm:px-6 py-3 sm:py-4">
+                <CardTitle className="text-lg sm:text-xl font-bold text-primary">DOCUMENT VERIFICATION</CardTitle>
               </CardHeader>
-              <CardContent className="pt-6">
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
+                <div className="space-y-4 sm:space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                     <div>
-                      <p className="text-sm font-semibold text-muted-foreground mb-2">Testimonial Code</p>
-                      <code className="block bg-background border-2 border-primary/20 px-4 py-3 rounded-lg text-lg font-mono font-semibold text-primary">
+                      <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Testimonial Code</p>
+                      <code className="block bg-background border-2 border-primary/20 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-base sm:text-lg font-mono font-semibold text-primary break-all">
                         {data.testimonial_code}
                       </code>
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-muted-foreground mb-2">Document ID</p>
-                      <code className="block bg-background border-2 border-primary/20 px-4 py-3 rounded-lg text-sm font-mono text-muted-foreground break-all">
+                      <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Document ID</p>
+                      <code className="block bg-background border-2 border-primary/20 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-mono text-muted-foreground break-all">
                         {data.document_id}
                       </code>
                     </div>
                   </div>
-                  <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 p-6">
-                    <p className="text-base text-blue-900 dark:text-blue-100">
+                  <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 p-4 sm:p-6">
+                    <p className="text-sm sm:text-base text-blue-900 dark:text-blue-100">
                       <strong>Verification Note:</strong> This record matches the official testimonial document. 
                       Officials can cross-reference the code above with the code in the PDF footer to confirm authenticity.
                     </p>
@@ -472,10 +472,10 @@ function VerificationResultContent() {
             </Card>
 
             {/* Verify New Record Button */}
-            <div className="flex justify-center pt-4">
-              <Button asChild size="lg" variant="default" className="min-w-[200px]">
+            <div className="flex justify-center pt-2 sm:pt-4">
+              <Button asChild size="lg" variant="default" className="w-full sm:w-auto min-w-[200px]">
                 <Link href="/verify">
-                  <Search className="mr-2 h-5 w-5" />
+                  <Search className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
                   Verify New Record
                 </Link>
               </Button>
@@ -494,16 +494,16 @@ export default function VerificationResultPage() {
     <Suspense fallback={
       <div className="min-h-screen bg-background">
         <div className="border-b bg-muted/30">
-          <div className="container mx-auto px-6 py-4 flex justify-center">
+          <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
             <LogoOnboarding />
           </div>
         </div>
-        <div className="container mx-auto px-6 py-8 max-w-2xl">
+        <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-2xl">
           <Card className="border-2 shadow-lg">
-            <CardContent className="pt-6">
-              <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-                <p className="text-muted-foreground">Loading...</p>
+            <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
+              <div className="flex flex-col items-center justify-center py-8 sm:py-12">
+                <Loader2 className="h-6 w-6 sm:h-8 sm:w-8 animate-spin text-primary mb-3 sm:mb-4" />
+                <p className="text-sm sm:text-base text-muted-foreground">Loading...</p>
               </div>
             </CardContent>
           </Card>
