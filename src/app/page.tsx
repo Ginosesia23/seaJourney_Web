@@ -11,6 +11,7 @@ import HowToUse from '@/components/sections/how-to-use';
 import MembershipCTA from '@/components/sections/membership-cta';
 import ShopPromo from '@/components/sections/shop-promo';
 import AndroidTesterSignup from '@/components/sections/android-tester-signup';
+import VerificationCTA from '@/components/sections/verification-cta';
 import { AuthRecoveryHandler } from '@/components/auth-recovery-handler';
 
 export default function Home() {
@@ -22,6 +23,7 @@ export default function Home() {
         <CrewBenefits />
         <Hero />
         <Features />
+        <VerificationCTA />
         <HowToUse />
         {/* <Testimonials /> */}
         <MembershipCTA />
