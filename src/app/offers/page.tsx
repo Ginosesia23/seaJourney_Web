@@ -80,6 +80,9 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'Unlimited vessels',
       'Passage log book',
       'Bridge watch log book',
+      'Export sea time to multi-format (Excel, CSV, etc.)',
+      'Visa tracker',
+      'Request sea time',
     ],
     cta: 'Get Started',
     highlighted: true,
@@ -96,7 +99,7 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'All Premium features',
       'Advanced analytics',
       'GPS passage tracking',
-      'Visa tracker',
+      'Automatic vessel state tracking via AIS (additional fee per month)',
       'Direct MCA submissions & approvals',
     ],
     cta: 'Get Started',
@@ -609,31 +612,31 @@ export default function OffersPage() {
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: 0 }}
               >
-                <Card className="flex flex-col rounded-2xl border border-blue-500/30 ring-1 ring-blue-500/20 transition-all duration-300 hover:scale-105" style={{ backgroundColor: 'rgba(2, 22, 44, 0.6)', backdropFilter: 'blur(20px)', boxShadow: '0 8px 32px rgba(59, 130, 246, 0.15), 0 0 0 1px rgba(59, 130, 246, 0.1)' }}>
+                <Card className="flex flex-col rounded-2xl border border-blue-500/30 ring-1 ring-blue-500/20 dark:border-blue-500/30 dark:ring-blue-500/20 transition-all duration-300 hover:scale-105 bg-white dark:bg-[rgba(2,22,44,0.6)] shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30 backdrop-blur-sm dark:backdrop-blur-[20px]">
                   <CardHeader className="flex-grow pb-6">
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-500/20">
-                        <Download className="h-6 w-6 text-blue-400" />
+                      <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-100 dark:bg-blue-500/20">
+                        <Download className="h-6 w-6 text-blue-600 dark:text-blue-400" />
                       </div>
-                      <CardTitle className="font-headline text-2xl text-white">
+                      <CardTitle className="font-headline text-2xl text-gray-900 dark:text-white">
                         {freeTier.name}
                       </CardTitle>
                     </div>
                     <div className="flex items-baseline gap-2 mb-2">
-                      <span className="text-5xl font-bold tracking-tight text-white">Free</span>
+                      <span className="text-5xl font-bold tracking-tight text-gray-900 dark:text-white">Free</span>
                       </div>
-                    <CardDescription className="text-blue-100/80 text-base mt-4">
+                    <CardDescription className="text-gray-600 dark:text-blue-100/80 text-base mt-4">
                       {freeTier.description}
                     </CardDescription>
                     </CardHeader>
-                  <CardContent className="border-t border-white/10 pt-6 pb-6">
+                  <CardContent className="border-t border-gray-200 dark:border-white/10 pt-6 pb-6">
                     <ul className="space-y-4 text-sm">
                       {freeTier.features.map((feature, idx) => (
                         <li key={idx} className="flex items-start gap-3">
-                          <div className="mt-0.5 h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0 bg-blue-500/20">
-                            <Check className="h-3 w-3 text-blue-400" />
+                          <div className="mt-0.5 h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0 bg-blue-100 dark:bg-blue-500/20">
+                            <Check className="h-3 w-3 text-blue-600 dark:text-blue-400" />
                           </div>
-                          <span className="text-white/90">{feature}</span>
+                          <span className="text-gray-700 dark:text-white/90">{feature}</span>
                           </li>
                         ))}
                       </ul>
@@ -641,7 +644,7 @@ export default function OffersPage() {
                   <CardFooter className="pt-0">
                       <Button
                         asChild
-                      className="w-full rounded-xl text-base font-semibold h-12 bg-white/10 hover:bg-white/20 text-white border border-white/20"
+                      className="w-full rounded-xl text-base font-semibold h-12 bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/20 text-gray-900 dark:text-white border border-gray-300 dark:border-white/20"
                       >
                         <Link
                           href={freeTier.href}
@@ -678,74 +681,34 @@ export default function OffersPage() {
                         isCurrent ? 'hover:scale-102' : 'hover:scale-105'
                       } ${
                         isHighlighted
-                          ? 'border-purple-500/50 ring-2 ring-purple-500/30'
+                          ? 'border-purple-500/50 ring-2 ring-purple-500/30 dark:border-purple-500/50 dark:ring-purple-500/30'
                           : plan.color === 'blue'
-                          ? 'border-blue-500/30 ring-1 ring-blue-500/20'
-                          : 'border-orange-500/30 ring-1 ring-orange-500/20'
-                      }`}
-                      style={{
-                        backgroundColor: isHighlighted
-                          ? 'rgba(147, 51, 234, 0.1)'
+                          ? 'border-blue-500/30 ring-1 ring-blue-500/20 dark:border-blue-500/30 dark:ring-blue-500/20'
+                          : 'border-orange-500/30 ring-1 ring-orange-500/20 dark:border-orange-500/30 dark:ring-orange-500/20'
+                      } ${
+                        isHighlighted
+                          ? 'bg-purple-50/80 dark:bg-purple-950/20'
                           : plan.color === 'blue'
-                          ? 'rgba(2, 22, 44, 0.6)'
-                          : 'rgba(2, 22, 44, 0.6)',
-                        backdropFilter: 'blur(20px)',
-                        boxShadow:
-                          plan.color === 'blue'
-                            ? '0 8px 32px rgba(59, 130, 246, 0.15), 0 0 0 1px rgba(59, 130, 246, 0.1)'
-                            : plan.color === 'purple'
-                            ? '0 8px 32px rgba(147, 51, 234, 0.25), 0 0 0 1px rgba(147, 51, 234, 0.15)'
-                            : '0 8px 32px rgba(249, 115, 22, 0.15), 0 0 0 1px rgba(249, 115, 22, 0.1)',
-                      }}
-                      onMouseEnter={(e) => {
-                        if (plan.color === 'blue') {
-                          e.currentTarget.style.boxShadow =
-                            '0 12px 48px rgba(59, 130, 246, 0.3), 0 0 0 1px rgba(59, 130, 246, 0.2)';
-                        } else if (plan.color === 'purple') {
-                          e.currentTarget.style.boxShadow =
-                            '0 12px 48px rgba(147, 51, 234, 0.4), 0 0 0 1px rgba(147, 51, 234, 0.25)';
-                        } else {
-                          e.currentTarget.style.boxShadow =
-                            '0 12px 48px rgba(249, 115, 22, 0.3), 0 0 0 1px rgba(249, 115, 22, 0.2)';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (plan.color === 'blue') {
-                          e.currentTarget.style.boxShadow =
-                            '0 8px 32px rgba(59, 130, 246, 0.15), 0 0 0 1px rgba(59, 130, 246, 0.1)';
-                        } else if (plan.color === 'purple') {
-                          e.currentTarget.style.boxShadow =
-                            '0 8px 32px rgba(147, 51, 234, 0.25), 0 0 0 1px rgba(147, 51, 234, 0.15)';
-                        } else {
-                          e.currentTarget.style.boxShadow =
-                            '0 8px 32px rgba(249, 115, 22, 0.15), 0 0 0 1px rgba(249, 115, 22, 0.1)';
-                        }
-                      }}
+                          ? 'bg-white dark:bg-[rgba(2,22,44,0.6)]'
+                          : 'bg-white dark:bg-[rgba(2,22,44,0.6)]'
+                      } ${
+                        plan.color === 'blue'
+                          ? 'shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30'
+                          : plan.color === 'purple'
+                          ? 'shadow-lg shadow-purple-500/15 dark:shadow-purple-500/25 hover:shadow-xl hover:shadow-purple-500/25 dark:hover:shadow-purple-500/40'
+                          : 'shadow-lg shadow-orange-500/10 dark:shadow-orange-500/15 hover:shadow-xl hover:shadow-orange-500/20 dark:hover:shadow-orange-500/30'
+                      } backdrop-blur-sm dark:backdrop-blur-[20px]`}
                     >
                       <CardHeader className="flex-grow pb-6">
                         <div className="flex justify-between items-start mb-4">
                           {isCurrent && (
-                            <div
-                              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border"
-                              style={{
-                                backgroundColor: 'rgba(34, 197, 94, 0.2)',
-                                borderColor: 'rgba(34, 197, 94, 0.5)',
-                                color: '#4ade80',
-                              }}
-                        >
+                            <div className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border bg-green-100 dark:bg-green-500/20 border-green-300 dark:border-green-500/50 text-green-700 dark:text-green-400">
                               <Check className="h-3.5 w-3.5" />
                               Current Plan
                             </div>
                           )}
                           {plan.comingSoon && (
-                            <div
-                              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto"
-                              style={{
-                                backgroundColor: 'rgba(249, 115, 22, 0.2)',
-                                borderColor: 'rgba(249, 115, 22, 0.5)',
-                                color: '#fb923c',
-                              }}
-                            >
+                            <div className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto bg-orange-100 dark:bg-orange-500/20 border-orange-300 dark:border-orange-500/50 text-orange-700 dark:text-orange-400">
                               Coming Soon
                             </div>
                           )}
@@ -753,14 +716,7 @@ export default function OffersPage() {
                             !isCurrent &&
                             !plan.comingSoon &&
                             !isVesselAccount && (
-                              <div
-                                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto"
-                                style={{
-                                  backgroundColor: 'rgba(147, 51, 234, 0.2)',
-                                  borderColor: 'rgba(147, 51, 234, 0.5)',
-                                  color: '#c084fc',
-                                }}
-                              >
+                              <div className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto bg-purple-100 dark:bg-purple-500/20 border-purple-300 dark:border-purple-500/50 text-purple-700 dark:text-purple-400">
                                 <Star className="h-3.5 w-3.5 fill-current" />
                                 Most Popular
                               </div>
@@ -770,42 +726,39 @@ export default function OffersPage() {
                           <div
                             className={`h-12 w-12 rounded-xl flex items-center justify-center ${
                               plan.color === 'blue'
-                                ? 'bg-blue-500/20'
+                                ? 'bg-blue-100 dark:bg-blue-500/20'
                                 : plan.color === 'purple'
-                                ? 'bg-purple-500/20'
-                                : 'bg-orange-500/20'
+                                ? 'bg-purple-100 dark:bg-purple-500/20'
+                                : 'bg-orange-100 dark:bg-orange-500/20'
                             }`}
                           >
                             <Icon
                               className={`h-6 w-6 ${
                                 plan.color === 'blue'
-                                  ? 'text-blue-400'
+                                  ? 'text-blue-600 dark:text-blue-400'
                                   : plan.color === 'purple'
-                                  ? 'text-purple-400'
-                                  : 'text-orange-400'
+                                  ? 'text-purple-600 dark:text-purple-400'
+                                  : 'text-orange-600 dark:text-orange-400'
                               }`}
                             />
                           </div>
-                          <CardTitle className="font-headline text-2xl text-white">
+                          <CardTitle className="font-headline text-2xl text-gray-900 dark:text-white">
                             {plan.name}
                             </CardTitle>
                         </div>
                         <div className="flex items-baseline gap-2 mb-2">
-                          <span className="text-5xl font-bold tracking-tight text-white">
+                          <span className="text-5xl font-bold tracking-tight text-gray-900 dark:text-white">
                             {plan.price}
                           </span>
-                          <span
-                            className="text-base font-semibold"
-                            style={{ color: '#94a3b8' }}
-                          >
+                          <span className="text-base font-semibold text-gray-600 dark:text-slate-400">
                             {plan.priceSuffix}
                               </span>
                         </div>
-                        <CardDescription className="text-blue-100/80 text-base mt-4">
+                        <CardDescription className="text-gray-600 dark:text-blue-100/80 text-base mt-4">
                           {plan.description}
                         </CardDescription>
                       </CardHeader>
-                      <CardContent className="border-t border-white/10 pt-6 pb-6">
+                      <CardContent className="border-t border-gray-200 dark:border-white/10 pt-6 pb-6">
                         <ul className="space-y-4 text-sm">
                           {plan.features.map((feature, idx) => (
                             <li
@@ -815,23 +768,23 @@ export default function OffersPage() {
                               <div
                                 className={`mt-0.5 h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0 ${
                                   plan.color === 'blue'
-                                    ? 'bg-blue-500/20'
+                                    ? 'bg-blue-100 dark:bg-blue-500/20'
                                     : plan.color === 'purple'
-                                    ? 'bg-purple-500/20'
-                                    : 'bg-orange-500/20'
+                                    ? 'bg-purple-100 dark:bg-purple-500/20'
+                                    : 'bg-orange-100 dark:bg-orange-500/20'
                                 }`}
                               >
                                 <Check
                                   className={`h-3 w-3 ${
                                     plan.color === 'blue'
-                                      ? 'text-blue-400'
+                                      ? 'text-blue-600 dark:text-blue-400'
                                       : plan.color === 'purple'
-                                      ? 'text-purple-400'
-                                      : 'text-orange-400'
+                                      ? 'text-purple-600 dark:text-purple-400'
+                                      : 'text-orange-600 dark:text-orange-400'
                                   }`}
                                 />
                               </div>
-                              <span className="text-white/90">
+                              <span className="text-gray-700 dark:text-white/90">
                                 {feature}
                               </span>
                                     </li>
@@ -842,7 +795,7 @@ export default function OffersPage() {
                         {isCurrent ? (
                             <Button
                             asChild
-                            className="w-full rounded-xl text-base font-semibold h-12 bg-blue-600 hover:bg-blue-700 text-white border-0 shadow-lg"
+                            className="w-full rounded-xl text-base font-semibold h-12 bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white border-0 shadow-lg"
                           >
                             <Link
                               href="/dashboard"
@@ -855,7 +808,7 @@ export default function OffersPage() {
                         ) : plan.comingSoon ? (
                           <Button
                             disabled
-                            className="w-full rounded-xl text-base font-semibold h-12 bg-white/5 text-white/50 border border-white/10 cursor-not-allowed"
+                            className="w-full rounded-xl text-base font-semibold h-12 bg-gray-100 dark:bg-white/5 text-gray-400 dark:text-white/50 border border-gray-300 dark:border-white/10 cursor-not-allowed"
                           >
                             <div className="flex items-center justify-center gap-2">
                               Available Later{' '}
@@ -872,7 +825,7 @@ export default function OffersPage() {
                             className={`w-full rounded-xl text-base font-semibold h-12 ${
                               isHighlighted
                                 ? 'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white border-0 shadow-lg shadow-purple-500/30 disabled:opacity-50'
-                                : 'bg-white/10 hover:bg-white/20 text-white border border-white/20 disabled:opacity-50'
+                                : 'bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/20 text-gray-900 dark:text-white border border-gray-300 dark:border-white/20 disabled:opacity-50'
                             }`}
                             >
                             {purchasingPlan === plan.name ? (

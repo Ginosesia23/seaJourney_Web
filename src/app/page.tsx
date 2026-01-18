@@ -2,6 +2,7 @@
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import Hero from '@/components/sections/hero';
+import CrewBenefits from '@/components/sections/crew-benefits';
 import Features from '@/components/sections/features';
 import DashboardPreview from '@/components/sections/dashboard-preview';
 import IOSApp from '@/components/sections/ios-app';
@@ -18,10 +19,9 @@ export default function Home() {
       <AuthRecoveryHandler />
       <Header />
       <main className="flex-1">
+        <CrewBenefits />
         <Hero />
         <Features />
-        <IOSApp />
-        <DashboardPreview />
         <HowToUse />
         {/* <Testimonials /> */}
         <MembershipCTA />

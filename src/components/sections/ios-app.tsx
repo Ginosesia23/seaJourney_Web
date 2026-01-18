@@ -59,10 +59,10 @@ const IOSApp = () => {
               </span>
             </div>
             <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl mb-4">
-              Log Sea Time on the Go
+              Log Your Sea Time Anywhere
             </h2>
             <p className="text-lg leading-8 mb-6" style={{ color: '#c7d2fe' }}>
-              Use our iOS app as your mobile logbook to quickly log your sea time and vessel states. Then access advanced features like testimonials, exports, and crew management on the web portal.
+              As a crew member, you're always on the move. Use our iOS app to log your vessel states quickly from anywhere. Then access powerful features like digital testimonials, professional exports, and complete career management on the web portal.
             </p>
 
             {/* Feature List */}
@@ -201,7 +201,6 @@ const IOSApp = () => {
                             style={{
                                 backgroundColor: isActive ? state.bgColor : 'rgba(30, 41, 59, 0.5)',
                                 borderColor: isActive ? state.borderColor : 'rgba(255, 255, 255, 0.1)',
-                                ringColor: `${state.color}80`
                             }}
                               whileTap={{ scale: 0.95 }}
                               transition={{ duration: 0.2 }}

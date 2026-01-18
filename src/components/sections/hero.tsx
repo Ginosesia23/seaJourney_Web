@@ -1,414 +1,594 @@
-
 'use client';
 
-import { Calendar, FileText, History, User } from 'lucide-react';
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Smartphone, Monitor, RefreshCw, ArrowRight, CheckCircle2, Ship, Calendar, FileText, Waves, Anchor, Building, Briefcase, Wrench, Target, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { AppStoreIcon } from '@/components/sections/cta';
+
+type VesselState = 'underway' | 'at-anchor' | 'in-port' | 'on-leave';
+
+const vesselStates = {
+  'underway': { name: 'Underway', icon: Waves, color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.3)' },
+  'at-anchor': { name: 'At Anchor', icon: Anchor, color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.15)', borderColor: 'rgba(249, 115, 22, 0.3)' },
+  'in-port': { name: 'In Port', icon: Building, color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.15)', borderColor: 'rgba(34, 197, 94, 0.3)' },
+  'on-leave': { name: 'On Leave', icon: Briefcase, color: '#6b7280', bgColor: 'rgba(107, 114, 128, 0.15)', borderColor: 'rgba(107, 114, 128, 0.3)' },
+};
 
 const Hero = () => {
+  const [selectedState, setSelectedState] = useState<VesselState>('in-port');
+
+  const currentState = vesselStates[selectedState];
+
   return (
     <section className="relative overflow-hidden py-20 sm:py-28" style={{ backgroundColor: '#000b15' }}>
-      <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center">
-            <div className="inline-block mb-4">
-              <span className="inline-flex items-center rounded-full bg-blue-800/50 px-3 py-1 text-sm font-semibold text-blue-100">
-                #1 Maritime Career App
-              </span>
+      {/* Background decoration */}
+      <div className="absolute inset-0 opacity-10">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500 rounded-full blur-3xl"></div>
+      </div>
+
+      <div className="container relative mx-auto px-4 sm:px-6 lg:px-8 z-10">
+        <div className="max-w-7xl mx-auto">
+          {/* Header Section */}
+          <div className="text-center mb-16">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+            >
+              <div className="inline-block mb-6">
+                <span className="inline-flex items-center rounded-full bg-blue-800/30 backdrop-blur-sm px-4 py-1.5 text-sm font-semibold text-blue-100 border border-blue-500/30">
+                  Mobile App + Web Portal
+                </span>
+              </div>
+              <h1 className="font-headline text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-white mb-6 leading-tight">
+                Log on Mobile. <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Manage on Web.</span>
+              </h1>
+              <p className="text-lg sm:text-xl leading-relaxed text-blue-100/90 max-w-4xl mx-auto mb-10">
+                Use our iOS app to quickly log your sea time anywhere, anytime. Then access powerful features like digital testimonials, professional exports, and complete career management on the web portal.
+              </p>
+              
+              {/* CTA Buttons */}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <Button
+                  asChild
+                  size="lg"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 px-6 py-5 text-sm font-semibold h-auto"
+                >
+                  <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" target="_blank" rel="noopener noreferrer">
+                    <AppStoreIcon className="mr-2 h-4 w-4" />
+                    Download iOS App
+                  </Link>
+                </Button>
+                <Button
+                  asChild
+                  size="lg"
+                  variant="outline"
+                  className="rounded-xl border-2 border-white/20 bg-white/5 hover:bg-white/10 text-white px-6 py-5 text-sm font-semibold h-auto backdrop-blur-sm"
+                >
+                  <Link href="/offers" className="flex items-center gap-2">
+                    Explore Web Portal
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* Platform Showcase */}
+          <div className="relative mb-16">
+            <div className="flex flex-col lg:flex-row gap-12 items-start">
+              {/* Mobile App Side */}
+              <motion.div
+                initial={{ opacity: 0, x: -50 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.8, delay: 0.2 }}
+                className="flex flex-col items-center lg:items-start lg:flex-shrink-0 lg:-ml-4"
+              >
+                <div className="relative">
+                  {/* Glow effect */}
+                  <div className="absolute -inset-8 bg-gradient-to-br from-blue-500/30 via-blue-600/20 to-transparent rounded-[3.5rem] blur-3xl"></div>
+                  
+                  {/* iPhone Frame */}
+                  <div className="relative" style={{ width: '300px', height: '620px' }}>
+                    {/* Outer bezel */}
+                    <div 
+                      className="absolute inset-0 rounded-[3rem] bg-gradient-to-b from-gray-900 via-black to-gray-900"
+                      style={{ 
+                        boxShadow: `
+                          0 0 0 2px rgba(255, 255, 255, 0.05),
+                          0 30px 80px rgba(0, 0, 0, 0.6),
+                          inset 0 1px 0 rgba(255, 255, 255, 0.1)
+                        `
+                      }}
+                    >
+                      {/* Notch */}
+                      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-5 bg-black rounded-b-xl"></div>
+                    </div>
+                    
+                    {/* Screen */}
+                    <div className="absolute inset-[6px] rounded-[2.5rem] overflow-hidden bg-white flex flex-col">
+                      {/* Dark Blue Header */}
+                      <div className="px-4 pt-4 pb-4 shadow-lg flex-shrink-0" style={{ backgroundColor: '#0D2D44' }}>
+                        {/* Title Section */}
+                        <div className="flex items-center gap-2.5 mb-4">
+                          <div className="h-6 w-6 rounded-lg bg-white/15 backdrop-blur-sm flex items-center justify-center shadow-inner">
+                            <FileText className="h-3.5 w-3.5 text-white" />
+                          </div>
+                          <div>
+                            <h2 className="text-white font-bold text-sm leading-tight mb-0.5">State Log</h2>
+                            <p className="text-[9px] text-white/75 font-medium">Track and log vessel states</p>
+                          </div>
+                        </div>
+
+                        {/* Active Vessel Section */}
+                        <div className="flex items-start gap-2.5">
+                          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shadow-md shadow-green-500/30 flex-shrink-0">
+                            <Target className="h-4 w-4 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[9px] text-white/70 font-medium mb-1 uppercase tracking-wider">Active Vessel</p>
+                            <h3 className="text-white font-bold text-xs mb-1.5 leading-tight">Sunrise</h3>
+                            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] text-white/85">
+                              <div className="flex items-center gap-1">
+                                <Ship className="h-2.5 w-2.5" />
+                                <span className="font-medium">IMO: 896372</span>
+                              </div>
+                              <span className="font-medium">Flag: Cayman Island</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* White Content Area */}
+                      <div className="bg-gray-50 px-4 py-3 flex-1 overflow-y-auto">
+                        {/* Vessel State Buttons */}
+                        <div className="grid grid-cols-4 gap-1.5 mb-3">
+                          {(Object.entries(vesselStates) as [VesselState, typeof vesselStates[VesselState]][]).map(([stateKey, state]) => {
+                            const Icon = state.icon;
+                            const isActive = selectedState === stateKey;
+                            return (
+                              <motion.button
+                                key={stateKey}
+                                onClick={() => setSelectedState(stateKey)}
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                className={`rounded-lg p-2 text-center shadow-sm transition-all ${
+                                  isActive 
+                                    ? 'bg-green-500 shadow-green-500/20' 
+                                    : 'bg-gray-100 hover:bg-gray-200'
+                                }`}
+                              >
+                                <Icon className={`h-4 w-4 mx-auto mb-0.5 ${
+                                  isActive ? 'text-white' : 'text-gray-600'
+                                }`} />
+                                <p className={`text-[10px] font-medium leading-tight ${
+                                  isActive ? 'text-white' : 'text-gray-700'
+                                }`}>{state.name}</p>
+                              </motion.button>
+                            );
+                          })}
+                        </div>
+
+                        {/* State History Card */}
+                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-2.5">
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <div className="h-5 w-5 rounded-lg bg-blue-50 flex items-center justify-center">
+                              <Calendar className="h-3 w-3 text-blue-600" />
+                            </div>
+                            <h4 className="text-[10px] font-bold text-gray-900">State History</h4>
+                          </div>
+
+                          {/* Calendar Header */}
+                          <div className="flex items-center justify-between mb-1.5 px-0.5">
+                            <button className="h-5 w-5 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors">
+                              <ChevronLeft className="h-2.5 w-2.5 text-gray-600" />
+                            </button>
+                            <p className="text-[10px] font-bold text-gray-900">January 2026</p>
+                            <button className="h-5 w-5 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors">
+                              <ChevronRight className="h-2.5 w-2.5 text-gray-600" />
+                            </button>
+                          </div>
+
+                          {/* Calendar Days Header */}
+                          <div className="grid grid-cols-7 gap-0.5 mb-1">
+                            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+                              <div key={day} className="text-center text-[9px] text-gray-500 font-semibold py-0.5">
+                                {day}
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Calendar Grid */}
+                          <div className="grid grid-cols-7 gap-0.5">
+                            {/* Empty days */}
+                            {Array.from({ length: 0 }).map((_, i) => (
+                              <div key={`empty-${i}`} className="aspect-square"></div>
+                            ))}
+                            {/* Days 1-12 with green circles */}
+                            {Array.from({ length: 12 }).map((_, i) => {
+                              const day = i + 1;
+                              const hasPurpleOutline = day <= 3;
+                              return (
+                                <div key={day} className="aspect-square flex items-center justify-center">
+                                  <div 
+                                    className={`h-6 w-6 rounded-full flex items-center justify-center shadow-sm ${
+                                      hasPurpleOutline ? 'ring-1.5 ring-purple-500 ring-offset-0' : ''
+                                    }`} 
+                                    style={{ backgroundColor: '#22c55e' }}
+                                  >
+                                    <span className="text-[9px] font-bold text-white">{day}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {/* Days 13-31 faded */}
+                            {Array.from({ length: 19 }).map((_, i) => {
+                              const day = i + 13;
+                              return (
+                                <div key={day} className="aspect-square flex items-center justify-center">
+                                  <span className="text-[9px] text-gray-300 font-medium">{day}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Dark Blue Footer Navigation */}
+                      <div className="px-4 py-2.5 flex items-center justify-around border-t shadow-inner flex-shrink-0" style={{ backgroundColor: '#0D2D44', borderColor: 'rgba(255, 255, 255, 0.1)' }}>
+                        <div className="flex flex-col items-center gap-0.5">
+                          <div className="h-7 w-7 rounded-lg bg-white/15 backdrop-blur-sm flex items-center justify-center">
+                            <FileText className="h-3.5 w-3.5 text-white" />
+                          </div>
+                          <span className="text-[9px] text-white font-semibold">Log</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-0.5 opacity-60">
+                          <div className="h-7 w-7 rounded-lg bg-white/5 flex items-center justify-center">
+                            <Ship className="h-3.5 w-3.5 text-white" />
+                          </div>
+                          <span className="text-[9px] text-white/70 font-medium">Vessels</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-0.5 opacity-60">
+                          <div className="h-7 w-7 rounded-lg bg-white/5 flex items-center justify-center">
+                            <Briefcase className="h-3.5 w-3.5 text-white" />
+                          </div>
+                          <span className="text-[9px] text-white/70 font-medium">Profile</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Label - Mobile only */}
+                <div className="mt-8 text-center lg:hidden w-full">
+                  <div className="inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full shadow-lg" style={{ backgroundColor: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)', backdropFilter: 'blur(10px)' }}>
+                    <Smartphone className="h-4 w-4 text-blue-400" />
+                    <p className="text-sm font-semibold text-white">iOS App</p>
+                  </div>
+                  <p className="text-xs mt-2.5 text-blue-200/80">Quick logging on the go</p>
+                </div>
+              </motion.div>
+
+
+              {/* Web Portal Side */}
+              <motion.div
+                initial={{ opacity: 0, x: 50 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.8, delay: 0.4 }}
+                className="flex flex-col items-center lg:items-start lg:flex-1 lg:min-w-0 w-full"
+              >
+                <div className="relative">
+                  {/* Glow effect */}
+                  <div className="absolute -inset-8 bg-gradient-to-br from-purple-500/30 via-purple-600/20 to-transparent rounded-3xl blur-3xl"></div>
+                  
+                  {/* Desktop Frame */}
+                  <div className="relative" style={{ width: '950px', maxWidth: '100%', height: '680px' }}>
+                    {/* Mac-style browser frame */}
+                    <div className="rounded-t-xl bg-gradient-to-b from-slate-800 to-slate-900 border-t border-x border-slate-700/60 px-5 py-4 shadow-xl">
+                      <div className="flex items-center gap-4">
+                        <div className="flex gap-2">
+                          <div className="h-3.5 w-3.5 rounded-full bg-red-500 shadow-sm"></div>
+                          <div className="h-3.5 w-3.5 rounded-full bg-yellow-500 shadow-sm"></div>
+                          <div className="h-3.5 w-3.5 rounded-full bg-green-500 shadow-sm"></div>
+                        </div>
+                        <div className="flex-1 bg-slate-700/90 rounded-xl px-5 py-2.5 border border-slate-600/50 shadow-inner">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-2 rounded-full bg-green-400"></div>
+                            <p className="text-xs text-slate-300 font-medium">seajourney.com/dashboard</p>
+                          </div>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-slate-700/90 border border-slate-600/50 flex items-center justify-center hover:bg-slate-600/90 transition-colors cursor-pointer shadow-sm">
+                          <RefreshCw className="h-4 w-4 text-slate-400" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dashboard Content */}
+                    <div className="rounded-b-xl border-x border-b border-slate-700/60 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 p-10 shadow-2xl">
+                      {/* Stats Grid */}
+                      <div className="grid grid-cols-4 gap-4 mb-8">
+                        {[
+                          { label: 'Sea Time', value: '315', icon: Calendar, color: '#60a5fa' },
+                          { label: 'Vessels', value: '3', icon: Ship, color: '#4ade80' },
+                          { label: 'Testimonials', value: '5', icon: FileText, color: '#a78bfa' },
+                          { label: 'This Month', value: '28', icon: BarChart3, color: '#f59e0b' },
+                        ].map((stat, idx) => {
+                          const Icon = stat.icon;
+                          return (
+                            <div
+                              key={idx}
+                              className="rounded-xl p-4 border relative overflow-hidden group hover:scale-105 transition-transform"
+                              style={{ 
+                                backgroundColor: 'rgba(15, 23, 42, 0.8)', 
+                                borderColor: 'rgba(255, 255, 255, 0.1)',
+                              }}
+                            >
+                              <div className="absolute top-0 right-0 w-20 h-20 rounded-full blur-2xl opacity-20 group-hover:opacity-30 transition-opacity" style={{ backgroundColor: stat.color }}></div>
+                              <div className="relative">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className="h-10 w-10 rounded-lg flex items-center justify-center shadow-md" style={{ backgroundColor: `${stat.color}20` }}>
+                                    <Icon className="h-5 w-5" style={{ color: stat.color }} />
+                                  </div>
+                                  <p className="text-sm font-bold uppercase tracking-wider text-slate-400">{stat.label}</p>
+                                </div>
+                                <p className="text-3xl font-bold text-white">{stat.value}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Two Column Layout */}
+                      <div className="grid grid-cols-2 gap-6">
+                        {/* Left Column - Activity Feed */}
+                        <div className="rounded-xl p-6 border shadow-md" style={{ 
+                          backgroundColor: 'rgba(15, 23, 42, 0.8)', 
+                          borderColor: 'rgba(255, 255, 255, 0.1)'
+                        }}>
+                          <div className="flex items-center gap-2 mb-5">
+                            <div className="h-2.5 w-2.5 rounded-full bg-blue-400 shadow-md shadow-blue-400/50"></div>
+                            <p className="text-sm font-bold text-white">Recent Activity</p>
+                          </div>
+                          <div className="space-y-4">
+                            {[
+                              { 
+                                icon: Waves, 
+                                text: 'State updated on MY OCEAN STAR', 
+                                detail: 'Changed to Underway',
+                                time: '2 hours ago', 
+                                color: '#60a5fa' 
+                              },
+                              { 
+                                icon: FileText, 
+                                text: 'Testimonial approved', 
+                                detail: 'Captain James Wilson',
+                                time: '5 days ago', 
+                                color: '#4ade80' 
+                              },
+                              { 
+                                icon: Ship, 
+                                text: 'New vessel assignment', 
+                                detail: 'SV HORIZON',
+                                time: '1 week ago', 
+                                color: '#a78bfa' 
+                              },
+                              { 
+                                icon: Calendar, 
+                                text: 'Sea time exported', 
+                                detail: 'PDF format',
+                                time: '2 weeks ago', 
+                                color: '#f59e0b' 
+                              },
+                            ].map((activity, idx) => {
+                              const Icon = activity.icon;
+                              return (
+                                <div key={idx} className="flex items-start gap-4 pb-4 border-b last:border-0 last:pb-0" style={{ borderColor: 'rgba(255, 255, 255, 0.05)' }}>
+                                  <div className="h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm" style={{ backgroundColor: `${activity.color}20` }}>
+                                    <Icon className="h-5 w-5" style={{ color: activity.color }} />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-white mb-1">{activity.text}</p>
+                                    <p className="text-sm text-slate-400 mb-1.5">{activity.detail}</p>
+                                    <p className="text-xs text-slate-500">{activity.time}</p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Right Column - Active Vessels */}
+                        <div className="space-y-6">
+                          {/* Active Vessel Card */}
+                          <div className="rounded-xl p-6 border shadow-md" style={{ 
+                            backgroundColor: 'rgba(15, 23, 42, 0.8)', 
+                            borderColor: 'rgba(59, 130, 246, 0.3)'
+                          }}>
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="h-2.5 w-2.5 rounded-full bg-green-400 shadow-md shadow-green-400/50"></div>
+                              <p className="text-sm font-bold text-white">Active Vessel</p>
+                            </div>
+                            <div className="flex items-start gap-4">
+                              <div className="h-12 w-12 rounded-lg flex items-center justify-center shadow-md" style={{ backgroundColor: 'rgba(59, 130, 246, 0.2)' }}>
+                                <Ship className="h-6 w-6" style={{ color: '#60a5fa' }} />
+                              </div>
+                              <div className="flex-1">
+                                <h4 className="font-bold text-white text-base mb-1">MY OCEAN STAR</h4>
+                                <p className="text-xs text-slate-400 mb-2">Motor Yacht • IMO: 9876543</p>
+                                <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg" style={{ backgroundColor: 'rgba(59, 130, 246, 0.15)' }}>
+                                    <Waves className="h-3.5 w-3.5" style={{ color: '#60a5fa' }} />
+                                    <span className="text-xs font-semibold text-white">Underway</span>
+                                  </div>
+                                  <span className="text-xs text-slate-400">145 days logged</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Quick Actions */}
+                          <div className="rounded-xl p-6 border shadow-md" style={{ 
+                            backgroundColor: 'rgba(15, 23, 42, 0.8)', 
+                            borderColor: 'rgba(255, 255, 255, 0.1)'
+                          }}>
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="h-2.5 w-2.5 rounded-full bg-purple-400 shadow-md shadow-purple-400/50"></div>
+                              <p className="text-sm font-bold text-white">Quick Actions</p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              {[
+                                { icon: FileText, label: 'Export', color: '#a78bfa' },
+                                { icon: Calendar, label: 'Calendar', color: '#4ade80' },
+                                { icon: Ship, label: 'Vessels', color: '#60a5fa' },
+                                { icon: BarChart3, label: 'Analytics', color: '#f59e0b' },
+                              ].map((action, idx) => {
+                                const Icon = action.icon;
+                                return (
+                                  <div
+                                    key={idx}
+                                    className="rounded-lg p-3 border cursor-pointer hover:scale-105 transition-transform group"
+                                    style={{ 
+                                      backgroundColor: 'rgba(15, 23, 42, 0.6)', 
+                                      borderColor: 'rgba(255, 255, 255, 0.1)'
+                                    }}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <div className="h-8 w-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${action.color}20` }}>
+                                        <Icon className="h-4 w-4" style={{ color: action.color }} />
+                                      </div>
+                                      <span className="text-xs font-semibold text-white">{action.label}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Label - Mobile only */}
+                <div className="mt-8 text-center lg:hidden w-full">
+                  <div className="inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full shadow-lg" style={{ backgroundColor: 'rgba(147, 51, 234, 0.15)', border: '1px solid rgba(147, 51, 234, 0.3)', backdropFilter: 'blur(10px)' }}>
+                    <Monitor className="h-4 w-4 text-purple-400" />
+                    <p className="text-sm font-semibold text-white">Web Portal</p>
+                  </div>
+                  <p className="text-xs mt-2.5 text-purple-200/80">Advanced features & management</p>
+                </div>
+              </motion.div>
             </div>
-            <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-6xl">
-              Your Complete<br />Maritime Logbook
-                </h1>
-            <p className="mt-6 text-lg leading-8 text-blue-100 max-w-3xl mx-auto">
-              Track unlimited vessel states, manage your sea time, generate professional testimonials, and advance your career—all in one powerful platform. Built for crew members and vessel owners alike.
-            </p>
+            
+            {/* Labels Row - Positioned below previews on desktop */}
+            <div className="hidden lg:flex flex-row justify-between items-start mt-24">
+              <div className="text-left">
+                <div className="inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full shadow-lg" style={{ backgroundColor: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)', backdropFilter: 'blur(10px)' }}>
+                  <Smartphone className="h-4 w-4 text-blue-400" />
+                  <p className="text-sm font-semibold text-white">iOS App</p>
+                </div>
+                <p className="text-xs mt-2.5 text-blue-200/80">Quick logging on the go</p>
+              </div>
+              <div className="text-right">
+                <div className="inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full shadow-lg" style={{ backgroundColor: 'rgba(147, 51, 234, 0.15)', border: '1px solid rgba(147, 51, 234, 0.3)', backdropFilter: 'blur(10px)' }}>
+                  <Monitor className="h-4 w-4 text-purple-400" />
+                  <p className="text-sm font-semibold text-white">Web Portal</p>
+                </div>
+                <p className="text-xs mt-2.5 text-purple-200/80">Advanced features & management</p>
+              </div>
+            </div>
           </div>
-        </div>
-        
-        {/* Feature Highlights - Full Width */}
-        <div className="mt-10 w-full px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4 gap-5 w-full items-start">
-              {/* Card 1 - Vessel Tracking */}
-              <div className="group relative rounded-2xl overflow-hidden transition-all duration-500 hover:scale-[1.02] hover:-translate-y-2 hover:z-20 hover:mb-20"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.1) 100%)',
-                  border: '1px solid rgba(96, 165, 250, 0.3)',
-                  backdropFilter: 'blur(20px)',
-                  boxShadow: '0 8px 32px rgba(59, 130, 246, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                }}>
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 via-blue-500/5 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl"></div>
-                <div className="relative p-5 flex flex-col gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-shrink-0 h-12 w-12 rounded-xl flex items-center justify-center overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.4) 0%, rgba(37, 99, 235, 0.3) 100%)',
-                        boxShadow: '0 0 20px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                      }}>
-                      <div className="absolute inset-0 bg-gradient-to-br from-blue-400/50 to-transparent"></div>
-                      <svg className="h-6 w-6 text-blue-300 relative z-10 drop-shadow-lg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-white text-sm leading-tight mb-1">Unlimited Vessel State Tracking</p>
-                      <p className="text-xs text-blue-300/80">Track as many vessels as you need</p>
-                    </div>
-                  </div>
-                  
-                  {/* Expanded Content - Expands within the card */}
-                  <div className="max-h-0 overflow-hidden transition-all duration-500 group-hover:max-h-40 opacity-0 group-hover:opacity-100">
-                    <div className="pt-3 mt-3 border-t border-blue-500/20 space-y-2">
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-blue-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-blue-200/90">Track unlimited vessels with full state management</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-blue-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-blue-200/90">Real-time updates on vessel status and location</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-blue-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-blue-200/90">Complete service history for each vessel</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-blue-400/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
-              </div>
 
-              {/* Card 2 - Passage Tracking */}
-              <div className="group relative rounded-2xl overflow-hidden transition-all duration-500 hover:scale-[1.02] hover:-translate-y-2 hover:z-20 hover:mb-20"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(147, 51, 234, 0.1) 100%)',
-                  border: '1px solid rgba(196, 181, 253, 0.3)',
-                  backdropFilter: 'blur(20px)',
-                  boxShadow: '0 8px 32px rgba(168, 85, 247, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                  minHeight: '90px'
-                }}>
-                <div className="absolute inset-0 bg-gradient-to-br from-purple-500/0 via-purple-500/5 to-purple-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl"></div>
-                <div className="relative p-5 flex flex-col gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-shrink-0 h-12 w-12 rounded-xl flex items-center justify-center overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.4) 0%, rgba(147, 51, 234, 0.3) 100%)',
-                        boxShadow: '0 0 20px rgba(168, 85, 247, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                      }}>
-                      <div className="absolute inset-0 bg-gradient-to-br from-purple-400/50 to-transparent"></div>
-                      <svg className="h-6 w-6 text-purple-300 relative z-10 drop-shadow-lg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-white text-sm leading-tight mb-1">Passage Tracking</p>
-                      <p className="text-xs text-purple-300/80">Coming soon</p>
-                    </div>
-                  </div>
-                  
-                  {/* Expanded Content - Expands within the card */}
-                  <div className="max-h-0 overflow-hidden transition-all duration-500 group-hover:max-h-40 opacity-0 group-hover:opacity-100">
-                    <div className="pt-3 mt-3 border-t border-purple-500/20 space-y-2">
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-purple-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-purple-200/90">Visual route mapping with interactive maps</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-purple-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-purple-200/90">Track departures, arrivals, and destinations</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-purple-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-purple-200/90">Complete passage history and statistics</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-purple-400/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
-              </div>
+          {/* Key Benefits - Inspired by IOSApp */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.6 }}
+            className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"
+          >
+            {[
+              {
+                icon: Smartphone,
+                title: 'Log Anywhere',
+                description: 'Quick vessel state logging from your iPhone, even when offline. Perfect for busy crew schedules.',
+                color: 'blue',
+              },
+              {
+                icon: RefreshCw,
+                title: 'Instant Sync',
+                description: 'Your data syncs automatically between mobile and web. Never lose track of your sea time.',
+                color: 'purple',
+              },
+              {
+                icon: Monitor,
+                title: 'Manage Everything',
+                description: 'Access digital testimonials, professional exports, analytics, and complete career management.',
+                color: 'green',
+              },
+            ].map((benefit, idx) => {
+              const Icon = benefit.icon;
+              const colorConfig = {
+                blue: {
+                  bg: 'bg-blue-500/20',
+                  border: 'border-blue-500/30',
+                  icon: 'text-blue-400',
+                  text: 'text-blue-100',
+                },
+                purple: {
+                  bg: 'bg-purple-500/20',
+                  border: 'border-purple-500/30',
+                  icon: 'text-purple-400',
+                  text: 'text-purple-100',
+                },
+                green: {
+                  bg: 'bg-green-500/20',
+                  border: 'border-green-500/30',
+                  icon: 'text-green-400',
+                  text: 'text-green-100',
+                },
+              };
+              const colors = colorConfig[benefit.color as keyof typeof colorConfig];
 
-              {/* Card 3 - Light & Dark Modes */}
-              <div className="group relative rounded-2xl overflow-hidden transition-all duration-500 hover:scale-[1.02] hover:-translate-y-2 hover:z-20 hover:mb-20"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(71, 85, 105, 0.15) 0%, rgba(51, 65, 85, 0.1) 100%)',
-                  border: '1px solid rgba(148, 163, 184, 0.3)',
-                  backdropFilter: 'blur(20px)',
-                  boxShadow: '0 8px 32px rgba(71, 85, 105, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                  minHeight: '90px'
-                }}>
-                <div className="absolute inset-0 bg-gradient-to-br from-slate-500/0 via-slate-500/5 to-slate-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl"></div>
-                <div className="relative p-5 flex flex-col gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-shrink-0 h-12 w-12 rounded-xl flex items-center justify-center overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(71, 85, 105, 0.4) 0%, rgba(51, 65, 85, 0.3) 100%)',
-                        boxShadow: '0 0 20px rgba(71, 85, 105, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                      }}>
-                      <div className="absolute inset-0 bg-gradient-to-br from-slate-400/50 to-transparent"></div>
-                      <svg className="h-6 w-6 text-slate-300 relative z-10 drop-shadow-lg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                      </svg>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-white text-sm leading-tight mb-1">Light & Dark Modes</p>
-                      <p className="text-xs text-slate-300/80">Choose your preferred theme</p>
-                    </div>
+              return (
+                <motion.div
+                  key={idx}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6, delay: 0.7 + idx * 0.1 }}
+                  whileHover={{ y: -5 }}
+                  className={`rounded-2xl border-2 p-6 text-center transition-all ${colors.bg} ${colors.border}`}
+                  style={{ 
+                    backgroundColor: 'rgba(2, 22, 44, 0.6)', 
+                    backdropFilter: 'blur(20px)'
+                  }}
+                >
+                  <div className={`h-14 w-14 rounded-2xl flex items-center justify-center mx-auto mb-4 ${colors.bg} border ${colors.border}`}>
+                    <Icon className={`h-7 w-7 ${colors.icon}`} />
                   </div>
-                  
-                  {/* Expanded Content - Expands within the card */}
-                  <div className="max-h-0 overflow-hidden transition-all duration-500 group-hover:max-h-40 opacity-0 group-hover:opacity-100">
-                    <div className="pt-3 mt-3 border-t border-slate-500/20 space-y-2">
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-slate-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-slate-200/90">Seamless theme switching with one click</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-slate-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-slate-200/90">System preference detection</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-slate-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-slate-200/90">Reduced eye strain for all lighting conditions</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-slate-400/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
-              </div>
+                  <h3 className="font-bold text-white text-base mb-2">{benefit.title}</h3>
+                  <p className={`text-sm leading-relaxed ${colors.text}`}>{benefit.description}</p>
+                </motion.div>
+              );
+            })}
+          </motion.div>
 
-              {/* Card 4 - Digital Testimonials */}
-              <div className="group relative rounded-2xl overflow-hidden transition-all duration-500 hover:scale-[1.02] hover:-translate-y-2 hover:z-20 hover:mb-20"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.1) 100%)',
-                  border: '1px solid rgba(134, 239, 172, 0.3)',
-                  backdropFilter: 'blur(20px)',
-                  boxShadow: '0 8px 32px rgba(34, 197, 94, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                  minHeight: '90px'
-                }}>
-                <div className="absolute inset-0 bg-gradient-to-br from-green-500/0 via-green-500/5 to-green-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl"></div>
-                <div className="relative p-5 flex flex-col gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-shrink-0 h-12 w-12 rounded-xl flex items-center justify-center overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.4) 0%, rgba(22, 163, 74, 0.3) 100%)',
-                        boxShadow: '0 0 20px rgba(34, 197, 94, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                      }}>
-                      <div className="absolute inset-0 bg-gradient-to-br from-green-400/50 to-transparent"></div>
-                      <svg className="h-6 w-6 text-green-300 relative z-10 drop-shadow-lg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-white text-sm leading-tight mb-1">Digital Testimonials</p>
-                      <p className="text-xs text-green-300/80">Get captain sign-offs instantly</p>
-                    </div>
-                  </div>
-                  
-                  {/* Expanded Content - Expands within the card */}
-                  <div className="max-h-0 overflow-hidden transition-all duration-500 group-hover:max-h-40 opacity-0 group-hover:opacity-100">
-                    <div className="pt-3 mt-3 border-t border-green-500/20 space-y-2">
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-green-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-green-200/90">Request testimonials directly from captains</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-green-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-green-200/90">Digital signatures and verification</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-green-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-green-200/90">Professional PDF format for portfolios</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-green-400/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
-              </div>
-
-              {/* Card 5 - Year Calendar View */}
-              <div className="group relative rounded-2xl overflow-hidden transition-all duration-500 hover:scale-[1.02] hover:-translate-y-2 hover:z-20 hover:mb-20"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(8, 145, 178, 0.1) 100%)',
-                  border: '1px solid rgba(103, 232, 249, 0.3)',
-                  backdropFilter: 'blur(20px)',
-                  boxShadow: '0 8px 32px rgba(6, 182, 212, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                  minHeight: '90px'
-                }}>
-                <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/0 via-cyan-500/5 to-cyan-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl"></div>
-                <div className="relative p-5 flex flex-col gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-shrink-0 h-12 w-12 rounded-xl flex items-center justify-center overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.4) 0%, rgba(8, 145, 178, 0.3) 100%)',
-                        boxShadow: '0 0 20px rgba(6, 182, 212, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                      }}>
-                      <div className="absolute inset-0 bg-gradient-to-br from-cyan-400/50 to-transparent"></div>
-                      <Calendar className="h-6 w-6 text-cyan-300 relative z-10 drop-shadow-lg" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-white text-sm leading-tight mb-1">Year Calendar View</p>
-                      <p className="text-xs text-cyan-300/80">Visualize your entire service history</p>
-                    </div>
-                  </div>
-                  
-                  {/* Expanded Content - Expands within the card */}
-                  <div className="max-h-0 overflow-hidden transition-all duration-500 group-hover:max-h-40 opacity-0 group-hover:opacity-100">
-                    <div className="pt-3 mt-3 border-t border-cyan-500/20 space-y-2">
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-cyan-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-cyan-200/90">Full-year visual overview of sea time</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-cyan-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-cyan-200/90">Color-coded vessel assignments</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-cyan-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-cyan-200/90">Quick date range selection and filtering</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
-              </div>
-
-              {/* Card 6 - PDF Export */}
-              <div className="group relative rounded-2xl overflow-hidden transition-all duration-500 hover:scale-[1.02] hover:-translate-y-2 hover:z-20 hover:mb-20"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(234, 88, 12, 0.1) 100%)',
-                  border: '1px solid rgba(251, 146, 60, 0.3)',
-                  backdropFilter: 'blur(20px)',
-                  boxShadow: '0 8px 32px rgba(249, 115, 22, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                  minHeight: '90px'
-                }}>
-                <div className="absolute inset-0 bg-gradient-to-br from-orange-500/0 via-orange-500/5 to-orange-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl"></div>
-                <div className="relative p-5 flex flex-col gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-shrink-0 h-12 w-12 rounded-xl flex items-center justify-center overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.4) 0%, rgba(234, 88, 12, 0.3) 100%)',
-                        boxShadow: '0 0 20px rgba(249, 115, 22, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                      }}>
-                      <div className="absolute inset-0 bg-gradient-to-br from-orange-400/50 to-transparent"></div>
-                      <FileText className="h-6 w-6 text-orange-300 relative z-10 drop-shadow-lg" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-white text-sm leading-tight mb-1">PDF Export</p>
-                      <p className="text-xs text-orange-300/80">Export professional documentation</p>
-                    </div>
-                  </div>
-                  
-                  {/* Expanded Content - Expands within the card */}
-                  <div className="max-h-0 overflow-hidden transition-all duration-500 group-hover:max-h-40 opacity-0 group-hover:opacity-100">
-                    <div className="pt-3 mt-3 border-t border-orange-500/20 space-y-2">
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-orange-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-orange-200/90">Generate professional logbook PDFs</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-orange-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-orange-200/90">Customizable date ranges and formats</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-orange-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-orange-200/90">Print-ready formats for official submissions</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-orange-400/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
-              </div>
-
-              {/* Card 7 - Service History */}
-              <div className="group relative rounded-2xl overflow-hidden transition-all duration-500 hover:scale-[1.02] hover:-translate-y-2 hover:z-20 hover:mb-20"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.15) 0%, rgba(219, 39, 119, 0.1) 100%)',
-                  border: '1px solid rgba(244, 114, 182, 0.3)',
-                  backdropFilter: 'blur(20px)',
-                  boxShadow: '0 8px 32px rgba(236, 72, 153, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                  minHeight: '90px'
-                }}>
-                <div className="absolute inset-0 bg-gradient-to-br from-pink-500/0 via-pink-500/5 to-pink-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl"></div>
-                <div className="relative p-5 flex flex-col gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-shrink-0 h-12 w-12 rounded-xl flex items-center justify-center overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.4) 0%, rgba(219, 39, 119, 0.3) 100%)',
-                        boxShadow: '0 0 20px rgba(236, 72, 153, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                      }}>
-                      <div className="absolute inset-0 bg-gradient-to-br from-pink-400/50 to-transparent"></div>
-                      <History className="h-6 w-6 text-pink-300 relative z-10 drop-shadow-lg" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-white text-sm leading-tight mb-1">Service History</p>
-                      <p className="text-xs text-pink-300/80">Track your complete career journey</p>
-                    </div>
-                  </div>
-                  
-                  {/* Expanded Content - Expands within the card */}
-                  <div className="max-h-0 overflow-hidden transition-all duration-500 group-hover:max-h-40 opacity-0 group-hover:opacity-100">
-                    <div className="pt-3 mt-3 border-t border-pink-500/20 space-y-2">
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-pink-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-pink-200/90">Complete chronological service record</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-pink-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-pink-200/90">Detailed activity timeline with filters</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-pink-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-pink-200/90">Career milestones and achievements</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-pink-400/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
-              </div>
-
-              {/* Card 8 - Career Profile */}
-              <div className="group relative rounded-2xl overflow-hidden transition-all duration-500 hover:scale-[1.02] hover:-translate-y-2 hover:z-20 hover:mb-20"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(79, 70, 229, 0.1) 100%)',
-                  border: '1px solid rgba(165, 180, 252, 0.3)',
-                  backdropFilter: 'blur(20px)',
-                  boxShadow: '0 8px 32px rgba(99, 102, 241, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                  minHeight: '90px'
-                }}>
-                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/0 via-indigo-500/5 to-indigo-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl"></div>
-                <div className="relative p-5 flex flex-col gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-shrink-0 h-12 w-12 rounded-xl flex items-center justify-center overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.4) 0%, rgba(79, 70, 229, 0.3) 100%)',
-                        boxShadow: '0 0 20px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-                      }}>
-                      <div className="absolute inset-0 bg-gradient-to-br from-indigo-400/50 to-transparent"></div>
-                      <User className="h-6 w-6 text-indigo-300 relative z-10 drop-shadow-lg" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-white text-sm leading-tight mb-1">Career Profile</p>
-                      <p className="text-xs text-indigo-300/80">Manage your professional profile</p>
-                    </div>
-                  </div>
-                  
-                  {/* Expanded Content - Expands within the card */}
-                  <div className="max-h-0 overflow-hidden transition-all duration-500 group-hover:max-h-40 opacity-0 group-hover:opacity-100">
-                    <div className="pt-3 mt-3 border-t border-indigo-500/20 space-y-2">
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-indigo-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-indigo-200/90">Comprehensive professional profile</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-indigo-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-indigo-200/90">Total sea time and experience summary</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-indigo-400 mt-1.5 flex-shrink-0"></div>
-                        <p className="text-xs text-indigo-200/90">Qualifications and certifications tracking</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-indigo-400/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"></div>
-              </div>
-          </div>
+          {/* Integration Message - Inspired by IOSApp */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.9 }}
+            className="text-center"
+          >
+            <div className="inline-flex items-center gap-3 px-6 py-4 rounded-xl border shadow-lg" style={{ backgroundColor: 'rgba(2, 22, 44, 0.6)', borderColor: 'rgba(255, 255, 255, 0.1)', backdropFilter: 'blur(10px)' }}>
+              <ArrowRight className="h-5 w-5" style={{ color: '#60a5fa' }} />
+              <p className="text-sm text-white">
+                <span className="font-semibold">Log on mobile,</span> manage on web. Your data syncs seamlessly between the iOS app and crew portal.
+              </p>
+            </div>
+          </motion.div>
         </div>
       </div>
     </section>

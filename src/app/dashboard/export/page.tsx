@@ -245,7 +245,7 @@ export default function ExportPage() {
                     toast({ title: 'Success', description: 'Sea time data exported to JSON.' });
                     break;
                 case 'pdf':
-                    generateSeaTimeTestimonial(reportData);
+                generateSeaTimeTestimonial(reportData);
                     toast({ title: 'Success', description: 'Sea time report generated as PDF.' });
                     break;
                 default:
@@ -334,7 +334,7 @@ export default function ExportPage() {
     <div className="flex flex-col gap-6">
         {/* Header */}
         <div className="space-y-2">
-            <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center">
                     <Download className="h-5 w-5 text-primary" />
                 </div>
@@ -357,14 +357,14 @@ export default function ExportPage() {
                             Select Export Format
                         </CardTitle>
                         <CardDescription>Choose the format that best suits your needs</CardDescription>
-                    </CardHeader>
-                    <CardContent>
+            </CardHeader>
+            <CardContent>
                         <FormField
                             control={form.control}
                             name="exportFormat"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormControl>
+                                        <FormControl>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             {formatOptions.map((format) => {
                                                 const Icon = format.icon;
@@ -400,10 +400,10 @@ export default function ExportPage() {
                                                                 </p>
                                                             </div>
                                                         </div>
-                                                    </div>
+                                                </div>
                                                 );
                                             })}
-                                        </div>
+                                                </div>
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -689,10 +689,10 @@ export default function ExportPage() {
                                 Export Sea Time Data
                             </>
                         )}
-                    </Button>
+                        </Button>
                 </div>
-            </form>
-        </Form>
+                    </form>
+                </Form>
     </div>
   );
 }

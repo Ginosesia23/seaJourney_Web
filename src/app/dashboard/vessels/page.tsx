@@ -438,12 +438,14 @@ export default function VesselsPage() {
       });
       console.log('[VESSELS PAGE] Captain - filtered to vessels with logs or requests:', filtered.length);
     } else {
-      // Other roles: only show vessels with logged days
+      // Other roles: show vessels with logged days OR vessels with assignments
       filtered = allVessels.filter(vessel => {
         const logs = vesselStateLogs.get(vessel.id) || [];
-        return logs.length > 0;
+        const hasLogs = logs.length > 0;
+        const hasAssignment = vesselAssignments.has(vessel.id);
+        return hasLogs || hasAssignment;
       });
-      console.log('[VESSELS PAGE] Non-admin/captain - filtered to vessels with logs:', filtered.length);
+      console.log('[VESSELS PAGE] Non-admin/captain - filtered to vessels with logs or assignments:', filtered.length);
     }
     
     // Sort to show current/active vessel at the top
@@ -477,7 +479,7 @@ export default function VesselsPage() {
     }
     
     return sorted;
-  }, [allVessels, vesselStateLogs, currentUserProfile, isAdmin, isCaptain, captaincyRequests]);
+  }, [allVessels, vesselStateLogs, vesselAssignments, currentUserProfile, isAdmin, isCaptain, captaincyRequests]);
 
   const filteredVessels = useMemo(() => {
     if (!searchTerm) return vessels;
@@ -1294,8 +1296,8 @@ export default function VesselsPage() {
                                     className="rounded-lg"
                                     title="Request captaincy for this vessel"
                                   >
-                                    <ShieldCheck className="mr-2 h-4 w-4" />
-                                    Request Captaincy
+                                        <ShieldCheck className="mr-2 h-4 w-4" />
+                                        Request Captaincy
                                   </Button>
                                 )}
                                 <Button

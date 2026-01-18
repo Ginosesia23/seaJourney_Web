@@ -10,10 +10,10 @@ const HowToUse = () => {
         <div className="mx-auto max-w-2xl text-center">
           <BookOpenCheck className="mx-auto h-12 w-12 text-blue-400" />
           <h2 className="mt-4 font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
-            Learn How to Use the App
+            Master Your Maritime Career Management
           </h2>
           <p className="mt-4 text-lg leading-8 text-blue-100">
-            Our step-by-step guide will walk you through everything from logging your first day to exporting professional documents.
+            Learn how to track your sea time, request captain testimonials, and build the professional documentation you need for career advancement. Our comprehensive guide walks you through every feature designed for crew members.
           </p>
           <div className="mt-10">
             <Button asChild size="lg" className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg px-8">

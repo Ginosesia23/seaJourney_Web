@@ -29,9 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
-const navLinks = [
-  { href: '/how-to-use', label: 'How to Use' },
-];
+const navLinks: Array<{ href: string; label: string }> = [];
 
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -125,9 +123,13 @@ const Header = () => {
 
   return (
     <header 
-      className="sticky top-0 z-50 w-full border-b backdrop-blur-sm"
+      className="sticky top-0 z-50 w-full border-b backdrop-blur-md"
       style={{
-        backgroundColor: isDarkPage ? '#000b15' : undefined,
+        backgroundColor: isLandingPage 
+          ? 'rgba(0, 11, 21, 0.8)' 
+          : isDarkPage 
+            ? '#000b15' 
+            : undefined,
         borderColor: isDarkPage ? 'rgba(255, 255, 255, 0.1)' : undefined,
         color: isDarkPage ? '#ffffff' : undefined,
       }}
