@@ -85,7 +85,7 @@ const Hero = () => {
                 initial={{ opacity: 0, x: -50 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.8, delay: 0.2 }}
-                className="flex flex-col items-center lg:items-start lg:flex-shrink-0 lg:-ml-4"
+                className="flex flex-col items-center lg:items-start lg:flex-shrink-0 lg:-ml-4 w-full lg:w-auto"
               >
                 <div className="relative">
                   {/* Glow effect */}
@@ -284,8 +284,8 @@ const Hero = () => {
                   {/* Glow effect */}
                   <div className="absolute -inset-8 bg-gradient-to-br from-purple-500/30 via-purple-600/20 to-transparent rounded-3xl blur-3xl"></div>
                   
-                  {/* Desktop Frame */}
-                  <div className="relative" style={{ width: '950px', maxWidth: '100%', height: '680px' }}>
+                  {/* Desktop Frame - Desktop View */}
+                  <div className="hidden lg:block relative" style={{ width: '950px', height: '680px' }}>
                     {/* Mac-style browser frame */}
                     <div className="rounded-t-xl bg-gradient-to-b from-slate-800 to-slate-900 border-t border-x border-slate-700/60 px-5 py-4 shadow-xl">
                       <div className="flex items-center gap-4">
@@ -385,16 +385,16 @@ const Hero = () => {
                             ].map((activity, idx) => {
                               const Icon = activity.icon;
                               return (
-                                <div key={idx} className="flex items-start gap-4 pb-4 border-b last:border-0 last:pb-0" style={{ borderColor: 'rgba(255, 255, 255, 0.05)' }}>
-                                  <div className="h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm" style={{ backgroundColor: `${activity.color}20` }}>
-                                    <Icon className="h-5 w-5" style={{ color: activity.color }} />
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-semibold text-white mb-1">{activity.text}</p>
-                                    <p className="text-sm text-slate-400 mb-1.5">{activity.detail}</p>
-                                    <p className="text-xs text-slate-500">{activity.time}</p>
-                                  </div>
+                              <div key={idx} className="flex items-start gap-4 pb-4 border-b last:border-0 last:pb-0" style={{ borderColor: 'rgba(255, 255, 255, 0.05)' }}>
+                                <div className="h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm" style={{ backgroundColor: `${activity.color}20` }}>
+                                  <Icon className="h-5 w-5" style={{ color: activity.color }} />
                                 </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold text-white mb-1">{activity.text}</p>
+                                  <p className="text-sm text-slate-400 mb-1.5">{activity.detail}</p>
+                                  <p className="text-xs text-slate-500">{activity.time}</p>
+                                </div>
+                              </div>
                               );
                             })}
                           </div>
@@ -466,6 +466,85 @@ const Hero = () => {
                               })}
                             </div>
                           </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Mobile/Tablet View - Simplified */}
+                  <div className="lg:hidden w-full max-w-md mx-auto mt-4">
+                    <div className="rounded-xl border border-slate-700/60 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 p-4 shadow-2xl">
+                      {/* Stats Grid - 2 columns on mobile */}
+                      <div className="grid grid-cols-2 gap-3 mb-4">
+                        {[
+                          { label: 'Sea Time', value: '315', icon: Calendar, color: '#60a5fa' },
+                          { label: 'Vessels', value: '3', icon: Ship, color: '#4ade80' },
+                          { label: 'Testimonials', value: '5', icon: FileText, color: '#a78bfa' },
+                          { label: 'This Month', value: '28', icon: BarChart3, color: '#f59e0b' },
+                        ].map((stat, idx) => {
+                          const Icon = stat.icon;
+                          return (
+                            <div
+                              key={idx}
+                              className="rounded-xl p-3 border relative overflow-hidden"
+                              style={{ 
+                                backgroundColor: 'rgba(15, 23, 42, 0.8)', 
+                                borderColor: 'rgba(255, 255, 255, 0.1)',
+                              }}
+                            >
+                              <div className="relative">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <div className="h-6 w-6 rounded-lg flex items-center justify-center shadow-md" style={{ backgroundColor: `${stat.color}20` }}>
+                                    <Icon className="h-3.5 w-3.5" style={{ color: stat.color }} />
+                                  </div>
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 truncate">{stat.label}</p>
+                                </div>
+                                <p className="text-xl font-bold text-white">{stat.value}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Activity Feed - Single column on mobile */}
+                      <div className="rounded-xl p-3 border shadow-md" style={{ 
+                        backgroundColor: 'rgba(15, 23, 42, 0.8)', 
+                        borderColor: 'rgba(255, 255, 255, 0.1)'
+                      }}>
+                        <div className="flex items-center gap-1.5 mb-3">
+                          <div className="h-2 w-2 rounded-full bg-blue-400 shadow-md shadow-blue-400/50"></div>
+                          <p className="text-xs font-bold text-white">Recent Activity</p>
+                        </div>
+                        <div className="space-y-2">
+                          {[
+                            { 
+                              icon: Waves, 
+                              text: 'State updated', 
+                              detail: 'MY OCEAN STAR',
+                              time: '2h ago', 
+                              color: '#60a5fa' 
+                            },
+                            { 
+                              icon: FileText, 
+                              text: 'Testimonial approved', 
+                              detail: 'Captain Wilson',
+                              time: '5d ago', 
+                              color: '#4ade80' 
+                            },
+                          ].map((activity, idx) => {
+                            const Icon = activity.icon;
+                            return (
+                              <div key={idx} className="flex items-start gap-2 pb-2 border-b last:border-0 last:pb-0" style={{ borderColor: 'rgba(255, 255, 255, 0.05)' }}>
+                                <div className="h-6 w-6 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm" style={{ backgroundColor: `${activity.color}20` }}>
+                                  <Icon className="h-3 w-3" style={{ color: activity.color }} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-semibold text-white mb-0.5">{activity.text}</p>
+                                  <p className="text-[10px] text-slate-400">{activity.detail} • {activity.time}</p>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
