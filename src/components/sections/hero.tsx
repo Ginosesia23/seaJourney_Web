@@ -7,13 +7,14 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { AppStoreIcon } from '@/components/sections/cta';
 
-type VesselState = 'underway' | 'at-anchor' | 'in-port' | 'on-leave';
+type VesselState = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';
 
 const vesselStates = {
   'underway': { name: 'Underway', icon: Waves, color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.3)' },
   'at-anchor': { name: 'At Anchor', icon: Anchor, color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.15)', borderColor: 'rgba(249, 115, 22, 0.3)' },
   'in-port': { name: 'In Port', icon: Building, color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.15)', borderColor: 'rgba(34, 197, 94, 0.3)' },
   'on-leave': { name: 'On Leave', icon: Briefcase, color: '#6b7280', bgColor: 'rgba(107, 114, 128, 0.15)', borderColor: 'rgba(107, 114, 128, 0.3)' },
+  'in-yard': { name: 'In Yard', icon: Ship, color: '#ef4444', bgColor: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.3)' },
 };
 
 const Hero = () => {
@@ -145,7 +146,7 @@ const Hero = () => {
                       {/* White Content Area */}
                       <div className="bg-gray-50 px-4 py-3 flex-1 overflow-y-auto">
                         {/* Vessel State Buttons */}
-                        <div className="grid grid-cols-4 gap-1.5 mb-3">
+                        <div className="grid grid-cols-5 gap-1 mb-3">
                           {(Object.entries(vesselStates) as [VesselState, typeof vesselStates[VesselState]][]).map(([stateKey, state]) => {
                             const Icon = state.icon;
                             const isActive = selectedState === stateKey;
@@ -155,16 +156,19 @@ const Hero = () => {
                                 onClick={() => setSelectedState(stateKey)}
                                 whileHover={{ scale: 1.05 }}
                                 whileTap={{ scale: 0.95 }}
-                                className={`rounded-lg p-2 text-center shadow-sm transition-all ${
+                                className={`rounded-lg p-1.5 text-center shadow-sm transition-all ${
                                   isActive 
-                                    ? 'bg-green-500 shadow-green-500/20' 
+                                    ? 'shadow-lg' 
                                     : 'bg-gray-100 hover:bg-gray-200'
                                 }`}
+                                style={{
+                                  backgroundColor: isActive ? state.color : undefined,
+                                }}
                               >
-                                <Icon className={`h-4 w-4 mx-auto mb-0.5 ${
+                                <Icon className={`h-3.5 w-3.5 mx-auto mb-0.5 ${
                                   isActive ? 'text-white' : 'text-gray-600'
                                 }`} />
-                                <p className={`text-[10px] font-medium leading-tight ${
+                                <p className={`text-[9px] font-medium leading-tight ${
                                   isActive ? 'text-white' : 'text-gray-700'
                                 }`}>{state.name}</p>
                               </motion.button>
@@ -207,8 +211,8 @@ const Hero = () => {
                             {Array.from({ length: 0 }).map((_, i) => (
                               <div key={`empty-${i}`} className="aspect-square"></div>
                             ))}
-                            {/* Days 1-12 with green circles */}
-                            {Array.from({ length: 12 }).map((_, i) => {
+                            {/* Days 1-11 with green (in-port) circles */}
+                            {Array.from({ length: 11 }).map((_, i) => {
                               const day = i + 1;
                               const hasPurpleOutline = day <= 3;
                               return (
@@ -224,6 +228,15 @@ const Hero = () => {
                                 </div>
                               );
                             })}
+                            {/* Day 12 - Latest date, changes color based on selected state */}
+                            <div className="aspect-square flex items-center justify-center">
+                              <div 
+                                className="h-6 w-6 rounded-full flex items-center justify-center shadow-sm" 
+                                style={{ backgroundColor: vesselStates[selectedState].color }}
+                              >
+                                <span className="text-[9px] font-bold text-white">12</span>
+                              </div>
+                            </div>
                             {/* Days 13-31 faded */}
                             {Array.from({ length: 19 }).map((_, i) => {
                               const day = i + 13;
