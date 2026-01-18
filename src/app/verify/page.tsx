@@ -82,20 +82,30 @@ export default function VerificationPage() {
   };
 
   const handleVerification = async () => {
-    const fullCode = code.join('');
+    const fullCode = code.join('').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    
+    console.log('[VERIFY PAGE] Full code:', fullCode);
+    console.log('[VERIFY PAGE] Code length:', fullCode.length);
     
     if (fullCode.length !== 8) {
+      console.error('[VERIFY PAGE] Code is not 8 characters:', fullCode);
+      setIsLoading(false);
       return;
     }
 
     setIsLoading(true);
 
     try {
-      // Redirect to results page with code
+      // Clean and encode the code for URL
       const codeParam = encodeURIComponent(fullCode);
-      router.push(`/verify/result?code=${codeParam}`);
+      const url = `/verify/result?code=${codeParam}`;
+      
+      console.log('[VERIFY PAGE] Redirecting to:', url);
+      
+      // Use replace instead of push to avoid back button issues on mobile
+      router.replace(url);
     } catch (e) {
-      console.error('Verification failed:', e);
+      console.error('[VERIFY PAGE] Verification failed:', e);
       setIsLoading(false);
     }
   };

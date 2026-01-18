@@ -44,8 +44,31 @@ function VerificationResultContent() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const code = searchParams.get('code');
+    // Try multiple methods to get the code parameter (mobile browsers sometimes have issues with useSearchParams)
+    let code = searchParams.get('code');
+    
+    // Fallback: try reading directly from window.location if useSearchParams didn't work
+    if (!code && typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      code = urlParams.get('code');
+    }
+    
+    // Decode the code in case it was double-encoded
+    if (code) {
+      try {
+        code = decodeURIComponent(code);
+      } catch (e) {
+        // If decoding fails, use the original code
+        console.warn('[VERIFY] Failed to decode code parameter:', e);
+      }
+    }
+
+    console.log('[VERIFY] Code from searchParams:', searchParams.get('code'));
+    console.log('[VERIFY] Code from window.location:', typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('code') : 'N/A');
+    console.log('[VERIFY] Final code used:', code);
+
     if (!code) {
+      console.error('[VERIFY] No code parameter found, redirecting to verify page');
       router.push('/verify');
       return;
     }
@@ -57,7 +80,20 @@ function VerificationResultContent() {
       try {
         // Format the input: remove all non-alphanumeric characters, then add SJ- prefix
         const userInput = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        
+        console.log('[VERIFY] User input after cleaning:', userInput);
+        console.log('[VERIFY] User input length:', userInput.length);
+        
+        if (userInput.length < 8) {
+          console.error('[VERIFY] Code is too short:', userInput.length);
+          setStatus('not_found');
+          setIsLoading(false);
+          return;
+        }
+        
         const codeForDatabase = `SJ-${userInput.substring(0, 4)}${userInput.substring(4, 8)}`; // SJ-982F8484 format
+        
+        console.log('[VERIFY] Code for database lookup:', codeForDatabase);
 
         // Look up by testimonial_code only
         let { data: recordData, error: fetchError } = await supabase
@@ -65,6 +101,8 @@ function VerificationResultContent() {
           .select('*')
           .eq('testimonial_code', codeForDatabase)
           .maybeSingle();
+
+        console.log('[VERIFY] Database query result:', { recordData: !!recordData, error: fetchError });
 
         if (fetchError) {
           console.error('[VERIFY] Error fetching record:', fetchError);
@@ -74,6 +112,7 @@ function VerificationResultContent() {
         }
 
         if (!recordData) {
+          console.log('[VERIFY] No exact match found, trying case-insensitive search');
           // Try case-insensitive search as fallback
           const { data: caseInsensitiveData } = await supabase
             .from('approved_testimonials')
@@ -81,12 +120,29 @@ function VerificationResultContent() {
             .ilike('testimonial_code', codeForDatabase)
             .maybeSingle();
 
+          console.log('[VERIFY] Case-insensitive query result:', { recordData: !!caseInsensitiveData });
+
           if (caseInsensitiveData) {
             recordData = caseInsensitiveData;
           } else {
-            setStatus('not_found');
-            setIsLoading(false);
-            return;
+            // Try searching with just the 8-character code (without SJ- prefix) as another fallback
+            console.log('[VERIFY] Trying search without SJ- prefix');
+            const { data: codeOnlyData } = await supabase
+              .from('approved_testimonials')
+              .select('*')
+              .ilike('testimonial_code', `%${userInput}%`)
+              .maybeSingle();
+
+            console.log('[VERIFY] Code-only search result:', { recordData: !!codeOnlyData });
+
+            if (codeOnlyData) {
+              recordData = codeOnlyData;
+            } else {
+              console.log('[VERIFY] No record found for code:', codeForDatabase);
+              setStatus('not_found');
+              setIsLoading(false);
+              return;
+            }
           }
         }
 
