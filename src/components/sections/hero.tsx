@@ -56,7 +56,7 @@ const Hero = () => {
                 <Button
                   asChild
                   size="lg"
-                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 px-6 py-5 text-sm font-semibold h-auto"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 px-6 h-12 text-base font-semibold"
                 >
                   <Link href="https://apps.apple.com/gb/app/seajourney/id6751553072" target="_blank" rel="noopener noreferrer">
                     <AppStoreIcon className="mr-2 h-4 w-4" />
@@ -67,7 +67,7 @@ const Hero = () => {
                   asChild
                   size="lg"
                   variant="outline"
-                  className="rounded-xl border-2 border-white/20 bg-white/5 hover:bg-white/10 text-white px-6 py-5 text-sm font-semibold h-auto backdrop-blur-sm"
+                  className="rounded-xl border-2 border-white/20 bg-white/5 hover:bg-white/10 text-white px-6 h-12 text-base font-semibold backdrop-blur-sm"
                 >
                   <Link href="/offers" className="flex items-center gap-2">
                     Explore Web Portal
