@@ -107,7 +107,8 @@ export default function InboxPage() {
   useEffect(() => {
     // Allow captains, vessel accounts, and admins to access inbox
     const userRole = userProfile?.role?.toLowerCase() || '';
-    const isVesselAccount = userRole === 'vessel' && userProfile?.active_vessel_id;
+    const activeVesselIdForAccount = userProfile ? ((userProfile as any).active_vessel_id || (userProfile as any).activeVesselId) : null;
+    const isVesselAccount = userRole === 'vessel' && activeVesselIdForAccount;
     const isAdmin = userRole === 'admin';
     const isCaptainRole = userRole === 'captain';
     
@@ -124,7 +125,7 @@ export default function InboxPage() {
         // For admins: fetch captaincy requests and captain role applications (testimonials are vessel-specific)
         // For captains/vessel managers: only fetch testimonials addressed to them
         // Check if user is vessel account
-        const activeVesselId = userProfile?.activeVesselId || (userProfile as any)?.active_vessel_id;
+        const activeVesselId = userProfile ? ((userProfile as any).active_vessel_id || (userProfile as any).activeVesselId) : null;
         const isVesselAccount = userProfile?.role?.toLowerCase() === 'vessel' && activeVesselId;
         
         if (userIsAdmin || isVesselAccount) {
@@ -228,7 +229,104 @@ export default function InboxPage() {
             setCaptainRoleApplications([]);
           }
 
-          // Set testimonials to empty for admins
+          // Fetch sea time requests for vessel accounts (not admins)
+          if (isVesselAccount && activeVesselId) {
+            console.log('[INBOX] Checking sea time requests:', {
+              isVesselRole: true,
+              activeVesselId,
+              userId: user?.id,
+              role: userProfile?.role,
+              userProfileKeys: Object.keys(userProfile || {})
+            });
+            
+            console.log('[INBOX] Fetching sea time requests for vessel:', activeVesselId);
+            
+            // First try a count query to see if RLS allows access
+            const { count: testCount } = await supabase
+              .from('sea_time_requests')
+              .select('id', { count: 'exact', head: true })
+              .eq('vessel_id', activeVesselId)
+              .eq('status', 'pending');
+            
+            console.log('[INBOX] Test count query result:', testCount);
+            
+            // Now fetch the actual data
+            const { data: seaTimeData, error: seaTimeError } = await supabase
+              .from('sea_time_requests')
+              .select('id, crew_user_id, vessel_id, start_date, end_date, status, rejection_reason, created_at, updated_at')
+              .eq('vessel_id', activeVesselId)
+              .eq('status', 'pending')
+              .order('created_at', { ascending: false });
+
+            console.log('[INBOX] Sea time requests query result:', {
+              data: seaTimeData,
+              error: seaTimeError,
+              count: seaTimeData?.length || 0,
+              testCount
+            });
+
+            if (seaTimeError) {
+              console.error('[INBOX] Error fetching sea time requests:', seaTimeError);
+              console.error('[INBOX] Error details:', {
+                message: seaTimeError.message,
+                details: seaTimeError.details,
+                hint: seaTimeError.hint,
+                code: seaTimeError.code
+              });
+              toast({
+                title: 'Error',
+                description: `Failed to load sea time requests: ${seaTimeError.message}`,
+                variant: 'destructive',
+              });
+              setSeaTimeRequests([]);
+            } else if (seaTimeData && seaTimeData.length > 0) {
+              console.log('[INBOX] Processing', seaTimeData.length, 'sea time requests');
+              const seaTimeWithDetails = await Promise.all(
+                seaTimeData.map(async (request) => {
+                  const [userResult, vesselResult] = await Promise.all([
+                    supabase
+                      .from('users')
+                      .select('email, first_name, last_name, username')
+                      .eq('id', request.crew_user_id)
+                      .maybeSingle(),
+                    supabase
+                      .from('vessels')
+                      .select('name')
+                      .eq('id', request.vessel_id)
+                      .maybeSingle(),
+                  ]);
+
+                  return {
+                    id: request.id,
+                    crewUserId: request.crew_user_id,
+                    vesselId: request.vessel_id,
+                    startDate: request.start_date,
+                    endDate: request.end_date,
+                    status: request.status,
+                    rejectionReason: request.rejection_reason,
+                    createdAt: request.created_at,
+                    updatedAt: request.updated_at,
+                    user: userResult.data || undefined,
+                    vessel: vesselResult.data || undefined,
+                  };
+                })
+              );
+              console.log('[INBOX] Set sea time requests:', seaTimeWithDetails.length);
+              setSeaTimeRequests(seaTimeWithDetails as any);
+            } else {
+              console.log('[INBOX] No sea time requests found (empty result)');
+              setSeaTimeRequests([]);
+            }
+          } else {
+            console.log('[INBOX] Skipping sea time requests fetch:', {
+              isVesselAccount,
+              activeVesselId,
+              hasActiveVesselId: !!activeVesselId
+            });
+            setSeaTimeRequests([]);
+          }
+
+          // Set testimonials to empty for admins/vessel accounts
           setTestimonials([]);
         } else {
           // Captains/vessel managers see testimonials addressed to them
@@ -330,59 +428,9 @@ export default function InboxPage() {
             setApprovedTestimonials([]);
           }
 
-          // Set captaincy requests to empty for non-admins
+          // Set captaincy requests to empty for non-admins (captains)
           setCaptaincyRequests([]);
-
-          // Fetch sea time requests for this vessel (only if user is vessel role, not captain)
-          const isVesselRole = userProfile?.role?.toLowerCase() === 'vessel';
-          if (isVesselRole && userProfile?.active_vessel_id) {
-            const { data: seaTimeData, error: seaTimeError } = await supabase
-              .from('sea_time_requests')
-              .select('*')
-              .eq('vessel_id', userProfile.active_vessel_id)
-              .eq('status', 'pending')
-              .order('created_at', { ascending: false });
-
-            if (seaTimeError) {
-              console.error('[INBOX] Error fetching sea time requests:', seaTimeError);
-            } else if (seaTimeData && seaTimeData.length > 0) {
-              const seaTimeWithDetails = await Promise.all(
-                seaTimeData.map(async (request) => {
-                  const [userResult, vesselResult] = await Promise.all([
-                    supabase
-                      .from('users')
-                      .select('email, first_name, last_name, username')
-                      .eq('id', request.crew_user_id)
-                      .maybeSingle(),
-                    supabase
-                      .from('vessels')
-                      .select('name')
-                      .eq('id', request.vessel_id)
-                      .maybeSingle(),
-                  ]);
-
-                  return {
-                    id: request.id,
-                    crewUserId: request.crew_user_id,
-                    vesselId: request.vessel_id,
-                    startDate: request.start_date,
-                    endDate: request.end_date,
-                    status: request.status,
-                    rejectionReason: request.rejection_reason,
-                    createdAt: request.created_at,
-                    updatedAt: request.updated_at,
-                    user: userResult.data || undefined,
-                    vessel: vesselResult.data || undefined,
-                  };
-                })
-              );
-              setSeaTimeRequests(seaTimeWithDetails as any);
-            } else {
-              setSeaTimeRequests([]);
-            }
-          } else {
-            setSeaTimeRequests([]);
-          }
+          setSeaTimeRequests([]);
         }
       } catch (error: any) {
         console.error('Error fetching pending data:', error);
@@ -1754,8 +1802,46 @@ export default function InboxPage() {
             </Card>
           ) : null}
 
+          {/* Debug info for sea time requests */}
+          {userProfile?.role?.toLowerCase() === 'vessel' && (() => {
+            const debugActiveVesselId = userProfile ? ((userProfile as any).active_vessel_id || (userProfile as any).activeVesselId) : null;
+            return (
+              <div className="mb-4 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-xs">
+                <p className="font-semibold text-yellow-400 mb-2">Debug Info:</p>
+                <p>isAdmin: {isAdmin ? 'true' : 'false'}</p>
+                <p>role: {userProfile?.role?.toLowerCase()}</p>
+                <p>seaTimeRequests.length: {seaTimeRequests.length}</p>
+                <p>activeVesselId: {debugActiveVesselId || 'null'}</p>
+                <p>Render condition check:</p>
+                <ul className="list-disc ml-4">
+                  <li>!isAdmin: {!isAdmin ? 'true' : 'false'}</li>
+                  <li>role === &apos;vessel&apos;: {(userProfile?.role?.toLowerCase() === 'vessel') ? 'true' : 'false'}</li>
+                  <li>seaTimeRequests.length greater than 0: {(seaTimeRequests.length > 0) ? 'true' : 'false'}</li>
+                  <li>All conditions met: {(!isAdmin && userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0) ? 'true' : 'false'}</li>
+                </ul>
+                {seaTimeRequests.length > 0 && (
+                  <div className="mt-2">
+                    <p className="font-semibold">Sea Time Requests Data:</p>
+                    <pre className="text-xs overflow-auto max-h-40">{JSON.stringify(seaTimeRequests, null, 2)}</pre>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Sea Time Requests Section (Vessel accounts only) */}
-          {!isAdmin && userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0 && (
+          {(() => {
+            const debugActiveVesselId = userProfile ? ((userProfile as any).active_vessel_id || (userProfile as any).activeVesselId) : null;
+            const shouldRender = !isAdmin && userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0;
+            console.log('[INBOX] Sea Time Requests render check:', {
+              isAdmin,
+              role: userProfile?.role?.toLowerCase(),
+              seaTimeRequestsLength: seaTimeRequests.length,
+              shouldRender,
+              activeVesselId: debugActiveVesselId
+            });
+            return shouldRender;
+          })() && (
             <Card className="rounded-xl border shadow-sm">
               <CardHeader>
                 <CardTitle>Sea Time Requests</CardTitle>

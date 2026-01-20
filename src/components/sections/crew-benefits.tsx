@@ -86,11 +86,8 @@ const CrewBenefits = () => {
                   Maritime Career
                 </span>
               </h1>
-              <p className="text-xl sm:text-2xl lg:text-3xl font-semibold text-blue-100 max-w-4xl mx-auto mb-4 leading-relaxed">
+              <p className="text-xl sm:text-2xl lg:text-3xl font-semibold text-blue-100 max-w-4xl mx-auto mb-10 leading-relaxed">
                 Track sea time, get captain-signed testimonials, and verify your career credentials instantly — worldwide
-              </p>
-              <p className="text-base sm:text-lg leading-relaxed text-blue-100/90 max-w-4xl mx-auto mb-10">
-                SeaJourney is designed specifically for crew members who want to take control of their career documentation. From tracking daily vessel states to generating professional testimonials, we've built the tools you need to succeed.
               </p>
               
               {/* CTA Buttons */}
