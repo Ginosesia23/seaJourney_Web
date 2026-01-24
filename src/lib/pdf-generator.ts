@@ -16,6 +16,7 @@
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { PDFDocument, PDFPage, PDFFont, StandardFonts, rgb } from 'pdf-lib';
 import { format, parse, differenceInHours, addDays } from 'date-fns';
 import type { SeaTimeReportData } from '@/app/actions';
 
@@ -87,6 +88,149 @@ export interface TestimonialPDFData {
 
 export type TestimonialPDFFormat = 'mca' | 'mlc' | 'pya' | 'seajourney';
 export type TestimonialPDFOutput = 'download' | 'newtab' | 'blob';
+
+export interface NavWatchApplicationPDFData {
+  application: {
+    id: string;
+    start_date: string;
+    end_date: string;
+    watchkeeping_hours?: number | null;
+    navigation_duties?: string | null;
+    additional_notes?: string | null;
+    captain_name: string | null;
+    captain_email: string | null;
+    created_at: string;
+  };
+  userProfile: {
+    firstName?: string;
+    lastName?: string;
+    username: string;
+    email: string;
+    dateOfBirth?: string | null;
+    position?: string | null;
+    dischargeBookNumber?: string | null;
+  };
+  vessel: {
+    name: string;
+    type: string | null;
+    officialNumber?: string | null;
+    flag_state?: string | null;
+    length_m?: number | null;
+    gross_tonnage?: number | null;
+    call_sign?: string | null;
+  };
+  captainProfile?: {
+    firstName?: string;
+    lastName?: string;
+    position?: string | null;
+    email?: string;
+    signature?: string | null;
+  } | null;
+}
+
+export type MCACertificateType = 'navigational' | 'engine_room' | 'electro_technical';
+
+export interface MCAWatchRatingApplicationData {
+  // Personal Details
+  personalDetails: {
+    title?: string; // Mr/Mrs/Miss/etc
+    surname: string;
+    forenames: string;
+    dateOfBirth: string; // DD/MM/YYYY format
+    placeOfBirth?: string;
+    countryOfBirth?: string;
+    nationality?: string;
+    address: {
+      line1: string;
+      line2?: string;
+      district?: string;
+      townCity: string;
+      countyState?: string;
+      postCode: string;
+      country: string;
+    };
+    telephone?: string;
+    mobile?: string;
+    email: string;
+
+    // Optional: applicant signature as dataURL (PNG/JPEG)
+    signatureDataUrl?: string | null;
+
+    // Optional: countersigner details (for Electro-technical certificates)
+    counterSign?: {
+      name?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      townCity?: string;
+      countyState?: string;
+      postCode?: string;
+      country?: string;
+      telephone?: string;
+      occupation?: string;
+      capacityKnownApplicant?: string;
+      signatureDataUrl?: string | null;
+      date?: string; // DD/MM/YYYY
+    } | null;
+
+    // Optional: checklist ticks for page 3 (Nav/Engine checklist)
+    checklistNavEngine?: {
+      attestedPassport?: boolean;
+      payment?: boolean;
+      dischargeBookOrCd?: boolean;
+      seaServiceTestimonials?: boolean;
+      passportPhoto?: boolean;
+      stcwBasicTraining?: boolean;
+      securityAwareness?: boolean; // STCW A-VI/6
+      profInSurvivalCraft?: boolean; // STCW A-VI/2-1
+      medical?: boolean;
+      watchRatingTrainingRecordBook?: boolean;
+      mntb?: boolean; // if relevant
+    } | null;
+
+    // Optional: checklist ticks for page 4 (ETR checklist)
+    checklistETR?: {
+      attestedPassport?: boolean;
+      payment?: boolean;
+      dischargeBookOrCd?: boolean;
+      seaServiceTestimonials?: boolean;
+      passportPhoto?: boolean;
+      stcwBasicTraining?: boolean;
+      securityAwareness?: boolean; // STCW A-VI/6
+      electroTechnicalTraining?: boolean;
+      medical?: boolean;
+      electroTechnicalRecordBook?: boolean;
+    } | null;
+  };
+  
+  // Certificate Type
+  certificateType: MCACertificateType;
+  
+  // Sea Service Records
+  seaServiceRecords: Array<{
+    vesselName: string;
+    flag: string;
+    imoNumber?: string;
+    grossTonnage?: number;
+    kilowatts?: number;
+    length?: number; // in metres
+    capacity?: string; // Position/rank
+    fromDate: string; // DD/MM/YYYY
+    toDate: string; // DD/MM/YYYY
+    totalDays: number;
+    daysAtSea: number;
+  }>;
+  
+  // User profile for additional data
+  userProfile: {
+    firstName?: string;
+    lastName?: string;
+    username: string;
+    email: string;
+    dateOfBirth?: string | null;
+    position?: string | null;
+    dischargeBookNumber?: string | null;
+  };
+}
 
 export interface PassageLogExportData {
   passages: Array<{
@@ -1567,4 +1711,2023 @@ export async function generatePassageLogPDF(data: PassageLogExportData) {
   }
 
   doc.output('dataurlnewwindow');
+}
+
+/* ========================================================================== */
+/*                        NAV WATCH APPLICATION PDF                           */
+/* ========================================================================== */
+
+export async function generateNavWatchApplicationPDF(
+  data: NavWatchApplicationPDFData,
+  output: TestimonialPDFOutput = 'download',
+) {
+  const doc = new jsPDF();
+  const { application, userProfile, vessel, captainProfile } = data;
+
+  const fullName =
+    `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim() ||
+    userProfile.username;
+
+  const startDate = format(parseDateOnly(application.start_date), 'dd MMMM yyyy');
+  const endDate = format(parseDateOnly(application.end_date), 'dd MMMM yyyy');
+  const generatedDate = format(new Date(), 'dd MMMM yyyy');
+  const dateOfBirth = userProfile.dateOfBirth
+    ? format(parseDateOnly(userProfile.dateOfBirth), 'dd MMMM yyyy')
+    : null;
+
+  // Color scheme
+  const textDark: RGB = [20, 20, 20];
+  const textGray: RGB = [80, 80, 80];
+  const primaryBlue: RGB = [0, 29, 55];
+  const borderColor: RGB = [180, 180, 180];
+  const headerColor: RGB = [0, 29, 55];
+  const sectionBg: RGB = [248, 249, 250];
+
+  const setFillColor = (c: RGB) => doc.setFillColor(c[0], c[1], c[2]);
+  const setTextColor = (c: RGB) => doc.setTextColor(c[0], c[1], c[2]);
+  const setDrawColor = (c: RGB) => doc.setDrawColor(c[0], c[1], c[2]);
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  const contentWidth = pageWidth - (margin * 2);
+  let yPos = margin;
+
+  // Helper function to add new page if needed
+  const ensureSpace = (requiredHeight: number) => {
+    if (yPos + requiredHeight > pageHeight - margin) {
+      doc.addPage();
+      yPos = margin;
+      return true;
+    }
+    return false;
+  };
+
+  // Header
+  setFillColor(headerColor);
+  doc.rect(0, 0, pageWidth, 40, 'F');
+  
+  setTextColor([255, 255, 255]);
+  doc.setFontSize(20);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Navigation Watch Application', margin, 25);
+
+  yPos = 50;
+
+  // Applicant Information Section
+  setTextColor(textDark);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Applicant Information', margin, yPos);
+  yPos += 8;
+
+  setDrawColor(borderColor);
+  doc.setLineWidth(0.5);
+  doc.line(margin, yPos, pageWidth - margin, yPos);
+  yPos += 6;
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  setTextColor(textDark);
+
+  const applicantInfo = [
+    ['Full Name:', fullName],
+    ['Date of Birth:', dateOfBirth || '—'],
+    ['Position:', userProfile.position || '—'],
+    ['Discharge Book Number:', userProfile.dischargeBookNumber || '—'],
+    ['Email:', userProfile.email || '—'],
+  ];
+
+  applicantInfo.forEach(([label, value]) => {
+    ensureSpace(8);
+    doc.setFont('helvetica', 'bold');
+    doc.text(label, margin, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(safeText(value), margin + 60, yPos);
+    yPos += 6;
+  });
+
+  yPos += 4;
+
+  // Vessel Information Section
+  ensureSpace(30);
+  setTextColor(textDark);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Vessel Information', margin, yPos);
+  yPos += 8;
+
+  setDrawColor(borderColor);
+  doc.line(margin, yPos, pageWidth - margin, yPos);
+  yPos += 6;
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+
+  const vesselInfo = [
+    ['Vessel Name:', vessel.name],
+    ['Vessel Type:', vessel.type || '—'],
+    ['Official Number:', vessel.officialNumber || '—'],
+    ['Flag State:', vessel.flag_state || '—'],
+    ['Gross Tonnage:', vessel.gross_tonnage ? `${vessel.gross_tonnage} GT` : '—'],
+    ['Call Sign:', vessel.call_sign || '—'],
+  ];
+
+  vesselInfo.forEach(([label, value]) => {
+    ensureSpace(8);
+    doc.setFont('helvetica', 'bold');
+    doc.text(label, margin, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(safeText(value), margin + 60, yPos);
+    yPos += 6;
+  });
+
+  yPos += 4;
+
+  // Watchkeeping Period Section
+  ensureSpace(30);
+  setTextColor(textDark);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Watchkeeping Period', margin, yPos);
+  yPos += 8;
+
+  setDrawColor(borderColor);
+  doc.line(margin, yPos, pageWidth - margin, yPos);
+  yPos += 6;
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+
+  const start = parseDateOnly(application.start_date);
+  const end = parseDateOnly(application.end_date);
+  const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
+  const periodInfo = [
+    ['Start Date:', startDate],
+    ['End Date:', endDate],
+    ['Total Days:', `${totalDays} days`],
+    ['Watchkeeping Hours:', application.watchkeeping_hours ? `${application.watchkeeping_hours} hours` : '—'],
+  ];
+
+  periodInfo.forEach(([label, value]) => {
+    ensureSpace(8);
+    doc.setFont('helvetica', 'bold');
+    doc.text(label, margin, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(safeText(value), margin + 60, yPos);
+    yPos += 6;
+  });
+
+  yPos += 4;
+
+  // Navigation Duties Section
+  if (application.navigation_duties) {
+    ensureSpace(40);
+    setTextColor(textDark);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Navigation Duties Performed', margin, yPos);
+    yPos += 8;
+
+    setDrawColor(borderColor);
+    doc.line(margin, yPos, pageWidth - margin, yPos);
+    yPos += 6;
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    setTextColor(textDark);
+
+    const dutiesLines = doc.splitTextToSize(safeText(application.navigation_duties), contentWidth - 20);
+    dutiesLines.forEach((line: string) => {
+      ensureSpace(8);
+      doc.text(line, margin + 10, yPos);
+      yPos += 6;
+    });
+
+    yPos += 4;
+  }
+
+  // Additional Notes Section
+  if (application.additional_notes) {
+    ensureSpace(40);
+    setTextColor(textDark);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Additional Notes', margin, yPos);
+    yPos += 8;
+
+    setDrawColor(borderColor);
+    doc.line(margin, yPos, pageWidth - margin, yPos);
+    yPos += 6;
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    setTextColor(textDark);
+
+    const notesLines = doc.splitTextToSize(safeText(application.additional_notes), contentWidth - 20);
+    notesLines.forEach((line: string) => {
+      ensureSpace(8);
+      doc.text(line, margin + 10, yPos);
+      yPos += 6;
+    });
+
+    yPos += 4;
+  }
+
+  // Captain Signature Section
+  ensureSpace(50);
+  yPos = pageHeight - 80;
+
+  setDrawColor(borderColor);
+  doc.line(margin, yPos, pageWidth - margin, yPos);
+  yPos += 10;
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(textDark);
+  doc.text('Captain Certification', margin, yPos);
+  yPos += 8;
+
+  doc.setFont('helvetica', 'normal');
+  doc.text('I certify that the above information is accurate and that the applicant has performed', margin, yPos);
+  yPos += 6;
+  doc.text('navigation watchkeeping duties as stated during the period indicated.', margin, yPos);
+  yPos += 12;
+
+  // Captain signature line
+  doc.setFont('helvetica', 'normal');
+  doc.text('Captain Name:', margin, yPos);
+  doc.text(safeText(application.captain_name || (captainProfile ? `${captainProfile?.firstName || ''} ${captainProfile?.lastName || ''}`.trim() : '—')), margin + 50, yPos);
+  yPos += 8;
+
+  doc.text('Date:', margin, yPos);
+  doc.text(generatedDate, margin + 50, yPos);
+  yPos += 12;
+
+  // Captain signature image if available
+  if (captainProfile?.signature) {
+    try {
+      const signatureImg = new Image();
+      signatureImg.src = captainProfile.signature;
+      await new Promise((resolve) => {
+        signatureImg.onload = resolve;
+        signatureImg.onerror = resolve; // Continue even if image fails
+      });
+
+      if (signatureImg.complete && signatureImg.naturalWidth > 0) {
+        const sigWidth = 60;
+        const sigHeight = (signatureImg.naturalHeight / signatureImg.naturalWidth) * sigWidth;
+        doc.addImage(
+          captainProfile.signature,
+          'PNG',
+          margin,
+          yPos,
+          sigWidth,
+          Math.min(sigHeight, 30)
+        );
+        yPos += Math.min(sigHeight, 30) + 6;
+      }
+    } catch (error) {
+      console.error('Error adding signature image:', error);
+    }
+  } else {
+    // Signature line
+    setDrawColor(borderColor);
+    doc.setLineWidth(0.5);
+    doc.line(margin, yPos, margin + 80, yPos);
+    yPos += 8;
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    setTextColor(textGray);
+    doc.text('Signature', margin, yPos);
+  }
+
+  // Footer
+  const totalPages = doc.getNumberOfPages();
+  for (let page = 1; page <= totalPages; page++) {
+    doc.setPage(page);
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    setTextColor(textGray);
+    const y = pageHeight - 8;
+    doc.text(`Document ID: ${application.id}`, margin, y, { align: 'left' });
+    doc.text('www.seajourney.co.uk', pageWidth / 2, y, { align: 'center' });
+    doc.text(`Page ${page} of ${totalPages}`, pageWidth - margin, y, { align: 'right' });
+  }
+
+  // Filename
+  const formatDateForFilename = (dateStr: string): string => {
+    const date = parseDateOnly(dateStr);
+    const day = date.getDate();
+    const month = format(date, 'MMM');
+    const getOrdinal = (n: number): string => {
+      const s = ['th', 'st', 'nd', 'rd'];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    };
+    return `${getOrdinal(day)} ${month}`;
+  };
+
+  const cleanName = (name: string): string =>
+    String(name || '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const startDateFilename = formatDateForFilename(application.start_date);
+  const endDateFilename = formatDateForFilename(application.end_date);
+  const crewName = cleanName(fullName);
+  const vesselName = cleanName(vessel.name || 'UnknownVessel');
+  const filename = `${startDateFilename} - ${endDateFilename} ${crewName} ${vesselName} Nav Watch Application.pdf`;
+
+  // Output modes
+  if (output === 'blob') {
+    return doc.output('blob');
+  }
+  if (output === 'newtab') {
+    doc.output('dataurlnewwindow');
+    return;
+  }
+
+  doc.save(filename);
+}
+
+/* ========================================================================== */
+/*                    MCA WATCH RATING CERTIFICATE FORM                      */
+/*                    (MSF 4371 REV 08/25)                                   */
+/*                    Fills the official MCA PDF form                        */
+/* ========================================================================== */
+
+
+export interface MCAWatchRatingApplicationData {
+  personalDetails: {
+    title?: string;
+    surname: string;
+    forenames: string;
+    dateOfBirth: string; // DD/MM/YYYY
+    placeOfBirth?: string;
+    countryOfBirth?: string;
+    nationality?: string;
+    address: {
+      line1: string;
+      line2?: string;
+      district?: string;
+      townCity: string;
+      countyState?: string;
+      postCode: string;
+      country: string;
+    };
+    telephone?: string;
+    mobile?: string;
+    email: string;
+
+    // Optional: applicant signature as dataURL (PNG/JPEG)
+    signatureDataUrl?: string | null;
+
+    // Optional: countersigner details (usually not required for most cases)
+    counterSign?: {
+      name?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      townCity?: string;
+      countyState?: string;
+      postCode?: string;
+      country?: string;
+      telephone?: string;
+      occupation?: string;
+      capacityKnownApplicant?: string;
+      signatureDataUrl?: string | null;
+      date?: string; // DD/MM/YYYY
+    } | null;
+
+    // Optional: checklist ticks for page 3 (Nav/Engine checklist)
+    checklistNavEngine?: {
+      attestedPassport?: boolean;
+      payment?: boolean;
+      dischargeBookOrCd?: boolean;
+      seaServiceTestimonials?: boolean;
+      passportPhoto?: boolean;
+      stcwBasicTraining?: boolean;
+      securityAwareness?: boolean; // STCW A-VI/6
+      profInSurvivalCraft?: boolean; // STCW A-VI/2-1
+      medical?: boolean;
+      watchRatingTrainingRecordBook?: boolean;
+      mntb?: boolean; // if relevant
+    } | null;
+
+    // Optional: checklist ticks for page 4 (ETR checklist)
+    checklistETR?: {
+      attestedPassport?: boolean;
+      payment?: boolean;
+      dischargeBookOrCd?: boolean;
+      seaServiceTestimonials?: boolean;
+      passportPhoto?: boolean;
+      stcwBasicTraining?: boolean;
+      securityAwareness?: boolean; // STCW A-VI/6
+      electroTechnicalTraining?: boolean;
+      medical?: boolean;
+      electroTechnicalRecordBook?: boolean;
+    } | null;
+  };
+
+  certificateType: MCACertificateType; // you said navigational
+  seaServiceRecords: Array<{
+    vesselName: string;
+    flag: string;
+    imoNumber?: string;
+    grossTonnage?: number;
+    kilowatts?: number;
+    length?: number; // metres
+    capacity?: string;
+    fromDate: string; // DD/MM/YYYY
+    toDate: string; // DD/MM/YYYY
+    totalDays: number;
+    daysAtSea: number;
+  }>;
+}
+
+/**
+ * Generates an MCA MSF 4371 Rev 08/25 application PDF by using the official MCA PDF as template,
+ * then writing into pages 1–6 with pdf-lib (overlay).
+ *
+ * ✅ No Unicode ticks (✓) -> uses vector ticks to avoid WinAnsi errors
+ * ✅ Page 1: personal + certificate tick
+ * ✅ Page 2: sea service table
+ * ✅ Page 3: optional checklist ticks (Nav/Engine)
+ * ✅ Page 5: declaration date + print name (+ optional signature)
+ * ✅ Page 6: payment tick based on address country
+ */
+
+
+export async function generateMCAWatchRatingForm_NAV_WRC(
+  data: MCAWatchRatingApplicationData,
+  output: TestimonialPDFOutput = 'download',
+  opts?: { debug?: boolean } // ✅ set true to draw crosshairs + labels
+) {
+  const { personalDetails, certificateType, seaServiceRecords } = data;
+
+  const API_BASE_URL =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+
+  // MUST return the real MSF 4371 PDF bytes (8 pages in original doc, but you’re using 6 relevant pages)
+  const MCA_FORM_API_URL = `${API_BASE_URL}/api/mca-form/fetch`;
+
+  const res = await fetch(MCA_FORM_API_URL);
+  if (!res.ok) throw new Error(`Failed to fetch MCA form: ${res.status} ${res.statusText}`);
+
+  const templateBytes = await res.arrayBuffer();
+  const pdfDoc = await PDFDocument.load(templateBytes);
+
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const pages = pdfDoc.getPages();
+  if (pages.length < 6) throw new Error(`Template PDF has ${pages.length} pages; expected at least 6.`);
+
+  const black = rgb(0, 0, 0);
+  const red = rgb(1, 0, 0);
+
+  const safe = (v?: string | null, fallback = '') => (v ?? '').trim() || fallback;
+
+  // ----------------------------
+  // ✅ BASE SIZES (points)
+  // ----------------------------
+  // A4 portrait (page 1,3,4,5,6)
+  const A4_PORTRAIT = { w: 595.28, h: 841.89 };
+  // A4 landscape (your page 2 in the template)
+  const A4_LANDSCAPE = { w: 841.89, h: 595.28 };
+
+  // ----------------------------
+  // ✅ COORDS IN *BASE* POINTS FROM TOP
+  // (These MUST be based on A4 points-from-top, NOT screenshot pixels)
+  // ----------------------------
+  const COORDS_BASE = {
+    p1: {
+      // Title (Mr/Mrs/Miss) - adjusted significantly
+      title: { x: 200, top: 265 },
+      // Surname - usually directly below title
+      surname: { x: 200, top: 280 },
+      // Forenames - below surname
+      forenames: { x: 200, top: 300 },
+      // Date of Birth - below forenames
+      dob: { x: 200, top: 320 },
+      // Place and Country of Birth - combined field
+      placeCountryBirth: { x: 200, top: 335, maxW: 400 },
+      // Nationality - below place of birth
+      nationality: { x: 200, top: 355 },
+
+      // Address fields - typically start lower on the form
+      addrLine1: { x: 150, top: 395, maxW: 380 },
+      addrLine2: { x: 150, top: 415, maxW: 380 },
+      district: { x: 150, top: 435, maxW: 180 },
+      townCity: { x: 150, top: 455, maxW: 180 },
+      countyState: { x: 150, top: 475, maxW: 180 },
+      postCode: { x: 150, top: 495, maxW: 180 },
+      country: { x: 150, top: 512, maxW: 180 },
+
+      // Contact details - below address
+      telephone: { x: 150, top: 535, maxW: 200 },
+      mobile: { x: 400, top: 535, maxW: 200 },
+      email: { x: 150, top: 555, maxW: 380 },
+
+      // Certificate type checkboxes - typically on the right side of page 1
+      certNav: { x: 380, top: 635 },
+      certEngine: { x: 380, top: 665 },
+      certEtr: { x: 380, top: 692 },
+    },
+
+    p2: {
+      // Sea service table - landscape page, table typically starts lower
+      tableTop: 215,
+      rowH: 16, // Row spacing
+      maxRows: 14,
+      fontSize: 7.5,
+      cols: (pageW: number) => ({
+        vessel: pageW * 0.04,      // Vessel name column
+        flag: pageW * 0.18,        // Flag state
+        imo: pageW * 0.26,         // IMO number
+        gt: pageW * 0.36,          // Gross tonnage
+        kw: pageW * 0.43,          // Kilowatts
+        len: pageW * 0.5,         // Length
+        cap: pageW * 0.56,         // Capacity
+        from: pageW * 0.67,        // From date
+        to: pageW * 0.74,          // To date
+        days: pageW * 0.82,       // Total days
+        seaDays: pageW * 0.89,     // Days at sea
+      }),
+    },
+
+    p3: {
+      // Checklist ticks - typically on the right side
+      tickX: 533,
+      rowsTop: {
+        attestedPassport: 160,
+        payment: 173,
+        dischargeBookOrCd: 195,
+        seaServiceTestimonials: 220,
+        passportPhoto: 243,
+        stcwBasicTraining: 270,
+        securityAwareness: 295,
+        profInSurvivalCraft: 325,
+        medical: 347,
+        watchRatingTrainingRecordBook: 395,
+      },
+    },
+
+    p4: {
+      // ETR Checklist ticks - similar layout to page 3
+      tickX: 533,
+      rowsTop: {
+        attestedPassport: 160,
+        payment: 173,
+        dischargeBookOrCd: 194,
+        seaServiceTestimonials: 220,
+        passportPhoto: 240,
+        stcwBasicTraining: 260,
+        securityAwareness: 280,
+        electroTechnicalTraining: 300,
+        medical: 320,
+        electroTechnicalRecordBook: 340,
+      },
+    },
+
+    p5: {
+      // Declaration section - signature box typically in upper portion
+      signatureBox: { x: 110, top: 150, w: 190, h: 70 },
+      date: { x: 90, top: 250 },
+      printName: { x: 120, top: 285 },
+
+      // Countersign section - typically lower on the page
+      csName: { x: 110, top: 375, maxW: 420 },
+      csAddr1: { x: 110, top: 397, maxW: 420 },
+      csAddr2: { x: 110, top: 415, maxW: 420 },
+      csTown: { x: 110, top: 433, maxW: 200 },
+      csCounty: { x: 335, top: 433, maxW: 200 },
+      csPost: { x: 110, top: 451, maxW: 200 },
+      csCountry: { x: 335, top: 451, maxW: 200 },
+      csTel: { x: 110, top: 469, maxW: 200 },
+      csOcc: { x: 335, top: 469, maxW: 200 },
+      csCapacity: { x: 215, top: 487, maxW: 330 },
+
+      csSigLine: { x: 110, top: 540 },
+      csDateLine: { x: 335, top: 540 },
+    },
+
+    p6: {
+
+      // Payment section - checkboxes for UK/EU/ROW
+      tickUK: { x: 263, top: 283 },
+      tickEU: { x: 359, top: 328 },
+      tickROW: { x: 330, top: 375 },
+    },
+  };
+
+  // ----------------------------
+  // ✅ Scaling helpers
+  // ----------------------------
+  const getScale = (page: any, base: { w: number; h: number }) => {
+    const { width, height } = page.getSize();
+    return { sx: width / base.w, sy: height / base.h, width, height };
+  };
+
+  // convert base-x to page-x
+  const X = (page: any, base: { w: number; h: number }, x: number) => {
+    const { sx } = getScale(page, base);
+    return x * sx;
+  };
+
+  // convert base-top(from top) to page-y (pdf bottom-left)
+  const Y = (page: any, base: { w: number; h: number }, topFromTop: number) => {
+    const { sy, height } = getScale(page, base);
+    return height - topFromTop * sy;
+  };
+
+  const W = (page: any, base: { w: number; h: number }, w: number) => {
+    const { sx } = getScale(page, base);
+    return w * sx;
+  };
+
+  const wrapText = (text: string, f: any, size: number, maxWidth: number) => {
+    const words = text.split(/\s+/).filter(Boolean);
+    const lines: string[] = [];
+    let line = '';
+    for (const w of words) {
+      const test = line ? `${line} ${w}` : w;
+      const width = f.widthOfTextAtSize(test, size);
+      if (width <= maxWidth) line = test;
+      else {
+        if (line) lines.push(line);
+        line = w;
+      }
+    }
+    if (line) lines.push(line);
+    return lines.length ? lines : [''];
+  };
+
+  const drawText = (
+    page: any,
+    base: { w: number; h: number },
+    text: string,
+    x: number,
+    top: number,
+    opts?: { size?: number; maxW?: number; bold?: boolean }
+  ) => {
+    const t = (text ?? '').toString().trim();
+    if (!t) return;
+
+    const size = opts?.size ?? 9;
+    const useFont = opts?.bold ? fontBold : font;
+
+    const px = X(page, base, x);
+    const py = Y(page, base, top);
+
+    if (opts?.maxW && opts.maxW > 10) {
+      const maxW = W(page, base, opts.maxW);
+      const lines = wrapText(t, useFont, size, maxW);
+      lines.forEach((line, i) => {
+        page.drawText(line, {
+          x: px,
+          y: py - i * (size + 2),
+          size,
+          font: useFont,
+          color: black,
+        });
+      });
+      return;
+    }
+
+    page.drawText(t, { x: px, y: py, size, font: useFont, color: black });
+  };
+
+  // ✅ Vector tick (no unicode ✓)
+  const drawTick = (page: any, base: { w: number; h: number }, x: number, top: number, size = 10) => {
+    const px = X(page, base, x);
+    const py = Y(page, base, top);
+
+    page.drawLine({
+      start: { x: px + 0.5, y: py - 1.5 },
+      end: { x: px + 3.5, y: py - 4.0 },
+      thickness: 1.2,
+      color: black,
+    });
+    page.drawLine({
+      start: { x: px + 3.2, y: py - 4.0 },
+      end: { x: px + size, y: py + 2.0 },
+      thickness: 1.2,
+      color: black,
+    });
+  };
+
+  const debugMark = (page: any, base: { w: number; h: number }, label: string, x: number, top: number) => {
+    if (!opts?.debug) return;
+    const px = X(page, base, x);
+    const py = Y(page, base, top);
+
+    page.drawLine({ start: { x: px - 6, y: py }, end: { x: px + 6, y: py }, thickness: 0.8, color: red });
+    page.drawLine({ start: { x: px, y: py - 6 }, end: { x: px, y: py + 6 }, thickness: 0.8, color: red });
+    page.drawText(label, { x: px + 8, y: py + 2, size: 6, font, color: red });
+  };
+
+  const detectImageFormat = (dataUrl: string): 'png' | 'jpg' => {
+    const lower = dataUrl.toLowerCase();
+    if (lower.includes('image/jpeg') || lower.includes('image/jpg')) return 'jpg';
+    return 'png';
+  };
+
+  const drawSignatureDataUrl = async (
+    page: any,
+    base: { w: number; h: number },
+    dataUrl: string,
+    x: number,
+    top: number,
+    boxW: number,
+    boxH: number
+  ) => {
+    try {
+      const fmt = detectImageFormat(dataUrl);
+      const imgBytes = await fetch(dataUrl).then(r => r.arrayBuffer());
+      const img = fmt === 'jpg' ? await pdfDoc.embedJpg(imgBytes) : await pdfDoc.embedPng(imgBytes);
+
+      const px = X(page, base, x);
+      const pyTop = Y(page, base, top);
+
+      const bw = W(page, base, boxW);
+      const bh = W(page, base, boxH); // close enough; if you want perfect, use sy for height
+
+      const scale = Math.min(bw / img.width, bh / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+
+      page.drawImage(img, {
+        x: px,
+        y: pyTop - bh + (bh - h) / 2,
+        width: w,
+        height: h,
+      });
+    } catch (e) {
+      console.warn('Could not draw signature image:', e);
+    }
+  };
+
+  // ----------------------------
+  // PAGE 1 (A4 portrait)
+  // ----------------------------
+  const page1 = pages[0];
+  const baseP = A4_PORTRAIT;
+
+  const fullName = `${safe(personalDetails.forenames)} ${safe(personalDetails.surname)}`.trim();
+  const pob = [safe(personalDetails.placeOfBirth), safe(personalDetails.countryOfBirth)].filter(Boolean).join(', ');
+
+  // Debug marks (help you tune coords quickly)
+  // Enable debug mode by passing opts: { debug: true } to see red crosshairs at each field position
+  if (opts?.debug) {
+    Object.entries(COORDS_BASE.p1).forEach(([k, v]: any) => {
+      if (v?.x != null && v?.top != null) debugMark(page1, baseP, `p1.${k}`, v.x, v.top);
+    });
+  }
+
+  drawText(page1, baseP, safe(personalDetails.title), COORDS_BASE.p1.title.x, COORDS_BASE.p1.title.top);
+  drawText(page1, baseP, safe(personalDetails.surname), COORDS_BASE.p1.surname.x, COORDS_BASE.p1.surname.top);
+  drawText(page1, baseP, safe(personalDetails.forenames), COORDS_BASE.p1.forenames.x, COORDS_BASE.p1.forenames.top);
+  drawText(page1, baseP, safe(personalDetails.dateOfBirth), COORDS_BASE.p1.dob.x, COORDS_BASE.p1.dob.top);
+  drawText(page1, baseP, pob, COORDS_BASE.p1.placeCountryBirth.x, COORDS_BASE.p1.placeCountryBirth.top, {
+    maxW: COORDS_BASE.p1.placeCountryBirth.maxW,
+  });
+  drawText(page1, baseP, safe(personalDetails.nationality), COORDS_BASE.p1.nationality.x, COORDS_BASE.p1.nationality.top);
+
+  drawText(page1, baseP, safe(personalDetails.address.line1), COORDS_BASE.p1.addrLine1.x, COORDS_BASE.p1.addrLine1.top, {
+    maxW: COORDS_BASE.p1.addrLine1.maxW,
+  });
+  drawText(page1, baseP, safe(personalDetails.address.line2), COORDS_BASE.p1.addrLine2.x, COORDS_BASE.p1.addrLine2.top, {
+    maxW: COORDS_BASE.p1.addrLine2.maxW,
+  });
+  drawText(page1, baseP, safe(personalDetails.address.district), COORDS_BASE.p1.district.x, COORDS_BASE.p1.district.top, {
+    maxW: COORDS_BASE.p1.district.maxW,
+  });
+  drawText(page1, baseP, safe(personalDetails.address.townCity), COORDS_BASE.p1.townCity.x, COORDS_BASE.p1.townCity.top, {
+    maxW: COORDS_BASE.p1.townCity.maxW,
+  });
+  drawText(page1, baseP, safe(personalDetails.address.countyState), COORDS_BASE.p1.countyState.x, COORDS_BASE.p1.countyState.top, {
+    maxW: COORDS_BASE.p1.countyState.maxW,
+  });
+  drawText(page1, baseP, safe(personalDetails.address.postCode), COORDS_BASE.p1.postCode.x, COORDS_BASE.p1.postCode.top, {
+    maxW: COORDS_BASE.p1.postCode.maxW,
+  });
+  drawText(page1, baseP, safe(personalDetails.address.country), COORDS_BASE.p1.country.x, COORDS_BASE.p1.country.top, {
+    maxW: COORDS_BASE.p1.country.maxW,
+  });
+
+  drawText(page1, baseP, safe(personalDetails.telephone), COORDS_BASE.p1.telephone.x, COORDS_BASE.p1.telephone.top, {
+    maxW: COORDS_BASE.p1.telephone.maxW,
+  });
+  drawText(page1, baseP, safe(personalDetails.mobile), COORDS_BASE.p1.mobile.x, COORDS_BASE.p1.mobile.top, {
+    maxW: COORDS_BASE.p1.mobile.maxW,
+  });
+  drawText(page1, baseP, safe(personalDetails.email), COORDS_BASE.p1.email.x, COORDS_BASE.p1.email.top, {
+    maxW: COORDS_BASE.p1.email.maxW,
+  });
+
+  if (certificateType === 'navigational') drawTick(page1, baseP, COORDS_BASE.p1.certNav.x, COORDS_BASE.p1.certNav.top, 10);
+  if (certificateType === 'engine_room') drawTick(page1, baseP, COORDS_BASE.p1.certEngine.x, COORDS_BASE.p1.certEngine.top, 10);
+  if (certificateType === 'electro_technical') drawTick(page1, baseP, COORDS_BASE.p1.certEtr.x, COORDS_BASE.p1.certEtr.top, 10);
+
+  // ----------------------------
+  // PAGE 2 (A4 landscape)
+  // ----------------------------
+  const page2 = pages[1];
+  const baseL = A4_LANDSCAPE;
+  const { width: p2w } = page2.getSize();
+
+  const col = COORDS_BASE.p2.cols(p2w);
+  const rowCount = Math.min(seaServiceRecords.length, COORDS_BASE.p2.maxRows);
+
+  for (let i = 0; i < rowCount; i++) {
+    const r = seaServiceRecords[i];
+    const top = COORDS_BASE.p2.tableTop + i * COORDS_BASE.p2.rowH;
+    const fs = COORDS_BASE.p2.fontSize;
+
+    drawText(page2, baseL, safe(r.vesselName), col.vessel, top, { size: fs, maxW: (col.flag - col.vessel) - 6 });
+    drawText(page2, baseL, safe(r.flag), col.flag, top, { size: fs, maxW: (col.imo - col.flag) - 4 });
+    drawText(page2, baseL, safe(r.imoNumber), col.imo, top, { size: fs, maxW: (col.gt - col.imo) - 4 });
+    drawText(page2, baseL, r.grossTonnage != null ? String(r.grossTonnage) : '', col.gt, top, { size: fs });
+    drawText(page2, baseL, r.kilowatts != null ? String(r.kilowatts) : '', col.kw, top, { size: fs });
+    drawText(page2, baseL, r.length != null ? String(r.length) : '', col.len, top, { size: fs });
+    drawText(page2, baseL, safe(r.capacity), col.cap, top, { size: fs, maxW: (col.from - col.cap) - 6 });
+    drawText(page2, baseL, safe(r.fromDate), col.from, top, { size: fs });
+    drawText(page2, baseL, safe(r.toDate), col.to, top, { size: fs });
+    drawText(page2, baseL, String(r.totalDays ?? ''), col.days, top, { size: fs });
+    drawText(page2, baseL, String(r.daysAtSea ?? ''), col.seaDays, top, { size: fs });
+  }
+
+  // ----------------------------
+  // PAGE 3 (A4 portrait) checklist - Only for Navigational and Engine Room
+  // ----------------------------
+  // Only show Page 3 checklist for navigational and engine_room certificates
+  if (certificateType === 'navigational' || certificateType === 'engine_room') {
+  const page3 = pages[2];
+  const cl = personalDetails.checklistNavEngine || null;
+
+  if (cl) {
+      const x = COORDS_BASE.p3.tickX;
+      if (cl.attestedPassport) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.attestedPassport, 9);
+      if (cl.payment) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.payment, 9);
+      if (cl.dischargeBookOrCd) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.dischargeBookOrCd, 9);
+      if (cl.seaServiceTestimonials) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.seaServiceTestimonials, 9);
+      if (cl.passportPhoto) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.passportPhoto, 9);
+      if (cl.stcwBasicTraining) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.stcwBasicTraining, 9);
+      if (cl.securityAwareness) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.securityAwareness, 9);
+      if (cl.profInSurvivalCraft) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.profInSurvivalCraft, 9);
+      if (cl.medical) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.medical, 9);
+      if (cl.watchRatingTrainingRecordBook) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.watchRatingTrainingRecordBook, 9);
+    }
+  }
+
+  // ----------------------------
+  // PAGE 4 (A4 portrait) ETR checklist - Only for Electro-technical
+  // ----------------------------
+  // Only show Page 4 checklist for electro_technical certificates
+  if (certificateType === 'electro_technical') {
+    const page4 = pages[3];
+    const etrCl = personalDetails.checklistETR || null;
+
+    if (etrCl) {
+      const x = COORDS_BASE.p4.tickX;
+      if (etrCl.attestedPassport) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.attestedPassport, 9);
+      if (etrCl.payment) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.payment, 9);
+      if (etrCl.dischargeBookOrCd) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.dischargeBookOrCd, 9);
+      if (etrCl.seaServiceTestimonials) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.seaServiceTestimonials, 9);
+      if (etrCl.passportPhoto) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.passportPhoto, 9);
+      if (etrCl.stcwBasicTraining) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.stcwBasicTraining, 9);
+      if (etrCl.securityAwareness) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.securityAwareness, 9);
+      if (etrCl.electroTechnicalTraining) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.electroTechnicalTraining, 9);
+      if (etrCl.medical) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.medical, 9);
+      if (etrCl.electroTechnicalRecordBook) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.electroTechnicalRecordBook, 9);
+    }
+  }
+
+  // ----------------------------
+  // PAGE 5 (A4 portrait) declaration + optional countersign
+  // ----------------------------
+  const page5 = pages[4];
+
+  const today = new Date();
+  const dd = String(today.getDate()).padStart(2, '0');
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(today.getFullYear());
+  const todayStr = `${dd}/${mm}/${yyyy}`;
+
+  drawText(page5, baseP, todayStr, COORDS_BASE.p5.date.x, COORDS_BASE.p5.date.top, { size: 9, bold: true });
+  drawText(page5, baseP, fullName, COORDS_BASE.p5.printName.x, COORDS_BASE.p5.printName.top, { size: 9 });
+
+  if (personalDetails.signatureDataUrl) {
+    await drawSignatureDataUrl(
+      page5,
+      baseP,
+      personalDetails.signatureDataUrl,
+      COORDS_BASE.p5.signatureBox.x,
+      COORDS_BASE.p5.signatureBox.top,
+      COORDS_BASE.p5.signatureBox.w,
+      COORDS_BASE.p5.signatureBox.h
+    );
+  }
+
+  // Countersign section - Available for all certificate types when provided
+  const cs = personalDetails.counterSign || null;
+  if (cs) {
+    drawText(page5, baseP, safe(cs.name), COORDS_BASE.p5.csName.x, COORDS_BASE.p5.csName.top, { size: 8.5, maxW: COORDS_BASE.p5.csName.maxW });
+    drawText(page5, baseP, safe(cs.addressLine1), COORDS_BASE.p5.csAddr1.x, COORDS_BASE.p5.csAddr1.top, { size: 8.5, maxW: COORDS_BASE.p5.csAddr1.maxW });
+    drawText(page5, baseP, safe(cs.addressLine2), COORDS_BASE.p5.csAddr2.x, COORDS_BASE.p5.csAddr2.top, { size: 8.5, maxW: COORDS_BASE.p5.csAddr2.maxW });
+    drawText(page5, baseP, safe(cs.townCity), COORDS_BASE.p5.csTown.x, COORDS_BASE.p5.csTown.top, { size: 8.5, maxW: COORDS_BASE.p5.csTown.maxW });
+    drawText(page5, baseP, safe(cs.countyState), COORDS_BASE.p5.csCounty.x, COORDS_BASE.p5.csCounty.top, { size: 8.5, maxW: COORDS_BASE.p5.csCounty.maxW });
+    drawText(page5, baseP, safe(cs.postCode), COORDS_BASE.p5.csPost.x, COORDS_BASE.p5.csPost.top, { size: 8.5, maxW: COORDS_BASE.p5.csPost.maxW });
+    drawText(page5, baseP, safe(cs.country), COORDS_BASE.p5.csCountry.x, COORDS_BASE.p5.csCountry.top, { size: 8.5, maxW: COORDS_BASE.p5.csCountry.maxW });
+    drawText(page5, baseP, safe(cs.telephone), COORDS_BASE.p5.csTel.x, COORDS_BASE.p5.csTel.top, { size: 8.5, maxW: COORDS_BASE.p5.csTel.maxW });
+    drawText(page5, baseP, safe(cs.occupation), COORDS_BASE.p5.csOcc.x, COORDS_BASE.p5.csOcc.top, { size: 8.5, maxW: COORDS_BASE.p5.csOcc.maxW });
+    drawText(page5, baseP, safe(cs.capacityKnownApplicant), COORDS_BASE.p5.csCapacity.x, COORDS_BASE.p5.csCapacity.top, { size: 8.5, maxW: COORDS_BASE.p5.csCapacity.maxW });
+
+    if (cs.signatureDataUrl) {
+      await drawSignatureDataUrl(page5, baseP, cs.signatureDataUrl, COORDS_BASE.p5.csSigLine.x, COORDS_BASE.p5.csSigLine.top, 180, 25);
+    }
+    if (cs.date) {
+      drawText(page5, baseP, cs.date, COORDS_BASE.p5.csDateLine.x, COORDS_BASE.p5.csDateLine.top, { size: 8.5 });
+    }
+  }
+
+  // ----------------------------
+  // PAGE 6 (A4 portrait) payment tick
+  // ----------------------------
+  const page6 = pages[5];
+
+  const country = safe(personalDetails.address.country).toLowerCase();
+  const isUK = ['uk', 'united kingdom', 'england', 'scotland', 'wales', 'northern ireland', 'great britain', 'gb']
+      .some(k => country === k || country.includes(k));
+
+  const euCountries = [
+    'austria','belgium','bulgaria','croatia','cyprus','czech','czech republic','denmark','estonia','finland','france',
+    'germany','greece','hungary','ireland','italy','latvia','lithuania','luxembourg','malta','netherlands','poland',
+    'portugal','romania','slovakia','slovenia','spain','sweden'
+  ];
+  const isEU = !isUK && euCountries.some(c => country === c || country.includes(c));
+
+  if (isUK) drawTick(page6, baseP, COORDS_BASE.p6.tickUK.x, COORDS_BASE.p6.tickUK.top, 10);
+  else if (isEU) drawTick(page6, baseP, COORDS_BASE.p6.tickEU.x, COORDS_BASE.p6.tickEU.top, 10);
+  else drawTick(page6, baseP, COORDS_BASE.p6.tickROW.x, COORDS_BASE.p6.tickROW.top, 10);
+
+  // ----------------------------
+  // Save / output
+  // ----------------------------
+  const finalBytes = await pdfDoc.save();
+  const pdfArray = new Uint8Array(finalBytes);
+
+  if (output === 'blob') return new Blob([pdfArray], { type: 'application/pdf' }) as any;
+
+  if (output === 'newtab') {
+    const blob = new Blob([pdfArray], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    return;
+  }
+
+  const blob = new Blob([pdfArray], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+
+  const cleanName = (name: string) =>
+    String(name || '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const surname = cleanName(personalDetails.surname);
+  const filename = `MSF4371_NavWRC_${surname}_${yyyy}${mm}${dd}.pdf`;
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+
+
+// Export alias for backward compatibility
+export const generateMCAWatchRatingForm = generateMCAWatchRatingForm_NAV_WRC;
+
+/* ========================================================================== */
+/*                    MCA OOW CERTIFICATE FORM (MSF 4274)                      */
+/*                    (MSF 4274 REV 01/26)                                     */
+/*                    Application For an Oral Examination Leading To         */
+/*                    The Issue of A Certificate Of Competency                 */
+/* ========================================================================== */
+
+export type OOWCertificateType = 
+  | 'ii3_oow_lt500gt_d' 
+  | 'ii3_oow_lt500gt_nc'
+  | 'ii1_oow_unlimited'
+  | 'ii2_cm_lt3000gt_nc'
+  | 'ii2_cm_lt3000gt_unlimited'
+  | 'ii2_cm_unlimited_nc'
+  | 'ii2_cm_unlimited_unlimited'
+  | 'ii3_master_lt500gt_d'
+  | 'ii3_master_lt500gt_nc'
+  | 'ii2_master_lt3000gt_specified'
+  | 'ii2_master_lt3000gt_unlimited'
+  | 'ii2_master_unlimited_nc'
+  | 'ii2_master_unlimited_unlimited';
+
+export interface MCAOOWApplicationData {
+  // Section 1: What are you applying for?
+  certificateType: OOWCertificateType;
+  
+  // Section 2: Personal Details
+  personalDetails: {
+    title?: string;
+    surname: string;
+    forenames: string;
+    dateOfBirth: string; // DD/MM/YYYY
+    sex?: 'male' | 'female';
+    placeOfBirth?: string;
+    countryOfBirth?: string;
+    nationality?: string;
+  };
+  
+  // Section 3: Return Delivery Address
+  returnAddress?: {
+    line1: string;
+    line2?: string;
+    townCity: string;
+    countyState?: string;
+    postCode: string;
+    country: string;
+  };
+  
+  // Section 4: Home Address and Contact Details
+  homeAddress: {
+    line1: string;
+    line2?: string;
+    townCity: string;
+    countyState?: string;
+    postCode: string;
+    country: string;
+    email: string;
+    telephone?: string;
+  };
+  
+  // Section 5: Certificates Held or Required CoC
+  existingCoC?: {
+    hasCoC: boolean;
+    certificateNumber?: string;
+    expiryDate?: string; // DD/MM/YYYY
+    countryOfIssue?: string;
+  };
+  
+  existingGMDSS?: {
+    hasGMDSS: boolean;
+    certificateNumber?: string;
+    issueDate?: string; // DD/MM/YYYY
+    endorsementExpiryDate?: string; // DD/MM/YYYY
+    countryOfIssue?: string;
+    requiresNewGMDSS?: boolean;
+  };
+  
+  // SMarT Funding
+  smartFunding?: {
+    isSmartFunded: boolean;
+    sponsoringCompanyEmail?: string;
+  };
+  
+  // Section 6: Sea Service
+  seaServiceRecords: Array<{
+    vesselName: string;
+    imoNumber?: string;
+    type?: string; // Tanker, Cargo, Passenger, Ro-Ro, Supply, Tug, Drilling, Survey, Stand-by, Yacht, etc
+    grossTonnage?: number;
+    voyage?: string; // U = Unlimited, NC = Near Coastal Area
+    rankCapacity: string;
+    fromDate: string; // DD/MM/YYYY
+    toDate: string; // DD/MM/YYYY
+    months: number;
+    days: number;
+  }>;
+  
+  // Section 7: Supporting Evidence (checklist)
+  supportingEvidence?: {
+    // Documents required for NOE
+    attestedPassport?: boolean;
+    payment?: boolean;
+    dischargeBookOrCd?: boolean;
+    seaServiceTestimonials?: boolean;
+    passportPhoto?: boolean;
+    stcwBasicTraining?: boolean;
+    securityAwareness?: boolean;
+    profInSurvivalCraft?: boolean;
+    medical?: boolean;
+    // Additional documents for OOW
+    ukSignalsCertificate?: boolean;
+    narasNaestOperational?: boolean;
+    advancedFireFighting?: boolean;
+    medicalFirstAid?: boolean;
+    efficientDeckHand?: boolean;
+    helmOperational?: boolean;
+    gmdssGoc?: boolean;
+    // Foundation Degree / HNC
+    foundationDegreeCertificate?: boolean;
+    hncCourseCompletion?: boolean;
+    sqaSafetyPaper?: boolean;
+  };
+  
+  // Section 8: Payment
+  payment?: {
+    method?: 'cheque' | 'postal_order' | 'card' | 'bank_transfer';
+    amount?: number;
+  };
+  
+  // Section 10: Declaration
+  declaration?: {
+    signatureDataUrl?: string | null;
+    date?: string; // DD/MM/YYYY
+    printName?: string;
+  };
+  
+  // Section 11: Counter Declaration
+  counterDeclaration?: {
+    name?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    townCity?: string;
+    countyState?: string;
+    postCode?: string;
+    country?: string;
+    telephone?: string;
+    email?: string;
+    relationship?: string;
+    signatureDataUrl?: string | null;
+    date?: string; // DD/MM/YYYY
+  };
+}
+
+/**
+ * Generates an MCA MSF 4274 Rev 01/26 OOW application PDF by using the official MCA PDF as template,
+ * then writing into pages with pdf-lib (overlay).
+ */
+export async function generateMCAOOWForm_MSF_4274(
+  data: MCAOOWApplicationData,
+  output: TestimonialPDFOutput = 'download',
+  opts?: { debug?: boolean }
+) {
+  const API_BASE_URL =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+
+  // Fetch the MSF 4274 PDF template
+  const MCA_FORM_API_URL = `${API_BASE_URL}/api/mca-form/oow-4274`;
+
+  const res = await fetch(MCA_FORM_API_URL);
+  if (!res.ok) throw new Error(`Failed to fetch MCA OOW form: ${res.status} ${res.statusText}`);
+
+  const templateBytes = await res.arrayBuffer();
+  const pdfDoc = await PDFDocument.load(templateBytes);
+
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const pages = pdfDoc.getPages();
+  if (pages.length < 12) throw new Error(`Template PDF has ${pages.length} pages; expected at least 12.`);
+
+  const black = rgb(0, 0, 0);
+  const red = rgb(1, 0, 0);
+
+  const safe = (v?: string | null, fallback = '') => (v ?? '').trim() || fallback;
+
+  // A4 portrait pages
+  const A4_PORTRAIT = { w: 595.28, h: 841.89 };
+
+  // ----------------------------
+  // ✅ Scaling helpers (same as MSF 4371)
+  // ----------------------------
+  const getScale = (page: any, base: { w: number; h: number }) => {
+    const { width, height } = page.getSize();
+    return { sx: width / base.w, sy: height / base.h, width, height };
+  };
+
+  const X = (page: any, base: { w: number; h: number }, x: number) => {
+    const { sx } = getScale(page, base);
+    return x * sx;
+  };
+
+  const Y = (page: any, base: { w: number; h: number }, topFromTop: number) => {
+    const { sy, height } = getScale(page, base);
+    return height - topFromTop * sy;
+  };
+
+  const W = (page: any, base: { w: number; h: number }, w: number) => {
+    const { sx } = getScale(page, base);
+    return w * sx;
+  };
+
+  const wrapText = (text: string, f: any, size: number, maxWidth: number) => {
+    const words = text.split(/\s+/).filter(Boolean);
+    const lines: string[] = [];
+    let line = '';
+    for (const w of words) {
+      const test = line ? `${line} ${w}` : w;
+      const width = f.widthOfTextAtSize(test, size);
+      if (width <= maxWidth) line = test;
+      else {
+        if (line) lines.push(line);
+        line = w;
+      }
+    }
+    if (line) lines.push(line);
+    return lines.length ? lines : [''];
+  };
+
+  const drawText = (
+    page: any,
+    base: { w: number; h: number },
+    text: string,
+    x: number,
+    top: number,
+    opts?: { size?: number; maxW?: number; bold?: boolean }
+  ) => {
+    const t = (text ?? '').toString().trim();
+    if (!t) return;
+
+    const size = opts?.size ?? 10;
+    const useFont = opts?.bold ? fontBold : font;
+
+    const px = X(page, base, x);
+    const py = Y(page, base, top);
+
+    if (opts?.maxW && opts.maxW > 10) {
+      const maxW = W(page, base, opts.maxW);
+      const lines = wrapText(t, useFont, size, maxW);
+      lines.forEach((line, i) => {
+        page.drawText(line, {
+          x: px,
+          y: py - i * (size + 2),
+          size,
+          font: useFont,
+          color: black,
+        });
+      });
+      return;
+    }
+
+    page.drawText(t, { x: px, y: py, size, font: useFont, color: black });
+  };
+
+  // ✅ Vector tick (no unicode ✓) - same as MSF 4371
+  const drawTick = (page: any, base: { w: number; h: number }, x: number, top: number, size = 10) => {
+    const px = X(page, base, x);
+    const py = Y(page, base, top);
+
+    page.drawLine({
+      start: { x: px + 0.5, y: py - 1.5 },
+      end: { x: px + 3.5, y: py - 4.0 },
+      thickness: 1.2,
+      color: black,
+    });
+    page.drawLine({
+      start: { x: px + 3.2, y: py - 4.0 },
+      end: { x: px + size, y: py + 2.0 },
+      thickness: 1.2,
+      color: black,
+    });
+  };
+
+  // ----------------------------
+  // ✅ COORDS IN *BASE* POINTS FROM TOP
+  // (These MUST be based on A4 points-from-top, NOT screenshot pixels)
+  // Based on MSF 4274 Rev 01/26 structure
+  // NOTE: These coordinates are estimates and may need adjustment based on actual PDF
+  // ----------------------------
+  const COORDS_BASE = {
+    p1: {
+      // Section 1: Certificate Type checkboxes (Page 1)
+      certTypes: {
+        ii3_oow_lt500gt_d: { x: 495, top: 200 },
+        ii3_oow_lt500gt_nc: { x: 495, top: 218 },
+        ii1_oow_unlimited: { x: 495, top: 236 },
+        ii2_cm_lt3000gt_nc: { x: 495, top: 254 },
+        ii2_cm_lt3000gt_unlimited: { x: 495, top: 272 },
+        ii2_cm_unlimited_nc: { x: 495, top: 290 },
+        ii2_cm_unlimited_unlimited: { x: 495, top: 308 },
+        ii3_master_lt500gt_d: { x: 495, top: 326 },
+        ii3_master_lt500gt_nc: { x: 495, top: 344 },
+        ii2_master_lt3000gt_specified: { x: 495, top: 362 },
+        ii2_master_lt3000gt_unlimited: { x: 495, top: 380 },
+        ii2_master_unlimited_nc: { x: 495, top: 398 },
+        ii2_master_unlimited_unlimited: { x: 495, top: 416 },
+      },
+      // Section 2: Personal Details (Page 1)
+      title: { x: 165, top: 470 },
+      surname: { x: 165, top: 488 },
+      forenames: { x: 165, top: 506 },
+      dob: { x: 165, top: 524 },
+      sex: { x: 165, top: 542 },
+      placeOfBirth: { x: 165, top: 560 },
+      countryOfBirth: { x: 165, top: 578 },
+      nationality: { x: 165, top: 596 },
+    },
+    p2: {
+      // Section 3: Return Delivery Address (Page 2)
+      returnAddrLine1: { x: 165, top: 200, maxW: 380 },
+      returnAddrLine2: { x: 165, top: 218, maxW: 380 },
+      returnTownCity: { x: 165, top: 236, maxW: 200 },
+      returnCountyState: { x: 165, top: 254, maxW: 200 },
+      returnPostCode: { x: 165, top: 272, maxW: 200 },
+      returnCountry: { x: 165, top: 290, maxW: 200 },
+      // Section 4: Home Address and Contact (Page 2)
+      homeAddrLine1: { x: 165, top: 380, maxW: 380 },
+      homeAddrLine2: { x: 165, top: 398, maxW: 380 },
+      homeTownCity: { x: 165, top: 416, maxW: 200 },
+      homeCountyState: { x: 165, top: 434, maxW: 200 },
+      homePostCode: { x: 165, top: 452, maxW: 200 },
+      homeCountry: { x: 165, top: 470, maxW: 200 },
+      email: { x: 165, top: 488, maxW: 380 },
+      telephone: { x: 165, top: 506, maxW: 200 },
+    },
+    p3: {
+      // Section 5: Certificates (Page 3)
+      hasCoC: { x: 495, top: 200 },
+      cocNumber: { x: 165, top: 218, maxW: 300 },
+      cocExpiry: { x: 165, top: 236, maxW: 150 },
+      cocCountry: { x: 330, top: 236, maxW: 200 },
+      hasGMDSS: { x: 495, top: 290 },
+      gmdssNumber: { x: 165, top: 308, maxW: 300 },
+      gmdssIssueDate: { x: 165, top: 326, maxW: 150 },
+      gmdssExpiry: { x: 330, top: 326, maxW: 150 },
+      gmdssCountry: { x: 165, top: 344, maxW: 200 },
+      requiresNewGMDSS: { x: 495, top: 362 },
+      // SMarT Funding
+      isSmartFunded: { x: 495, top: 440 },
+      smartEmail: { x: 165, top: 458, maxW: 380 },
+    },
+    p4: {
+      // Section 6: Sea Service Table (Page 4) - Landscape
+      tableTop: 150,
+      rowH: 14,
+      maxRows: 20,
+      fontSize: 7,
+      cols: (pageW: number) => ({
+        vessel: pageW * 0.05,
+        imo: pageW * 0.15,
+        type: pageW * 0.22,
+        gt: pageW * 0.30,
+        voyage: pageW * 0.36,
+        rank: pageW * 0.45,
+        from: pageW * 0.58,
+        to: pageW * 0.68,
+        months: pageW * 0.78,
+        days: pageW * 0.85,
+      }),
+    },
+    p10: {
+      // Section 10: Declaration (Page 10)
+      signatureBox: { x: 105, top: 200, w: 190, h: 70 },
+      date: { x: 105, top: 290 },
+      printName: { x: 135, top: 315 },
+    },
+  };
+
+  // ----------------------------
+  // ✅ PAGE 1: Certificate Type & Personal Details
+  // ----------------------------
+  const page1 = pages[0];
+  const baseP = A4_PORTRAIT;
+
+  // Section 1: Certificate Type checkbox
+  const certTypeCoords: Record<string, { x: number; top: number }> = COORDS_BASE.p1.certTypes;
+  if (certTypeCoords[data.certificateType]) {
+    const coord = certTypeCoords[data.certificateType];
+    drawTick(page1, baseP, coord.x, coord.top, 8);
+  }
+
+  // Section 2: Personal Details
+  const pd = data.personalDetails;
+  if (pd.title) drawText(page1, baseP, safe(pd.title), COORDS_BASE.p1.title.x, COORDS_BASE.p1.title.top);
+  drawText(page1, baseP, safe(pd.surname), COORDS_BASE.p1.surname.x, COORDS_BASE.p1.surname.top);
+  drawText(page1, baseP, safe(pd.forenames), COORDS_BASE.p1.forenames.x, COORDS_BASE.p1.forenames.top);
+  drawText(page1, baseP, safe(pd.dateOfBirth), COORDS_BASE.p1.dob.x, COORDS_BASE.p1.dob.top);
+  if (pd.sex) drawText(page1, baseP, safe(pd.sex), COORDS_BASE.p1.sex.x, COORDS_BASE.p1.sex.top);
+  if (pd.placeOfBirth) drawText(page1, baseP, safe(pd.placeOfBirth), COORDS_BASE.p1.placeOfBirth.x, COORDS_BASE.p1.placeOfBirth.top);
+  if (pd.countryOfBirth) drawText(page1, baseP, safe(pd.countryOfBirth), COORDS_BASE.p1.countryOfBirth.x, COORDS_BASE.p1.countryOfBirth.top);
+  if (pd.nationality) drawText(page1, baseP, safe(pd.nationality), COORDS_BASE.p1.nationality.x, COORDS_BASE.p1.nationality.top);
+
+  // ----------------------------
+  // ✅ PAGE 2: Return Address & Home Address
+  // ----------------------------
+  const page2 = pages[1];
+
+  // Section 3: Return Delivery Address
+  if (data.returnAddress) {
+    const ra = data.returnAddress;
+    drawText(page2, baseP, safe(ra.line1), COORDS_BASE.p2.returnAddrLine1.x, COORDS_BASE.p2.returnAddrLine1.top, { maxW: COORDS_BASE.p2.returnAddrLine1.maxW });
+    if (ra.line2) drawText(page2, baseP, safe(ra.line2), COORDS_BASE.p2.returnAddrLine2.x, COORDS_BASE.p2.returnAddrLine2.top, { maxW: COORDS_BASE.p2.returnAddrLine2.maxW });
+    drawText(page2, baseP, safe(ra.townCity), COORDS_BASE.p2.returnTownCity.x, COORDS_BASE.p2.returnTownCity.top, { maxW: COORDS_BASE.p2.returnTownCity.maxW });
+    if (ra.countyState) drawText(page2, baseP, safe(ra.countyState), COORDS_BASE.p2.returnCountyState.x, COORDS_BASE.p2.returnCountyState.top, { maxW: COORDS_BASE.p2.returnCountyState.maxW });
+    drawText(page2, baseP, safe(ra.postCode), COORDS_BASE.p2.returnPostCode.x, COORDS_BASE.p2.returnPostCode.top, { maxW: COORDS_BASE.p2.returnPostCode.maxW });
+    drawText(page2, baseP, safe(ra.country), COORDS_BASE.p2.returnCountry.x, COORDS_BASE.p2.returnCountry.top, { maxW: COORDS_BASE.p2.returnCountry.maxW });
+  }
+
+  // Section 4: Home Address and Contact
+  const ha = data.homeAddress;
+  drawText(page2, baseP, safe(ha.line1), COORDS_BASE.p2.homeAddrLine1.x, COORDS_BASE.p2.homeAddrLine1.top, { maxW: COORDS_BASE.p2.homeAddrLine1.maxW });
+  if (ha.line2) drawText(page2, baseP, safe(ha.line2), COORDS_BASE.p2.homeAddrLine2.x, COORDS_BASE.p2.homeAddrLine2.top, { maxW: COORDS_BASE.p2.homeAddrLine2.maxW });
+  drawText(page2, baseP, safe(ha.townCity), COORDS_BASE.p2.homeTownCity.x, COORDS_BASE.p2.homeTownCity.top, { maxW: COORDS_BASE.p2.homeTownCity.maxW });
+  if (ha.countyState) drawText(page2, baseP, safe(ha.countyState), COORDS_BASE.p2.homeCountyState.x, COORDS_BASE.p2.homeCountyState.top, { maxW: COORDS_BASE.p2.homeCountyState.maxW });
+  drawText(page2, baseP, safe(ha.postCode), COORDS_BASE.p2.homePostCode.x, COORDS_BASE.p2.homePostCode.top, { maxW: COORDS_BASE.p2.homePostCode.maxW });
+  drawText(page2, baseP, safe(ha.country), COORDS_BASE.p2.homeCountry.x, COORDS_BASE.p2.homeCountry.top, { maxW: COORDS_BASE.p2.homeCountry.maxW });
+  drawText(page2, baseP, safe(ha.email), COORDS_BASE.p2.email.x, COORDS_BASE.p2.email.top, { maxW: COORDS_BASE.p2.email.maxW });
+  if (ha.telephone) drawText(page2, baseP, safe(ha.telephone), COORDS_BASE.p2.telephone.x, COORDS_BASE.p2.telephone.top, { maxW: COORDS_BASE.p2.telephone.maxW });
+
+  // ----------------------------
+  // ✅ PAGE 3: Certificates
+  // ----------------------------
+  const page3 = pages[2];
+
+  // Existing CoC
+  if (data.existingCoC) {
+    const coc = data.existingCoC;
+    if (coc.hasCoC) {
+      drawTick(page3, baseP, COORDS_BASE.p3.hasCoC.x, COORDS_BASE.p3.hasCoC.top, 8);
+      if (coc.certificateNumber) drawText(page3, baseP, safe(coc.certificateNumber), COORDS_BASE.p3.cocNumber.x, COORDS_BASE.p3.cocNumber.top, { maxW: COORDS_BASE.p3.cocNumber.maxW });
+      if (coc.expiryDate) drawText(page3, baseP, safe(coc.expiryDate), COORDS_BASE.p3.cocExpiry.x, COORDS_BASE.p3.cocExpiry.top, { maxW: COORDS_BASE.p3.cocExpiry.maxW });
+      if (coc.countryOfIssue) drawText(page3, baseP, safe(coc.countryOfIssue), COORDS_BASE.p3.cocCountry.x, COORDS_BASE.p3.cocCountry.top, { maxW: COORDS_BASE.p3.cocCountry.maxW });
+    }
+  }
+
+  // Existing GMDSS
+  if (data.existingGMDSS) {
+    const gmdss = data.existingGMDSS;
+    if (gmdss.hasGMDSS) {
+      drawTick(page3, baseP, COORDS_BASE.p3.hasGMDSS.x, COORDS_BASE.p3.hasGMDSS.top, 8);
+      if (gmdss.certificateNumber) drawText(page3, baseP, safe(gmdss.certificateNumber), COORDS_BASE.p3.gmdssNumber.x, COORDS_BASE.p3.gmdssNumber.top, { maxW: COORDS_BASE.p3.gmdssNumber.maxW });
+      if (gmdss.issueDate) drawText(page3, baseP, safe(gmdss.issueDate), COORDS_BASE.p3.gmdssIssueDate.x, COORDS_BASE.p3.gmdssIssueDate.top, { maxW: COORDS_BASE.p3.gmdssIssueDate.maxW });
+      if (gmdss.endorsementExpiryDate) drawText(page3, baseP, safe(gmdss.endorsementExpiryDate), COORDS_BASE.p3.gmdssExpiry.x, COORDS_BASE.p3.gmdssExpiry.top, { maxW: COORDS_BASE.p3.gmdssExpiry.maxW });
+      if (gmdss.countryOfIssue) drawText(page3, baseP, safe(gmdss.countryOfIssue), COORDS_BASE.p3.gmdssCountry.x, COORDS_BASE.p3.gmdssCountry.top, { maxW: COORDS_BASE.p3.gmdssCountry.maxW });
+      if (gmdss.requiresNewGMDSS) {
+        drawTick(page3, baseP, COORDS_BASE.p3.requiresNewGMDSS.x, COORDS_BASE.p3.requiresNewGMDSS.top, 8);
+      }
+    }
+  }
+
+  // SMarT Funding
+  if (data.smartFunding) {
+    const smart = data.smartFunding;
+    if (smart.isSmartFunded) {
+      drawTick(page3, baseP, COORDS_BASE.p3.isSmartFunded.x, COORDS_BASE.p3.isSmartFunded.top, 8);
+      if (smart.sponsoringCompanyEmail) drawText(page3, baseP, safe(smart.sponsoringCompanyEmail), COORDS_BASE.p3.smartEmail.x, COORDS_BASE.p3.smartEmail.top, { maxW: COORDS_BASE.p3.smartEmail.maxW });
+    }
+  }
+
+  // ----------------------------
+  // ✅ PAGE 4: Sea Service Table (Landscape)
+  // ----------------------------
+  const page4 = pages[3];
+  const baseL = { w: 841.89, h: 595.28 }; // A4 Landscape
+
+  if (data.seaServiceRecords && data.seaServiceRecords.length > 0) {
+    const tableTop = COORDS_BASE.p4.tableTop;
+    const rowH = COORDS_BASE.p4.rowH;
+    const fontSize = COORDS_BASE.p4.fontSize;
+    const cols = COORDS_BASE.p4.cols(page4.getSize().width);
+
+    data.seaServiceRecords.slice(0, COORDS_BASE.p4.maxRows).forEach((record, idx) => {
+      const top = tableTop + (idx * rowH);
+      
+      drawText(page4, baseL, safe(record.vesselName), cols.vessel, top, { size: fontSize, maxW: cols.imo - cols.vessel - 5 });
+      if (record.imoNumber) drawText(page4, baseL, safe(record.imoNumber), cols.imo, top, { size: fontSize, maxW: cols.type - cols.imo - 5 });
+      if (record.type) drawText(page4, baseL, safe(record.type), cols.type, top, { size: fontSize, maxW: cols.gt - cols.type - 5 });
+      if (record.grossTonnage) drawText(page4, baseL, String(record.grossTonnage), cols.gt, top, { size: fontSize, maxW: cols.voyage - cols.gt - 5 });
+      if (record.voyage) drawText(page4, baseL, safe(record.voyage), cols.voyage, top, { size: fontSize, maxW: cols.rank - cols.voyage - 5 });
+      drawText(page4, baseL, safe(record.rankCapacity), cols.rank, top, { size: fontSize, maxW: cols.from - cols.rank - 5 });
+      drawText(page4, baseL, safe(record.fromDate), cols.from, top, { size: fontSize, maxW: cols.to - cols.from - 5 });
+      drawText(page4, baseL, safe(record.toDate), cols.to, top, { size: fontSize, maxW: cols.months - cols.to - 5 });
+      drawText(page4, baseL, String(record.months), cols.months, top, { size: fontSize, maxW: cols.days - cols.months - 5 });
+      drawText(page4, baseL, String(record.days), cols.days, top, { size: fontSize, maxW: 50 });
+    });
+  }
+
+  // ----------------------------
+  // ✅ PAGE 10: Declaration
+  // ----------------------------
+  if (pages.length > 9 && data.declaration) {
+    const page10 = pages[9];
+    const decl = data.declaration;
+
+    // Signature image
+    if (decl.signatureDataUrl) {
+      try {
+        const detectImageFormat = (dataUrl: string): 'png' | 'jpg' => {
+          const lower = dataUrl.toLowerCase();
+          if (lower.includes('image/jpeg') || lower.includes('image/jpg')) return 'jpg';
+          return 'png';
+        };
+        
+        const fmt = detectImageFormat(decl.signatureDataUrl);
+        const imgBytes = await fetch(decl.signatureDataUrl).then(r => r.arrayBuffer());
+        const sigImage = fmt === 'jpg' ? await pdfDoc.embedJpg(imgBytes) : await pdfDoc.embedPng(imgBytes);
+        
+        const sigBox = COORDS_BASE.p10.signatureBox;
+        const sigX = X(page10, baseP, sigBox.x);
+        const sigY = Y(page10, baseP, sigBox.top);
+        const sigW = W(page10, baseP, sigBox.w);
+        const sigH = W(page10, baseP, sigBox.h);
+        
+        const scale = Math.min(sigW / sigImage.width, sigH / sigImage.height);
+        const w = sigImage.width * scale;
+        const h = sigImage.height * scale;
+        
+        page10.drawImage(sigImage, {
+          x: sigX,
+          y: sigY - sigH + (sigH - h) / 2,
+          width: w,
+          height: h,
+        });
+      } catch (e) {
+        console.warn('[OOW] Could not embed signature image:', e);
+      }
+    }
+
+    // Date and print name
+    if (decl.date) drawText(page10, baseP, safe(decl.date), COORDS_BASE.p10.date.x, COORDS_BASE.p10.date.top);
+    if (decl.printName) drawText(page10, baseP, safe(decl.printName), COORDS_BASE.p10.printName.x, COORDS_BASE.p10.printName.top);
+  }
+
+  // Generate filename
+  const timestamp = format(new Date(), 'yyyy-MM-dd_HHmmss');
+  const filename = `MCA_OOW_Application_MSF_4274_${timestamp}.pdf`;
+
+  // Save PDF
+  const pdfBytes = await pdfDoc.save();
+  const pdfArray = new Uint8Array(pdfBytes);
+
+  if (output === 'blob') {
+    return new Blob([pdfArray], { type: 'application/pdf' });
+  }
+
+  const blob = new Blob([pdfArray], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+
+  if (output === 'newtab') {
+    window.open(url, '_blank');
+    return;
+  }
+
+  // Download
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+// Legacy function - keeping for backward compatibility but redirecting to new implementation
+export async function generateMCAWatchRatingFormLegacy(
+  data: MCAWatchRatingApplicationData,
+  output: TestimonialPDFOutput = 'download',
+) {
+  const doc = new jsPDF();
+  const { personalDetails, certificateType, seaServiceRecords, userProfile } = data;
+
+  const textDark: RGB = [0, 0, 0];
+  const textGray: RGB = [80, 80, 80];
+  const borderColor: RGB = [0, 0, 0];
+
+  const setFillColor = (c: RGB) => doc.setFillColor(c[0], c[1], c[2]);
+  const setTextColor = (c: RGB) => doc.setTextColor(c[0], c[1], c[2]);
+  const setDrawColor = (c: RGB) => doc.setDrawColor(c[0], c[1], c[2]);
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  let yPos = margin;
+
+  // Helper to add new page
+  const ensureSpace = (requiredHeight: number) => {
+    if (yPos + requiredHeight > pageHeight - margin) {
+      doc.addPage();
+      yPos = margin;
+      return true;
+    }
+    return false;
+  };
+
+  // Header - MCA Logo Area and Form Title
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(textDark);
+  doc.text('MSF 4371 REV 08/25', pageWidth - margin, yPos, { align: 'right' });
+  yPos += 6;
+
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Maritime & Coastguard Agency', margin, yPos);
+  yPos += 8;
+
+  doc.setFontSize(14);
+  doc.text('APPLICATION FOR MCA-ISSUED WATCH RATING CERTIFICATE', margin, yPos);
+  yPos += 6;
+  doc.text('Navigational, Engine Room or Electro-technical', margin, yPos);
+  yPos += 8;
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'italic');
+  setTextColor(textGray);
+  doc.text('IMPORTANT – BEFORE completing this form please ensure you have read MSN 1862 Amendment 1,', margin, yPos);
+  yPos += 4;
+  doc.text('MSN 1863 Amendment 1 and the guidance notes on pages 7 to 8 of this form.', margin, yPos);
+  yPos += 6;
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  setTextColor(textDark);
+  doc.text('Please email your application and scanned supporting documents to:', margin, yPos);
+  yPos += 5;
+  doc.text('deck@mcga.gov.uk for Navigational Watch Ratings', margin + 10, yPos);
+  yPos += 5;
+  doc.text('OR', margin + 10, yPos);
+  yPos += 5;
+  doc.text('engineering@mcga.gov.uk for Engine Room Watch/Electrotechnical Ratings', margin + 10, yPos);
+  yPos += 10;
+
+  // Section 1: Personal Details
+  ensureSpace(80);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(textDark);
+  doc.text('1 PERSONAL DETAILS', margin, yPos);
+  yPos += 8;
+
+  // Personal Details Table
+  const rowHeight = 6;
+  const col1Width = 50;
+  const col2Width = 60;
+  const col3Width = 30;
+  const col4Width = 50;
+
+  // Draw table borders
+  setDrawColor(borderColor);
+  doc.setLineWidth(0.5);
+
+  // Title row
+  doc.line(margin, yPos, margin + col1Width + col2Width + col3Width + col4Width, yPos);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Title Mr/Mrs/Miss etc', margin + 2, yPos - 2);
+  doc.text('Sex Male/Female', margin + col1Width + col2Width + col3Width + 2, yPos - 2);
+  yPos += rowHeight;
+
+  // Title and Sex fields
+  doc.setFont('helvetica', 'normal');
+  doc.text(safeText(personalDetails.title || ''), margin + 2, yPos - 2);
+  doc.text('', margin + col1Width + col2Width + col3Width + 2, yPos - 2); // Sex field
+  yPos += rowHeight + 2;
+
+  // Surname
+  doc.setFont('helvetica', 'bold');
+  doc.text('Surname/Family name', margin + 2, yPos - 2);
+  doc.setFont('helvetica', 'normal');
+  doc.text(safeText(personalDetails.surname), margin + col1Width + 2, yPos - 2);
+  yPos += rowHeight;
+
+  // Forenames
+  doc.setFont('helvetica', 'bold');
+  doc.text('Forename(s) in full', margin + 2, yPos - 2);
+  doc.setFont('helvetica', 'normal');
+  doc.text(safeText(personalDetails.forenames), margin + col1Width + 2, yPos - 2);
+  yPos += rowHeight;
+
+  // Date of Birth
+  doc.setFont('helvetica', 'bold');
+  doc.text('Date of Birth', margin + 2, yPos - 2);
+  doc.setFont('helvetica', 'normal');
+  doc.text(safeText(personalDetails.dateOfBirth), margin + col1Width + 2, yPos - 2);
+  yPos += rowHeight;
+
+  // Place and Country of Birth
+  doc.setFont('helvetica', 'bold');
+  doc.text('Place and Country of Birth', margin + 2, yPos - 2);
+  doc.setFont('helvetica', 'normal');
+  const placeOfBirth = [personalDetails.placeOfBirth, personalDetails.countryOfBirth].filter(Boolean).join(', ') || '—';
+  doc.text(safeText(placeOfBirth), margin + col1Width + 2, yPos - 2);
+  yPos += rowHeight;
+
+  // Nationality
+  doc.setFont('helvetica', 'bold');
+  doc.text('Nationality', margin + 2, yPos - 2);
+  doc.setFont('helvetica', 'normal');
+  doc.text(safeText(personalDetails.nationality || ''), margin + col1Width + 2, yPos - 2);
+  yPos += rowHeight + 4;
+
+  // Return Address Section
+  doc.setFont('helvetica', 'bold');
+  doc.text('Return Address', margin + 2, yPos - 2);
+  yPos += rowHeight;
+
+  const addressLines = [
+    personalDetails.address.line1,
+    personalDetails.address.line2,
+    personalDetails.address.district,
+    personalDetails.address.townCity,
+    personalDetails.address.countyState,
+    personalDetails.address.postCode,
+    personalDetails.address.country,
+  ].filter(Boolean);
+
+  doc.setFont('helvetica', 'normal');
+  addressLines.forEach((line) => {
+    doc.text(safeText(line), margin + 2, yPos - 2);
+    yPos += rowHeight;
+  });
+
+  yPos += 2;
+
+  // Telephone and Mobile
+  doc.setFont('helvetica', 'bold');
+  doc.text('Telephone No', margin + 2, yPos - 2);
+  doc.text('Mobile No.', margin + col1Width + col2Width + 2, yPos - 2);
+  doc.setFont('helvetica', 'normal');
+  doc.text(safeText(personalDetails.telephone || ''), margin + col1Width + 2, yPos - 2);
+  doc.text(safeText(personalDetails.mobile || ''), margin + col1Width + col2Width + col3Width + 2, yPos - 2);
+  yPos += rowHeight;
+
+  // Email Address
+  doc.setFont('helvetica', 'bold');
+  doc.text('Email Address', margin + 2, yPos - 2);
+  doc.setFont('helvetica', 'normal');
+  doc.text(safeText(personalDetails.email), margin + col1Width + 2, yPos - 2);
+  yPos += 12;
+
+  // Section 2: Certificate Applied For
+  ensureSpace(30);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(textDark);
+  doc.text('2 CERTIFICATE APPLIED FOR', margin, yPos);
+  yPos += 8;
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Capacity:', margin, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Please tick (✓)', margin + 40, yPos);
+  yPos += 6;
+
+  const certificateOptions = [
+    { value: 'navigational', label: 'Navigational Watch Rating Certificate II/4' },
+    { value: 'engine_room', label: 'Engine Room Watch Rating Certificate III/4' },
+    { value: 'electro_technical', label: 'Electro-technical Rating III/7' },
+  ];
+
+  certificateOptions.forEach((option) => {
+    doc.text(certificateType === option.value ? '✓' : '☐', margin + 2, yPos - 2);
+    doc.text(option.label, margin + 10, yPos - 2);
+    yPos += 6;
+  });
+
+  yPos += 8;
+
+  // Section 3: Seagoing Service
+  ensureSpace(100);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(textDark);
+  doc.text('3 SEAGOING SERVICE', margin, yPos);
+  yPos += 6;
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  setTextColor(textGray);
+  const serviceInstructions = [
+    'ALL RELEVANT SEA-GOING SERVICE MUST BE LISTED. For all sea service that is declared below, you must submit',
+    'TWO forms of evidence. Discharge Book entries or Certificates of Discharge are one form and Sea Service',
+    'Testimonials are the other; testimonials must be countersigned by the Master of the vessel. The 6 months sea',
+    'service must be within the last 5 years and in the department relevant to the certificate you are applying for',
+    '(deck or engine). If you are applying for a Navigational Watch Rating Certificate and an Engine Room Watch',
+    'Rating Certificate, you must demonstrate 6 months sea service in each department (deck and engine).',
+  ];
+
+  serviceInstructions.forEach((line) => {
+    ensureSpace(6);
+    doc.text(line, margin, yPos, { maxWidth: pageWidth - (margin * 2) });
+    yPos += 4;
+  });
+
+  yPos += 4;
+
+  // Sea Service Table Header
+  ensureSpace(120);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(textDark);
+  
+  // Draw table header
+  setDrawColor(borderColor);
+  doc.setLineWidth(0.5);
+  const tableStartY2 = yPos;
+  doc.line(margin, yPos, pageWidth - margin, yPos);
+  yPos += 5;
+
+  // Table headers (compact to fit)
+  const headers = [
+    { text: 'Vessel Name', x: margin + 2, width: 30 },
+    { text: 'Flag', x: margin + 35, width: 15 },
+    { text: 'IMO', x: margin + 52, width: 20 },
+    { text: 'GT', x: margin + 74, width: 15 },
+    { text: 'kW', x: margin + 91, width: 15 },
+    { text: 'Length', x: margin + 108, width: 15 },
+    { text: 'Capacity', x: margin + 125, width: 20 },
+    { text: 'From', x: margin + 147, width: 20 },
+    { text: 'To', x: margin + 169, width: 20 },
+    { text: 'Days', x: margin + 191, width: 15 },
+    { text: 'Days Sea', x: margin + 208, width: 15 },
+  ];
+
+  headers.forEach((header) => {
+    doc.text(header.text, header.x, yPos - 2);
+  });
+  yPos += 2;
+  doc.line(margin, yPos, pageWidth - margin, yPos);
+  yPos += 4;
+
+  // Sea Service Records Rows
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  
+  seaServiceRecords.forEach((record, index) => {
+    ensureSpace(8);
+    const rowY = yPos;
+    
+    // Vessel details (truncate if needed)
+    doc.text(truncate(record.vesselName, 25), margin + 2, rowY - 2);
+    doc.text(truncate(record.flag, 10), margin + 35, rowY - 2);
+    doc.text(truncate(record.imoNumber || '', 10), margin + 52, rowY - 2);
+    doc.text(record.grossTonnage ? String(record.grossTonnage) : '—', margin + 74, rowY - 2);
+    doc.text(record.kilowatts ? String(record.kilowatts) : '—', margin + 91, rowY - 2);
+    doc.text(record.length ? `${record.length}m` : '—', margin + 108, rowY - 2);
+    doc.text(truncate(record.capacity || '', 15), margin + 125, rowY - 2);
+    doc.text(truncate(record.fromDate, 8), margin + 147, rowY - 2);
+    doc.text(truncate(record.toDate, 8), margin + 169, rowY - 2);
+    doc.text(String(record.totalDays), margin + 191, rowY - 2);
+    doc.text(String(record.daysAtSea), margin + 208, rowY - 2);
+    
+    yPos += 6;
+    
+    // Draw row separator
+    if (index < seaServiceRecords.length - 1) {
+      doc.setLineWidth(0.2);
+      doc.line(margin, yPos, pageWidth - margin, yPos);
+      yPos += 2;
+    }
+  });
+
+  // Draw bottom border
+  doc.setLineWidth(0.5);
+  doc.line(margin, yPos, pageWidth - margin, yPos);
+  yPos += 10;
+
+  // Section 6: Declaration
+  ensureSpace(60);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(textDark);
+  doc.text('6 DECLARATION', margin, yPos);
+  yPos += 6;
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  setTextColor(textDark);
+  doc.text('(The maximum penalty for a false declaration is £5000)', margin, yPos);
+  yPos += 6;
+
+  const declarationText = [
+    'I declare that the information I have given is, to the best of my knowledge, true and complete. I also declare',
+    'that the documents submitted are genuine, given and signed by the persons whose names appear on them.',
+    'I consent to any processing of the data contained in this application by the MCA (including any processing',
+    'necessary to establish the authenticity and validity of the issued certificate). Please refer to our privacy',
+    'statement in Section 2 of the guidance notes which explains how we use the personal information we collect',
+    'from you.',
+  ];
+
+  declarationText.forEach((line) => {
+    ensureSpace(6);
+    doc.text(line, margin, yPos, { maxWidth: pageWidth - (margin * 2) });
+    yPos += 5;
+  });
+
+  yPos += 8;
+
+  // Signature box
+  setDrawColor(borderColor);
+  doc.setLineWidth(1);
+  doc.rect(margin, yPos, 80, 25);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'italic');
+  setTextColor(textGray);
+  doc.text('Important: Your signature will be transferred to your certificate', margin + 2, yPos + 5);
+  doc.text('so please keep within the border', margin + 2, yPos + 10);
+  yPos += 30;
+
+  doc.setFont('helvetica', 'normal');
+  setTextColor(textDark);
+  doc.text('Date', margin, yPos);
+  doc.text('Print name', margin + 60, yPos);
+  yPos += 6;
+  doc.line(margin, yPos, margin + 50, yPos); // Date line
+  doc.line(margin + 60, yPos, pageWidth - margin, yPos); // Name line
+  yPos += 12;
+
+  // Section 7: Counter Signature
+  ensureSpace(80);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  setTextColor(textDark);
+  doc.text('7 COUNTER SIGNATURE', margin, yPos);
+  yPos += 8;
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  
+  const counterSigFields = [
+    ['Name', ''],
+    ['Address', ''],
+    ['', ''],
+    ['Town / City', 'County/State'],
+    ['Post Code/Zip', 'Country'],
+    ['Telephone No', 'Occupation'],
+    ['Capacity in which you know the applicant:', ''],
+  ];
+
+  counterSigFields.forEach(([label1, label2]) => {
+    ensureSpace(6);
+    if (label1) doc.text(label1, margin, yPos - 2);
+    if (label2) doc.text(label2, margin + 80, yPos - 2);
+    doc.line(margin, yPos, margin + 70, yPos);
+    if (label2) doc.line(margin + 80, yPos, pageWidth - margin, yPos);
+    yPos += 6;
+  });
+
+  yPos += 4;
+
+  const counterSigText = [
+    'I declare that the information given is, to the best of my knowledge, true and complete. I also declare',
+    'that the documents submitted are, to the best of my knowledge, genuine and relate to the person(s) whose',
+    'names appear on them. I confirm that the photographs submitted bear a true current likeness of the applicant.',
+  ];
+
+  counterSigText.forEach((line) => {
+    ensureSpace(6);
+    doc.text(line, margin, yPos, { maxWidth: pageWidth - (margin * 2) });
+    yPos += 5;
+  });
+
+  yPos += 6;
+  doc.text('Signature', margin, yPos);
+  doc.text('Date', margin + 60, yPos);
+  yPos += 6;
+  doc.line(margin, yPos, margin + 50, yPos); // Signature line
+  doc.line(margin + 60, yPos, margin + 90, yPos); // Date line
+
+  // Footer on all pages
+  const totalPages = doc.getNumberOfPages();
+  for (let page = 1; page <= totalPages; page++) {
+    doc.setPage(page);
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    setTextColor(textGray);
+    const footerY = pageHeight - 8;
+    doc.text(`Page ${page} of ${totalPages}`, pageWidth - margin, footerY, { align: 'right' });
+  }
+
+  // Filename
+  const cleanName = (name: string): string =>
+    String(name || '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const surname = cleanName(personalDetails.surname);
+  const certType = certificateType === 'navigational' ? 'Nav' : certificateType === 'engine_room' ? 'Engine' : 'ETR';
+  const filename = `MCA_Watch_Rating_Application_${certType}_${surname}_${format(new Date(), 'yyyyMMdd')}.pdf`;
+
+  // Output modes
+  if (output === 'blob') {
+    return doc.output('blob');
+  }
+  if (output === 'newtab') {
+    doc.output('dataurlnewwindow');
+    return;
+  }
+
+  doc.save(filename);
 }

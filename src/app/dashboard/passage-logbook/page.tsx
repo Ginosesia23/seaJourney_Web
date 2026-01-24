@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInHours, parse, startOfDay, endOfDay, isAfter, isBefore } from 'date-fns';
 import { PlusCircle, Loader2, Ship, MapPin, Calendar, Clock, ArrowRight, Edit, Trash2, CheckCircle2, CalendarDays, Navigation, Wind, Waves, Route, TrendingUp, Download } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -90,6 +91,7 @@ export default function PassageLogbookPage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
   const { toast } = useToast();
+  const router = useRouter();
 
   // Fetch user profile to check subscription tier
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);

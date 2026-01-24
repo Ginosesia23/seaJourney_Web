@@ -54,7 +54,7 @@ const navGroups = [
         { href: '/dashboard/vessels', label: 'Vessels', icon: Ship, disabled: false },
         { href: '/dashboard/profile', label: 'Profile', icon: User, disabled: false },
         { href: '/dashboard/crew', label: 'Crew', icon: Users, disabled: false, requiredRole: 'vessel' },
-        { href: '/dashboard/testimonials', label: 'Testimonials', icon: LifeBuoy, disabled: false },
+        { href: '/dashboard/applications', label: 'Applications', icon: FileText, disabled: false },
         { href: '/dashboard/certificates', label: 'Certificates', icon: Award, disabled: true },
     ]
   },

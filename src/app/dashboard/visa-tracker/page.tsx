@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { format, differenceInDays, parse, startOfDay, isAfter, isBefore, isPast, isFuture, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getYear, getMonth } from 'date-fns';
 import { calculateVisaCompliance, checkDateCompliance, visaRulePresets, detectVisaRules } from '@/lib/visa-compliance';
 import { PlusCircle, Loader2, Calendar, Globe, AlertTriangle, CheckCircle2, XCircle, Edit, Trash2, Clock, LogIn, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -97,6 +98,7 @@ export default function VisaTrackerPage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
   const { toast } = useToast();
+  const router = useRouter();
 
   // Fetch user profile
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -130,6 +132,13 @@ export default function VisaTrackerPage() {
     // Crew accounts: premium or pro only
     return (tier === 'premium' || tier === 'pro') && status === 'active';
   }, [userProfile]);
+
+  // Redirect non-premium users to dashboard
+  useEffect(() => {
+    if (!isLoadingProfile && userProfile && !hasAccess) {
+      router.push('/dashboard');
+    }
+  }, [isLoadingProfile, userProfile, hasAccess, router]);
 
   const form = useForm<VisaFormValues>({
     resolver: zodResolver(visaSchema),
@@ -640,31 +649,20 @@ export default function VisaTrackerPage() {
     );
   }
 
-  if (!hasAccess) {
-    const role = (userProfile as any)?.role || userProfile?.role || 'crew';
-    const message = role === 'vessel' 
-      ? 'The Visa Tracker requires an active vessel subscription. Please subscribe to a plan to access this feature.'
-      : 'The Visa Tracker is available for Premium and Pro subscribers. Upgrade your plan to access this feature.';
-    const buttonText = role === 'vessel' ? 'View Plans' : 'Upgrade to Premium';
-    
+  // Show loading while checking premium access or redirecting
+  if (isLoadingProfile) {
     return (
-      <div className="flex flex-col gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Visa Tracker</CardTitle>
-            <CardDescription>Subscription Required</CardDescription>
-          </CardHeader>
-          <CardContent className="text-center py-12">
-            <Globe className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-xl font-semibold mb-2">Subscription Required</h3>
-            <p className="text-muted-foreground mb-6">
-              {message}
-            </p>
-            <Button className="rounded-xl" asChild>
-              <a href="/offers">{buttonText}</a>
-            </Button>
-          </CardContent>
-        </Card>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Show loading while redirecting non-premium users
+  if (userProfile && !hasAccess) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }

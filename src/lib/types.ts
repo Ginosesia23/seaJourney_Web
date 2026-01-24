@@ -18,6 +18,20 @@ export interface UserProfile {
   startDate?: string | null; // ISO date string (YYYY-MM-DD) - Official start date for vessel accounts
   signature?: string | null; // Base64 encoded signature image for captains
   dischargeBookNumber?: string | null; // Discharge book number for use in testimonials
+  // MCA Application fields
+  title?: string | null; // Mr/Mrs/Miss/etc
+  placeOfBirth?: string | null;
+  countryOfBirth?: string | null;
+  nationality?: string | null;
+  telephone?: string | null;
+  mobile?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  addressDistrict?: string | null;
+  addressTownCity?: string | null;
+  addressCountyState?: string | null;
+  addressPostCode?: string | null;
+  addressCountry?: string | null;
 }
 
 export interface Vessel {
@@ -170,6 +184,18 @@ export interface VesselAssignment {
     updatedAt?: string;                // ISO timestamp
 }
 
+export interface PositionHistory {
+    id: string;                        // uuid PK
+    userId: string;                    // uuid FK → auth.users.id
+    position: string;                  // Position/role name
+    startDate: string;                 // Date in YYYY-MM-DD format
+    endDate?: string | null;           // Date in YYYY-MM-DD format, NULL if current position
+    vesselId?: string | null;          // Optional: link to vessel if position is vessel-specific
+    notes?: string | null;             // Optional notes about the position change
+    createdAt?: string;                // ISO timestamp
+    updatedAt?: string;                // ISO timestamp
+}
+
 export interface VesselClaimRequest {
     id: string;                        // uuid PK
     vessel_id: string;                 // uuid FK → vessels.id
@@ -225,6 +251,64 @@ export interface VisaEntry {
     entryDate: string;                  // Date in YYYY-MM-DD format - the date user was in the area
     createdAt?: string;                 // ISO timestamp
     updatedAt?: string;                 // ISO timestamp
+}
+
+export interface Certificate {
+    id: string;                        // uuid PK
+    userId: string;                     // uuid FK → auth.users.id
+    certificateName: string;            // e.g., "STCW Basic Safety", "Medical Certificate"
+    certificateType: string;            // e.g., "STCW", "Medical", "MCA", "Other"
+    certificateNumber?: string | null;  // Certificate number/reference if available
+    issuingAuthority?: string | null;   // e.g., "MCA", "USCG", "Transport Canada"
+    issueDate: string;                  // Date in YYYY-MM-DD format
+    expiryDate?: string | null;         // Date in YYYY-MM-DD format (null if no expiry)
+    renewalRequired: boolean;           // Whether this certificate requires renewal
+    renewalNoticeDays: number;          // Days before expiry to send notice (default 90)
+    notes?: string | null;              // Optional notes
+    documentUrl?: string | null;        // URL to uploaded certificate document
+    createdAt?: string;                 // ISO timestamp
+    updatedAt?: string;                 // ISO timestamp
+}
+
+export interface NavWatchApplication {
+    id: string;                        // uuid PK
+    user_id: string;                   // uuid FK → auth.users.id
+    certificate_type: 'navigational' | 'engine_room' | 'electro_technical';
+    personal_details: {
+        surname: string;
+        forenames: string;
+        dateOfBirth?: string;
+        placeOfBirth?: string;
+        countryOfBirth?: string;
+        nationality?: string;
+        address: {
+            line1: string;
+            line2?: string;
+            district?: string;
+            townCity: string;
+            countyState?: string;
+            postCode: string;
+            country: string;
+        };
+        telephone?: string;
+        mobile?: string;
+        email: string;
+    };
+    sea_service_records: Array<{
+        vesselName: string;
+        flag: string;
+        imoNumber?: string;
+        grossTonnage?: number;
+        kilowatts?: number;
+        length?: number;
+        capacity?: string;
+        fromDate: string;
+        toDate: string;
+        totalDays: number;
+        daysAtSea: number;
+    }>;
+    created_at: string;                // ISO timestamp
+    updated_at: string;                 // ISO timestamp
 }
 
 

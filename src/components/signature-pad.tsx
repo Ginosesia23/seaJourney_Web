@@ -10,18 +10,60 @@ import { Pencil, Upload, Trash2, Save, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface SignaturePadProps {
-  onSave: (signatureDataUrl: string) => void;
+  onSave?: (signatureDataUrl: string) => void; // Optional for controlled mode
   existingSignature?: string | null;
   isLoading?: boolean;
+  // Controlled mode props (for React Hook Form)
+  value?: string | null;
+  onChange?: (signatureDataUrl: string | null) => void;
 }
 
-export function SignaturePad({ onSave, existingSignature, isLoading = false }: SignaturePadProps) {
+export function SignaturePad({ 
+  onSave, 
+  existingSignature, 
+  isLoading = false,
+  value,
+  onChange,
+}: SignaturePadProps) {
+  // Determine if we're in controlled mode (using value/onChange)
+  // If onChange is provided, we're in controlled mode (value can be undefined initially)
+  const isControlled = onChange !== undefined;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(existingSignature || null);
+  
+  // Use controlled value if provided, otherwise use internal state
+  const [internalSignature, setInternalSignature] = useState<string | null>(existingSignature || null);
+  const signatureDataUrl = isControlled ? (value || null) : internalSignature;
+  
+  const updateSignature = (newValue: string | null) => {
+    if (isControlled) {
+      // In controlled mode, call onChange immediately (auto-save)
+      onChange?.(newValue || null);
+    } else {
+      // In uncontrolled mode, update internal state
+      setInternalSignature(newValue);
+    }
+  };
+  
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'draw' | 'upload'>('draw');
   const { toast } = useToast();
+
+  // Sync controlled value to canvas when it changes externally
+  useEffect(() => {
+    if (isControlled && value && canvasRef.current) {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        const img = new Image();
+        img.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
+        img.src = value;
+      }
+    }
+  }, [isControlled, value]);
 
   // Initialize canvas
   useEffect(() => {
@@ -84,7 +126,7 @@ export function SignaturePad({ onSave, existingSignature, isLoading = false }: S
 
     // Convert canvas to data URL
     const dataUrl = canvas.toDataURL('image/png');
-    setSignatureDataUrl(dataUrl);
+    updateSignature(dataUrl);
   };
 
   const clearCanvas = () => {
@@ -95,7 +137,7 @@ export function SignaturePad({ onSave, existingSignature, isLoading = false }: S
     if (!ctx) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setSignatureDataUrl(null);
+    updateSignature(null);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -126,7 +168,7 @@ export function SignaturePad({ onSave, existingSignature, isLoading = false }: S
     reader.onload = (event) => {
       const dataUrl = event.target?.result as string;
       setUploadedImage(dataUrl);
-      setSignatureDataUrl(dataUrl);
+      updateSignature(dataUrl);
     };
     reader.readAsDataURL(file);
   };
@@ -141,25 +183,24 @@ export function SignaturePad({ onSave, existingSignature, isLoading = false }: S
       return;
     }
 
-    onSave(signatureDataUrl);
+    // Only call onSave if not in controlled mode (onSave should not be used with controlled mode)
+    if (!isControlled && onSave) {
+      onSave(signatureDataUrl);
+    }
   };
 
   const handleDelete = () => {
-    setSignatureDataUrl(null);
     setUploadedImage(null);
     clearCanvas();
-    onSave(''); // Send empty string to delete
+    
+    if (!isControlled && onSave) {
+      onSave(''); // Send empty string to delete (uncontrolled mode only)
+    }
   };
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Digital Signature</CardTitle>
-        <CardDescription>
-          Draw your signature or upload an image. This will be used on crew testimonials.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+  // If in controlled mode (form usage), don't wrap in Card
+  const content = (
+    <div className="space-y-4">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'draw' | 'upload')}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="draw">
@@ -243,33 +284,68 @@ export function SignaturePad({ onSave, existingSignature, isLoading = false }: S
           </div>
         )}
 
-        {/* Action buttons */}
-        <div className="flex gap-2">
-          <Button
-            onClick={handleSave}
-            disabled={isLoading || !signatureDataUrl}
-            className="flex-1"
-          >
-            {isLoading ? (
-              <>Saving...</>
-            ) : (
-              <>
-                <Save className="h-4 w-4 mr-2" />
-                Save Signature
-              </>
+        {/* Action buttons - only show Save button in non-controlled mode */}
+        {!isControlled && (
+          <div className="flex gap-2">
+            <Button
+              onClick={handleSave}
+              disabled={isLoading || !signatureDataUrl}
+              className="flex-1"
+            >
+              {isLoading ? (
+                <>Saving...</>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Signature
+                </>
+              )}
+            </Button>
+            {(existingSignature || signatureDataUrl) && (
+              <Button
+                onClick={handleDelete}
+                disabled={isLoading}
+                variant="outline"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </Button>
             )}
-          </Button>
-          {(existingSignature || signatureDataUrl) && (
+          </div>
+        )}
+        
+        {/* Clear button for controlled mode - always show if in controlled mode */}
+        {isControlled && (
+          <div className="flex gap-2">
             <Button
               onClick={handleDelete}
               disabled={isLoading}
               variant="outline"
+              className="w-full"
             >
               <Trash2 className="h-4 w-4 mr-2" />
-              Delete
+              Clear Signature
             </Button>
-          )}
-        </div>
+          </div>
+        )}
+    </div>
+  );
+
+  // Return wrapped in Card for uncontrolled mode, or just content for controlled mode
+  if (isControlled) {
+    return content;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Digital Signature</CardTitle>
+        <CardDescription>
+          Draw your signature or upload an image. This will be used on crew testimonials.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {content}
       </CardContent>
     </Card>
   );

@@ -387,6 +387,11 @@ export default function MembershipCTA() {
     );
   }
 
+  // Hide membership plans section if user is logged in
+  if (user) {
+    return null;
+  }
+
   return (
     <section
       className="py-20 sm:py-28 relative overflow-hidden"

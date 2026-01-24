@@ -24,6 +24,7 @@ import { useToast } from '@/hooks/use-toast';
 import { DateRange } from 'react-day-picker';
 import type { Vessel, SeaTimeRequest, VesselAssignment, UserProfile } from '@/lib/types';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 const requestSeaTimeSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
@@ -45,6 +46,7 @@ export default function SeaTimeRequestPage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
   const { toast } = useToast();
+  const router = useRouter();
   
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -83,6 +85,13 @@ export default function SeaTimeRequestPage() {
     // Crew accounts: premium or pro only
     return (tier === 'premium' || tier === 'pro') && status === 'active';
   }, [userProfile]);
+
+  // Redirect non-premium users to dashboard
+  useEffect(() => {
+    if (!isLoadingProfile && userProfile && !hasAccess) {
+      router.push('/dashboard');
+    }
+  }, [isLoadingProfile, userProfile, hasAccess, router]);
 
   const form = useForm<RequestSeaTimeFormValues>({
     resolver: zodResolver(requestSeaTimeSchema),
@@ -244,32 +253,20 @@ export default function SeaTimeRequestPage() {
     );
   }
 
-  // If user does not have access, show upgrade message
-  if (!hasAccess) {
+  // Show loading while checking premium access or redirecting
+  if (isLoadingProfile) {
     return (
-      <div className="flex flex-col gap-6">
-        {/* Header */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center">
-              <Ship className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">Request Sea Time</h1>
-              <p className="text-muted-foreground">Request past sea time from vessels you've been assigned to</p>
-            </div>
-          </div>
-        </div>
-        <Alert variant="premium">
-          <Lock className="h-4 w-4" />
-          <AlertTitle>Premium Feature</AlertTitle>
-          <AlertDescription>
-            This feature is available to Premium and Pro subscribers only. Upgrade your plan to request past sea time from vessels.
-            <Button asChild className="mt-3">
-              <Link href="/dashboard/subscription">Upgrade Now</Link>
-            </Button>
-          </AlertDescription>
-        </Alert>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Show loading while redirecting non-premium users
+  if (userProfile && !hasAccess) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }

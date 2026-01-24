@@ -77,18 +77,19 @@ type NavItem = {
 
 const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vessel' | 'admin' | 'captain')[] }> = [
   {
-    title: "General",
+    title: "Dashboard",
     items: [
       { href: "/dashboard", label: "Home", icon: Home, disabled: false },
       { href: "/dashboard/recent-activity", label: "Recent Activity", icon: History, disabled: false, hideForRoles: ['vessel', 'admin'] },
     ]
   },
   {
-    title: "Sea Time",
+    title: "Sea Service",
     hideForRoles: ['admin'], // Only hide for admin, vessel role needs sea time tracking
     items: [
       { href: "/dashboard/current", label: "Current", icon: MapPin, disabled: false },
       { href: "/dashboard/calendar", label: "Calendar", icon: Calendar, disabled: false },
+      { href: "/dashboard/history", label: "History", icon: History, disabled: false },
       { href: "/dashboard/sea-time-request", label: "Request Sea Time", icon: FileText, disabled: false, hideForRoles: ['vessel'] }, // Only for crew members
       { href: "/dashboard/export", label: "Export", icon: Download, disabled: false },
     ]
@@ -103,16 +104,27 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     ]
   },
   {
-    title: "Management",
+    title: "Applications & Documents",
+    items: [
+      { href: "/dashboard/applications", label: "Applications", icon: FileText, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'] },
+      { href: "/dashboard/certificates", label: "Certificates", icon: Award, disabled: false },
+    ]
+  },
+  {
+    title: "Vessel Management",
     items: [
       { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] }, // Hide for vessel role
-      { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false, hideForRoles: ['vessel'] }, // Hide Profile for vessel role
-      { href: "/dashboard/profile", label: "Vessel", icon: Ship, disabled: false, requiredRole: "vessel", hideForRoles: ['captain'] }, // Show Vessel page for vessel role only (not captain)
+      { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false },
       { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, requiredRole: "captain", disabled: false }, // Captains and vessel roles can access
       { href: "/dashboard/requests", label: "Requests", icon: ClipboardList, requiredRole: "captain", disabled: false }, // Captains can view their requests
-      { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false },
-      { href: "/dashboard/testimonials", label: "Testimonials", icon: LifeBuoy, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'] },
       { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false }, // Captain signature management
+    ]
+  },
+  {
+    title: "Account",
+    items: [
+      { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false, hideForRoles: ['vessel'] }, // Hide Profile for vessel role
+      { href: "/dashboard/profile", label: "Vessel", icon: Ship, disabled: false, requiredRole: "vessel", hideForRoles: ['captain'] }, // Show Vessel page for vessel role only (not captain)
     ]
   },
   {
@@ -125,7 +137,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     ]
   },
   {
-    title: "Resources",
+    title: "Support",
     items: [
       { href: "/dashboard/feedback", label: "Feedback", icon: MessageSquare, disabled: false },
       { href: "/dashboard/support", label: "Support", icon: HelpCircle, disabled: true },
@@ -146,17 +158,24 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const [feedbackCount, setFeedbackCount] = React.useState<number>(0)
   const [requestsCount, setRequestsCount] = React.useState<number>(0)
 
-  // Create admin-specific navGroups with updated Management section
+  // Create admin-specific navGroups with updated Vessel Management and Account sections
   const isAdmin = userProfile?.role === 'admin'
   const adminNavGroups: typeof navGroups = navGroups.map(group => {
-    if (group.title === "Management") {
+    if (group.title === "Vessel Management") {
       return {
         ...group,
         items: [
           { href: "/dashboard/vessels", label: "Vessels", icon: Ship, disabled: false },
           { href: "/dashboard/crew", label: "Users", icon: Users, disabled: false },
-          { href: "/dashboard/profile", label: "Account", icon: User, disabled: false },
           { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, disabled: false },
+        ]
+      }
+    }
+    if (group.title === "Account") {
+      return {
+        ...group,
+        items: [
+          { href: "/dashboard/profile", label: "Account", icon: User, disabled: false },
         ]
       }
     }
@@ -472,7 +491,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           event: '*',
           schema: 'public',
           table: 'vessel_claim_requests',
-          filter: `requested_by=eq.${user.id}`,
+          filter: user?.id ? `requested_by=eq.${user.id}` : undefined,
         },
         () => {
           fetchRequestsCount();
@@ -597,13 +616,15 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     return null
                   }
 
-                  // Check if feature requires premium access (visa tracker, passage log, bridge watch, export, request sea time)
+                  // Check if feature requires premium access (visa tracker, passage log, bridge watch, export, request sea time, certificates)
+                  // Note: Applications page is accessible to all users (testimonials are free), but Nav Watch/OOW are premium-only
                   const isVisaTracker = item.href === '/dashboard/visa-tracker';
                   const isPassageLog = item.href === '/dashboard/passage-logbook';
                   const isBridgeWatch = item.href === '/dashboard/bridge-watch-log';
                   const isExport = item.href === '/dashboard/export';
                   const isSeaTimeRequest = item.href === '/dashboard/sea-time-request';
-                  const requiresPremium = (isVisaTracker || isPassageLog || isBridgeWatch || isExport || isSeaTimeRequest) && !hasPremiumAccess;
+                  const isCertificates = item.href === '/dashboard/certificates';
+                  const requiresPremium = (isVisaTracker || isPassageLog || isBridgeWatch || isExport || isSeaTimeRequest || isCertificates) && !hasPremiumAccess;
 
                   const isActive = pathname === item.href
                   

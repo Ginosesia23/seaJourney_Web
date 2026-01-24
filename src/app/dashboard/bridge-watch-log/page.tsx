@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInHours, isAfter, isBefore, startOfDay, endOfDay } from 'date-fns';
 import { PlusCircle, Loader2, Ship, Clock, Edit, Trash2, Moon, Sun, Eye, AlertTriangle, Navigation, CheckCircle2, CalendarDays, Timer } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -108,6 +109,7 @@ export default function BridgeWatchLogPage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
   const { toast } = useToast();
+  const router = useRouter();
 
   // Fetch user profile to check subscription tier
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -232,6 +234,13 @@ export default function BridgeWatchLogPage() {
     // Crew accounts: premium or pro only
     return (tier === 'premium' || tier === 'pro') && status === 'active';
   }, [userProfile]);
+
+  // Redirect non-premium users to dashboard
+  useEffect(() => {
+    if (!isLoadingProfile && userProfile && !hasAccess) {
+      router.push('/dashboard');
+    }
+  }, [isLoadingProfile, userProfile, hasAccess, router]);
 
   const onSubmit = async (data: BridgeWatchFormValues) => {
     if (!user?.id || !hasAccess) {
@@ -441,39 +450,28 @@ export default function BridgeWatchLogPage() {
 
   const isLoading = isLoadingProfile || isLoadingVessels;
 
-  if (isLoading || isLoadingWatches) {
+  // Show loading while checking premium access or redirecting
+  if (isLoadingProfile) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
-  if (!hasAccess) {
-    const role = (userProfile as any)?.role || userProfile?.role || 'crew';
-    const message = role === 'vessel' 
-      ? 'The Bridge Watch Log requires an active vessel subscription. Please subscribe to a plan to access this feature.'
-      : 'The Bridge Watch Log is available for Premium and Pro subscribers. Upgrade your plan to access this feature.';
-    const buttonText = role === 'vessel' ? 'View Plans' : 'Upgrade to Premium';
-    
+  // Show loading while redirecting non-premium users
+  if (userProfile && !hasAccess) {
     return (
-      <div className="flex flex-col gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Bridge Watch Log</CardTitle>
-            <CardDescription>Subscription Required</CardDescription>
-          </CardHeader>
-          <CardContent className="text-center py-12">
-            <Navigation className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-xl font-semibold mb-2">Subscription Required</h3>
-            <p className="text-muted-foreground mb-6">
-              {message}
-            </p>
-            <Button className="rounded-xl" asChild>
-              <a href="/offers">{buttonText}</a>
-            </Button>
-          </CardContent>
-        </Card>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isLoading || isLoadingWatches) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }

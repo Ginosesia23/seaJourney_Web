@@ -13,10 +13,12 @@ import {
   Calendar,
   Globe,
   Zap,
-  ArrowRight
+  ArrowRight,
+  LayoutDashboard
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { useUser } from '@/supabase';
 
 const benefits = [
   {
@@ -58,6 +60,8 @@ const benefits = [
 ];
 
 const CrewBenefits = () => {
+  const { user } = useUser();
+
   return (
     <section className="relative overflow-hidden py-20 sm:py-28" style={{ backgroundColor: '#000b15' }}>
       {/* Background decoration */}
@@ -92,27 +96,43 @@ const CrewBenefits = () => {
               
               {/* CTA Buttons */}
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Button
-                  asChild
-                  size="lg"
-                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 px-6 h-12 text-base font-semibold"
-                >
-                  <Link href="/offers">
-                    Start Your Journey
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-                <Button
-                  asChild
-                  size="lg"
-                  variant="outline"
-                  className="rounded-xl border-2 border-white/20 bg-white/5 hover:bg-white/10 text-white px-6 h-12 text-base font-semibold backdrop-blur-sm"
-                >
-                  <Link href="#benefits-grid" className="flex items-center gap-2">
-                    Explore Features
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-                </Button>
+                {user ? (
+                  <Button
+                    asChild
+                    size="lg"
+                    className="rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg shadow-blue-500/30 px-8 h-12 text-base font-semibold"
+                  >
+                    <Link href="/dashboard" className="flex items-center gap-2">
+                      <LayoutDashboard className="h-5 w-5" />
+                      Go to Dashboard
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      asChild
+                      size="lg"
+                      className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 px-6 h-12 text-base font-semibold"
+                    >
+                      <Link href="/offers">
+                        Start Your Journey
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <Button
+                      asChild
+                      size="lg"
+                      variant="outline"
+                      className="rounded-xl border-2 border-white/20 bg-white/5 hover:bg-white/10 text-white px-6 h-12 text-base font-semibold backdrop-blur-sm"
+                    >
+                      <Link href="#benefits-grid" className="flex items-center gap-2">
+                        Explore Features
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                  </>
+                )}
               </div>
             </motion.div>
           </div>
@@ -217,6 +237,8 @@ const CrewBenefits = () => {
                   'Visual calendar view of your career',
                   'Mobile app for logging on the go',
                   'Complete service history tracking',
+                  'Certificate tracking and expiration alerts',
+                  'Official MCA application form generation',
                 ].map((feature, idx) => (
                   <motion.div
                     key={idx}

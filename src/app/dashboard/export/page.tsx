@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { Download, Calendar as CalendarIcon, Ship, Loader2, FileText, FileSpreadsheet, FileJson, FileDown, Sparkles, Settings2, Database, Clock, TrendingUp } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { DateRange } from 'react-day-picker';
+import { useRouter } from 'next/navigation';
 import { generateSeaTimeTestimonial } from '@/lib/pdf-generator';
 import { generateSeaTimeReportData as fetchSeaTimeReportData } from '@/app/actions';
 import { exportToCSV, exportToExcelXML, exportToJSON } from '@/lib/export-utils';
@@ -91,6 +92,7 @@ const formatOptions = [
 export default function ExportPage() {
     const { user } = useUser();
     const { supabase } = useSupabase();
+    const router = useRouter();
     const [isGenerating, setIsGenerating] = useState(false);
     const [selectedFormat, setSelectedFormat] = useState<'csv' | 'excel' | 'json' | 'pdf'>('csv');
     const [previewStats, setPreviewStats] = useState<{
@@ -137,6 +139,13 @@ export default function ExportPage() {
         // Crew accounts: premium or pro only
         return (tier === 'premium' || tier === 'pro') && status === 'active';
     }, [userProfile]);
+
+    // Redirect non-premium users to dashboard
+    useEffect(() => {
+        if (!isLoadingProfile && userProfile && !hasAccess) {
+            router.push('/dashboard');
+        }
+    }, [isLoadingProfile, userProfile, hasAccess, router]);
 
     const form = useForm<ExportFormValues>({
         resolver: zodResolver(exportSchema),
@@ -293,39 +302,20 @@ export default function ExportPage() {
         );
     }
 
-    // Show access denied message if user doesn't have premium/pro
-    if (!hasAccess) {
+    // Show loading while checking premium access or redirecting
+    if (isLoadingProfile) {
         return (
-            <div className="flex flex-col gap-6">
-                {/* Header */}
-                <div className="space-y-2">
-                    <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center">
-                            <Download className="h-5 w-5 text-primary" />
-                        </div>
-                        <div>
-                            <h1 className="text-3xl font-bold tracking-tight">Export Sea Time</h1>
-                            <p className="text-muted-foreground">Export your sea service records in various formats</p>
-                        </div>
-                    </div>
-                </div>
+            <div className="flex items-center justify-center min-h-[400px]">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+        );
+    }
 
-                <Separator />
-
-                <Alert variant="default" className="border-primary/20">
-                    <Lock className="h-4 w-4" />
-                    <AlertTitle>Premium Feature</AlertTitle>
-                    <AlertDescription className="mt-2">
-                        <p className="mb-4">
-                            Export functionality is available for Premium and Pro subscribers. Upgrade your subscription to export your sea time data in CSV, Excel, JSON, or PDF formats.
-                        </p>
-                        <Button asChild>
-                            <Link href="/dashboard/subscription">
-                                View Subscription Plans
-                            </Link>
-                        </Button>
-                    </AlertDescription>
-                </Alert>
+    // Show loading while redirecting non-premium users
+    if (userProfile && !hasAccess) {
+        return (
+            <div className="flex items-center justify-center min-h-[400px]">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
         );
     }

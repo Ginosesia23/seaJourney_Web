@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { UserProfileCard } from '@/components/dashboard/user-profile';
 import { SubscriptionCard } from '@/components/dashboard/subscription-card';
 import { UserInfoCard } from '@/components/dashboard/user-info-card';
+import { MCAApplicationDetailsCard } from '@/components/dashboard/mca-application-details';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,13 +21,15 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselAssignments } from '@/supabase/database/queries';
-import { format, parse, differenceInDays, isAfter, startOfDay, isBefore, getYear, getMonth, setMonth, setYear, startOfMonth } from 'date-fns';
-import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit, Shield, FileText, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { getVesselAssignments, updateVesselAssignment } from '@/supabase/database/queries';
+import { format, parse, differenceInDays, isAfter, startOfDay, isBefore, getYear, getMonth, setMonth, setYear, startOfMonth, addDays } from 'date-fns';
+import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit, Shield, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
-import type { VesselAssignment, Vessel, UserProfile } from '@/lib/types';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
+import type { VesselAssignment, Vessel, UserProfile, PositionHistory } from '@/lib/types';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
@@ -322,10 +325,62 @@ function CaptainRoleApplicationCard({ userProfile, userId }: { userProfile: User
   );
 }
 
+// Position options (matching the ones used in current page)
+const POSITION_OPTIONS = [
+  'Captain / Master',
+  'Chief Officer / First Mate',
+  'Second Officer',
+  'Third Officer',
+  '3rd Officer',
+  'Officer of the Watch (OOW)',
+  'Deck Officer',
+  'Lead Deckhand',
+  'Deckhand',
+  'Able Seaman (AB)',
+  'Bosun',
+  'Cadet',
+  'Chief Engineer',
+  'First Engineer / Second Engineer',
+  'Third Engineer',
+  'Engineer',
+  'Electrician',
+  'Chef / Cook',
+  'Head Housekeeper',
+  'Chief Steward / Stewardess',
+  '2nd Steward / Stewardess',
+  'Steward / Stewardess',
+  'Interior Crew',
+  'Other',
+] as const;
+
+const positionHistorySchema = z.object({
+  position: z.string().min(1, 'Position is required'),
+  startDate: z.date({ required_error: 'Start date is required' }),
+  endDate: z.date().optional().nullable(),
+  vesselId: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+}).refine((data) => {
+  if (data.endDate && data.endDate < data.startDate) {
+    return false;
+  }
+  return true;
+}, {
+  message: "End date must be after start date",
+  path: ["endDate"],
+});
+
+type PositionHistoryFormValues = z.infer<typeof positionHistorySchema>;
+
 function CareerTab({ userId }: { userId?: string }) {
   const { supabase } = useSupabase();
+  const { toast } = useToast();
   const [assignments, setAssignments] = useState<VesselAssignment[]>([]);
+  const [positionHistory, setPositionHistory] = useState<PositionHistory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPositionDialogOpen, setIsPositionDialogOpen] = useState(false);
+  const [editingPosition, setEditingPosition] = useState<PositionHistory | null>(null);
+  const [deletePositionId, setDeletePositionId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   
   // Fetch all vessels for name lookup
   const { data: vessels } = useCollection<Vessel>('vessels');
@@ -338,26 +393,63 @@ function CareerTab({ userId }: { userId?: string }) {
     return map;
   }, [vessels]);
 
+  const positionForm = useForm<PositionHistoryFormValues>({
+    resolver: zodResolver(positionHistorySchema),
+    defaultValues: {
+      position: '',
+      startDate: new Date(),
+      endDate: null,
+      vesselId: null,
+      notes: '',
+    },
+  });
+
+  // Fetch assignments and position history
   useEffect(() => {
     if (!userId) {
       setIsLoading(false);
       return;
     }
 
-    const fetchAssignments = async () => {
+    const fetchData = async () => {
       setIsLoading(true);
       try {
-        const data = await getVesselAssignments(supabase, userId);
-        setAssignments(data);
+        const [assignmentsData, positionData] = await Promise.all([
+          getVesselAssignments(supabase, userId),
+          supabase
+            .from('position_history')
+            .select('*')
+            .eq('user_id', userId)
+            .order('start_date', { ascending: false })
+        ]);
+
+        setAssignments(assignmentsData);
+        
+        if (positionData.error) throw positionData.error;
+        
+        // Transform position history data
+        const transformedPositions: PositionHistory[] = (positionData.data || []).map((pos: any) => ({
+          id: pos.id,
+          userId: pos.user_id,
+          position: pos.position,
+          startDate: pos.start_date,
+          endDate: pos.end_date || null,
+          vesselId: pos.vessel_id || null,
+          notes: pos.notes || null,
+          createdAt: pos.created_at,
+          updatedAt: pos.updated_at,
+        }));
+        setPositionHistory(transformedPositions);
       } catch (error) {
-        console.error('Error fetching vessel assignments:', error);
+        console.error('Error fetching career data:', error);
         setAssignments([]);
+        setPositionHistory([]);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchAssignments();
+    fetchData();
   }, [userId, supabase]);
 
   // Calculate total days for each assignment
@@ -366,7 +458,230 @@ function CareerTab({ userId }: { userId?: string }) {
     const end = assignment.endDate 
       ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
       : new Date();
-    return differenceInDays(end, start) + 1; // +1 to include both start and end days
+    return differenceInDays(end, start) + 1;
+  };
+
+  // Calculate duration for position
+  const getPositionDuration = (position: PositionHistory): number => {
+    const start = parse(position.startDate, 'yyyy-MM-dd', new Date());
+    const end = position.endDate 
+      ? parse(position.endDate, 'yyyy-MM-dd', new Date())
+      : new Date();
+    return differenceInDays(end, start) + 1;
+  };
+
+  const handleOpenPositionDialog = (position?: PositionHistory) => {
+    if (position) {
+      setEditingPosition(position);
+      positionForm.reset({
+        position: position.position,
+        startDate: parse(position.startDate, 'yyyy-MM-dd', new Date()),
+        endDate: position.endDate ? parse(position.endDate, 'yyyy-MM-dd', new Date()) : null,
+        vesselId: position.vesselId || null,
+        notes: position.notes || '',
+      });
+    } else {
+      setEditingPosition(null);
+      positionForm.reset({
+        position: '',
+        startDate: new Date(),
+        endDate: null,
+        vesselId: null,
+        notes: '',
+      });
+    }
+    setIsPositionDialogOpen(true);
+  };
+
+  const handleClosePositionDialog = () => {
+    setIsPositionDialogOpen(false);
+    setEditingPosition(null);
+    positionForm.reset();
+  };
+
+  const handleSavePosition = async (data: PositionHistoryFormValues) => {
+    if (!userId) return;
+
+    setIsSaving(true);
+    try {
+      // If adding a new position and it's current (no end date), end the previous current position
+      if (!editingPosition && !data.endDate) {
+        const currentPosition = positionHistory.find(p => !p.endDate);
+        if (currentPosition) {
+          const dayBeforeNewStart = format(addDays(data.startDate, -1), 'yyyy-MM-dd');
+          await supabase
+            .from('position_history')
+            .update({ end_date: dayBeforeNewStart })
+            .eq('id', currentPosition.id);
+        }
+      }
+
+      const positionData = {
+        user_id: userId,
+        position: data.position,
+        start_date: format(data.startDate, 'yyyy-MM-dd'),
+        end_date: data.endDate ? format(data.endDate, 'yyyy-MM-dd') : null,
+        vessel_id: data.vesselId || null,
+        notes: data.notes || null,
+      };
+
+      if (editingPosition) {
+        // Update existing position
+        const { error } = await supabase
+          .from('position_history')
+          .update(positionData)
+          .eq('id', editingPosition.id);
+
+        if (error) throw error;
+        toast({
+          title: 'Success',
+          description: 'Position updated successfully.',
+        });
+      } else {
+        // Create new position
+        const { error } = await supabase
+          .from('position_history')
+          .insert(positionData);
+
+        if (error) throw error;
+        toast({
+          title: 'Success',
+          description: 'Position added successfully.',
+        });
+      }
+
+      // Update vessel assignment if user has an active assignment
+      // If the new position is current (no end date) and has a vesselId, update the assignment
+      if (!data.endDate && data.vesselId) {
+        const activeAssignment = assignments.find(a => !a.endDate && a.vesselId === data.vesselId);
+        if (activeAssignment) {
+          // Update the position in the vessel assignment
+          try {
+            await updateVesselAssignment(supabase, activeAssignment.id, {
+              position: data.position,
+            });
+            // Refresh assignments to show updated position
+            const refreshedAssignments = await getVesselAssignments(supabase, userId);
+            setAssignments(refreshedAssignments);
+          } catch (assignmentError) {
+            console.error('Error updating vessel assignment:', assignmentError);
+            // Don't fail the position save if assignment update fails
+          }
+        }
+      } else if (!data.endDate) {
+        // If it's a current position but no vesselId specified, check if user has any active assignment
+        const activeAssignment = assignments.find(a => !a.endDate);
+        if (activeAssignment) {
+          // Update the position in the active vessel assignment
+          try {
+            await updateVesselAssignment(supabase, activeAssignment.id, {
+              position: data.position,
+            });
+            // Refresh assignments to show updated position
+            const refreshedAssignments = await getVesselAssignments(supabase, userId);
+            setAssignments(refreshedAssignments);
+          } catch (assignmentError) {
+            console.error('Error updating vessel assignment:', assignmentError);
+            // Don't fail the position save if assignment update fails
+          }
+        }
+      }
+
+      // Refresh position history
+      const { data: refreshedPositionData, error: fetchError } = await supabase
+        .from('position_history')
+        .select('*')
+        .eq('user_id', userId)
+        .order('start_date', { ascending: false });
+
+      if (!fetchError && refreshedPositionData) {
+        const transformedPositions: PositionHistory[] = refreshedPositionData.map((pos: any) => ({
+          id: pos.id,
+          userId: pos.user_id,
+          position: pos.position,
+          startDate: pos.start_date,
+          endDate: pos.end_date || null,
+          vesselId: pos.vessel_id || null,
+          notes: pos.notes || null,
+          createdAt: pos.created_at,
+          updatedAt: pos.updated_at,
+        }));
+        setPositionHistory(transformedPositions);
+
+        // Update users table with the current position (the one without an end_date)
+        const currentPosition = transformedPositions.find(p => !p.endDate);
+        if (currentPosition) {
+          try {
+            const { error: userUpdateError } = await supabase
+              .from('users')
+              .update({ position: currentPosition.position })
+              .eq('id', userId);
+
+            if (userUpdateError) {
+              console.error('Error updating user position:', userUpdateError);
+              // Don't fail the position save if user update fails
+            }
+          } catch (userUpdateError) {
+            console.error('Error updating user position:', userUpdateError);
+            // Don't fail the position save if user update fails
+          }
+        } else {
+          // If no current position exists, clear the position in users table
+          try {
+            const { error: userUpdateError } = await supabase
+              .from('users')
+              .update({ position: null })
+              .eq('id', userId);
+
+            if (userUpdateError) {
+              console.error('Error clearing user position:', userUpdateError);
+            }
+          } catch (userUpdateError) {
+            console.error('Error clearing user position:', userUpdateError);
+          }
+        }
+      }
+
+      handleClosePositionDialog();
+    } catch (error: any) {
+      console.error('Error saving position:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to save position.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeletePosition = async () => {
+    if (!deletePositionId || !userId) return;
+
+    try {
+      const { error } = await supabase
+        .from('position_history')
+        .delete()
+        .eq('id', deletePositionId)
+        .eq('user_id', userId);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Position deleted successfully.',
+      });
+
+      setPositionHistory(positionHistory.filter(p => p.id !== deletePositionId));
+      setDeletePositionId(null);
+    } catch (error: any) {
+      console.error('Error deleting position:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete position.',
+        variant: 'destructive',
+      });
+    }
   };
 
   if (isLoading) {
@@ -378,130 +693,465 @@ function CareerTab({ userId }: { userId?: string }) {
     );
   }
 
-  if (assignments.length === 0) {
-    return (
-      <Card className="rounded-xl border">
-        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-          <Ship className="h-12 w-12 text-muted-foreground mb-4" />
-          <h3 className="text-lg font-semibold mb-2">No Career History</h3>
-          <p className="text-sm text-muted-foreground max-w-md">
-            Your vessel assignments and position history will appear here once you start logging sea service.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
+  const currentPosition = positionHistory.find(p => !p.endDate);
 
   return (
-    <Card className="rounded-xl border">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Briefcase className="h-5 w-5" />
-          Career History
-        </CardTitle>
-        <CardDescription>
-          Your vessel assignments and position progression over time
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Vessel</TableHead>
-                <TableHead>Position</TableHead>
-                <TableHead>Start Date</TableHead>
-                <TableHead>End Date</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {assignments.map((assignment) => {
-                const vessel = vesselMap.get(assignment.vesselId);
-                const duration = getAssignmentDuration(assignment);
-                const isActive = !assignment.endDate;
-                const endDate = assignment.endDate 
-                  ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
-                  : null;
-                
-                return (
-                  <TableRow key={assignment.id}>
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        <Ship className="h-4 w-4 text-muted-foreground" />
-                        {vessel?.name || 'Unknown Vessel'}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {assignment.position ? (
-                        <Badge variant="outline">{assignment.position}</Badge>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
+    <div className="space-y-6">
+      {/* Position History Section */}
+      <Card className="rounded-xl border">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Briefcase className="h-5 w-5" />
+                Position History
+              </CardTitle>
+              <CardDescription className="mt-1">
+                Track your position progression and promotions over time
+              </CardDescription>
+            </div>
+            <Dialog open={isPositionDialogOpen} onOpenChange={setIsPositionDialogOpen}>
+              <DialogTrigger asChild>
+                <Button onClick={() => handleOpenPositionDialog()} className="rounded-xl">
+                  <Plus className="mr-2 h-4 w-4" />
+                  {currentPosition ? 'Update Position' : 'Add Position'}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="rounded-xl max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>
+                    {editingPosition ? 'Edit Position' : currentPosition ? 'Update Current Position' : 'Add Position'}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {editingPosition 
+                      ? 'Update your position information below.'
+                      : currentPosition
+                      ? 'Adding a new position will automatically end your current position.'
+                      : 'Add your current position to start tracking your career progression.'}
+                  </DialogDescription>
+                </DialogHeader>
+                <Form {...positionForm}>
+                  <form onSubmit={positionForm.handleSubmit(handleSavePosition)} className="space-y-4">
+                    <FormField
+                      control={positionForm.control}
+                      name="position"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Position *</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger className="rounded-xl">
+                                <SelectValue placeholder="Select position" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {POSITION_OPTIONS.map((pos) => (
+                                <SelectItem key={pos} value={pos}>
+                                  {pos}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Calendar className="h-3 w-3 text-muted-foreground" />
-                        {format(parse(assignment.startDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {endDate ? (
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-3 w-3 text-muted-foreground" />
-                          {format(endDate, 'MMM d, yyyy')}
-                        </div>
-                      ) : (
-                        <Badge variant="secondary">Active</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm text-muted-foreground">
-                        {duration} {duration === 1 ? 'day' : 'days'}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {isActive ? (
-                        <Badge className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
-                          Current
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary">Completed</Badge>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+                    />
 
-        {/* Career Summary */}
-        {assignments.length > 0 && (
-          <div className="mt-6 pt-6 border-t">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Total Assignments</p>
-                <p className="text-2xl font-bold">{assignments.length}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Active Assignments</p>
-                <p className="text-2xl font-bold">
-                  {assignments.filter(a => !a.endDate).length}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Total Days at Sea</p>
-                <p className="text-2xl font-bold">
-                  {assignments.reduce((sum, a) => sum + getAssignmentDuration(a), 0)}
-                </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={positionForm.control}
+                        name="startDate"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-col">
+                            <FormLabel>Start Date *</FormLabel>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <FormControl>
+                                  <Button
+                                    variant="outline"
+                                    className={cn(
+                                      "w-full pl-3 text-left font-normal rounded-xl",
+                                      !field.value && "text-muted-foreground"
+                                    )}
+                                  >
+                                    {field.value ? (
+                                      format(field.value, "PPP")
+                                    ) : (
+                                      <span>Pick a date</span>
+                                    )}
+                                    <Calendar className="ml-auto h-4 w-4 opacity-50" />
+                                  </Button>
+                                </FormControl>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <CalendarComponent
+                                  mode="single"
+                                  selected={field.value}
+                                  onSelect={field.onChange}
+                                  initialFocus
+                                />
+                              </PopoverContent>
+                            </Popover>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={positionForm.control}
+                        name="endDate"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-col">
+                            <FormLabel>End Date (leave blank for current)</FormLabel>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <FormControl>
+                                  <Button
+                                    variant="outline"
+                                    className={cn(
+                                      "w-full pl-3 text-left font-normal rounded-xl",
+                                      !field.value && "text-muted-foreground"
+                                    )}
+                                  >
+                                    {field.value ? (
+                                      format(field.value, "PPP")
+                                    ) : (
+                                      <span>Current position</span>
+                                    )}
+                                    <Calendar className="ml-auto h-4 w-4 opacity-50" />
+                                  </Button>
+                                </FormControl>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <CalendarComponent
+                                  mode="single"
+                                  selected={field.value || undefined}
+                                  onSelect={field.onChange}
+                                  disabled={(date) => {
+                                    const startDate = positionForm.watch('startDate');
+                                    return startDate ? date < startDate : false;
+                                  }}
+                                  initialFocus
+                                />
+                              </PopoverContent>
+                            </Popover>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <FormField
+                      control={positionForm.control}
+                      name="vesselId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Vessel (Optional)</FormLabel>
+                          <Select 
+                            onValueChange={(value) => {
+                              field.onChange(value === 'none' ? null : value);
+                            }} 
+                            value={field.value || 'none'}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="rounded-xl">
+                                <SelectValue placeholder="Select vessel (optional)" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="none">None</SelectItem>
+                              {vessels?.map((vessel) => (
+                                <SelectItem key={vessel.id} value={vessel.id}>
+                                  {vessel.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={positionForm.control}
+                      name="notes"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Notes (Optional)</FormLabel>
+                          <FormControl>
+                      <Textarea
+                        placeholder="Add any notes about this position..."
+                        className="rounded-xl"
+                        {...field}
+                        value={field.value || ''}
+                      />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <DialogFooter>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleClosePositionDialog}
+                        disabled={isSaving}
+                        className="rounded-xl"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={isSaving}
+                        className="rounded-xl"
+                      >
+                        {isSaving ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          editingPosition ? 'Update' : 'Add'
+                        )}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {positionHistory.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Briefcase className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No Position History</h3>
+              <p className="text-sm text-muted-foreground max-w-md mb-4">
+                Add your current position to start tracking your career progression.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Position</TableHead>
+                    <TableHead>Vessel</TableHead>
+                    <TableHead>Start Date</TableHead>
+                    <TableHead>End Date</TableHead>
+                    <TableHead>Duration</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {positionHistory.map((position) => {
+                    const duration = getPositionDuration(position);
+                    const isCurrent = !position.endDate;
+                    const vessel = position.vesselId ? vesselMap.get(position.vesselId) : null;
+                    
+                    return (
+                      <TableRow key={position.id}>
+                        <TableCell className="font-medium">
+                          <Badge variant={isCurrent ? "default" : "outline"}>
+                            {position.position}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {vessel ? (
+                            <div className="flex items-center gap-2">
+                              <Ship className="h-3 w-3 text-muted-foreground" />
+                              {vessel.name}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-3 w-3 text-muted-foreground" />
+                            {format(parse(position.startDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {position.endDate ? (
+                            <div className="flex items-center gap-2">
+                              <Calendar className="h-3 w-3 text-muted-foreground" />
+                              {format(parse(position.endDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
+                            </div>
+                          ) : (
+                            <Badge className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
+                              Current
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm text-muted-foreground">
+                            {duration} {duration === 1 ? 'day' : 'days'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleOpenPositionDialog(position)}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeletePositionId(position.id)}
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Vessel Assignments Section */}
+      {assignments.length > 0 && (
+        <Card className="rounded-xl border">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Ship className="h-5 w-5" />
+              Vessel Assignments
+            </CardTitle>
+            <CardDescription>
+              Your vessel assignments and sea service history
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Vessel</TableHead>
+                    <TableHead>Position</TableHead>
+                    <TableHead>Start Date</TableHead>
+                    <TableHead>End Date</TableHead>
+                    <TableHead>Duration</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {assignments.map((assignment) => {
+                    const vessel = vesselMap.get(assignment.vesselId);
+                    const duration = getAssignmentDuration(assignment);
+                    const isActive = !assignment.endDate;
+                    const endDate = assignment.endDate 
+                      ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
+                      : null;
+                    
+                    return (
+                      <TableRow key={assignment.id}>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <Ship className="h-4 w-4 text-muted-foreground" />
+                            {vessel?.name || 'Unknown Vessel'}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {assignment.position ? (
+                            <Badge variant="outline">{assignment.position}</Badge>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-3 w-3 text-muted-foreground" />
+                            {format(parse(assignment.startDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {endDate ? (
+                            <div className="flex items-center gap-2">
+                              <Calendar className="h-3 w-3 text-muted-foreground" />
+                              {format(endDate, 'MMM d, yyyy')}
+                            </div>
+                          ) : (
+                            <Badge variant="secondary">Active</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm text-muted-foreground">
+                            {duration} {duration === 1 ? 'day' : 'days'}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {isActive ? (
+                            <Badge className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
+                              Current
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary">Completed</Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Career Summary */}
+            <div className="mt-6 pt-6 border-t">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Total Assignments</p>
+                  <p className="text-2xl font-bold">{assignments.length}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Active Assignments</p>
+                  <p className="text-2xl font-bold">
+                    {assignments.filter(a => !a.endDate).length}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Total Days at Sea</p>
+                  <p className="text-2xl font-bold">
+                    {assignments.reduce((sum, a) => sum + getAssignmentDuration(a), 0)}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deletePositionId} onOpenChange={(open) => !open && setDeletePositionId(null)}>
+        <AlertDialogContent className="rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Position</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this position entry? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-xl">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeletePosition}
+              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }
 
@@ -1267,6 +1917,20 @@ export default function ProfilePage() {
       activeVesselId: activeVesselId || undefined,
       startDate: startDate || undefined,
       role: (userProfileRaw as any).role || userProfileRaw.role || 'crew',
+      // MCA Application fields
+      title: (userProfileRaw as any).title || undefined,
+      placeOfBirth: (userProfileRaw as any).place_of_birth || (userProfileRaw as any).placeOfBirth || undefined,
+      countryOfBirth: (userProfileRaw as any).country_of_birth || (userProfileRaw as any).countryOfBirth || undefined,
+      nationality: (userProfileRaw as any).nationality || undefined,
+      telephone: (userProfileRaw as any).telephone || undefined,
+      mobile: (userProfileRaw as any).mobile || undefined,
+      addressLine1: (userProfileRaw as any).address_line1 || (userProfileRaw as any).addressLine1 || undefined,
+      addressLine2: (userProfileRaw as any).address_line2 || (userProfileRaw as any).addressLine2 || undefined,
+      addressDistrict: (userProfileRaw as any).address_district || (userProfileRaw as any).addressDistrict || undefined,
+      addressTownCity: (userProfileRaw as any).address_town_city || (userProfileRaw as any).addressTownCity || undefined,
+      addressCountyState: (userProfileRaw as any).address_county_state || (userProfileRaw as any).addressCountyState || undefined,
+      addressPostCode: (userProfileRaw as any).address_post_code || (userProfileRaw as any).addressPostCode || undefined,
+      addressCountry: (userProfileRaw as any).address_country || (userProfileRaw as any).addressCountry || undefined,
     } as UserProfile;
   }, [userProfileRaw]);
 
@@ -1323,6 +1987,7 @@ export default function ProfilePage() {
       <Tabs defaultValue="information" className="w-full">
         <TabsList className="rounded-xl">
           <TabsTrigger value="information" className="!rounded-lg">Information</TabsTrigger>
+          <TabsTrigger value="mca-details" className="!rounded-lg">MCA Application</TabsTrigger>
           <TabsTrigger value="career" className="!rounded-lg">Career</TabsTrigger>
         </TabsList>
 
@@ -1345,6 +2010,11 @@ export default function ProfilePage() {
               </div>
             </div>
           </div>
+        </TabsContent>
+
+        {/* MCA Application Details Tab */}
+        <TabsContent value="mca-details" className="mt-6">
+          <MCAApplicationDetailsCard />
         </TabsContent>
 
         {/* Career Tab */}

@@ -28,7 +28,7 @@ const routeLabels: Record<string, string> = {
   "/dashboard/vessels": "Vessels",
   "/dashboard/profile": "Profile",
   "/dashboard/crew": "Crew",
-  "/dashboard/testimonials": "Testimonials",
+  "/dashboard/applications": "Applications",
   "/dashboard/export": "Export",
   "/dashboard/world-map": "World Map",
 }
