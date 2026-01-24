@@ -659,6 +659,11 @@ function CareerTab({ userId }: { userId?: string }) {
     if (!deletePositionId || !userId) return;
 
     try {
+      // Check if the position being deleted is the active one (no end_date)
+      const positionToDelete = positionHistory.find(p => p.id === deletePositionId);
+      const isActivePosition = positionToDelete && !positionToDelete.endDate;
+
+      // Delete the position
       const { error } = await supabase
         .from('position_history')
         .delete()
@@ -667,12 +672,90 @@ function CareerTab({ userId }: { userId?: string }) {
 
       if (error) throw error;
 
+      // If we deleted the active position, make the previous one active again
+      if (isActivePosition) {
+        // Find the most recent position that has an end_date (previous position)
+        const previousPositions = positionHistory
+          .filter(p => p.id !== deletePositionId && p.endDate)
+          .sort((a, b) => {
+            const dateA = parse(a.endDate!, 'yyyy-MM-dd', new Date());
+            const dateB = parse(b.endDate!, 'yyyy-MM-dd', new Date());
+            return dateB.getTime() - dateA.getTime();
+          });
+
+        if (previousPositions.length > 0) {
+          const previousPosition = previousPositions[0];
+          // Remove the end_date to make it active again
+          const { error: updateError } = await supabase
+            .from('position_history')
+            .update({ end_date: null })
+            .eq('id', previousPosition.id);
+
+          if (updateError) {
+            console.error('Error reactivating previous position:', updateError);
+            // Don't fail the delete if reactivation fails
+          }
+        }
+      }
+
+      // Refresh position history
+      const { data: refreshedPositionData, error: fetchError } = await supabase
+        .from('position_history')
+        .select('*')
+        .eq('user_id', userId)
+        .order('start_date', { ascending: false });
+
+      if (!fetchError && refreshedPositionData) {
+        const transformedPositions: PositionHistory[] = refreshedPositionData.map((pos: any) => ({
+          id: pos.id,
+          userId: pos.user_id,
+          position: pos.position,
+          startDate: pos.start_date,
+          endDate: pos.end_date || null,
+          vesselId: pos.vessel_id || null,
+          notes: pos.notes || null,
+          createdAt: pos.created_at,
+          updatedAt: pos.updated_at,
+        }));
+        setPositionHistory(transformedPositions);
+
+        // Update users table with the current position (the one without an end_date)
+        const currentPosition = transformedPositions.find(p => !p.endDate);
+        if (currentPosition) {
+          try {
+            const { error: userUpdateError } = await supabase
+              .from('users')
+              .update({ position: currentPosition.position })
+              .eq('id', userId);
+
+            if (userUpdateError) {
+              console.error('Error updating user position:', userUpdateError);
+            }
+          } catch (userUpdateError) {
+            console.error('Error updating user position:', userUpdateError);
+          }
+        } else {
+          // If no current position exists, clear the position in users table
+          try {
+            const { error: userUpdateError } = await supabase
+              .from('users')
+              .update({ position: null })
+              .eq('id', userId);
+
+            if (userUpdateError) {
+              console.error('Error clearing user position:', userUpdateError);
+            }
+          } catch (userUpdateError) {
+            console.error('Error clearing user position:', userUpdateError);
+          }
+        }
+      }
+
       toast({
         title: 'Success',
         description: 'Position deleted successfully.',
       });
 
-      setPositionHistory(positionHistory.filter(p => p.id !== deletePositionId));
       setDeletePositionId(null);
     } catch (error: any) {
       console.error('Error deleting position:', error);

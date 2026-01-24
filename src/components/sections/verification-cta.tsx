@@ -143,13 +143,13 @@ const VerificationCTA = () => {
                       <label className="text-xs font-semibold text-blue-100/70 mb-2 block">
                         Document Verification Code
                       </label>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl font-bold text-green-400">SJ-</span>
-                        <div className="flex gap-2">
+                      <div className="flex items-center gap-1 sm:gap-2 flex-wrap justify-center sm:justify-start">
+                        <span className="text-lg sm:text-xl font-bold text-green-400 shrink-0">SJ-</span>
+                        <div className="flex gap-1 sm:gap-2 flex-wrap justify-center sm:justify-start">
                           {['9', '8', '2', 'F', '8', '4', '8', '4'].map((char, index) => (
                             <div
                               key={index}
-                              className="w-12 h-14 rounded-lg border-2 flex items-center justify-center text-xl font-bold uppercase bg-background/50 border-green-500/30 text-white"
+                              className="w-8 h-10 sm:w-10 sm:h-12 md:w-12 md:h-14 rounded-lg border-2 flex items-center justify-center text-base sm:text-lg md:text-xl font-bold uppercase bg-background/50 border-green-500/30 text-white shrink-0"
                             >
                               {char}
                             </div>
