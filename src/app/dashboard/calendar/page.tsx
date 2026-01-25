@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useUser, useSupabase } from '@/supabase';
@@ -39,6 +40,9 @@ export default function CalendarPage() {
   const [selectionMode, setSelectionMode] = useState<'single' | 'range'>('single');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
+  const [isPartOfActivePassageInDialog, setIsPartOfActivePassageInDialog] = useState<boolean>(false);
+  const [isWatchInDialog, setIsWatchInDialog] = useState<boolean>(false);
+  const [watchDates, setWatchDates] = useState<Set<string>>(new Set());
   
   // View mode for captains: 'personal' (their own sea time) or 'vessel' (vessel's sea time)
   const [captainViewMode, setCaptainViewMode] = useState<'personal' | 'vessel'>('personal');
@@ -79,6 +83,57 @@ export default function CalendarPage() {
   const isCaptain = useMemo(() => {
     return userProfile?.role === 'captain';
   }, [userProfile?.role]);
+
+  // Check if user is an officer (rank or higher)
+  const isOfficer = useMemo(() => {
+    if (!userProfile) return false;
+    const position = (userProfile.position || '').toLowerCase();
+    const role = (userProfile.role || '').toLowerCase();
+    
+    // Officers include: Captain, Chief Officer, First Officer, First Mate, Second Officer, Third Officer, OOW, Deck Officer
+    // Also Chief Engineer, First Engineer, Second Engineer, Third Engineer, Fourth Engineer
+    const officerPositions = [
+      'captain', 'master', 'chief officer', 'first officer', 'first mate', 
+      'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+      'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer'
+    ];
+    
+    return role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+  }, [userProfile]);
+
+  // Fetch watch logs for the user (officers only)
+  useEffect(() => {
+    const fetchWatchLogs = async () => {
+      if (!user?.id || !isOfficer) {
+        setWatchDates(new Set());
+        return;
+      }
+
+      try {
+        const { data: watchLogs, error } = await supabase
+          .from('watch_logs')
+          .select('watch_start')
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        // Extract dates from watch logs (watch_start timestamps)
+        const dates = new Set<string>();
+        if (watchLogs) {
+          watchLogs.forEach(log => {
+            const dateStr = format(new Date(log.watch_start), 'yyyy-MM-dd');
+            dates.add(dateStr);
+          });
+        }
+        setWatchDates(dates);
+      } catch (error) {
+        console.error('Error fetching watch logs:', error);
+        setWatchDates(new Set());
+      }
+    };
+
+    fetchWatchLogs();
+  }, [user?.id, isOfficer, supabase]);
 
   // Query all vessels
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
@@ -378,13 +433,26 @@ export default function CalendarPage() {
   }, [stateLogs, vesselAssignments, vessels, findVesselForDate]);
 
   // Calculate standby periods to identify standby dates
+  // Extract part of active passage dates from state logs
+  const partOfActivePassageDates = useMemo(() => {
+    const dates = new Set<string>();
+    if (stateLogs && stateLogs.length > 0) {
+      stateLogs.forEach(log => {
+        if (log.isPartOfActivePassage) {
+          dates.add(log.date);
+        }
+      });
+    }
+    return dates;
+  }, [stateLogs]);
+
   const { standbyPeriods } = useMemo(() => {
     if (!stateLogs || stateLogs.length === 0) {
       return { standbyPeriods: [] };
     }
-    const result = calculateStandbyDays(stateLogs);
+    const result = calculateStandbyDays(stateLogs, undefined, partOfActivePassageDates);
     return { standbyPeriods: result.standbyPeriods };
-  }, [stateLogs]);
+  }, [stateLogs, partOfActivePassageDates]);
 
   // Create a Set of dates that are counted as standby (for visual differentiation)
   const standbyDatesSet = useMemo(() => {
@@ -603,6 +671,10 @@ export default function CalendarPage() {
       const dateKey = format(date, 'yyyy-MM-dd');
       const existingState = stateLogMap.get(dateKey);
       setSelectedState(existingState || null);
+      // Check if this date is part of active passage
+      setIsPartOfActivePassageInDialog(partOfActivePassageDates.has(dateKey));
+      // Check if this date has a watch log (officers only)
+      setIsWatchInDialog(isOfficer && watchDates.has(dateKey));
       setDateRange(undefined);
       setIsDialogOpen(true);
     } else {
@@ -691,6 +763,8 @@ export default function CalendarPage() {
         setDateRange({ from: start, to: end });
         setSelectedDate(null);
         setSelectedState(null);
+        setIsPartOfActivePassageInDialog(false); // Reset for range selection
+        setIsWatchInDialog(false); // Reset for range selection (watch only applies to single dates)
         setIsDialogOpen(true);
       }
     }
@@ -703,7 +777,7 @@ export default function CalendarPage() {
 
     try {
       // Group logs by vessel
-      const logsByVessel = new Map<string, Array<{ date: string; state: DailyStatus }>>();
+      const logsByVessel = new Map<string, Array<{ date: string; state: DailyStatus; is_part_of_active_passage?: boolean }>>();
       
       if (dateRange?.from && dateRange?.to) {
         // Range update
@@ -725,7 +799,7 @@ export default function CalendarPage() {
           if (!logsByVessel.has(vesselId)) {
             logsByVessel.set(vesselId, []);
           }
-          logsByVessel.get(vesselId)!.push({ date: dateKey, state });
+          logsByVessel.get(vesselId)!.push({ date: dateKey, state, is_part_of_active_passage: isPartOfActivePassageInDialog });
         }
         
         if (logsByVessel.size === 0) {
@@ -750,7 +824,7 @@ export default function CalendarPage() {
           return;
         }
         const dateKey = format(selectedDate, 'yyyy-MM-dd');
-        logsByVessel.set(validation.vessel.id, [{ date: dateKey, state }]);
+        logsByVessel.set(validation.vessel.id, [{ date: dateKey, state, is_part_of_active_passage: isPartOfActivePassageInDialog }]);
       } else {
         setIsSaving(false);
         return;
@@ -765,6 +839,116 @@ export default function CalendarPage() {
         });
         setIsSaving(false);
         return;
+      }
+      
+      // Handle watch logs for officers (only for single date, only when state is at-anchor)
+      if (isOfficer && selectedDate && !dateRange) {
+        const dateKey = format(selectedDate, 'yyyy-MM-dd');
+        const validation = isDateValidForStateChange(selectedDate);
+        if (validation.vessel) {
+          const vesselId = validation.vessel.id;
+          const dateStart = new Date(dateKey);
+          dateStart.setHours(0, 0, 0, 0);
+          const dateEnd = new Date(dateKey);
+          dateEnd.setHours(23, 59, 59, 999);
+          
+          if (isWatchInDialog && state === 'at-anchor') {
+            // Create watch log if not exists
+            if (!watchDates.has(dateKey)) {
+              try {
+                const { error: watchError } = await supabase
+                  .from('watch_logs')
+                  .insert({
+                    user_id: user.id,
+                    vessel_id: vesselId,
+                    watch_start: dateStart.toISOString(),
+                    watch_end: dateEnd.toISOString(),
+                    watch_type: 'bridge', // Using 'bridge' for navigation watch
+                  });
+
+                if (watchError) {
+                  console.error(`Error creating watch log for ${dateKey}:`, watchError);
+                } else {
+                  // Update watch dates set
+                  setWatchDates(prev => new Set(prev).add(dateKey));
+                }
+              } catch (watchError) {
+                console.error('Error creating watch log:', watchError);
+              }
+            }
+          } else {
+            // Remove watch log if exists
+            if (watchDates.has(dateKey)) {
+              try {
+                const { error: watchError } = await supabase
+                  .from('watch_logs')
+                  .delete()
+                  .eq('user_id', user.id)
+                  .eq('vessel_id', vesselId)
+                  .gte('watch_start', dateStart.toISOString())
+                  .lte('watch_start', dateEnd.toISOString());
+
+                if (watchError) {
+                  console.error(`Error removing watch log for ${dateKey}:`, watchError);
+                } else {
+                  // Update watch dates set
+                  setWatchDates(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(dateKey);
+                    return newSet;
+                  });
+                }
+              } catch (watchError) {
+                console.error('Error removing watch log:', watchError);
+              }
+            }
+          }
+        }
+      }
+      
+      // If state is changing away from "at-anchor", remove watch logs for affected dates (for range updates)
+      if (state !== 'at-anchor' && dateRange) {
+        const datesToCheck: string[] = [];
+        for (const logs of logsByVessel.values()) {
+          datesToCheck.push(...logs.map(log => log.date));
+        }
+        const datesWithWatch = datesToCheck.filter(date => watchDates.has(date));
+        
+        if (datesWithWatch.length > 0) {
+          try {
+            // Delete watch logs for all affected dates
+            for (const dateStr of datesWithWatch) {
+              const validation = isDateValidForStateChange(parse(dateStr, 'yyyy-MM-dd', new Date()));
+              if (!validation.vessel) continue;
+              
+              const dateStart = new Date(dateStr);
+              dateStart.setHours(0, 0, 0, 0);
+              const dateEnd = new Date(dateStr);
+              dateEnd.setHours(23, 59, 59, 999);
+              
+              const { error: watchError } = await supabase
+                .from('watch_logs')
+                .delete()
+                .eq('user_id', user.id)
+                .eq('vessel_id', validation.vessel.id)
+                .gte('watch_start', dateStart.toISOString())
+                .lte('watch_start', dateEnd.toISOString());
+
+              if (watchError) {
+                console.error(`Error removing watch log for ${dateStr}:`, watchError);
+              }
+            }
+            
+            // Update watch dates set
+            setWatchDates(prev => {
+              const newSet = new Set(prev);
+              datesWithWatch.forEach(date => newSet.delete(date));
+              return newSet;
+            });
+          } catch (watchError) {
+            console.error('Error removing watch logs:', watchError);
+          }
+        }
       }
       
       // Update logs for each vessel
@@ -789,6 +973,8 @@ export default function CalendarPage() {
       setIsDialogOpen(false);
       setDateRange(undefined);
       setSelectedDate(null);
+      setIsPartOfActivePassageInDialog(false);
+      setIsWatchInDialog(false);
       
       const stateLabel = vesselStates.find(s => s.value === state)?.label || state;
       
@@ -902,7 +1088,9 @@ export default function CalendarPage() {
                 
                 // Check if this date is a standby date (in-port or at-anchor state)
                 const isStandbyState = standbyStateDatesSet.has(dateKey);
-                const isCountedStandby = standbyDatesSet.has(dateKey);
+                const isPartOfActivePassage = partOfActivePassageDates.has(dateKey);
+                const hasWatch = watchDates.has(dateKey);
+                const isCountedStandby = standbyDatesSet.has(dateKey) && !isPartOfActivePassage && !hasWatch;
                 
                 // Check if date is in selected range
                 let isInRange = false;
@@ -926,31 +1114,7 @@ export default function CalendarPage() {
                 const dayStart = startOfDay(day);
                 const isFuture = isAfter(dayStart, today);
 
-                // Determine styling for standby dates with diagonal split
-                let standbyStyle: React.CSSProperties = {};
-                let backgroundStyle: React.CSSProperties | undefined = undefined;
-                
-                if (isCountedStandby && stateInfo) {
-                  // Only apply diagonal split to dates that are counted as standby
-                  // Standby color - using a distinct purple for counted standby
-                  const standbyColor = 'rgba(139, 92, 246, 0.85)'; // Purple for counted standby
-                  
-                  // Create diagonal split: 70% state color, 30% standby color
-                  // Using linear gradient at 135 degrees (diagonal from top-left to bottom-right)
-                  const stateColor = stateInfo.color;
-                  backgroundStyle = {
-                    background: `linear-gradient(135deg, ${stateColor} 0%, ${stateColor} 70%, ${standbyColor} 70%, ${standbyColor} 100%)`,
-                  };
-                  
-                  // No border, just the diagonal split
-                  standbyStyle = {};
-                } else if (isCountedStandby && !stateInfo) {
-                  // Counted standby but no state color (edge case - shouldn't happen normally)
-                  backgroundStyle = {
-                    backgroundColor: 'rgba(139, 92, 246, 0.7)',
-                  };
-                  standbyStyle = {};
-                }
+                // Standby dates use purple border outline (same as current page)
 
                 // Build tooltip content
                 const tooltipContent = (
@@ -964,8 +1128,20 @@ export default function CalendarPage() {
                           <stateInfo.icon className="h-4 w-4" style={{ color: stateInfo.color }} />
                           <span className="font-medium">{stateInfo.label}</span>
                         </div>
-                        {isCountedStandby && (
-                          <div className="flex items-center gap-2 text-purple-400">
+                        {hasWatch && (
+                          <div className="flex items-center gap-2 text-black dark:text-white">
+                            <Clock className="h-3.5 w-3.5" />
+                            <span>On Watch (Counts as At Sea)</span>
+                          </div>
+                        )}
+                        {isPartOfActivePassage && !hasWatch && (
+                          <div className="flex items-center gap-2 text-blue-600">
+                            <Ship className="h-3.5 w-3.5" />
+                            <span>Part of Active Passage (Counts as At Sea)</span>
+                          </div>
+                        )}
+                        {isCountedStandby && !hasWatch && (
+                          <div className="flex items-center gap-2 text-purple-600">
                             <Clock className="h-3.5 w-3.5" />
                             <span>Counted as Standby</span>
                           </div>
@@ -997,36 +1173,32 @@ export default function CalendarPage() {
                       !isFuture && "hover:scale-105 hover:shadow-md",
                       !isCurrentMonth && "opacity-40",
                       isFuture && "opacity-30 cursor-not-allowed",
-                      isCurrentDay && !isInRange && "ring-2 ring-primary ring-offset-2",
-                      isInRange && "ring-2 ring-primary/50",
-                      (isRangeStart || isRangeEnd) && "ring-2 ring-primary ring-offset-1",
+                      isCurrentDay && !isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-2",
+                      isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary/50",
+                      (isRangeStart || isRangeEnd) && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-1",
+                      // Watch outline (black) - takes priority (inset to keep inside the square)
+                      hasWatch && "border-[3px] border-black dark:border-white",
+                      // Part of active passage outline (blue) - only if not watch (border for reliable inside outline, matches underway state)
+                      isPartOfActivePassage && !hasWatch && "border-[3px] border-blue-600",
+                      // Standby outline (purple) - only if not watch or part of active passage (border for reliable inside outline)
+                      isCountedStandby && !hasWatch && !isPartOfActivePassage && "border-[3px] border-purple-600",
                       stateInfo 
                         ? "text-white" 
                         : "bg-muted/50 text-muted-foreground hover:bg-muted"
                     )}
                     style={
-                      backgroundStyle
-                        ? { ...standbyStyle, ...backgroundStyle }
-                        : stateInfo 
-                          ? { ...standbyStyle, backgroundColor: stateInfo.color } 
-                          : isInRange 
-                            ? { backgroundColor: 'hsl(var(--primary) / 0.15)', ...standbyStyle } 
-                            : standbyStyle
+                      stateInfo 
+                        ? { backgroundColor: stateInfo.color } 
+                        : isInRange 
+                          ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
+                          : undefined
                     }
                   >
                     <div className="flex flex-col items-center justify-center h-full relative">
                       <span className="relative z-10 text-center">{format(day, 'd')}</span>
-                      {/* State icon in top-left corner (only for counted standby dates) */}
-                      {isCountedStandby && stateInfo && (
-                        <stateInfo.icon className="absolute top-1.5 left-1.5 h-2 w-2 opacity-90 z-10" />
-                      )}
-                      {/* State icon centered (for non-standby dates) */}
-                      {!isCountedStandby && stateInfo && (
+                      {/* State icon centered for all dates */}
+                      {stateInfo && (
                         <stateInfo.icon className="h-2 w-2 mt-0.5 opacity-90 relative z-10" />
-                      )}
-                      {/* Standby icon in bottom-right corner (only for counted standby dates) */}
-                      {isCountedStandby && (
-                        <Clock className="absolute bottom-1.5 right-1.5 h-2 w-2 opacity-90 z-10" />
                       )}
                     </div>
                   </button>
@@ -1247,21 +1419,29 @@ export default function CalendarPage() {
             })}
             </div>
             <Separator />
-            <div className="flex flex-wrap items-center gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <div 
-                  className="h-8 w-8 rounded relative"
-                  style={{
-                    background: `linear-gradient(135deg, hsl(var(--chart-orange)) 0%, hsl(var(--chart-orange)) 70%, rgba(139, 92, 246, 0.85) 70%, rgba(139, 92, 246, 0.85) 100%)`
-                  }}
-                >
-                  <Anchor className="absolute top-1.5 left-1.5 h-2 w-2 opacity-90" />
-                  <Clock className="absolute bottom-1.5 right-1.5 h-2 w-2 opacity-90" />
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <div 
+                    className="h-8 w-8 rounded border-[3px] border-black dark:border-white bg-transparent"
+                  />
+                  <span>On Watch (black outline)</span>
                 </div>
-                <span>Counted as Standby (state icon top-left, standby icon bottom-right)</span>
+                <div className="flex items-center gap-2">
+                  <div 
+                    className="h-8 w-8 rounded border-[3px] border-blue-600 bg-transparent"
+                  />
+                  <span>Part of Active Passage (blue outline)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div 
+                    className="h-8 w-8 rounded border-[3px] border-purple-600 bg-transparent"
+                  />
+                  <span>Counted as Standby (purple outline)</span>
+                </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Only dates that count toward standby days are marked with the diagonal split and icons in corners.
+                Dates marked as watch (officers only) are shown with a black border outline. Dates marked as part of active passage count as "at sea" and are shown with a blue border outline. Dates counted as standby are shown with a purple border outline.
               </p>
             </div>
           </div>
@@ -1285,6 +1465,8 @@ export default function CalendarPage() {
           } else {
             setSelectedDate(null);
           }
+          setIsPartOfActivePassageInDialog(false);
+          setIsWatchInDialog(false);
         }
       }}>
         <DialogContent className="rounded-xl">
@@ -1305,7 +1487,13 @@ export default function CalendarPage() {
           <div className="py-4">
             <RadioGroup
               value={selectedState || undefined}
-              onValueChange={(value) => setSelectedState(value as DailyStatus)}
+              onValueChange={(value) => {
+                setSelectedState(value as DailyStatus);
+                // Disable watch checkbox if state is not at-anchor
+                if (value !== 'at-anchor' && isWatchInDialog) {
+                  setIsWatchInDialog(false);
+                }
+              }}
               className="space-y-3"
             >
               {vesselStates.map((state) => {
@@ -1330,6 +1518,59 @@ export default function CalendarPage() {
               })}
             </RadioGroup>
           </div>
+          <div className="border-t pt-4 px-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex items-start space-x-3 p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors">
+                <Checkbox
+                  id="part-of-active-passage-calendar"
+                  checked={isPartOfActivePassageInDialog}
+                  onCheckedChange={(checked) => setIsPartOfActivePassageInDialog(checked === true)}
+                  disabled={isSaving}
+                  className="mt-0.5"
+                />
+                <Label
+                  htmlFor="part-of-active-passage-calendar"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex flex-col gap-1.5 flex-1"
+                >
+                  <div className="flex items-center gap-2">
+                    <Ship className="h-4 w-4 text-blue-600" />
+                    <span>Part of Active Passage</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">Counts as At Sea</span>
+                </Label>
+              </div>
+              {isOfficer && selectedDate && !dateRange && (
+                <div className={cn(
+                  "flex items-start space-x-3 p-3 rounded-lg border transition-colors",
+                  selectedState === 'at-anchor' 
+                    ? "border-border hover:bg-accent/50" 
+                    : "border-border/50 bg-muted/30 opacity-60"
+                )}>
+                  <Checkbox
+                    id="watch-log-calendar"
+                    checked={isWatchInDialog}
+                    onCheckedChange={(checked) => setIsWatchInDialog(checked === true)}
+                    disabled={isSaving || selectedState !== 'at-anchor'}
+                    className="mt-0.5"
+                  />
+                  <Label
+                    htmlFor="watch-log-calendar"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex flex-col gap-1.5 flex-1"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-black dark:text-white" />
+                      <span>Record Day as Watch</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {selectedState === 'at-anchor' 
+                        ? "Only available when At Anchor" 
+                        : "Requires At Anchor state"}
+                    </span>
+                  </Label>
+                </div>
+              )}
+            </div>
+          </div>
           <div className="flex justify-end gap-3">
             <Button
               variant="outline"
@@ -1340,6 +1581,8 @@ export default function CalendarPage() {
                 } else {
                   setSelectedDate(null);
                 }
+                setIsPartOfActivePassageInDialog(false);
+                setIsWatchInDialog(false);
               }}
               className="rounded-xl"
             >

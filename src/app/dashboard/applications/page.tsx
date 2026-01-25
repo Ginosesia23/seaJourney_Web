@@ -341,18 +341,24 @@ function calculateDayCounts(stateLogs: StateLog[], startDate: string, endDate: s
     firstFewInRange: rangeLogs.slice(0, 5).map(l => ({ date: l.date, state: l.state }))
   });
   
-  // Calculate individual day counts
-  // At sea includes both 'underway' and 'at-anchor' states
-  const atSeaDays = rangeLogs.filter(log => 
-    log.state === 'underway' || log.state === 'at-anchor'
-  ).length;
-  const yardDays = rangeLogs.filter(log => log.state === 'in-yard').length;
-  const leaveDays = rangeLogs.filter(log => log.state === 'on-leave').length;
+  // Extract part of active passage dates from logs
+  const partOfActivePassageDates = new Set<string>();
+  rangeLogs.forEach(log => {
+    if (log.isPartOfActivePassage) {
+      partOfActivePassageDates.add(log.date);
+    }
+  });
   
   // Calculate standby days using the standby calculation function
-  // Standby now only includes 'in-port' states (at-anchor is counted as at sea)
-  const { totalStandbyDays } = calculateStandbyDays(rangeLogs);
+  // Pass part of active passage dates so they're counted as "at sea"
+  const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(rangeLogs, undefined, partOfActivePassageDates);
   const standbyDays = totalStandbyDays;
+  
+  // At sea = underway days + part of active passage days
+  // Note: at-anchor days are NOT counted unless marked as part of active passage
+  const atSeaDays = totalSeaDays;
+  const yardDays = rangeLogs.filter(log => log.state === 'in-yard').length;
+  const leaveDays = rangeLogs.filter(log => log.state === 'on-leave').length;
   
   // Calculate total days as the sum to satisfy the database constraint
   // The constraint likely requires: total_days = at_sea_days + standby_days + yard_days + leave_days

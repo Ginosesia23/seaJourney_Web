@@ -13,12 +13,17 @@ import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, FileText, Info } from 'lucide-react';
+import { Loader2, FileText, Info, Calendar } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format, parse } from 'date-fns';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar';
+import { cn } from '@/lib/utils';
 
 const mcaApplicationSchema = z.object({
   title: z.string().optional(),
+  dateOfBirth: z.date().optional().nullable(),
+  sex: z.enum(['male', 'female']).optional().nullable(),
   placeOfBirth: z.string().optional(),
   countryOfBirth: z.string().optional(),
   nationality: z.string().optional(),
@@ -73,9 +78,14 @@ export function MCAApplicationDetailsCard() {
   // Transform user profile to handle both snake_case (from DB) and camelCase (from types)
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
+    const dateOfBirthRaw = (userProfileRaw as any).date_of_birth || (userProfileRaw as any).dateOfBirth;
+    const dateOfBirth = dateOfBirthRaw ? parse(dateOfBirthRaw, 'yyyy-MM-dd', new Date()) : null;
+    
     return {
       ...userProfileRaw,
       title: (userProfileRaw as any).title || '',
+      dateOfBirth: dateOfBirth,
+      sex: (userProfileRaw as any).sex || (userProfileRaw as any).gender || null,
       placeOfBirth: (userProfileRaw as any).place_of_birth || (userProfileRaw as any).placeOfBirth || '',
       countryOfBirth: (userProfileRaw as any).country_of_birth || (userProfileRaw as any).countryOfBirth || '',
       nationality: (userProfileRaw as any).nationality || '',
@@ -95,6 +105,8 @@ export function MCAApplicationDetailsCard() {
     resolver: zodResolver(mcaApplicationSchema),
     defaultValues: {
       title: '',
+      dateOfBirth: null,
+      sex: null,
       placeOfBirth: '',
       countryOfBirth: '',
       nationality: '',
@@ -115,6 +127,8 @@ export function MCAApplicationDetailsCard() {
     if (userProfile && !isLoading) {
       form.reset({
         title: userProfile.title || '',
+        dateOfBirth: (userProfile as any).dateOfBirth || null,
+        sex: (userProfile as any).sex || null,
         placeOfBirth: userProfile.placeOfBirth || '',
         countryOfBirth: userProfile.countryOfBirth || '',
         nationality: userProfile.nationality || '',
@@ -141,6 +155,8 @@ export function MCAApplicationDetailsCard() {
         .from('users')
         .update({
           title: data.title || null,
+          date_of_birth: data.dateOfBirth ? format(data.dateOfBirth, 'yyyy-MM-dd') : null,
+          sex: data.sex || null,
           place_of_birth: data.placeOfBirth || null,
           country_of_birth: data.countryOfBirth || null,
           nationality: data.nationality || null,
@@ -235,6 +251,69 @@ export function MCAApplicationDetailsCard() {
                           <SelectItem value="Miss">Miss</SelectItem>
                           <SelectItem value="Ms">Ms</SelectItem>
                           <SelectItem value="Dr">Dr</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="dateOfBirth"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Date of Birth</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              className={cn(
+                                "w-full pl-3 text-left font-normal rounded-xl",
+                                !field.value && "text-muted-foreground"
+                              )}
+                            >
+                              {field.value ? (
+                                format(field.value, "PPP")
+                              ) : (
+                                <span>Pick a date</span>
+                              )}
+                              <Calendar className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            mode="single"
+                            selected={field.value || undefined}
+                            onSelect={field.onChange}
+                            disabled={(date) => date > new Date()}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="sex"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Gender</FormLabel>
+                      <Select 
+                        onValueChange={(value) => field.onChange(value === '' ? null : value)} 
+                        value={field.value || ''}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="rounded-xl">
+                            <SelectValue placeholder="Select gender" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="male">Male</SelectItem>
+                          <SelectItem value="female">Female</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />

@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInDays, eachDayOfInterval, isSameDay, startOfDay, endOfDay, parse, isWithinInterval, startOfMonth, endOfMonth, getDaysInMonth, getDay, isSameMonth, isToday, isAfter, isBefore, addDays, subMonths, startOfYear, endOfYear } from 'date-fns';
-import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, Check, XCircle, User } from 'lucide-react';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, Check, XCircle, User, Play, Square } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -34,6 +34,7 @@ import {
   getVesselAssignments
 } from '@/supabase/database/queries';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { DateRange } from 'react-day-picker';
 import StateBreakdownChart from '@/components/dashboard/state-breakdown-chart';
@@ -70,29 +71,61 @@ type AddVesselFormValues = z.infer<typeof addVesselSchema>;
 
 // Maritime position options
 const POSITION_OPTIONS = [
+  // Deck Department - Senior
   'Captain / Master',
-  'Chief Officer / First Mate',
+  'Chief Officer',
+  'First Officer',
+  'First Mate',
   'Second Officer',
   'Third Officer',
-  '3rd Officer',
   'Officer of the Watch (OOW)',
   'Deck Officer',
-  'Lead Deckhand',
-  'Deckhand',
-  'Able Seaman (AB)',
   'Bosun',
+  // Deck Department - Deckhands
+  'Lead Deckhand',
+  'Senior Deckhand',
+  'Deckhand',
+  'Junior Deckhand',
+  'Able Seaman (AB)',
+  'Quartermaster',
+  // Deck Department - Cadets
+  'Deck Cadet',
   'Cadet',
+  // Engine Department - Senior
   'Chief Engineer',
-  'First Engineer / Second Engineer',
+  'First Engineer',
+  'Second Engineer',
   'Third Engineer',
+  'Fourth Engineer',
   'Engineer',
   'Electrician',
+  // Engine Department - Junior
+  'Motorman / Oiler',
+  'Wiper',
+  'Engine Cadet',
+  // Interior/Service - Management
+  'Purser',
+  'Chief Purser',
+  // Interior/Service - Galley
+  'Head Chef',
   'Chef / Cook',
+  'Sous Chef',
+  'Galley Assistant',
+  // Interior/Service - Housekeeping
   'Head Housekeeper',
   'Chief Steward / Stewardess',
   '2nd Steward / Stewardess',
   'Steward / Stewardess',
+  'Laundry Attendant',
   'Interior Crew',
+  // Other Specialized Roles
+  'Medical Officer',
+  'Security Officer',
+  'Radio Officer',
+  'Safety Officer',
+  'Environmental Officer',
+  'Masseuse / Masseur',
+  'Spa Therapist',
   'Other',
 ] as const;
 
@@ -111,6 +144,8 @@ export default function CurrentPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [selectionMode, setSelectionMode] = useState<'single' | 'range'>('single');
+  const [isPartOfActivePassageInDialog, setIsPartOfActivePassageInDialog] = useState<boolean>(false);
+  const [isWatchInDialog, setIsWatchInDialog] = useState<boolean>(false);
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
   const [isAddVesselDialogOpen, setIsAddVesselDialogOpen] = useState(false);
   const [isSavingVessel, setIsSavingVessel] = useState(false);
@@ -727,15 +762,6 @@ export default function CurrentPage() {
     }
   }, [vesselAssignments, userProfile?.activeVesselId, user?.id, supabase, refetchUserProfile]);
 
-  // Calculate standby days
-  const { standbyPeriods } = useMemo(() => {
-    if (!stateLogs || stateLogs.length === 0) {
-      return { standbyPeriods: [] };
-    }
-    const result = calculateStandbyDays(stateLogs);
-    return { standbyPeriods: result.standbyPeriods };
-  }, [stateLogs]);
-
   // Helper function to find which vessel a date belongs to based on assignments
   const findVesselForDate = useCallback((date: Date): { vessel: Vessel | null; assignment: VesselAssignment | null } => {
     if (!vessels || !vesselAssignments.length) {
@@ -809,21 +835,6 @@ export default function CurrentPage() {
     return map;
   }, [stateLogs, vesselAssignments, vessels, findVesselForDate]);
 
-  // Create a Set of dates that are counted as standby
-  const standbyDatesSet = useMemo(() => {
-    const dates = new Set<string>();
-    standbyPeriods.forEach(period => {
-      const startDate = period.startDate instanceof Date 
-        ? period.startDate 
-        : new Date(period.startDate);
-      const countedDays = period.countedDays;
-      for (let i = 0; i < countedDays; i++) {
-        const date = addDays(startDate, i);
-        dates.add(format(date, 'yyyy-MM-dd'));
-      }
-    });
-    return dates;
-  }, [standbyPeriods]);
 
   // Also create a set for all potential standby states (in-port, at-anchor) for visual indication
   const standbyStateDatesSet = useMemo(() => {
@@ -922,6 +933,116 @@ export default function CurrentPage() {
   const isCaptain = useMemo(() => {
     return userProfile?.role === 'captain';
   }, [userProfile?.role]);
+
+  // Check if user is an officer (rank or higher)
+  const isOfficer = useMemo(() => {
+    if (!userProfile) return false;
+    const position = (userProfile.position || '').toLowerCase();
+    const role = (userProfile.role || '').toLowerCase();
+    
+    // Officers include: Captain, Chief Officer, First Officer, First Mate, Second Officer, Third Officer, OOW, Deck Officer
+    // Also Chief Engineer, First Engineer, Second Engineer, Third Engineer, Fourth Engineer
+    const officerPositions = [
+      'captain', 'master', 'chief officer', 'first officer', 'first mate', 
+      'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+      'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer'
+    ];
+    
+    return role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+  }, [userProfile]);
+
+  // Fetch watch logs for the user
+  useEffect(() => {
+    const fetchWatchLogs = async () => {
+      if (!user?.id || !isOfficer) {
+        setWatchDates(new Set());
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('watch_logs')
+          .select('watch_start')
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        // Extract dates from watch logs (watch_start timestamps)
+        const dates = new Set<string>();
+        if (data) {
+          data.forEach((log: { watch_start: string }) => {
+            const date = format(new Date(log.watch_start), 'yyyy-MM-dd');
+            dates.add(date);
+          });
+        }
+        setWatchDates(dates);
+      } catch (error) {
+        console.error('Error fetching watch logs:', error);
+        setWatchDates(new Set());
+      }
+    };
+
+    fetchWatchLogs();
+  }, [user?.id, isOfficer, supabase]);
+
+  // Extract part of active passage dates from state logs
+  useEffect(() => {
+    if (!stateLogs || stateLogs.length === 0) {
+      setPartOfActivePassageDates(new Set());
+      setIsPartOfActivePassageToday(false);
+      return;
+    }
+
+    // Extract dates from state logs where isPartOfActivePassage is true
+    const dates = new Set<string>();
+    stateLogs.forEach(log => {
+      if (log.isPartOfActivePassage) {
+        dates.add(log.date);
+      }
+    });
+    setPartOfActivePassageDates(dates);
+
+    // Check if today is part of active passage
+    const today = format(new Date(), 'yyyy-MM-dd');
+    setIsPartOfActivePassageToday(dates.has(today));
+  }, [stateLogs]);
+
+  // Watch logging state - simple daily toggle (officers only)
+  const [isOnWatchToday, setIsOnWatchToday] = useState<boolean>(false);
+  const [isTogglingWatch, setIsTogglingWatch] = useState(false);
+  const [lastCheckedDate, setLastCheckedDate] = useState<string>('');
+  const [canLogWatch, setCanLogWatch] = useState<boolean>(false);
+  const [watchDates, setWatchDates] = useState<Set<string>>(new Set());
+
+  // Part of active passage logging state - simple daily toggle (all users)
+  const [isPartOfActivePassageToday, setIsPartOfActivePassageToday] = useState<boolean>(false);
+  const [isTogglingPartOfActivePassage, setIsTogglingPartOfActivePassage] = useState(false);
+  const [partOfActivePassageDates, setPartOfActivePassageDates] = useState<Set<string>>(new Set());
+
+  // Calculate standby days (excluding watch dates and part of active passage dates)
+  const { standbyPeriods } = useMemo(() => {
+    if (!stateLogs || stateLogs.length === 0) {
+      return { standbyPeriods: [] };
+    }
+    const result = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates);
+    return { standbyPeriods: result.standbyPeriods };
+  }, [stateLogs, watchDates, partOfActivePassageDates]);
+
+  // Create a Set of dates that are counted as standby
+  const standbyDatesSet = useMemo(() => {
+    const dates = new Set<string>();
+    standbyPeriods.forEach(period => {
+      const startDate = period.startDate instanceof Date 
+        ? period.startDate 
+        : new Date(period.startDate);
+      const countedDays = period.countedDays;
+      for (let i = 0; i < countedDays; i++) {
+        const date = addDays(startDate, i);
+        dates.add(format(date, 'yyyy-MM-dd'));
+      }
+    });
+    return dates;
+  }, [standbyPeriods]);
 
   // Unified vessel search (works for both crew and captains)
   useEffect(() => {
@@ -1047,6 +1168,219 @@ export default function CurrentPage() {
       });
     } finally {
       setIsRequestingCaptaincy(false);
+    }
+  };
+
+  // Check if officer is on watch today and if vessel is at anchor (required for watch logging)
+  useEffect(() => {
+    if (!user?.id || !currentVessel?.id || !isOfficer) {
+      setIsOnWatchToday(false);
+      setCanLogWatch(false);
+      return;
+    }
+
+    const checkWatchStatus = async () => {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const todayStart = new Date(today);
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(today);
+      todayEnd.setHours(23, 59, 59, 999);
+      
+      // Reset if it's a new day
+      if (lastCheckedDate && lastCheckedDate !== today) {
+        setIsOnWatchToday(false);
+        setLastCheckedDate(today);
+      }
+
+      try {
+        // Check if vessel is at anchor today (required for watch logging)
+        const todayKey = format(new Date(), 'yyyy-MM-dd');
+        const todayState = stateLogs?.find(log => log.date === todayKey)?.state;
+        const isAtAnchor = todayState === 'at-anchor';
+        setCanLogWatch(isAtAnchor);
+
+        // Check if there's a watch log entry for today
+        const { data, error } = await supabase
+          .from('watch_logs')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('vessel_id', currentVessel.id)
+          .gte('watch_start', todayStart.toISOString())
+          .lte('watch_start', todayEnd.toISOString())
+          .maybeSingle();
+
+        if (error) throw error;
+        
+        setIsOnWatchToday(!!data);
+        if (!lastCheckedDate || lastCheckedDate !== today) {
+          setLastCheckedDate(today);
+        }
+        
+        // Update watch dates set
+        if (data) {
+          setWatchDates(prev => new Set([...prev, today]));
+        } else {
+          setWatchDates(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(today);
+            return newSet;
+          });
+        }
+      } catch (error) {
+        console.error('Error checking watch status:', error);
+      }
+    };
+
+    checkWatchStatus();
+
+    // Set up interval to check at midnight
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    const msUntilMidnight = tomorrow.getTime() - now.getTime();
+
+    const timeoutId = setTimeout(() => {
+      checkWatchStatus();
+      // Then check every hour to catch midnight
+      const intervalId = setInterval(checkWatchStatus, 60 * 60 * 1000);
+      return () => clearInterval(intervalId);
+    }, msUntilMidnight);
+
+    return () => clearTimeout(timeoutId);
+  }, [user?.id, currentVessel?.id, isOfficer, supabase, stateLogs]);
+
+  // Toggle part of active passage for today (available for all users, any state)
+  const handleTogglePartOfActivePassage = async () => {
+    if (!user?.id || !currentVessel?.id) return;
+
+    setIsTogglingPartOfActivePassage(true);
+    const today = format(new Date(), 'yyyy-MM-dd');
+
+    try {
+      // Get today's state log to update
+      const todayLog = stateLogs?.find(log => log.date === today);
+      
+      if (!todayLog) {
+        toast({
+          title: 'Error',
+          description: 'Please set today\'s vessel state first before marking as part of active passage.',
+          variant: 'destructive',
+        });
+        setIsTogglingPartOfActivePassage(false);
+        return;
+      }
+
+      // Update the state log's is_part_of_active_passage column
+      const { error } = await supabase
+        .from('daily_state_logs')
+        .update({ is_part_of_active_passage: !isPartOfActivePassageToday })
+        .eq('user_id', user.id)
+        .eq('vessel_id', currentVessel.id)
+        .eq('date', today);
+
+      if (error) throw error;
+      
+      // Refresh state logs to get updated data
+      const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
+      setStateLogs(updatedLogs);
+      
+      toast({
+        title: isPartOfActivePassageToday ? 'Part of Active Passage Removed' : 'Part of Active Passage Recorded',
+        description: isPartOfActivePassageToday 
+          ? 'This day is no longer marked as part of active passage.'
+          : 'This day has been marked as part of active passage and counts as "at sea".',
+      });
+    } catch (error: any) {
+      console.error('Error toggling part of active passage:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update part of active passage. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsTogglingPartOfActivePassage(false);
+    }
+  };
+
+  // Toggle watch for today (only allowed when vessel is at anchor)
+  const handleToggleWatch = async () => {
+    if (!user?.id || !currentVessel?.id || !isOfficer) return;
+
+    // Check if vessel is at anchor today
+    const todayKey = format(new Date(), 'yyyy-MM-dd');
+    const todayState = stateLogs?.find(log => log.date === todayKey)?.state;
+    if (todayState !== 'at-anchor') {
+      toast({
+        title: 'Watch Logging Not Available',
+        description: 'Watch logging is only available when the vessel is at anchor.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsTogglingWatch(true);
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const todayStart = new Date(today);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(today);
+    todayEnd.setHours(23, 59, 59, 999);
+
+    try {
+      if (isOnWatchToday) {
+        // Remove watch - delete today's watch log entry
+        const { error } = await supabase
+          .from('watch_logs')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('vessel_id', currentVessel.id)
+          .gte('watch_start', todayStart.toISOString())
+          .lte('watch_start', todayEnd.toISOString());
+
+        if (error) throw error;
+        
+        setIsOnWatchToday(false);
+        // Update watch dates set
+        setWatchDates(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(today);
+          return newSet;
+        });
+        toast({
+          title: 'Watch Removed',
+          description: 'This day is no longer recorded as watch.',
+        });
+      } else {
+        // Start watch - create a watch log entry for the full day
+        const { error } = await supabase
+          .from('watch_logs')
+          .insert({
+            user_id: user.id,
+            vessel_id: currentVessel.id,
+            watch_start: todayStart.toISOString(),
+            watch_end: todayEnd.toISOString(),
+            watch_type: 'bridge', // Default type, can be changed if needed
+          });
+
+        if (error) throw error;
+        
+        setIsOnWatchToday(true);
+        // Update watch dates set
+        setWatchDates(prev => new Set([...prev, today]));
+        toast({
+          title: 'Watch Recorded',
+          description: 'This day has been recorded as watch.',
+        });
+      }
+    } catch (error: any) {
+      console.error('Error toggling watch:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update watch status. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsTogglingWatch(false);
     }
   };
 
@@ -1266,6 +1600,10 @@ export default function CurrentPage() {
       const dateKey = format(date, 'yyyy-MM-dd');
       const existingState = stateLogMap.get(dateKey);
       setSelectedState(existingState || null);
+      // Check if this date is part of active passage
+      setIsPartOfActivePassageInDialog(partOfActivePassageDates.has(dateKey));
+      // Check if this date has a watch log (officers only)
+      setIsWatchInDialog(isOfficer && watchDates.has(dateKey));
       setDateRange(undefined);
       setIsDialogOpen(true);
     } else {
@@ -1325,6 +1663,8 @@ export default function CurrentPage() {
         setDateRange({ from: start, to: end });
         setSelectedDate(null);
         setSelectedState(null);
+        setIsPartOfActivePassageInDialog(false); // Reset for range selection
+        setIsWatchInDialog(false); // Reset for range selection (watch only applies to single dates)
         setIsDialogOpen(true);
       }
     }
@@ -1336,7 +1676,7 @@ export default function CurrentPage() {
     setIsSaving(true);
 
     try {
-      let logs: Array<{ date: string; state: DailyStatus }> = [];
+      let logs: Array<{ date: string; state: DailyStatus; is_part_of_active_passage?: boolean }> = [];
       
       if (dateRange?.from && dateRange?.to) {
         // Range update
@@ -1354,6 +1694,7 @@ export default function CurrentPage() {
           .map(day => ({
             date: format(day, 'yyyy-MM-dd'),
             state: state,
+            is_part_of_active_passage: isPartOfActivePassageInDialog,
           }));
         
         if (logs.length === 0) {
@@ -1378,7 +1719,7 @@ export default function CurrentPage() {
           return;
         }
         const dateKey = format(selectedDate, 'yyyy-MM-dd');
-        logs = [{ date: dateKey, state }];
+        logs = [{ date: dateKey, state, is_part_of_active_passage: isPartOfActivePassageInDialog }];
       } else {
         setIsSaving(false);
         return;
@@ -1396,6 +1737,124 @@ export default function CurrentPage() {
         return;
       }
       
+      // Handle watch logs for officers (only for single date, only when state is at-anchor)
+      if (isOfficer && selectedDate && !dateRange) {
+        const dateKey = format(selectedDate, 'yyyy-MM-dd');
+        const dateStart = new Date(dateKey);
+        dateStart.setHours(0, 0, 0, 0);
+        const dateEnd = new Date(dateKey);
+        dateEnd.setHours(23, 59, 59, 999);
+        
+        if (isWatchInDialog && state === 'at-anchor') {
+          // Create watch log if not exists
+          if (!watchDates.has(dateKey)) {
+            try {
+              const { error: watchError } = await supabase
+                .from('watch_logs')
+                .insert({
+                  user_id: user.id,
+                  vessel_id: currentVessel.id,
+                  watch_start: dateStart.toISOString(),
+                  watch_end: dateEnd.toISOString(),
+                  watch_type: 'bridge', // Using 'bridge' for navigation watch
+                });
+
+              if (watchError) {
+                console.error(`Error creating watch log for ${dateKey}:`, watchError);
+              } else {
+                // Update watch dates set
+                setWatchDates(prev => new Set(prev).add(dateKey));
+                
+                // Update today's watch status if today was affected
+                const todayKey = format(new Date(), 'yyyy-MM-dd');
+                if (dateKey === todayKey) {
+                  setIsOnWatchToday(true);
+                }
+              }
+            } catch (watchError) {
+              console.error('Error creating watch log:', watchError);
+            }
+          }
+        } else {
+          // Remove watch log if exists
+          if (watchDates.has(dateKey)) {
+            try {
+              const { error: watchError } = await supabase
+                .from('watch_logs')
+                .delete()
+                .eq('user_id', user.id)
+                .eq('vessel_id', currentVessel.id)
+                .gte('watch_start', dateStart.toISOString())
+                .lte('watch_start', dateEnd.toISOString());
+
+              if (watchError) {
+                console.error(`Error removing watch log for ${dateKey}:`, watchError);
+              } else {
+                // Update watch dates set
+                setWatchDates(prev => {
+                  const newSet = new Set(prev);
+                  newSet.delete(dateKey);
+                  return newSet;
+                });
+                
+                // Update today's watch status if today was affected
+                const todayKey = format(new Date(), 'yyyy-MM-dd');
+                if (dateKey === todayKey) {
+                  setIsOnWatchToday(false);
+                }
+              }
+            } catch (watchError) {
+              console.error('Error removing watch log:', watchError);
+            }
+          }
+        }
+      }
+      
+      // If state is changing away from "at-anchor", remove watch logs for affected dates (for range updates)
+      if (state !== 'at-anchor' && dateRange) {
+        const datesToCheck = logs.map(log => log.date);
+        const datesWithWatch = datesToCheck.filter(date => watchDates.has(date));
+        
+        if (datesWithWatch.length > 0) {
+          try {
+            // Delete watch logs for all affected dates
+            for (const dateStr of datesWithWatch) {
+              const dateStart = new Date(dateStr);
+              dateStart.setHours(0, 0, 0, 0);
+              const dateEnd = new Date(dateStr);
+              dateEnd.setHours(23, 59, 59, 999);
+              
+              const { error: watchError } = await supabase
+                .from('watch_logs')
+                .delete()
+                .eq('user_id', user.id)
+                .eq('vessel_id', currentVessel.id)
+                .gte('watch_start', dateStart.toISOString())
+                .lte('watch_start', dateEnd.toISOString());
+
+              if (watchError) {
+                console.error(`Error removing watch log for ${dateStr}:`, watchError);
+              }
+            }
+            
+            // Update watch dates set
+            setWatchDates(prev => {
+              const newSet = new Set(prev);
+              datesWithWatch.forEach(date => newSet.delete(date));
+              return newSet;
+            });
+            
+            // Update today's watch status if today was affected
+            const todayKey = format(new Date(), 'yyyy-MM-dd');
+            if (datesWithWatch.includes(todayKey)) {
+              setIsOnWatchToday(false);
+            }
+          } catch (watchError) {
+            console.error('Error removing watch logs:', watchError);
+          }
+        }
+      }
+      
       await updateStateLogsBatch(supabase, user.id, currentVessel.id, logs);
       
       // Refresh state logs - use personal logs for refresh
@@ -1405,6 +1864,8 @@ export default function CurrentPage() {
       setIsDialogOpen(false);
       setDateRange(undefined);
       setSelectedDate(null);
+      setIsPartOfActivePassageInDialog(false);
+      setIsWatchInDialog(false);
       
       const stateLabel = vesselStates.find(s => s.value === state)?.label || state;
       
@@ -1624,8 +2085,39 @@ export default function CurrentPage() {
     }
     
     const todayKey = format(new Date(), 'yyyy-MM-dd');
+    const todayStart = new Date(todayKey);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayKey);
+    todayEnd.setHours(23, 59, 59, 999);
     
     try {
+      // If state is changing away from "at-anchor", remove watch log if it exists
+      if (state !== 'at-anchor' && watchDates.has(todayKey)) {
+        try {
+          const { error: watchError } = await supabase
+            .from('watch_logs')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('vessel_id', currentVessel.id)
+            .gte('watch_start', todayStart.toISOString())
+            .lte('watch_start', todayEnd.toISOString());
+
+          if (watchError) {
+            console.error('Error removing watch log:', watchError);
+          } else {
+            // Update watch dates set
+            setWatchDates(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(todayKey);
+              return newSet;
+            });
+            setIsOnWatchToday(false);
+          }
+        } catch (watchError) {
+          console.error('Error removing watch log:', watchError);
+        }
+      }
+
       await updateStateLogsBatch(supabase, user.id, currentVessel.id, [{ date: todayKey, state }]);
       
       // Refresh state logs to show the updated value - always refresh personal logs
@@ -1748,8 +2240,11 @@ export default function CurrentPage() {
                 const isCurrentDay = isToday(day);
                 const isCurrentMonth = isSameMonth(day, month);
                 
-                // Check if this date is a standby date
-                const isCountedStandby = standbyDatesSet.has(dateKey);
+                // Check if this date is a standby date (excluding watch dates and part of active passage dates)
+                const hasWatch = watchDates.has(dateKey);
+                const isPartOfActivePassage = partOfActivePassageDates.has(dateKey);
+                const hasOverride = hasWatch || isPartOfActivePassage;
+                const isCountedStandby = standbyDatesSet.has(dateKey) && !hasOverride;
                 
                 // Check if date is in selected range
                 let isInRange = false;
@@ -1773,23 +2268,8 @@ export default function CurrentPage() {
                 const dayStart = startOfDay(day);
                 const isFuture = isAfter(dayStart, today);
 
-                // Determine styling for standby dates with diagonal split
-                let standbyStyle: React.CSSProperties = {};
+                // Determine styling for dates
                 let backgroundStyle: React.CSSProperties | undefined = undefined;
-                
-                if (isCountedStandby && stateInfo) {
-                  const standbyColor = 'rgba(139, 92, 246, 0.85)';
-                  const stateColor = stateInfo.color;
-                  backgroundStyle = {
-                    background: `linear-gradient(135deg, ${stateColor} 0%, ${stateColor} 70%, ${standbyColor} 70%, ${standbyColor} 100%)`,
-                  };
-                  standbyStyle = {};
-                } else if (isCountedStandby && !stateInfo) {
-                  backgroundStyle = {
-                    backgroundColor: 'rgba(139, 92, 246, 0.7)',
-                  };
-                  standbyStyle = {};
-                }
 
                 // Build tooltip content
                 const tooltipContent = (
@@ -1803,8 +2283,20 @@ export default function CurrentPage() {
                           <stateInfo.icon className="h-4 w-4" style={{ color: stateInfo.color }} />
                           <span className="font-medium">{stateInfo.label}</span>
                         </div>
+                        {hasWatch && (
+                          <div className="flex items-center gap-2 text-black dark:text-white">
+                            <Clock className="h-3.5 w-3.5" />
+                            <span>On Watch (Counts as At Sea)</span>
+                          </div>
+                        )}
+                        {isPartOfActivePassage && !hasWatch && (
+                          <div className="flex items-center gap-2 text-blue-600">
+                            <Ship className="h-3.5 w-3.5" />
+                            <span>Part of Active Passage (Counts as At Sea)</span>
+                          </div>
+                        )}
                         {isCountedStandby && (
-                          <div className="flex items-center gap-2 text-purple-400">
+                          <div className="flex items-center gap-2 text-purple-600">
                             <Clock className="h-3.5 w-3.5" />
                             <span>Counted as Standby</span>
                           </div>
@@ -1836,36 +2328,34 @@ export default function CurrentPage() {
                             !isFuture && "hover:scale-105 hover:shadow-md",
                             !isCurrentMonth && "opacity-40",
                             isFuture && "opacity-30 cursor-not-allowed",
-                            isCurrentDay && !isInRange && "ring-2 ring-primary ring-offset-2",
-                            isInRange && "ring-2 ring-primary/50",
-                            (isRangeStart || isRangeEnd) && "ring-2 ring-primary ring-offset-1",
+                            isCurrentDay && !isInRange && !hasOverride && !isCountedStandby && "ring-2 ring-primary ring-offset-2",
+                            isInRange && !hasOverride && !isCountedStandby && "ring-2 ring-primary/50",
+                            (isRangeStart || isRangeEnd) && !hasOverride && !isCountedStandby && "ring-2 ring-primary ring-offset-1",
+                            // Watch outline (black) - takes priority (border for reliable inside outline)
+                            hasWatch && "border-[3px] border-black dark:border-white",
+                            // Part of active passage outline (blue) - only if not watch (border for reliable inside outline, matches underway state)
+                            isPartOfActivePassage && !hasWatch && "border-[3px] border-blue-600",
+                            // Standby outline (purple) - only if not watch or part of active passage (border for reliable inside outline)
+                            isCountedStandby && !hasOverride && "border-[3px] border-purple-600",
                             stateInfo 
                               ? "text-white" 
                               : "bg-muted/50 text-muted-foreground hover:bg-muted"
                           )}
                           style={
                             backgroundStyle
-                              ? { ...standbyStyle, ...backgroundStyle }
+                              ? backgroundStyle
                               : stateInfo 
-                                ? { ...standbyStyle, backgroundColor: stateInfo.color } 
+                                ? { backgroundColor: stateInfo.color } 
                                 : isInRange 
-                                  ? { backgroundColor: 'hsl(var(--primary) / 0.15)', ...standbyStyle } 
-                                  : standbyStyle
+                                  ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
+                                  : undefined
                           }
                         >
                           <div className="flex flex-col items-center justify-center h-full relative">
                             <span className="relative z-10 text-center">{format(day, 'd')}</span>
-                            {/* State icon in top-left corner (only for counted standby dates) */}
-                            {isCountedStandby && stateInfo && (
-                              <stateInfo.icon className="absolute top-1.5 left-1.5 h-2 w-2 opacity-90 z-10" />
-                            )}
-                            {/* State icon centered (for non-standby dates) */}
-                            {!isCountedStandby && stateInfo && (
+                            {/* State icon centered (for all dates) */}
+                            {stateInfo && (
                               <stateInfo.icon className="h-2 w-2 mt-0.5 opacity-90 relative z-10" />
-                            )}
-                            {/* Standby icon in bottom-right corner (only for counted standby dates) */}
-                            {isCountedStandby && (
-                              <Clock className="absolute bottom-1.5 right-1.5 h-2 w-2 opacity-90 z-10" />
                             )}
                           </div>
                         </button>
@@ -2053,14 +2543,45 @@ export default function CurrentPage() {
     let atSea = 0;
     const stateCounts = filteredLogs.reduce((acc, log) => {
         acc[log.state] = (acc[log.state] || 0) + 1;
-        // At sea includes both 'underway' and 'at-anchor' states
-        if (log.state === 'underway' || log.state === 'at-anchor') atSea++;
+        // At sea = underway days only (at-anchor days are NOT counted unless marked as part of active passage)
+        if (log.state === 'underway') atSea++;
         return acc;
     }, {} as Record<DailyStatus, number>);
+    
+    // Add part of active passage days to at-sea count (these count as "at sea" regardless of state)
+    // Count part of active passage days that fall within the filtered date range
+    if (partOfActivePassageDates.size > 0) {
+      const partOfActivePassageDaysInRange = Array.from(partOfActivePassageDates).filter(dateStr => {
+        const passageDate = parse(dateStr, 'yyyy-MM-dd', new Date());
+        if (assignmentStartDate) {
+          const filterStartDate = assignmentStartDate;
+          const filterEndDate = endOfDay(new Date());
+          return isWithinInterval(passageDate, { start: filterStartDate, end: filterEndDate });
+        }
+        return true; // No assignment date - count all part of active passage days
+      }).length;
+      atSea += partOfActivePassageDaysInRange;
+    }
+    
+    // Add watch days to at-sea count (watch days count as "at sea" even if vessel is at anchor)
+    // Count watch days that fall within the filtered date range
+    if (watchDates.size > 0) {
+      const watchDaysInRange = Array.from(watchDates).filter(dateStr => {
+        const watchDate = parse(dateStr, 'yyyy-MM-dd', new Date());
+        if (assignmentStartDate) {
+          const filterStartDate = assignmentStartDate;
+          const filterEndDate = endOfDay(new Date());
+          return isWithinInterval(watchDate, { start: filterStartDate, end: filterEndDate });
+        }
+        return true; // No assignment date - count all watch days
+      }).length;
+      atSea += watchDaysInRange;
+    }
 
     // Calculate MCA/PYA compliant standby days using ALL logs (for proper voyage context)
     // Then filter standby periods to only count those since joining the vessel
-    const { totalStandbyDays, standbyPeriods } = calculateStandbyDays(stateLogs);
+    // Exclude watch dates and part of active passage dates from standby calculation (these count as "at sea")
+    const { totalStandbyDays, standbyPeriods } = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates);
     
     // Filter standby periods to only count days since joining the vessel
     let standby = 0;
@@ -2180,91 +2701,136 @@ export default function CurrentPage() {
         <Separator />
       {isDisplayingStatus ? (
         <div className="space-y-6">
-            {/* Active Vessel Header Card */}
-            <Card className="rounded-xl border shadow-sm bg-gradient-to-r from-primary/5 to-primary/10">
-                <CardContent className="pt-6">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className="h-16 w-16 rounded-xl bg-primary/20 flex items-center justify-center">
-                                <Ship className="h-8 w-8 text-primary" />
-                            </div>
-                            <div>
-                                <h2 className="text-2xl font-bold">{currentVessel.name}</h2>
-                                <p className="text-sm text-muted-foreground">{currentVessel.type} • Active Service</p>
-                                {serviceDate && (
-                                    <p className="text-xs text-muted-foreground mt-1">Started {format(serviceDate, 'PPP')}</p>
-                                )}
-                            </div>
-                        </div>
-                        {todayStatusValue && (
-                            <div className="text-right">
-                                <p className="text-xs text-muted-foreground mb-1">Today's Status</p>
-                                <div className="flex items-center gap-2">
-                                    <div 
-                                        className="h-3 w-3 rounded-full" 
-                                        style={{ backgroundColor: vesselStates.find(s => s.value === todayStatusValue)?.color }}
-                                    />
-                                    <span className="text-lg font-semibold">
-                                        {vesselStates.find(s => s.value === todayStatusValue)?.label || 'No status'}
-                                    </span>
+            {/* Top Row: Watch and Current/Vessel Cards */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Left: Vessel Info */}
+                <Card className="rounded-xl border shadow-sm bg-gradient-to-r from-primary/5 to-primary/10">
+                    <CardContent className="pt-6">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <div className="h-16 w-16 rounded-xl bg-primary/20 flex items-center justify-center">
+                                    <Ship className="h-8 w-8 text-primary" />
+                                </div>
+                                <div>
+                                    <h2 className="text-2xl font-bold">{currentVessel.name}</h2>
+                                    <p className="text-sm text-muted-foreground">{currentVessel.type} • Active Service</p>
+                                    {serviceDate && (
+                                        <p className="text-xs text-muted-foreground mt-1">Started {format(serviceDate, 'PPP')}</p>
+                                    )}
                                 </div>
                             </div>
-                        )}
-                    </div>
+                            {todayStatusValue && (
+                                <div className="text-right">
+                                    <p className="text-xs text-muted-foreground mb-1">Today's Status</p>
+                                    <div className="flex items-center gap-2">
+                                        <div 
+                                            className="h-3 w-3 rounded-full" 
+                                            style={{ backgroundColor: vesselStates.find(s => s.value === todayStatusValue)?.color }}
+                                        />
+                                        <span className="text-lg font-semibold">
+                                            {vesselStates.find(s => s.value === todayStatusValue)?.label || 'No status'}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </CardContent>
                 </Card>
 
-            {/* Quick Stats */}
-            <div className="grid gap-4 md:grid-cols-3">
-                <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">At Sea</CardTitle>
-                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                            <Waves className="h-4 w-4 text-primary" />
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{atSeaDays}</div>
-                        <p className="text-xs text-muted-foreground mt-1">days logged since joining {currentVessel.name}</p>
-                    </CardContent>
-                </Card>
-                <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Standby</CardTitle>
-                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                            <Anchor className="h-4 w-4 text-primary" />
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{standbyDays}</div>
-                        <p className="text-xs text-muted-foreground mt-1">days logged since joining {currentVessel.name}</p>
-                    </CardContent>
-                </Card>
-                <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Total Days</CardTitle>
-                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                            <CalendarDays className="h-4 w-4 text-primary" />
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">
-                          {assignmentStartDate 
-                            ? stateLogs.filter(log => {
-                          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
-                                const filterEndDate = endOfDay(new Date());
-                                return isWithinInterval(logDate, { start: assignmentStartDate, end: filterEndDate });
-                              }).length
-                            : stateLogs.length
-                          }
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">total days logged since joining {currentVessel.name}</p>
-                    </CardContent>
-                </Card>
+                {/* Right: Watch Logging (Officers Only) */}
+                {isOfficer && (
+                    <Card className="rounded-xl border shadow-sm bg-gradient-to-r from-blue-500/5 to-blue-500/10">
+                        <CardContent className="pt-6">
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="h-12 w-12 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                                        <Clock className="h-6 w-6 text-blue-500" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-xl font-bold">On Watch Today</h3>
+                                        <p className="text-sm text-muted-foreground">Mark yourself on watch for {format(new Date(), 'MMMM d, yyyy')}</p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3">
+                                    {!canLogWatch ? (
+                                        <div className="p-4 rounded-lg bg-orange-500/10 border-2 border-orange-500/30">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-sm font-medium text-orange-700 dark:text-orange-300">Watch Logging Unavailable</span>
+                                                <Anchor className="h-4 w-4 text-orange-500" />
+                                            </div>
+                                            <p className="text-xs text-muted-foreground mb-1">Date: {format(new Date(), 'PPP')}</p>
+                                            <p className="text-sm text-muted-foreground mt-2">
+                                                Watch logging is only available when the vessel is at anchor. Please update today's vessel state to "At Anchor" to enable watch logging.
+                                            </p>
+                                        </div>
+                                    ) : isOnWatchToday ? (
+                                        <div className="p-4 rounded-lg bg-green-500/10 border-2 border-green-500/30">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-sm font-medium text-green-700 dark:text-green-300">Day Recorded as Watch</span>
+                                                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
+                                            </div>
+                                            <p className="text-xs text-muted-foreground mb-1">Date: {format(new Date(), 'PPP')}</p>
+                                            <p className="text-sm text-muted-foreground mt-2">
+                                                This date counts as a sea day. Status resets automatically at midnight.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="p-4 rounded-lg bg-muted/50 border border-border">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-sm font-medium text-muted-foreground">Day Not Recorded as Watch</span>
+                                                <div className="h-2 w-2 rounded-full bg-muted-foreground/50"></div>
+                                            </div>
+                                            <p className="text-xs text-muted-foreground mb-1">Date: {format(new Date(), 'PPP')}</p>
+                                            <p className="text-sm text-muted-foreground mt-2">
+                                                Record this day as watch to count it as a sea day.
+                                            </p>
+                                        </div>
+                                    )}
+                                    
+                                    <Button
+                                        onClick={handleToggleWatch}
+                                        disabled={isTogglingWatch || !canLogWatch}
+                                        className={cn(
+                                            "w-full rounded-xl transition-all",
+                                            !canLogWatch && "opacity-50 cursor-not-allowed",
+                                            isOnWatchToday 
+                                                ? "bg-red-600 hover:bg-red-700 text-white" 
+                                                : "bg-blue-600 hover:bg-blue-700 text-white"
+                                        )}
+                                    >
+                                        {isTogglingWatch ? (
+                                            <>
+                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                {isOnWatchToday ? 'Removing...' : 'Recording...'}
+                                            </>
+                                        ) : (
+                                            <>
+                                                {isOnWatchToday ? (
+                                                    <>
+                                                        <Square className="mr-2 h-4 w-4" />
+                                                        Remove Day on Watch
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Play className="mr-2 h-4 w-4" />
+                                                        Record Day as Watch
+                                                    </>
+                                                )}
+                                            </>
+                                        )}
+                                    </Button>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
             </div>
-            
-            {/* Current State Selector - Full Width */}
-            <Card className="rounded-xl border shadow-sm">
+
+            {/* Second Row: Update Today's Status (half) and Part of Active Passage (half) */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Left: Update Today's Status */}
+                <Card className="rounded-xl border shadow-sm">
                     <CardHeader>
                     <div className="flex items-center justify-between">
                         <div>
@@ -2331,6 +2897,131 @@ export default function CurrentPage() {
                     )}
                     </CardContent>
                 </Card>
+
+                {/* Right: Part of Active Passage Toggle (All Users) */}
+                <Card className="rounded-xl border shadow-sm bg-gradient-to-r from-green-500/5 to-green-500/10">
+                  <CardContent className="pt-6">
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-12 w-12 rounded-xl bg-green-500/20 flex items-center justify-center">
+                          <Ship className="h-6 w-6 text-green-500" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold">Part of Active Passage</h3>
+                          <p className="text-sm text-muted-foreground">Mark passage interruption as "at sea" for {format(new Date(), 'MMMM d, yyyy')}</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {isPartOfActivePassageToday ? (
+                          <div className="p-4 rounded-lg bg-green-500/10 border-2 border-green-500/30">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-medium text-green-700 dark:text-green-300">Day Marked as Part of Active Passage</span>
+                              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
+                            </div>
+                            <p className="text-xs text-muted-foreground mb-1">Date: {format(new Date(), 'PPP')}</p>
+                            <p className="text-sm text-muted-foreground mt-2">
+                              This date counts as a sea day. Use this for passage interruptions (e.g., bad weather, refueling) that should count as "at sea".
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="p-4 rounded-lg bg-muted/50 border border-border">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-medium text-muted-foreground">Day Not Marked as Part of Active Passage</span>
+                              <div className="h-2 w-2 rounded-full bg-muted-foreground/50"></div>
+                            </div>
+                            <p className="text-xs text-muted-foreground mb-1">Date: {format(new Date(), 'PPP')}</p>
+                            <p className="text-sm text-muted-foreground mt-2">
+                              Mark this day as part of active passage to count it as a sea day during passage interruptions.
+                            </p>
+                          </div>
+                        )}
+                        
+                        <Button
+                          onClick={handleTogglePartOfActivePassage}
+                          disabled={isTogglingPartOfActivePassage}
+                          className={cn(
+                            "w-full rounded-xl transition-all",
+                            isPartOfActivePassageToday 
+                              ? "bg-red-600 hover:bg-red-700 text-white" 
+                              : "bg-green-600 hover:bg-green-700 text-white"
+                          )}
+                        >
+                          {isTogglingPartOfActivePassage ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              {isPartOfActivePassageToday ? 'Removing...' : 'Recording...'}
+                            </>
+                          ) : (
+                            <>
+                              {isPartOfActivePassageToday ? (
+                                <>
+                                  <Square className="mr-2 h-4 w-4" />
+                                  Remove Part of Active Passage
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="mr-2 h-4 w-4" />
+                                  Mark as Part of Active Passage
+                                </>
+                              )}
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+            </div>
+
+            {/* Quick Stats */}
+            <div className="grid gap-4 md:grid-cols-3">
+                <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">At Sea</CardTitle>
+                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                            <Waves className="h-4 w-4 text-primary" />
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-3xl font-bold">{atSeaDays}</div>
+                        <p className="text-xs text-muted-foreground mt-1">days logged since joining {currentVessel.name}</p>
+                    </CardContent>
+                </Card>
+                <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">Standby</CardTitle>
+                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                            <Anchor className="h-4 w-4 text-primary" />
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-3xl font-bold">{standbyDays}</div>
+                        <p className="text-xs text-muted-foreground mt-1">days logged since joining {currentVessel.name}</p>
+                    </CardContent>
+                </Card>
+                <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">Total Days</CardTitle>
+                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                            <CalendarDays className="h-4 w-4 text-primary" />
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-3xl font-bold">
+                          {assignmentStartDate 
+                            ? stateLogs.filter(log => {
+                          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+                                const filterEndDate = endOfDay(new Date());
+                                return isWithinInterval(logDate, { start: assignmentStartDate, end: filterEndDate });
+                              }).length
+                            : stateLogs.length
+                          }
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">total days logged since joining {currentVessel.name}</p>
+                    </CardContent>
+                </Card>
+            </div>
             
             {/* Monthly Calendar - Updated to match calendar page */}
             <div className="space-y-6">
@@ -2384,6 +3075,8 @@ export default function CurrentPage() {
                 setDateRange(undefined);
                 setSelectedDate(null);
                 setSelectedState(null);
+                setIsPartOfActivePassageInDialog(false);
+                setIsWatchInDialog(false);
               }
               setIsDialogOpen(open);
             }}>
@@ -2406,7 +3099,13 @@ export default function CurrentPage() {
                                                     key={state.value} 
                         variant={isSelected ? "default" : "outline"} 
                                                     className="justify-start gap-3 h-auto py-3 rounded-lg hover:bg-accent/50 transition-colors" 
-                        onClick={() => handleStateChange(state.value)}
+                        onClick={() => {
+                          setSelectedState(state.value);
+                          // Disable watch checkbox if state is not at-anchor
+                          if (state.value !== 'at-anchor' && isWatchInDialog) {
+                            setIsWatchInDialog(false);
+                          }
+                        }}
                         disabled={isSaving}
                                                 >
                                                     <div 
@@ -2419,6 +3118,79 @@ export default function CurrentPage() {
                                      </Button>
                                             );
                                         })}
+                                </div>
+                                <div className="flex justify-end gap-2 pt-2">
+                                  <Button
+                                    onClick={() => {
+                                      if (selectedState) {
+                                        handleStateChange(selectedState);
+                                      }
+                                    }}
+                                    disabled={isSaving || !selectedState}
+                                    className="rounded-xl"
+                                  >
+                                    {isSaving ? (
+                                      <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Saving...
+                                      </>
+                                    ) : (
+                                      'Save Changes'
+                                    )}
+                                  </Button>
+                                </div>
+                                <div className="border-t pt-4">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="flex items-start space-x-3 p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors">
+                                      <Checkbox
+                                        id="part-of-active-passage"
+                                        checked={isPartOfActivePassageInDialog}
+                                        onCheckedChange={(checked) => setIsPartOfActivePassageInDialog(checked === true)}
+                                        disabled={isSaving}
+                                        className="mt-0.5"
+                                      />
+                                      <Label
+                                        htmlFor="part-of-active-passage"
+                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex flex-col gap-1.5 flex-1"
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <Ship className="h-4 w-4 text-blue-600" />
+                                          <span>Part of Active Passage</span>
+                                        </div>
+                                        <span className="text-xs text-muted-foreground">Counts as At Sea</span>
+                                      </Label>
+                                    </div>
+                                    {isOfficer && selectedDate && !dateRange && (
+                                      <div className={cn(
+                                        "flex items-start space-x-3 p-3 rounded-lg border transition-colors",
+                                        selectedState === 'at-anchor' 
+                                          ? "border-border hover:bg-accent/50" 
+                                          : "border-border/50 bg-muted/30 opacity-60"
+                                      )}>
+                                        <Checkbox
+                                          id="watch-log"
+                                          checked={isWatchInDialog}
+                                          onCheckedChange={(checked) => setIsWatchInDialog(checked === true)}
+                                          disabled={isSaving || selectedState !== 'at-anchor'}
+                                          className="mt-0.5"
+                                        />
+                                        <Label
+                                          htmlFor="watch-log"
+                                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex flex-col gap-1.5 flex-1"
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <Clock className="h-4 w-4 text-black dark:text-white" />
+                                            <span>Record Day as Watch</span>
+                                          </div>
+                                          <span className="text-xs text-muted-foreground">
+                                            {selectedState === 'at-anchor' 
+                                              ? "Only available when At Anchor" 
+                                              : "Requires At Anchor state"}
+                                          </span>
+                                        </Label>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                 {isSaving && (
                   <div className="flex items-center justify-center py-2">

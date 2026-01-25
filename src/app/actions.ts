@@ -439,11 +439,19 @@ export async function generateSeaTimeReportData(
 
     // Calculate day counts for each period
     for (const period of periods) {
-      const { totalStandbyDays } = calculateStandbyDays(period.logs);
+      // Extract part of active passage dates from logs
+      const partOfActivePassageDates = new Set<string>();
+      period.logs.forEach(log => {
+        if (log.isPartOfActivePassage) {
+          partOfActivePassageDates.add(log.date);
+        }
+      });
       
-      const atSeaDays = period.logs.filter(log => 
-        log.state === 'underway' || log.state === 'at-anchor'
-      ).length;
+      const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(period.logs, undefined, partOfActivePassageDates);
+      
+      // At sea = underway days + part of active passage days
+      // Note: at-anchor days are NOT counted unless marked as part of active passage
+      const atSeaDays = totalSeaDays; // Use the calculated total sea days from standby calculation
       const yardDays = period.logs.filter(log => log.state === 'in-yard').length;
       const leaveDays = period.logs.filter(log => log.state === 'on-leave').length;
       const totalDays = period.logs.length;

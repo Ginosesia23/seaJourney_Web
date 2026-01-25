@@ -264,8 +264,16 @@ export default function DashboardPage() {
           state: log.state,
         }));
 
+        // Extract part of active passage dates from logs
+        const partOfActivePassageDates = new Set<string>();
+        stateLogs.forEach(log => {
+          if (log.isPartOfActivePassage) {
+            partOfActivePassageDates.add(log.date);
+          }
+        });
+        
         // Calculate sea time
-        const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(stateLogs);
+        const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(stateLogs, undefined, partOfActivePassageDates);
 
         // State breakdown
         const stateBreakdown: Record<string, number> = {};
@@ -803,8 +811,6 @@ export default function DashboardPage() {
 
    const { totalDays, atSeaDays, standbyDays } = useMemo(() => {
     let days = 0;
-    let atSea = 0;
-    let standby = 0;
 
     // Collect all logs to filter by vessel and year
     const vesselIdsToCount = selectedVessel === 'all' 
@@ -824,19 +830,23 @@ export default function DashboardPage() {
         if (yearMatch) {
             days++;
           filteredLogs.push(log);
-            // At sea includes both 'underway' and 'at-anchor' states
-            if (log.state === 'underway' || log.state === 'at-anchor') {
-                atSea++;
-          }
             }
         });
     });
 
-    // Calculate MCA/PYA compliant standby days
-    const { totalStandbyDays } = calculateStandbyDays(filteredLogs);
-    standby = totalStandbyDays;
+    // Extract part of active passage dates from logs
+    const partOfActivePassageDates = new Set<string>();
+    filteredLogs.forEach(log => {
+      if (log.isPartOfActivePassage) {
+        partOfActivePassageDates.add(log.date);
+      }
+    });
 
-    return { totalDays: days, atSeaDays: atSea, standbyDays: standby };
+    // Calculate MCA/PYA compliant standby days and sea days
+    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(filteredLogs, undefined, partOfActivePassageDates);
+    
+    // At sea = underway days + part of active passage days (from calculation)
+    return { totalDays: days, atSeaDays: totalSeaDays, standbyDays: totalStandbyDays };
   }, [allStateLogs, selectedVessel, selectedYear]);
 
   const [visaEntries, setVisaEntries] = useState<VisaEntry[]>([]);
@@ -1032,19 +1042,25 @@ export default function DashboardPage() {
       });
     });
 
+    // Extract part of active passage dates from logs
+    const partOfActivePassageDates = new Set<string>();
+    past7DaysLogs.forEach(log => {
+      if (log.isPartOfActivePassage) {
+        partOfActivePassageDates.add(log.date);
+      }
+    });
+    
+    // Calculate MCA/PYA compliant standby days and sea days for the past 7 days
+    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(past7DaysLogs, undefined, partOfActivePassageDates);
+    
     // Calculate stats with state breakdown
-    // At sea includes both 'underway' and 'at-anchor' states
+    // At sea = underway days + part of active passage days (from calculation)
     const totalDays = past7DaysLogs.length;
-    const atSeaDays = past7DaysLogs.filter(log => 
-      log.state === 'underway' || log.state === 'at-anchor'
-    ).length;
+    const atSeaDays = totalSeaDays;
     const atAnchorDays = past7DaysLogs.filter(log => log.state === 'at-anchor').length;
     const inPortDays = past7DaysLogs.filter(log => log.state === 'in-port').length;
     const onLeaveDays = past7DaysLogs.filter(log => log.state === 'on-leave').length;
     const inYardDays = past7DaysLogs.filter(log => log.state === 'in-yard').length;
-    
-    // Calculate MCA/PYA compliant standby days for the past 7 days
-    const { totalStandbyDays } = calculateStandbyDays(past7DaysLogs);
     const standbyDays = totalStandbyDays;
 
     return {
@@ -1076,19 +1092,25 @@ export default function DashboardPage() {
       });
     });
 
+    // Extract part of active passage dates from logs
+    const partOfActivePassageDates = new Set<string>();
+    thisMonthLogs.forEach(log => {
+      if (log.isPartOfActivePassage) {
+        partOfActivePassageDates.add(log.date);
+      }
+    });
+    
+    // Calculate MCA/PYA compliant standby days and sea days for this month
+    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(thisMonthLogs, undefined, partOfActivePassageDates);
+    
     // Calculate stats with state breakdown
-    // At sea includes both 'underway' and 'at-anchor' states
+    // At sea = underway days + part of active passage days (from calculation)
     const totalDays = thisMonthLogs.length;
-    const atSeaDays = thisMonthLogs.filter(log => 
-      log.state === 'underway' || log.state === 'at-anchor'
-    ).length;
+    const atSeaDays = totalSeaDays;
     const atAnchorDays = thisMonthLogs.filter(log => log.state === 'at-anchor').length;
     const inPortDays = thisMonthLogs.filter(log => log.state === 'in-port').length;
     const onLeaveDays = thisMonthLogs.filter(log => log.state === 'on-leave').length;
     const inYardDays = thisMonthLogs.filter(log => log.state === 'in-yard').length;
-    
-    // Calculate MCA/PYA compliant standby days for this month
-    const { totalStandbyDays } = calculateStandbyDays(thisMonthLogs);
     const standbyDays = totalStandbyDays;
 
     return {
@@ -1123,16 +1145,12 @@ export default function DashboardPage() {
       };
     }
 
-    let atSea = 0;
     const stateBreakdown: Record<string, number> = {};
     let earliestDate: Date | null = null;
 
     currentVesselLogs.forEach(log => {
       // Count by state
       stateBreakdown[log.state] = (stateBreakdown[log.state] || 0) + 1;
-      
-      // Count at sea (includes both 'underway' and 'at-anchor' states)
-      if (log.state === 'underway' || log.state === 'at-anchor') atSea++;
       
       // Find earliest date
       const logDate = new Date(log.date);
@@ -1143,8 +1161,19 @@ export default function DashboardPage() {
       }
     });
 
-    // Calculate MCA/PYA compliant standby days
-    const { totalStandbyDays } = calculateStandbyDays(currentVesselLogs);
+    // Extract part of active passage dates from logs
+    const partOfActivePassageDates = new Set<string>();
+    currentVesselLogs.forEach(log => {
+      if (log.isPartOfActivePassage) {
+        partOfActivePassageDates.add(log.date);
+      }
+    });
+
+    // Calculate MCA/PYA compliant standby days and sea days
+    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(currentVesselLogs, undefined, partOfActivePassageDates);
+    
+    // At sea = underway days + part of active passage days (from calculation)
+    const atSea = totalSeaDays;
     const standby = totalStandbyDays;
 
     // Calculate service duration

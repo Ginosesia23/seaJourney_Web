@@ -7,7 +7,8 @@ import {
   Zap,
   Route,
   Navigation,
-  ArrowRight
+  ArrowRight,
+  Wrench
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -51,6 +52,41 @@ const AISImportPromo = () => {
                 Automatically import your vessel's complete operational history including past passages 
                 and vessel states since launch. Backfill years of data instantly—no manual entry required.
               </p>
+
+              {/* Development Progress */}
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.3 }}
+                className="rounded-xl p-4 border backdrop-blur-sm"
+                style={{ 
+                  backgroundColor: 'rgba(2, 22, 44, 0.6)', 
+                  borderColor: 'rgba(139, 92, 246, 0.3)',
+                  boxShadow: '0 4px 12px rgba(139, 92, 246, 0.1)'
+                }}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Wrench className="h-4 w-4 text-purple-400" />
+                    <span className="text-sm font-semibold text-white">In Development</span>
+                  </div>
+                  <span className="text-sm font-bold text-purple-300">32%</span>
+                </div>
+                <div className="w-full h-2 rounded-full overflow-hidden mb-2" style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)' }}>
+                  <motion.div
+                    initial={{ width: 0 }}
+                    whileInView={{ width: '32%' }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 1.5, delay: 0.5, ease: 'easeOut' }}
+                    className="h-full rounded-full"
+                    style={{ background: 'linear-gradient(90deg, #8b5cf6, #3b82f6)' }}
+                  />
+                </div>
+                <p className="text-xs text-blue-200">
+                  This feature is currently in development.
+                </p>
+              </motion.div>
 
               {/* Key Features */}
               <div className="grid grid-cols-2 gap-4 pt-4">

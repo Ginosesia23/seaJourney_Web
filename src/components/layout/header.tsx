@@ -29,7 +29,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
-const navLinks: Array<{ href: string; label: string }> = [];
+const navLinks: Array<{ href: string; label: string }> = [
+  { href: '/roadmap', label: 'Roadmap' },
+];
 
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);

@@ -72,6 +72,7 @@ export interface StateLog {
     vesselId: string; // UUID
     state: DailyStatus;
     date: string; // Date in YYYY-MM-DD format
+    isPartOfActivePassage?: boolean; // When true, counts as "at sea" instead of standby
     createdAt?: string; // ISO timestamp
     updatedAt?: string; // ISO timestamp
 }

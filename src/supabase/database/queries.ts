@@ -95,6 +95,7 @@ function transformStateLog(dbLog: any): StateLog {
     vesselId: dbLog.vessel_id,
     state: dbLog.state,
     date: dateValue,
+    isPartOfActivePassage: dbLog.is_part_of_active_passage || false,
     createdAt: dbLog.created_at,
     updatedAt: dbLog.updated_at,
   };
@@ -302,7 +303,7 @@ export async function updateStateLogsBatch(
   supabase: SupabaseClient,
   userId: string,
   vesselId: string,
-  logs: Array<{ date: string; state: string }>
+  logs: Array<{ date: string; state: string; is_part_of_active_passage?: boolean }>
 ) {
   // Use upsert to handle both inserts and updates
   const { error } = await supabase.from('daily_state_logs').upsert(
@@ -311,6 +312,7 @@ export async function updateStateLogsBatch(
       vessel_id: vesselId,
       date: log.date,
       state: log.state,
+      is_part_of_active_passage: log.is_part_of_active_passage ?? false,
     })),
     {
       onConflict: 'user_id,vessel_id,date',

@@ -327,29 +327,61 @@ function CaptainRoleApplicationCard({ userProfile, userId }: { userProfile: User
 
 // Position options (matching the ones used in current page)
 const POSITION_OPTIONS = [
+  // Deck Department - Senior
   'Captain / Master',
-  'Chief Officer / First Mate',
+  'Chief Officer',
+  'First Officer',
+  'First Mate',
   'Second Officer',
   'Third Officer',
-  '3rd Officer',
   'Officer of the Watch (OOW)',
   'Deck Officer',
-  'Lead Deckhand',
-  'Deckhand',
-  'Able Seaman (AB)',
   'Bosun',
+  // Deck Department - Deckhands
+  'Lead Deckhand',
+  'Senior Deckhand',
+  'Deckhand',
+  'Junior Deckhand',
+  'Able Seaman (AB)',
+  'Quartermaster',
+  // Deck Department - Cadets
+  'Deck Cadet',
   'Cadet',
+  // Engine Department - Senior
   'Chief Engineer',
-  'First Engineer / Second Engineer',
+  'First Engineer',
+  'Second Engineer',
   'Third Engineer',
+  'Fourth Engineer',
   'Engineer',
   'Electrician',
+  // Engine Department - Junior
+  'Motorman / Oiler',
+  'Wiper',
+  'Engine Cadet',
+  // Interior/Service - Management
+  'Purser',
+  'Chief Purser',
+  // Interior/Service - Galley
+  'Head Chef',
   'Chef / Cook',
+  'Sous Chef',
+  'Galley Assistant',
+  // Interior/Service - Housekeeping
   'Head Housekeeper',
   'Chief Steward / Stewardess',
   '2nd Steward / Stewardess',
   'Steward / Stewardess',
+  'Laundry Attendant',
   'Interior Crew',
+  // Other Specialized Roles
+  'Medical Officer',
+  'Security Officer',
+  'Radio Officer',
+  'Safety Officer',
+  'Environmental Officer',
+  'Masseuse / Masseur',
+  'Spa Therapist',
   'Other',
 ] as const;
 
@@ -384,6 +416,21 @@ function CareerTab({ userId }: { userId?: string }) {
   
   // Fetch all vessels for name lookup
   const { data: vessels } = useCollection<Vessel>('vessels');
+  
+  // Filter vessels to only show those the user is assigned to
+  // Also include the vessel from the position being edited (if any) to handle historical data
+  const userVessels = useMemo(() => {
+    if (!vessels || !assignments.length) return [];
+    const assignedVesselIds = new Set(assignments.map(a => a.vesselId));
+    // Include the editing position's vessel if it exists and is not already in the list
+    if (editingPosition?.vesselId && !assignedVesselIds.has(editingPosition.vesselId)) {
+      const editingVessel = vessels.find(v => v.id === editingPosition.vesselId);
+      if (editingVessel) {
+        return [editingVessel, ...vessels.filter(vessel => assignedVesselIds.has(vessel.id))];
+      }
+    }
+    return vessels.filter(vessel => assignedVesselIds.has(vessel.id));
+  }, [vessels, assignments, editingPosition]);
   
   const vesselMap = useMemo(() => {
     const map = new Map<string, Vessel>();
@@ -673,6 +720,7 @@ function CareerTab({ userId }: { userId?: string }) {
       if (error) throw error;
 
       // If we deleted the active position, make the previous one active again
+      let reactivatedPosition: PositionHistory | null = null;
       if (isActivePosition) {
         // Find the most recent position that has an end_date (previous position)
         const previousPositions = positionHistory
@@ -694,6 +742,8 @@ function CareerTab({ userId }: { userId?: string }) {
           if (updateError) {
             console.error('Error reactivating previous position:', updateError);
             // Don't fail the delete if reactivation fails
+          } else {
+            reactivatedPosition = previousPosition;
           }
         }
       }
@@ -731,6 +781,43 @@ function CareerTab({ userId }: { userId?: string }) {
             if (userUpdateError) {
               console.error('Error updating user position:', userUpdateError);
             }
+
+            // Update vessel assignments if we reactivated a position
+            if (reactivatedPosition) {
+              // If the current position is linked to a specific vessel, update that assignment
+              if (currentPosition.vesselId) {
+                const activeAssignment = assignments.find(a => !a.endDate && a.vesselId === currentPosition.vesselId);
+                if (activeAssignment) {
+                  try {
+                    await updateVesselAssignment(supabase, activeAssignment.id, {
+                      position: currentPosition.position,
+                    });
+                  } catch (assignmentError) {
+                    console.error('Error updating vessel assignment:', assignmentError);
+                  }
+                }
+              } else {
+                // If no specific vessel, update any active assignment
+                const activeAssignment = assignments.find(a => !a.endDate);
+                if (activeAssignment) {
+                  try {
+                    await updateVesselAssignment(supabase, activeAssignment.id, {
+                      position: currentPosition.position,
+                    });
+                  } catch (assignmentError) {
+                    console.error('Error updating vessel assignment:', assignmentError);
+                  }
+                }
+              }
+            }
+
+            // Always refresh assignments after position changes
+            try {
+              const refreshedAssignments = await getVesselAssignments(supabase, userId);
+              setAssignments(refreshedAssignments);
+            } catch (assignmentError) {
+              console.error('Error refreshing assignments:', assignmentError);
+            }
           } catch (userUpdateError) {
             console.error('Error updating user position:', userUpdateError);
           }
@@ -744,6 +831,14 @@ function CareerTab({ userId }: { userId?: string }) {
 
             if (userUpdateError) {
               console.error('Error clearing user position:', userUpdateError);
+            }
+
+            // Refresh assignments to reflect the change
+            try {
+              const refreshedAssignments = await getVesselAssignments(supabase, userId);
+              setAssignments(refreshedAssignments);
+            } catch (assignmentError) {
+              console.error('Error refreshing assignments:', assignmentError);
             }
           } catch (userUpdateError) {
             console.error('Error clearing user position:', userUpdateError);
@@ -778,7 +873,7 @@ function CareerTab({ userId }: { userId?: string }) {
 
   const currentPosition = positionHistory.find(p => !p.endDate);
 
-  return (
+    return (
     <div className="space-y-6">
       {/* Position History Section */}
       <Card className="rounded-xl border">
@@ -943,11 +1038,17 @@ function CareerTab({ userId }: { userId?: string }) {
                             </FormControl>
                             <SelectContent>
                               <SelectItem value="none">None</SelectItem>
-                              {vessels?.map((vessel) => (
-                                <SelectItem key={vessel.id} value={vessel.id}>
-                                  {vessel.name}
+                              {userVessels.length > 0 ? (
+                                userVessels.map((vessel) => (
+                                  <SelectItem key={vessel.id} value={vessel.id}>
+                                    {vessel.name}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <SelectItem value="no-vessels" disabled>
+                                  No assigned vessels
                                 </SelectItem>
-                              ))}
+                              )}
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -1105,113 +1206,113 @@ function CareerTab({ userId }: { userId?: string }) {
 
       {/* Vessel Assignments Section */}
       {assignments.length > 0 && (
-        <Card className="rounded-xl border">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+    <Card className="rounded-xl border">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
               <Ship className="h-5 w-5" />
               Vessel Assignments
-            </CardTitle>
-            <CardDescription>
+        </CardTitle>
+        <CardDescription>
               Your vessel assignments and sea service history
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Vessel</TableHead>
-                    <TableHead>Position</TableHead>
-                    <TableHead>Start Date</TableHead>
-                    <TableHead>End Date</TableHead>
-                    <TableHead>Duration</TableHead>
-                    <TableHead>Status</TableHead>
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Vessel</TableHead>
+                <TableHead>Position</TableHead>
+                <TableHead>Start Date</TableHead>
+                <TableHead>End Date</TableHead>
+                <TableHead>Duration</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {assignments.map((assignment) => {
+                const vessel = vesselMap.get(assignment.vesselId);
+                const duration = getAssignmentDuration(assignment);
+                const isActive = !assignment.endDate;
+                const endDate = assignment.endDate 
+                  ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
+                  : null;
+                
+                return (
+                  <TableRow key={assignment.id}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <Ship className="h-4 w-4 text-muted-foreground" />
+                        {vessel?.name || 'Unknown Vessel'}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {assignment.position ? (
+                        <Badge variant="outline">{assignment.position}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-3 w-3 text-muted-foreground" />
+                        {format(parse(assignment.startDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {endDate ? (
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-3 w-3 text-muted-foreground" />
+                          {format(endDate, 'MMM d, yyyy')}
+                        </div>
+                      ) : (
+                        <Badge variant="secondary">Active</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-muted-foreground">
+                        {duration} {duration === 1 ? 'day' : 'days'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      {isActive ? (
+                        <Badge className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
+                          Current
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary">Completed</Badge>
+                      )}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {assignments.map((assignment) => {
-                    const vessel = vesselMap.get(assignment.vesselId);
-                    const duration = getAssignmentDuration(assignment);
-                    const isActive = !assignment.endDate;
-                    const endDate = assignment.endDate 
-                      ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
-                      : null;
-                    
-                    return (
-                      <TableRow key={assignment.id}>
-                        <TableCell className="font-medium">
-                          <div className="flex items-center gap-2">
-                            <Ship className="h-4 w-4 text-muted-foreground" />
-                            {vessel?.name || 'Unknown Vessel'}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {assignment.position ? (
-                            <Badge variant="outline">{assignment.position}</Badge>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-3 w-3 text-muted-foreground" />
-                            {format(parse(assignment.startDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {endDate ? (
-                            <div className="flex items-center gap-2">
-                              <Calendar className="h-3 w-3 text-muted-foreground" />
-                              {format(endDate, 'MMM d, yyyy')}
-                            </div>
-                          ) : (
-                            <Badge variant="secondary">Active</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-sm text-muted-foreground">
-                            {duration} {duration === 1 ? 'day' : 'days'}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          {isActive ? (
-                            <Badge className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">
-                              Current
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary">Completed</Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
 
-            {/* Career Summary */}
-            <div className="mt-6 pt-6 border-t">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Total Assignments</p>
-                  <p className="text-2xl font-bold">{assignments.length}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Active Assignments</p>
-                  <p className="text-2xl font-bold">
-                    {assignments.filter(a => !a.endDate).length}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Total Days at Sea</p>
-                  <p className="text-2xl font-bold">
-                    {assignments.reduce((sum, a) => sum + getAssignmentDuration(a), 0)}
-                  </p>
-                </div>
+        {/* Career Summary */}
+          <div className="mt-6 pt-6 border-t">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Total Assignments</p>
+                <p className="text-2xl font-bold">{assignments.length}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Active Assignments</p>
+                <p className="text-2xl font-bold">
+                  {assignments.filter(a => !a.endDate).length}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Total Days at Sea</p>
+                <p className="text-2xl font-bold">
+                  {assignments.reduce((sum, a) => sum + getAssignmentDuration(a), 0)}
+                </p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+      </CardContent>
+    </Card>
       )}
 
       {/* Delete Confirmation Dialog */}

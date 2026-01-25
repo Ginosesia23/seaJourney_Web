@@ -107,6 +107,7 @@ export interface NavWatchApplicationPDFData {
     username: string;
     email: string;
     dateOfBirth?: string | null;
+    sex?: 'male' | 'female' | null;
     position?: string | null;
     dischargeBookNumber?: string | null;
   };
@@ -1734,6 +1735,7 @@ export async function generateNavWatchApplicationPDF(
   const dateOfBirth = userProfile.dateOfBirth
     ? format(parseDateOnly(userProfile.dateOfBirth), 'dd MMMM yyyy')
     : null;
+  const sex = userProfile.sex ? (userProfile.sex === 'male' ? 'Male' : 'Female') : null;
 
   // Color scheme
   const textDark: RGB = [20, 20, 20];
@@ -1793,6 +1795,7 @@ export async function generateNavWatchApplicationPDF(
   const applicantInfo = [
     ['Full Name:', fullName],
     ['Date of Birth:', dateOfBirth || '—'],
+    ['Sex:', sex || '—'],
     ['Position:', userProfile.position || '—'],
     ['Discharge Book Number:', userProfile.dischargeBookNumber || '—'],
     ['Email:', userProfile.email || '—'],
@@ -2242,9 +2245,12 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
     p2: {
       // Sea service table - landscape page, table typically starts lower
       tableTop: 215,
-      rowH: 16, // Row spacing
-      maxRows: 14,
+      rowH: 17, // Row spacing (used as default if rowPositions not specified)
+      maxRows: 17,
       fontSize: 7.5,
+      // Optional: Individual row positions (from top) - if specified, overrides tableTop + i * rowH
+      // Uncomment and adjust these if rows don't align properly with the PDF template
+      rowPositions: [215, 230, 245, 260, 273, 288, 303, 318, 332, 346, 360, 375, 388, 402, 417, 432, 447],
       cols: (pageW: number) => ({
         vessel: pageW * 0.04,      // Vessel name column
         flag: pageW * 0.18,        // Flag state
@@ -2255,7 +2261,7 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
         cap: pageW * 0.56,         // Capacity
         from: pageW * 0.67,        // From date
         to: pageW * 0.74,          // To date
-        days: pageW * 0.82,       // Total days
+        days: pageW * 0.813,       // Total days
         seaDays: pageW * 0.89,     // Days at sea
       }),
     },
@@ -2301,19 +2307,19 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
       printName: { x: 120, top: 285 },
 
       // Countersign section - typically lower on the page
-      csName: { x: 110, top: 375, maxW: 420 },
-      csAddr1: { x: 110, top: 397, maxW: 420 },
-      csAddr2: { x: 110, top: 415, maxW: 420 },
-      csTown: { x: 110, top: 433, maxW: 200 },
-      csCounty: { x: 335, top: 433, maxW: 200 },
-      csPost: { x: 110, top: 451, maxW: 200 },
-      csCountry: { x: 335, top: 451, maxW: 200 },
-      csTel: { x: 110, top: 469, maxW: 200 },
-      csOcc: { x: 335, top: 469, maxW: 200 },
-      csCapacity: { x: 215, top: 487, maxW: 330 },
+      csName: { x: 125, top: 465, maxW: 420 },
+      csAddr1: { x: 125, top: 480, maxW: 420 },
+      csAddr2: { x: 125, top: 497, maxW: 420 },
+      csTown: { x: 125, top: 515, maxW: 200 },
+      csCounty: { x: 125, top: 532, maxW: 200 },
+      csPost: { x: 125, top: 550, maxW: 200 },
+      csCountry: { x: 370, top: 550, maxW: 200 },
+      csTel: { x: 125, top: 568, maxW: 200 },
+      csOcc: { x: 375, top: 568, maxW: 200 },
+      csCapacity: { x: 250, top: 587, maxW: 330 },
 
-      csSigLine: { x: 110, top: 540 },
-      csDateLine: { x: 335, top: 540 },
+      csSigLine: { x: 110, top: 680 },
+      csDateLine: { x: 340, top: 680 },
     },
 
     p6: {
@@ -2544,9 +2550,136 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
   const col = COORDS_BASE.p2.cols(p2w);
   const rowCount = Math.min(seaServiceRecords.length, COORDS_BASE.p2.maxRows);
 
+  // Get row positions - use individual positions if specified, otherwise calculate from tableTop + rowH
+  const getRowTop = (index: number): number => {
+    const rowPositions = (COORDS_BASE.p2 as any).rowPositions;
+    if (rowPositions && Array.isArray(rowPositions) && rowPositions[index] != null) {
+      return rowPositions[index];
+    }
+    return COORDS_BASE.p2.tableTop + index * COORDS_BASE.p2.rowH;
+  };
+
+  // Format days as "X months and Y days" according to MCA requirements
+  // Calendar months and days, with odd days reckoned at 30 days to the month
+  // Example: from 3 January to 5 March = 2 months and 2 days
+  const formatLengthOfVoyage = (fromDateStr: string, toDateStr: string): string => {
+    try {
+      // Parse dates (format: DD/MM/YYYY)
+      const parseDate = (dateStr: string): Date => {
+        const [day, month, year] = dateStr.split('/').map(Number);
+        return new Date(year, month - 1, day);
+      };
+
+      const fromDate = parseDate(fromDateStr);
+      const toDate = parseDate(toDateStr);
+
+      // Calculate calendar months and days
+      let months = 0;
+      let days = 0;
+
+      // Start from the fromDate and add calendar months until we exceed toDate
+      let currentDate = new Date(fromDate);
+      
+      // Add full calendar months (e.g., Jan 3 -> Feb 3 -> Mar 3)
+      while (true) {
+        const nextMonth = new Date(currentDate);
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+        
+        if (nextMonth <= toDate) {
+          months++;
+          currentDate = nextMonth;
+        } else {
+          break;
+        }
+      }
+
+      // Calculate remaining days from currentDate to toDate
+      days = Math.max(0, Math.floor((toDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24)));
+      
+      // Convert odd days >= 30 to months (as per MCA requirement: "Odd days should be added together and reckoned at 30 days to the month")
+      if (days >= 30) {
+        const additionalMonths = Math.floor(days / 30);
+        months += additionalMonths;
+        days = days % 30;
+      }
+
+      // Format the result
+      if (months === 0 && days === 0) {
+        return '0 days';
+      } else if (months === 0) {
+        return `${days} ${days === 1 ? 'day' : 'days'}`;
+      } else if (days === 0) {
+        return `${months} ${months === 1 ? 'month' : 'months'}`;
+      } else {
+        return `${months} ${months === 1 ? 'month' : 'months'} and ${days} ${days === 1 ? 'day' : 'days'}`;
+      }
+    } catch (error) {
+      // Fallback to empty string if date parsing fails
+      console.warn('Error formatting length of voyage:', error);
+      return '';
+    }
+  };
+
+  // Calculate totals across all records
+  const calculateTotals = () => {
+    let totalMonths = 0;
+    let totalDays = 0;
+    let totalDaysAtSea = 0;
+
+    for (const r of seaServiceRecords.slice(0, rowCount)) {
+      try {
+        // Parse dates to calculate months and days
+        const parseDate = (dateStr: string): Date => {
+          const [day, month, year] = dateStr.split('/').map(Number);
+          return new Date(year, month - 1, day);
+        };
+
+        const fromDate = parseDate(r.fromDate);
+        const toDate = parseDate(r.toDate);
+
+        // Calculate calendar months and days for this record
+        let months = 0;
+        let days = 0;
+        let currentDate = new Date(fromDate);
+
+        // Add full calendar months
+        while (true) {
+          const nextMonth = new Date(currentDate);
+          nextMonth.setMonth(nextMonth.getMonth() + 1);
+          if (nextMonth <= toDate) {
+            months++;
+            currentDate = nextMonth;
+          } else {
+            break;
+          }
+        }
+
+        // Calculate remaining days
+        days = Math.max(0, Math.floor((toDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24)));
+
+        // Add to totals
+        totalMonths += months;
+        totalDays += days;
+        totalDaysAtSea += r.daysAtSea ?? 0;
+      } catch (error) {
+        console.warn('Error calculating totals for record:', error);
+      }
+    }
+
+    // Convert odd days >= 30 to months
+    if (totalDays >= 30) {
+      const additionalMonths = Math.floor(totalDays / 30);
+      totalMonths += additionalMonths;
+      totalDays = totalDays % 30;
+    }
+
+    return { totalMonths, totalDays, totalDaysAtSea };
+  };
+
+  // Draw data rows
   for (let i = 0; i < rowCount; i++) {
     const r = seaServiceRecords[i];
-    const top = COORDS_BASE.p2.tableTop + i * COORDS_BASE.p2.rowH;
+    const top = getRowTop(i);
     const fs = COORDS_BASE.p2.fontSize;
 
     drawText(page2, baseL, safe(r.vesselName), col.vessel, top, { size: fs, maxW: (col.flag - col.vessel) - 6 });
@@ -2558,8 +2691,52 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
     drawText(page2, baseL, safe(r.capacity), col.cap, top, { size: fs, maxW: (col.from - col.cap) - 6 });
     drawText(page2, baseL, safe(r.fromDate), col.from, top, { size: fs });
     drawText(page2, baseL, safe(r.toDate), col.to, top, { size: fs });
-    drawText(page2, baseL, String(r.totalDays ?? ''), col.days, top, { size: fs });
+    // Format as "X months and Y days" according to MCA requirements - use smaller font to fit
+    const lengthOfVoyage = formatLengthOfVoyage(r.fromDate, r.toDate);
+    drawText(page2, baseL, lengthOfVoyage, col.days, top, { size: fs * 0.85, maxW: (col.seaDays - col.days) - 4 });
     drawText(page2, baseL, String(r.daysAtSea ?? ''), col.seaDays, top, { size: fs });
+  }
+
+  // Draw total row at the bottom
+  const { totalMonths, totalDays, totalDaysAtSea } = calculateTotals();
+  const totalRowTop = getRowTop(rowCount);
+  const fs = COORDS_BASE.p2.fontSize;
+  
+  // Format total length of voyage
+  let totalLengthOfVoyage = '';
+  if (totalMonths === 0 && totalDays === 0) {
+    totalLengthOfVoyage = '0 days';
+  } else if (totalMonths === 0) {
+    totalLengthOfVoyage = `${totalDays} ${totalDays === 1 ? 'day' : 'days'}`;
+  } else if (totalDays === 0) {
+    totalLengthOfVoyage = `${totalMonths} ${totalMonths === 1 ? 'month' : 'months'}`;
+  } else {
+    totalLengthOfVoyage = `${totalMonths} ${totalMonths === 1 ? 'month' : 'months'} and ${totalDays} ${totalDays === 1 ? 'day' : 'days'}`;
+  }
+
+  // Draw "TOTAL" label (bold) and totals
+  drawText(page2, baseL, 'TOTAL', col.vessel, totalRowTop, { size: fs, bold: true });
+  drawText(page2, baseL, totalLengthOfVoyage, col.days, totalRowTop, { size: fs * 0.85, bold: true, maxW: (col.seaDays - col.days) - 4 });
+  drawText(page2, baseL, String(totalDaysAtSea), col.seaDays, totalRowTop, { size: fs, bold: true });
+
+  // Debug marks for page 2 (sea service table) - after content
+  if (opts?.debug) {
+    // Debug marks for column headers
+    Object.entries(col).forEach(([k, v]: any) => {
+      if (typeof v === 'number') {
+        debugMark(page2, baseL, `p2.col.${k}`, v, COORDS_BASE.p2.tableTop);
+      }
+    });
+    // Debug marks for all rows (up to maxRows)
+    for (let i = 0; i < COORDS_BASE.p2.maxRows; i++) {
+      const top = getRowTop(i);
+      // Mark all columns for each row to help with positioning
+      Object.entries(col).forEach(([k, v]: any) => {
+        if (typeof v === 'number') {
+          debugMark(page2, baseL, `p2.row${i}.${k}`, v, top);
+        }
+      });
+    }
   }
 
   // ----------------------------
@@ -2583,6 +2760,16 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
       if (cl.medical) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.medical, 9);
       if (cl.watchRatingTrainingRecordBook) drawTick(page3, baseP, x, COORDS_BASE.p3.rowsTop.watchRatingTrainingRecordBook, 9);
     }
+
+  // Debug marks for page 3 (checklist) - after content
+  if (opts?.debug) {
+    const tickX = COORDS_BASE.p3.tickX;
+    Object.entries(COORDS_BASE.p3.rowsTop).forEach(([k, top]: any) => {
+      if (typeof top === 'number') {
+        debugMark(page3, baseP, `p3.${k}`, tickX, top);
+      }
+    });
+  }
   }
 
   // ----------------------------
@@ -2605,6 +2792,16 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
       if (etrCl.electroTechnicalTraining) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.electroTechnicalTraining, 9);
       if (etrCl.medical) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.medical, 9);
       if (etrCl.electroTechnicalRecordBook) drawTick(page4, baseP, x, COORDS_BASE.p4.rowsTop.electroTechnicalRecordBook, 9);
+    }
+
+    // Debug marks for page 4 (ETR checklist) - after content
+    if (opts?.debug) {
+      const tickX = COORDS_BASE.p4.tickX;
+      Object.entries(COORDS_BASE.p4.rowsTop).forEach(([k, top]: any) => {
+        if (typeof top === 'number') {
+          debugMark(page4, baseP, `p4.${k}`, tickX, top);
+        }
+      });
     }
   }
 
@@ -2656,6 +2853,15 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
     }
   }
 
+  // Debug marks for page 5 (declaration and countersign) - after content
+  if (opts?.debug) {
+    Object.entries(COORDS_BASE.p5).forEach(([k, v]: any) => {
+      if (v?.x != null && v?.top != null) {
+        debugMark(page5, baseP, `p5.${k}`, v.x, v.top);
+      }
+    });
+  }
+
   // ----------------------------
   // PAGE 6 (A4 portrait) payment tick
   // ----------------------------
@@ -2675,6 +2881,13 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
   if (isUK) drawTick(page6, baseP, COORDS_BASE.p6.tickUK.x, COORDS_BASE.p6.tickUK.top, 10);
   else if (isEU) drawTick(page6, baseP, COORDS_BASE.p6.tickEU.x, COORDS_BASE.p6.tickEU.top, 10);
   else drawTick(page6, baseP, COORDS_BASE.p6.tickROW.x, COORDS_BASE.p6.tickROW.top, 10);
+
+  // Debug marks for page 6 (payment ticks) - after content
+  if (opts?.debug) {
+    debugMark(page6, baseP, 'p6.tickUK', COORDS_BASE.p6.tickUK.x, COORDS_BASE.p6.tickUK.top);
+    debugMark(page6, baseP, 'p6.tickEU', COORDS_BASE.p6.tickEU.x, COORDS_BASE.p6.tickEU.top);
+    debugMark(page6, baseP, 'p6.tickROW', COORDS_BASE.p6.tickROW.x, COORDS_BASE.p6.tickROW.top);
+  }
 
   // ----------------------------
   // Save / output
