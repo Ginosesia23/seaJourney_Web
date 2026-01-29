@@ -110,27 +110,27 @@ const CrewBenefits = () => {
                   </Button>
                 ) : (
                   <>
-                    <Button
-                      asChild
-                      size="lg"
-                      className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 px-6 h-12 text-base font-semibold"
-                    >
-                      <Link href="/offers">
-                        Start Your Journey
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </Link>
-                    </Button>
-                    <Button
-                      asChild
-                      size="lg"
-                      variant="outline"
-                      className="rounded-xl border-2 border-white/20 bg-white/5 hover:bg-white/10 text-white px-6 h-12 text-base font-semibold backdrop-blur-sm"
-                    >
-                      <Link href="#benefits-grid" className="flex items-center gap-2">
-                        Explore Features
-                        <ArrowRight className="h-4 w-4" />
-                      </Link>
-                    </Button>
+                <Button
+                  asChild
+                  size="lg"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 px-6 h-12 text-base font-semibold"
+                >
+                  <Link href="/offers">
+                    Start Your Journey
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button
+                  asChild
+                  size="lg"
+                  variant="outline"
+                  className="rounded-xl border-2 border-white/20 bg-white/5 hover:bg-white/10 text-white px-6 h-12 text-base font-semibold backdrop-blur-sm"
+                >
+                  <Link href="#benefits-grid" className="flex items-center gap-2">
+                    Explore Features
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
                   </>
                 )}
               </div>

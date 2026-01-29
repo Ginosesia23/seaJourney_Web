@@ -6,16 +6,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { format, getYear, subDays, startOfDay, isWithinInterval, parse, startOfMonth, endOfMonth, isSameMonth, isBefore, isAfter } from 'date-fns';
+import { format, getYear, subDays, startOfDay, isWithinInterval, parse, startOfMonth, endOfMonth, isSameMonth, isBefore, isAfter, endOfDay, addDays } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser, useSupabase } from '@/supabase';
 import { useToast } from '@/hooks/use-toast';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselSeaService, getVesselStateLogs, updateStateLogsBatch } from '@/supabase/database/queries';
+import { getVesselSeaService, getVesselStateLogs, updateStateLogsBatch, getVesselAssignments } from '@/supabase/database/queries';
 import { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import type { Vessel, SeaServiceRecord, StateLog, UserProfile, DailyStatus, Testimonial, VisaTracker, VisaEntry } from '@/lib/types';
+import type { Vessel, SeaServiceRecord, StateLog, UserProfile, DailyStatus, Testimonial, VisaTracker, VisaEntry, VesselAssignment } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
 import { calculateVisaCompliance, detectVisaRules } from '@/lib/visa-compliance';
@@ -40,6 +40,8 @@ export default function DashboardPage() {
   const [allSeaService, setAllSeaService] = useState<SeaServiceRecord[]>([]);
   const [allStateLogs, setAllStateLogs] = useState<Map<string, StateLog[]>>(new Map());
   const [currentVesselLogs, setCurrentVesselLogs] = useState<StateLog[]>([]);
+  const [watchDates, setWatchDates] = useState<Set<string>>(new Set());
+  const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [activeVisas, setActiveVisas] = useState<Array<VisaTracker & { daysRemaining: number; daysUsed: number }>>([]);
   const [isLoggingVisaDate, setIsLoggingVisaDate] = useState(false);
@@ -91,6 +93,77 @@ export default function DashboardPage() {
 
   const isAdmin = userProfile?.role === 'admin';
   const isVesselManager = userProfile?.role === 'vessel';
+
+  // Check if user is an officer (rank or higher)
+  const isOfficer = useMemo(() => {
+    if (!userProfile) return false;
+    const position = (userProfile.position || '').toLowerCase();
+    const role = (userProfile.role || '').toLowerCase();
+    
+    // Officers include: Captain, Chief Officer, First Officer, First Mate, Second Officer, Third Officer, OOW, Deck Officer
+    // Also Chief Engineer, First Engineer, Second Engineer, Third Engineer, Fourth Engineer
+    const officerPositions = [
+      'captain', 'master', 'chief officer', 'first officer', 'first mate', 
+      'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+      'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer'
+    ];
+    
+    return role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+  }, [userProfile]);
+
+  // Fetch watch logs for the user (officers only)
+  useEffect(() => {
+    const fetchWatchLogs = async () => {
+      if (!user?.id || !isOfficer) {
+        setWatchDates(new Set());
+        return;
+      }
+
+      try {
+        const { data: watchLogs, error } = await supabase
+          .from('watch_logs')
+          .select('watch_start')
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        // Extract dates from watch logs (watch_start timestamps)
+        const dates = new Set<string>();
+        if (watchLogs) {
+          watchLogs.forEach(log => {
+            const dateStr = format(new Date(log.watch_start), 'yyyy-MM-dd');
+            dates.add(dateStr);
+          });
+        }
+        setWatchDates(dates);
+      } catch (error) {
+        console.error('Error fetching watch logs:', error);
+        setWatchDates(new Set());
+      }
+    };
+
+    fetchWatchLogs();
+  }, [user?.id, isOfficer, supabase]);
+
+  // Fetch vessel assignments
+  useEffect(() => {
+    if (!user?.id) {
+      setVesselAssignments([]);
+      return;
+    }
+
+    const fetchAssignments = async () => {
+      try {
+        const assignments = await getVesselAssignments(supabase, user.id);
+        setVesselAssignments(assignments);
+      } catch (error) {
+        console.error('Error fetching vessel assignments:', error);
+        setVesselAssignments([]);
+      }
+    };
+
+    fetchAssignments();
+  }, [user?.id, supabase]);
 
   // Fetch admin statistics
   useEffect(() => {
@@ -272,7 +345,7 @@ export default function DashboardPage() {
           }
         });
         
-        // Calculate sea time
+        // Calculate sea time (vessel stats use all vessel logs, not user-specific, so no watch dates)
         const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(stateLogs, undefined, partOfActivePassageDates);
 
         // State breakdown
@@ -843,11 +916,11 @@ export default function DashboardPage() {
     });
 
     // Calculate MCA/PYA compliant standby days and sea days
-    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(filteredLogs, undefined, partOfActivePassageDates);
+    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(filteredLogs, watchDates, partOfActivePassageDates);
     
     // At sea = underway days + part of active passage days (from calculation)
     return { totalDays: days, atSeaDays: totalSeaDays, standbyDays: totalStandbyDays };
-  }, [allStateLogs, selectedVessel, selectedYear]);
+  }, [allStateLogs, selectedVessel, selectedYear, watchDates]);
 
   const [visaEntries, setVisaEntries] = useState<VisaEntry[]>([]);
 
@@ -1051,7 +1124,7 @@ export default function DashboardPage() {
     });
     
     // Calculate MCA/PYA compliant standby days and sea days for the past 7 days
-    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(past7DaysLogs, undefined, partOfActivePassageDates);
+    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(past7DaysLogs, watchDates, partOfActivePassageDates);
     
     // Calculate stats with state breakdown
     // At sea = underway days + part of active passage days (from calculation)
@@ -1072,7 +1145,7 @@ export default function DashboardPage() {
       inYardDays,
       standbyDays,
     };
-  }, [allStateLogs]);
+  }, [allStateLogs, watchDates]);
 
   // Calculate stats for this month
   const thisMonthStats = useMemo(() => {
@@ -1101,7 +1174,7 @@ export default function DashboardPage() {
     });
     
     // Calculate MCA/PYA compliant standby days and sea days for this month
-    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(thisMonthLogs, undefined, partOfActivePassageDates);
+    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(thisMonthLogs, watchDates, partOfActivePassageDates);
     
     // Calculate stats with state breakdown
     // At sea = underway days + part of active passage days (from calculation)
@@ -1122,7 +1195,7 @@ export default function DashboardPage() {
       inYardDays,
       standbyDays,
     };
-  }, [allStateLogs]);
+  }, [allStateLogs, watchDates]);
 
   // Get today's status for current vessel
   const todayStatus = useMemo(() => {
@@ -1145,10 +1218,38 @@ export default function DashboardPage() {
       };
     }
 
+    // Find assignment start date for current vessel (most recent assignment)
+    const currentVesselAssignments = currentVessel 
+      ? vesselAssignments.filter(a => a.vesselId === currentVessel.id)
+      : [];
+    
+    const mostRecentAssignment = currentVesselAssignments.length > 0
+      ? currentVesselAssignments.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())[0]
+      : null;
+    
+    const assignmentStartDate = mostRecentAssignment
+      ? parse(mostRecentAssignment.startDate, 'yyyy-MM-dd', new Date())
+      : null;
+
+    // Filter logs to since joining the vessel (assignment start date) or all logs if no assignment date
+    let filteredLogs: StateLog[];
+    
+    if (assignmentStartDate) {
+      const filterStartDate = assignmentStartDate;
+      const filterEndDate = endOfDay(new Date());
+      
+      filteredLogs = currentVesselLogs.filter(log => {
+        const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+        return isWithinInterval(logDate, { start: filterStartDate, end: filterEndDate });
+      });
+    } else {
+      filteredLogs = currentVesselLogs;
+    }
+
     const stateBreakdown: Record<string, number> = {};
     let earliestDate: Date | null = null;
 
-    currentVesselLogs.forEach(log => {
+    filteredLogs.forEach(log => {
       // Count by state
       stateBreakdown[log.state] = (stateBreakdown[log.state] || 0) + 1;
       
@@ -1161,7 +1262,7 @@ export default function DashboardPage() {
       }
     });
 
-    // Extract part of active passage dates from logs
+    // Extract part of active passage dates from ALL logs (for proper voyage context)
     const partOfActivePassageDates = new Set<string>();
     currentVesselLogs.forEach(log => {
       if (log.isPartOfActivePassage) {
@@ -1169,12 +1270,80 @@ export default function DashboardPage() {
       }
     });
 
-    // Calculate MCA/PYA compliant standby days and sea days
-    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(currentVesselLogs, undefined, partOfActivePassageDates);
+    // Calculate MCA/PYA compliant standby days using ALL logs (for proper voyage context)
+    // Then filter standby periods to only count those since joining the vessel
+    const { totalStandbyDays, standbyPeriods } = calculateStandbyDays(currentVesselLogs, watchDates, partOfActivePassageDates);
     
-    // At sea = underway days + part of active passage days (from calculation)
-    const atSea = totalSeaDays;
-    const standby = totalStandbyDays;
+    // Filter standby periods to only count days since joining the vessel
+    let standby = 0;
+    
+    if (assignmentStartDate) {
+      const filterStartDate = assignmentStartDate;
+      const filterEndDate = endOfDay(new Date());
+      
+      for (const period of standbyPeriods) {
+        const periodStart = period.startDate;
+        const periodEnd = period.endDate;
+        
+        // Find the overlap between the standby period and the period since joining
+        const overlapStart = periodStart > filterStartDate ? periodStart : filterStartDate;
+        const overlapEnd = periodEnd < filterEndDate ? periodEnd : filterEndDate;
+        
+        if (overlapStart <= overlapEnd) {
+          // Count how many of the counted days fall within the period since joining
+          const countedDays = period.countedDays;
+          const periodDays = period.days;
+          
+          // Calculate how many counted days are since joining
+          let countedSinceJoining = 0;
+          for (let i = 0; i < Math.min(countedDays, periodDays); i++) {
+            const dayDate = addDays(periodStart, i);
+            if (isWithinInterval(dayDate, { start: filterStartDate, end: filterEndDate })) {
+              countedSinceJoining++;
+            }
+          }
+          
+          standby += countedSinceJoining;
+        }
+      }
+    } else {
+      // No assignment date - use all standby days
+      standby = totalStandbyDays;
+    }
+
+    // Calculate at sea days from filtered logs
+    let atSea = 0;
+    filteredLogs.forEach(log => {
+      if (log.state === 'underway') atSea++;
+    });
+
+    // Add part of active passage days to at-sea count (these count as "at sea" regardless of state)
+    if (partOfActivePassageDates.size > 0) {
+      const partOfActivePassageDaysInRange = Array.from(partOfActivePassageDates).filter(dateStr => {
+        const passageDate = parse(dateStr, 'yyyy-MM-dd', new Date());
+        if (assignmentStartDate) {
+          const filterStartDate = assignmentStartDate;
+          const filterEndDate = endOfDay(new Date());
+          return isWithinInterval(passageDate, { start: filterStartDate, end: filterEndDate });
+        }
+        return true;
+      }).length;
+      atSea += partOfActivePassageDaysInRange;
+    }
+
+    // Add watch days to at-sea count (watch days count as "at sea" even if vessel is at anchor)
+    if (watchDates.size > 0) {
+      const watchDaysInRange = Array.from(watchDates).filter(dateStr => {
+        const watchDate = parse(dateStr, 'yyyy-MM-dd', new Date());
+        if (assignmentStartDate) {
+          const filterStartDate = assignmentStartDate;
+          const filterEndDate = endOfDay(new Date());
+          return isWithinInterval(watchDate, { start: filterStartDate, end: filterEndDate });
+        }
+        return true;
+      }).length;
+      atSea += watchDaysInRange;
+    }
 
     // Calculate service duration
     let serviceDuration = 0;
@@ -1186,14 +1355,14 @@ export default function DashboardPage() {
     }
 
     return { 
-      totalDays: currentVesselLogs.length,
+      totalDays: filteredLogs.length,
       atSeaDays: atSea,
       standbyDays: standby,
       stateBreakdown,
       serviceStartDate: earliestDate,
       serviceDuration
     };
-  }, [currentVesselLogs]);
+  }, [currentVesselLogs, currentVessel, vesselAssignments, watchDates]);
 
   const longestPassage = useMemo(() => {
     // With new structure, each record is for one date, so "longest passage" 

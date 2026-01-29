@@ -2284,7 +2284,7 @@ export default function CurrentPage() {
                           <span className="font-medium">{stateInfo.label}</span>
                         </div>
                         {hasWatch && (
-                          <div className="flex items-center gap-2 text-black dark:text-white">
+                          <div className="flex items-center gap-2 text-yellow-600">
                             <Clock className="h-3.5 w-3.5" />
                             <span>On Watch (Counts as At Sea)</span>
                           </div>
@@ -2331,12 +2331,12 @@ export default function CurrentPage() {
                             isCurrentDay && !isInRange && !hasOverride && !isCountedStandby && "ring-2 ring-primary ring-offset-2",
                             isInRange && !hasOverride && !isCountedStandby && "ring-2 ring-primary/50",
                             (isRangeStart || isRangeEnd) && !hasOverride && !isCountedStandby && "ring-2 ring-primary ring-offset-1",
-                            // Watch outline (black) - takes priority (border for reliable inside outline)
-                            hasWatch && "border-[3px] border-black dark:border-white",
-                            // Part of active passage outline (blue) - only if not watch (border for reliable inside outline, matches underway state)
-                            isPartOfActivePassage && !hasWatch && "border-[3px] border-blue-600",
-                            // Standby outline (purple) - only if not watch or part of active passage (border for reliable inside outline)
-                            isCountedStandby && !hasOverride && "border-[3px] border-purple-600",
+                            // Watch full color (yellow) - takes priority
+                            hasWatch && "bg-yellow-500 text-white border-0",
+                            // Part of active passage full color (blue) - only if not watch
+                            isPartOfActivePassage && !hasWatch && "bg-blue-600 text-white border-0",
+                            // Standby full color (purple) - only if not watch or part of active passage
+                            isCountedStandby && !hasOverride && "bg-purple-600 text-white border-0",
                             stateInfo 
                               ? "text-white" 
                               : "bg-muted/50 text-muted-foreground hover:bg-muted"
@@ -3179,7 +3179,7 @@ export default function CurrentPage() {
                                           className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex flex-col gap-1.5 flex-1"
                                         >
                                           <div className="flex items-center gap-2">
-                                            <Clock className="h-4 w-4 text-black dark:text-white" />
+                                            <Clock className="h-4 w-4 text-yellow-600" />
                                             <span>Record Day as Watch</span>
                                           </div>
                                           <span className="text-xs text-muted-foreground">

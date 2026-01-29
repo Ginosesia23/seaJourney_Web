@@ -185,7 +185,7 @@ export function SignaturePad({
 
     // Only call onSave if not in controlled mode (onSave should not be used with controlled mode)
     if (!isControlled && onSave) {
-      onSave(signatureDataUrl);
+    onSave(signatureDataUrl);
     }
   };
 
@@ -286,32 +286,32 @@ export function SignaturePad({
 
         {/* Action buttons - only show Save button in non-controlled mode */}
         {!isControlled && (
-          <div className="flex gap-2">
-            <Button
-              onClick={handleSave}
-              disabled={isLoading || !signatureDataUrl}
-              className="flex-1"
-            >
-              {isLoading ? (
-                <>Saving...</>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Signature
-                </>
-              )}
-            </Button>
-            {(existingSignature || signatureDataUrl) && (
-              <Button
-                onClick={handleDelete}
-                disabled={isLoading}
-                variant="outline"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={handleSave}
+            disabled={isLoading || !signatureDataUrl}
+            className="flex-1"
+          >
+            {isLoading ? (
+              <>Saving...</>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Save Signature
+              </>
             )}
-          </div>
+          </Button>
+          {(existingSignature || signatureDataUrl) && (
+            <Button
+              onClick={handleDelete}
+              disabled={isLoading}
+              variant="outline"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </Button>
+          )}
+        </div>
         )}
         
         {/* Clear button for controlled mode - always show if in controlled mode */}

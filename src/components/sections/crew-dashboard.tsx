@@ -83,14 +83,14 @@ const CrewDashboard = () => {
                 <Ship className="h-4 w-4 mr-2" />
                 Vessel Management Platform
               </span>
-            </div>
+          </div>
             <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl mb-4 bg-gradient-to-r from-white via-blue-200 to-purple-200 bg-clip-text text-transparent">
-              Built for Vessel Owners & Captains
-            </h2>
-            <p className="mt-4 text-lg leading-8 text-blue-100 max-w-2xl mx-auto">
-              SeaJourney provides powerful crew management tools for vessel owners and captains. 
+            Built for Vessel Owners & Captains
+          </h2>
+          <p className="mt-4 text-lg leading-8 text-blue-100 max-w-2xl mx-auto">
+            SeaJourney provides powerful crew management tools for vessel owners and captains. 
               Manage your entire crew, track unlimited vessels, monitor progress, and oversee sea time documentation all from one dashboard.
-            </p>
+          </p>
           </motion.div>
         </div>
 
@@ -108,7 +108,7 @@ const CrewDashboard = () => {
                 whileHover={{ scale: 1.05, y: -8 }}
                 className="group"
               >
-                <Card 
+            <Card 
                   className="transform transition-all duration-300 hover:shadow-2xl backdrop-blur-sm rounded-xl border h-full relative overflow-hidden"
                   style={{ 
                     backgroundColor: 'rgba(2, 22, 44, 0.6)', 
@@ -122,7 +122,7 @@ const CrewDashboard = () => {
                     e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
                     e.currentTarget.style.boxShadow = 'none';
                   }}
-                >
+            >
                   {/* Gradient overlay on hover */}
                   <div 
                     className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"
@@ -139,13 +139,13 @@ const CrewDashboard = () => {
                       }}
                     >
                       <Icon className="h-7 w-7 text-white" />
-                    </div>
+                </div>
                     <CardTitle className="font-headline text-xl text-white mb-2">{feature.title}</CardTitle>
                     <CardDescription className="text-blue-100 mt-2 leading-relaxed">
-                      {feature.description}
-                    </CardDescription>
-                  </CardHeader>
-                </Card>
+                  {feature.description}
+                </CardDescription>
+              </CardHeader>
+            </Card>
               </motion.div>
             );
           })}

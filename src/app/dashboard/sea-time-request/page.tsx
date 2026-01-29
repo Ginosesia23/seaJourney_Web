@@ -153,12 +153,18 @@ export default function SeaTimeRequestPage() {
     enabled: vesselAssignments.length > 0,
   });
 
-  // Get unique vessels from assignments
+  // Get unique vessels from assignments - only show official vessels (managed by vessel manager)
   const availableVessels = useMemo(() => {
     if (!vesselsData || !vesselAssignments.length) return [];
     
     const vesselIds = new Set(vesselAssignments.map(a => a.vesselId));
-    return vesselsData.filter(v => vesselIds.has(v.id));
+    return vesselsData.filter(v => {
+      // Only include vessels that:
+      // 1. User is assigned to
+      // 2. Have a vessel manager (official vessel, not just added by crew member)
+      const hasManager = v.vesselManagerId || (v as any).vessel_manager_id;
+      return vesselIds.has(v.id) && hasManager;
+    });
   }, [vesselsData, vesselAssignments]);
 
   // Fetch existing requests
@@ -319,7 +325,7 @@ export default function SeaTimeRequestPage() {
                       </SelectContent>
                     </Select>
                     <FormDescription>
-                      Only vessels you're currently assigned to are available.
+                      Only official vessels (managed by vessel managers) that you're assigned to are available.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

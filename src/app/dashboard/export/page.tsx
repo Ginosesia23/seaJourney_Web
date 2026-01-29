@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
+import { getVesselAssignments } from '@/supabase/database/queries';
 import type { Vessel, UserProfile } from '@/lib/types';
 import Link from 'next/link';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -162,10 +163,41 @@ export default function ExportPage() {
     const watchedDateRange = form.watch('dateRange');
 
     // Query all vessels (vessels are shared, not owned by users)
-    const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
+    const { data: allVessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
         'vessels',
         { orderBy: 'created_at', ascending: false }
     );
+
+    // Fetch vessel assignments to filter vessels
+    const [vesselAssignments, setVesselAssignments] = useState<Array<{ vesselId: string }>>([]);
+    const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
+
+    useEffect(() => {
+        if (!user?.id || !supabase) return;
+        
+        const fetchAssignments = async () => {
+            setIsLoadingAssignments(true);
+            try {
+                const assignments = await getVesselAssignments(supabase, user.id);
+                setVesselAssignments(assignments);
+            } catch (error) {
+                console.error('Error fetching vessel assignments:', error);
+                setVesselAssignments([]);
+            } finally {
+                setIsLoadingAssignments(false);
+            }
+        };
+
+        fetchAssignments();
+    }, [user?.id, supabase]);
+
+    // Filter vessels to only show vessels the user is assigned to
+    const vessels = useMemo(() => {
+        if (!allVessels || !vesselAssignments.length) return [];
+        
+        const assignedVesselIds = new Set(vesselAssignments.map(a => a.vesselId));
+        return allVessels.filter(v => assignedVesselIds.has(v.id));
+    }, [allVessels, vesselAssignments]);
 
     // Fetch preview statistics based on selected filters
     useEffect(() => {
@@ -458,23 +490,29 @@ export default function ExportPage() {
                                         <Select onValueChange={field.onChange} value={field.value}>
                                             <FormControl>
                                                  <SelectTrigger className="rounded-lg">
-                                                    <SelectValue placeholder={isLoadingVessels ? 'Loading vessels...' : 'Choose a vessel'} />
+                                                    <SelectValue placeholder={(isLoadingVessels || isLoadingAssignments) ? 'Loading vessels...' : vessels?.length === 0 ? 'No vessels available' : 'Choose a vessel'} />
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                                {vessels?.map(vessel => (
-                                                    <SelectItem key={vessel.id} value={vessel.id}>
-                                                        <div className="flex items-center gap-2">
-                                                            <Ship className="h-4 w-4 text-muted-foreground" />
-                                                            <span>{vessel.name}</span>
-                                                            {vessel.type && (
-                                                                <Badge variant="outline" className="ml-auto text-xs">
-                                                                    {vessel.type}
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                    </SelectItem>
-                                                ))}
+                                                {vessels?.length === 0 && !isLoadingVessels && !isLoadingAssignments ? (
+                                                    <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                                        No vessels assigned to your account
+                                                    </div>
+                                                ) : (
+                                                    vessels?.map(vessel => (
+                                                        <SelectItem key={vessel.id} value={vessel.id}>
+                                                            <div className="flex items-center gap-2">
+                                                                <Ship className="h-4 w-4 text-muted-foreground" />
+                                                                <span>{vessel.name}</span>
+                                                                {vessel.type && (
+                                                                    <Badge variant="outline" className="ml-auto text-xs">
+                                                                        {vessel.type}
+                                                                    </Badge>
+                                                                )}
+                                                            </div>
+                                                        </SelectItem>
+                                                    ))
+                                                )}
                                             </SelectContent>
                                         </Select>
                                         <FormMessage />

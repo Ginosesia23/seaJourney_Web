@@ -31,7 +31,7 @@ export default function Home() {
         {/* <Testimonials /> */}
         <MembershipCTA />
         <div className="border-t border-white/10" style={{ backgroundColor: '#000b15' }}>
-          <AndroidTesterSignup />
+        <AndroidTesterSignup />
         </div>
       </main>
       <Footer />

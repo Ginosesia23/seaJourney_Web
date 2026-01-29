@@ -801,7 +801,7 @@ export default function CertificatesPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge className={cn("rounded-lg", status.color)}>
+                        <Badge className={cn("rounded-full px-3 py-1 text-xs font-medium", status.color, "text-white")}>
                           {status.label}
                         </Badge>
                       </TableCell>

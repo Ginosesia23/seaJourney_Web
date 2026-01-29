@@ -27,6 +27,7 @@ import {
   PenTool,
   MessageSquare,
   ClipboardList,
+  Database,
 } from "lucide-react"
 
 import {
@@ -115,6 +116,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] }, // Hide for vessel role
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false },
+      { href: "/dashboard/ais-import", label: "AIS Import", icon: Database, requiredRole: "vessel", disabled: false },
       { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, requiredRole: "captain", disabled: false }, // Captains and vessel roles can access
       { href: "/dashboard/requests", label: "Requests", icon: ClipboardList, requiredRole: "captain", disabled: false }, // Captains can view their requests
       { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false }, // Captain signature management
@@ -197,6 +199,23 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     
     // Crew accounts: premium or pro only
     return (tier === 'premium' || tier === 'pro') && status === 'active';
+  }, [userProfile]);
+
+  // Check if user is an officer (for bridge watch log access)
+  const isOfficer = React.useMemo(() => {
+    if (!userProfile) return false;
+    const position = ((userProfile as any).position || userProfile.position || '').toLowerCase();
+    const role = ((userProfile as any).role || userProfile.role || '').toLowerCase();
+    
+    // Officers include: Captain, Chief Officer, First Officer, First Mate, Second Officer, Third Officer, OOW, Deck Officer
+    // Also Chief Engineer, First Engineer, Second Engineer, Third Engineer, Fourth Engineer
+    const officerPositions = [
+      'captain', 'master', 'chief officer', 'first officer', 'first mate', 
+      'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+      'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer'
+    ];
+    
+    return role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
   }, [userProfile]);
   
   // Use admin navGroups for admin, regular navGroups for others
@@ -625,6 +644,11 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const isSeaTimeRequest = item.href === '/dashboard/sea-time-request';
                   const isCertificates = item.href === '/dashboard/certificates';
                   const requiresPremium = (isVisaTracker || isPassageLog || isBridgeWatch || isExport || isSeaTimeRequest || isCertificates) && !hasPremiumAccess;
+                  
+                  // Hide bridge watch log for non-officers
+                  if (isBridgeWatch && !isOfficer) {
+                    return null;
+                  }
 
                   const isActive = pathname === item.href
                   

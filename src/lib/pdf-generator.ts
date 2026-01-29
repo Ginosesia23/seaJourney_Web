@@ -84,6 +84,7 @@ export interface TestimonialPDFData {
     email?: string;
     signature?: string | null; // Base64 encoded signature image
   } | null;
+  receiptData?: MCAReceiptData; // Optional receipt/verification data
 }
 
 export type TestimonialPDFFormat = 'mca' | 'mlc' | 'pya' | 'seajourney';
@@ -131,7 +132,21 @@ export interface NavWatchApplicationPDFData {
 
 export type MCACertificateType = 'navigational' | 'engine_room' | 'electro_technical';
 
+export interface MCAReceiptData {
+  documentId?: string; // Application ID or Testimonial ID
+  sjCode?: string | null; // SJ-XXXXXXX code (testimonial_code)
+  documentType: 'nav_watch' | 'oow' | 'testimonial';
+  generatedAt: string; // ISO date string
+  generatedBy?: {
+    userId?: string;
+    email?: string;
+  };
+}
+
 export interface MCAWatchRatingApplicationData {
+  // Receipt/Verification data (optional)
+  receiptData?: MCAReceiptData;
+  
   // Personal Details
   personalDetails: {
     title?: string; // Mr/Mrs/Miss/etc
@@ -2148,6 +2163,7 @@ export interface MCAWatchRatingApplicationData {
     totalDays: number;
     daysAtSea: number;
   }>;
+  paymentRegion?: 'uk' | 'eu' | 'row'; // Section 8: Payment region selection
 }
 
 /**
@@ -2693,13 +2709,19 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
     drawText(page2, baseL, safe(r.toDate), col.to, top, { size: fs });
     // Format as "X months and Y days" according to MCA requirements - use smaller font to fit
     const lengthOfVoyage = formatLengthOfVoyage(r.fromDate, r.toDate);
-    drawText(page2, baseL, lengthOfVoyage, col.days, top, { size: fs * 0.85, maxW: (col.seaDays - col.days) - 4 });
+    drawText(page2, baseL, lengthOfVoyage, col.days, top, { size: fs * 0.7, maxW: (col.seaDays - col.days) - 4 });
     drawText(page2, baseL, String(r.daysAtSea ?? ''), col.seaDays, top, { size: fs });
   }
 
   // Draw total row at the bottom
   const { totalMonths, totalDays, totalDaysAtSea } = calculateTotals();
-  const totalRowTop = getRowTop(rowCount);
+  // Move down by one row: rowCount is the number of data rows (indices 0 to rowCount-1)
+  // getRowTop(rowCount) gives the position for the next row after the last data row
+  // To move it down further, you can:
+  // - Use getRowTop(rowCount + 1) for the next row position
+  // - Or add COORDS_BASE.p2.rowH to move down by one row height
+  // - Or manually specify a position value
+  const totalRowTop = getRowTop(rowCount) + COORDS_BASE.p2.rowH; // Move down by one row height
   const fs = COORDS_BASE.p2.fontSize;
   
   // Format total length of voyage
@@ -2715,8 +2737,7 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
   }
 
   // Draw "TOTAL" label (bold) and totals
-  drawText(page2, baseL, 'TOTAL', col.vessel, totalRowTop, { size: fs, bold: true });
-  drawText(page2, baseL, totalLengthOfVoyage, col.days, totalRowTop, { size: fs * 0.85, bold: true, maxW: (col.seaDays - col.days) - 4 });
+  drawText(page2, baseL, totalLengthOfVoyage, col.days, totalRowTop, { size: fs * 0.7, bold: true, maxW: (col.seaDays - col.days) - 4 });
   drawText(page2, baseL, String(totalDaysAtSea), col.seaDays, totalRowTop, { size: fs, bold: true });
 
   // Debug marks for page 2 (sea service table) - after content
@@ -2867,8 +2888,19 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
   // ----------------------------
   const page6 = pages[5];
 
+  // Use paymentRegion if provided, otherwise auto-detect from address country
+  if (data.paymentRegion) {
+    if (data.paymentRegion === 'uk') {
+      drawTick(page6, baseP, COORDS_BASE.p6.tickUK.x, COORDS_BASE.p6.tickUK.top, 10);
+    } else if (data.paymentRegion === 'eu') {
+      drawTick(page6, baseP, COORDS_BASE.p6.tickEU.x, COORDS_BASE.p6.tickEU.top, 10);
+    } else {
+      drawTick(page6, baseP, COORDS_BASE.p6.tickROW.x, COORDS_BASE.p6.tickROW.top, 10);
+    }
+  } else {
+    // Fallback to auto-detection if paymentRegion not provided
   const country = safe(personalDetails.address.country).toLowerCase();
-  const isUK = ['uk', 'united kingdom', 'england', 'scotland', 'wales', 'northern ireland', 'great britain', 'gb']
+    const isUK = ['uk', 'united kingdom', 'england', 'scotland', 'wales', 'northern ireland', 'great britain', 'gb']
       .some(k => country === k || country.includes(k));
 
   const euCountries = [
@@ -2878,15 +2910,141 @@ export async function generateMCAWatchRatingForm_NAV_WRC(
   ];
   const isEU = !isUK && euCountries.some(c => country === c || country.includes(c));
 
-  if (isUK) drawTick(page6, baseP, COORDS_BASE.p6.tickUK.x, COORDS_BASE.p6.tickUK.top, 10);
-  else if (isEU) drawTick(page6, baseP, COORDS_BASE.p6.tickEU.x, COORDS_BASE.p6.tickEU.top, 10);
-  else drawTick(page6, baseP, COORDS_BASE.p6.tickROW.x, COORDS_BASE.p6.tickROW.top, 10);
+    if (isUK) drawTick(page6, baseP, COORDS_BASE.p6.tickUK.x, COORDS_BASE.p6.tickUK.top, 10);
+    else if (isEU) drawTick(page6, baseP, COORDS_BASE.p6.tickEU.x, COORDS_BASE.p6.tickEU.top, 10);
+    else drawTick(page6, baseP, COORDS_BASE.p6.tickROW.x, COORDS_BASE.p6.tickROW.top, 10);
+  }
 
   // Debug marks for page 6 (payment ticks) - after content
   if (opts?.debug) {
     debugMark(page6, baseP, 'p6.tickUK', COORDS_BASE.p6.tickUK.x, COORDS_BASE.p6.tickUK.top);
     debugMark(page6, baseP, 'p6.tickEU', COORDS_BASE.p6.tickEU.x, COORDS_BASE.p6.tickEU.top);
     debugMark(page6, baseP, 'p6.tickROW', COORDS_BASE.p6.tickROW.x, COORDS_BASE.p6.tickROW.top);
+  }
+
+  // ----------------------------
+  // Add SeaJourney Receipt/Verification Page
+  // ----------------------------
+  if (data.receiptData) {
+    const receiptPage = pdfDoc.addPage([A4_PORTRAIT.w, A4_PORTRAIT.h]);
+    const receiptBase = A4_PORTRAIT;
+    
+    let yPos = receiptBase.h - 50; // Start from top
+    
+    // Header
+    drawText(receiptPage, receiptBase, 'SeaJourney Document Verification & Summary', 50, yPos, { size: 18, bold: true });
+    
+    yPos -= 30;
+    
+    // Draw a line
+    receiptPage.drawLine({
+      start: { x: X(receiptPage, receiptBase, 50), y: Y(receiptPage, receiptBase, yPos) },
+      end: { x: X(receiptPage, receiptBase, receiptBase.w - 50), y: Y(receiptPage, receiptBase, yPos) },
+      thickness: 1,
+      color: black,
+    });
+    
+    yPos -= 25;
+    
+    // Document Information Section
+    drawText(receiptPage, receiptBase, 'Document Information', 50, yPos, { size: 14, bold: true });
+    
+    yPos -= 20;
+    
+    const docInfo = [
+      ['Document Type:', data.receiptData.documentType === 'nav_watch' ? 'MCA Watch Rating Certificate Application (MSF 4371)' : 
+                          data.receiptData.documentType === 'oow' ? 'MCA Officer of the Watch Application (MSF 4274)' :
+                          'MCA Testimonial'],
+      ['Document ID:', data.receiptData.documentId || 'N/A'],
+      ['SeaJourney Code:', data.receiptData.sjCode || 'N/A'],
+      ['Generated:', format(new Date(data.receiptData.generatedAt), 'dd MMMM yyyy HH:mm:ss')],
+    ];
+    
+    docInfo.forEach(([label, value]) => {
+      drawText(receiptPage, receiptBase, label, 60, yPos, { size: 10, bold: true });
+      drawText(receiptPage, receiptBase, value, 200, yPos, { size: 10 });
+      yPos -= 18;
+    });
+    
+    yPos -= 10;
+    
+    // Personal Details Summary
+    drawText(receiptPage, receiptBase, 'Applicant Summary', 50, yPos, { size: 14, bold: true });
+    
+    yPos -= 20;
+    
+    const applicantInfo = [
+      ['Name:', `${personalDetails.forenames} ${personalDetails.surname}`],
+      ['Date of Birth:', personalDetails.dateOfBirth],
+      ['Nationality:', personalDetails.nationality || 'N/A'],
+      ['Email:', personalDetails.email],
+      ['Certificate Type:', certificateType === 'navigational' ? 'Navigational Watch Rating (II/4)' :
+                              certificateType === 'engine_room' ? 'Engine Room Watch Rating (III/4)' :
+                              'Electro-Technical Watch Rating (III/7)'],
+    ];
+    
+    applicantInfo.forEach(([label, value]) => {
+      drawText(receiptPage, receiptBase, label, 60, yPos, { size: 10, bold: true });
+      drawText(receiptPage, receiptBase, value || 'N/A', 200, yPos, { size: 10 });
+      yPos -= 18;
+    });
+    
+    yPos -= 10;
+    
+    // Sea Service Summary
+    drawText(receiptPage, receiptBase, 'Sea Service Summary', 50, yPos, { size: 14, bold: true });
+    
+    yPos -= 20;
+    
+    const totalVessels = seaServiceRecords.length;
+    const totalDays = seaServiceRecords.reduce((sum, r) => sum + r.totalDays, 0);
+    const totalDaysAtSea = seaServiceRecords.reduce((sum, r) => sum + r.daysAtSea, 0);
+    
+    const seaServiceInfo = [
+      ['Total Vessels:', String(totalVessels)],
+      ['Total Days:', String(totalDays)],
+      ['Days at Sea:', String(totalDaysAtSea)],
+    ];
+    
+    seaServiceInfo.forEach(([label, value]) => {
+      drawText(receiptPage, receiptBase, label, 60, yPos, { size: 10, bold: true });
+      drawText(receiptPage, receiptBase, value, 200, yPos, { size: 10 });
+      yPos -= 18;
+    });
+    
+    yPos -= 15;
+    
+    // Vessel List (if space allows)
+    if (totalVessels > 0 && yPos > 200) {
+      drawText(receiptPage, receiptBase, 'Vessels Included:', 50, yPos, { size: 12, bold: true });
+      
+      yPos -= 18;
+      
+      const maxVessels = Math.floor((yPos - 100) / 15);
+      seaServiceRecords.slice(0, maxVessels).forEach((record) => {
+        const vesselLine = `${record.vesselName} (${record.fromDate} - ${record.toDate}, ${record.daysAtSea} days at sea)`;
+        drawText(receiptPage, receiptBase, vesselLine, 60, yPos, { size: 9 });
+        yPos -= 15;
+      });
+      
+      if (totalVessels > maxVessels) {
+        drawText(receiptPage, receiptBase, `...and ${totalVessels - maxVessels} more vessel(s)`, 60, yPos, { size: 9 });
+      }
+    }
+    
+    // Footer with verification info
+    const verificationUrl = data.receiptData.documentId 
+      ? `www.seajourney.co.uk/verify/${data.receiptData.documentId}`
+      : 'www.seajourney.co.uk';
+    
+    drawText(receiptPage, receiptBase, 'Verification:', 50, 80, { size: 10, bold: true });
+    drawText(receiptPage, receiptBase, `This document can be verified at ${verificationUrl}`, 50, 65, { size: 9 });
+    
+    if (data.receiptData.sjCode) {
+      drawText(receiptPage, receiptBase, `Reference Code: ${data.receiptData.sjCode}`, 50, 50, { size: 9 });
+    }
+    
+    drawText(receiptPage, receiptBase, 'This page is generated by SeaJourney for verification purposes only.', 50, 30, { size: 8 });
   }
 
   // ----------------------------
@@ -3943,4 +4101,1228 @@ export async function generateMCAWatchRatingFormLegacy(
   }
 
   doc.save(filename);
+}
+
+/* ========================================================================== */
+/*                    MCA TESTIMONIAL PDF GENERATORS                          */
+/* ========================================================================== */
+
+/**
+ * Generate MCA Deckhand Testimonial PDF
+ * Fills out the MCA Deckhand Testimonial form with testimonial data
+ */
+export async function generateMCADeckhandTestimonial(
+  data: TestimonialPDFData,
+  output: TestimonialPDFOutput = 'download',
+  opts?: { debug?: boolean }
+) {
+  const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
+
+  const API_BASE_URL =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+
+  const MCA_FORM_API_URL = `${API_BASE_URL}/api/mca-form/testimonial-deckhand`;
+
+  const res = await fetch(MCA_FORM_API_URL);
+  if (!res.ok) throw new Error(`Failed to fetch MCA Deckhand Testimonial form: ${res.status} ${res.statusText}`);
+
+  const templateBytes = await res.arrayBuffer();
+  const pdfDoc = await PDFDocument.load(templateBytes);
+
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const pages = pdfDoc.getPages();
+  if (pages.length < 1) throw new Error(`Template PDF has ${pages.length} pages; expected at least 1.`);
+
+  const black = rgb(0, 0, 0);
+  const red = rgb(1, 0, 0);
+
+  const safe = (v?: string | null, fallback = '') => (v ?? '').trim() || fallback;
+  const formatDate = (dateStr: string, format: 'DD/MM/YYYY' | 'DD MMMM YYYY' = 'DD/MM/YYYY') => {
+    try {
+      const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+      return format === 'DD/MM/YYYY' 
+        ? format(date, 'dd/MM/yyyy')
+        : format(date, 'dd MMMM yyyy');
+    } catch {
+      return dateStr;
+    }
+  };
+
+  // A4 portrait
+  const A4_PORTRAIT = { w: 595.28, h: 841.89 };
+
+  // Helper functions (similar to Nav Watch generator)
+  const X = (page: any, base: { w: number; h: number }, x: number) => x;
+  const Y = (page: any, base: { w: number; h: number }, top: number) => base.h - top;
+  const W = (page: any, base: { w: number; h: number }, w: number) => w;
+
+  const drawText = (
+    page: any,
+    base: { w: number; h: number },
+    text: string,
+    x: number,
+    top: number,
+    opts?: { maxW?: number; size?: number; font?: PDFFont; bold?: boolean }
+  ) => {
+    if (!text) return;
+    const px = X(page, base, x);
+    const py = Y(page, base, top);
+    const size = opts?.size || 10;
+    const useFont = opts?.font || (opts?.bold ? fontBold : font);
+    const maxW = opts?.maxW;
+
+    if (maxW) {
+      const words = text.split(' ');
+      let line = '';
+      let y = py;
+      words.forEach((word) => {
+        const testLine = line + (line ? ' ' : '') + word;
+        const testWidth = useFont.widthOfTextAtSize(testLine, size);
+        if (testWidth > maxW && line) {
+          page.drawText(line, { x: px, y, size, font: useFont, color: black });
+          line = word;
+          y -= size + 2;
+        } else {
+          line = testLine;
+        }
+      });
+      if (line) {
+        page.drawText(line, { x: px, y, size, font: useFont, color: black });
+      }
+      return;
+    }
+
+    page.drawText(text, { x: px, y: py, size, font: useFont, color: black });
+  };
+
+  const debugMark = (page: any, base: { w: number; h: number }, label: string, x: number, top: number) => {
+    if (!opts?.debug) return;
+    const px = X(page, base, x);
+    const py = Y(page, base, top);
+    page.drawLine({ start: { x: px - 6, y: py }, end: { x: px + 6, y: py }, thickness: 0.8, color: red });
+    page.drawLine({ start: { x: px, y: py - 6 }, end: { x: px, y: py + 6 }, thickness: 0.8, color: red });
+    page.drawText(label, { x: px + 8, y: py + 2, size: 6, font, color: red });
+  };
+
+  const drawSignatureDataUrl = async (
+    page: any,
+    base: { w: number; h: number },
+    dataUrl: string | null,
+    x: number,
+    top: number,
+    boxW: number,
+    boxH: number
+  ) => {
+    if (!dataUrl) return;
+    try {
+      const fmt = dataUrl.toLowerCase().includes('image/jpeg') || dataUrl.toLowerCase().includes('image/jpg') ? 'jpg' : 'png';
+      const imgBytes = await fetch(dataUrl).then(r => r.arrayBuffer());
+      const img = fmt === 'jpg' ? await pdfDoc.embedJpg(imgBytes) : await pdfDoc.embedPng(imgBytes);
+
+      const px = X(page, base, x);
+      const pyTop = Y(page, base, top);
+      const bw = W(page, base, boxW);
+      const bh = W(page, base, boxH);
+
+      const scale = Math.min(bw / img.width, bh / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+
+      page.drawImage(img, {
+        x: px,
+        y: pyTop - bh + (bh - h) / 2,
+        width: w,
+        height: h,
+      });
+    } catch (e) {
+      console.warn('Could not draw signature image:', e);
+    }
+  };
+
+  // Coordinate mappings for MCA Deckhand Testimonial
+  // TODO: These coordinates need to be adjusted based on the actual PDF template
+  // Enable debug mode to visualize field positions
+  const COORDS = {
+    // Page 1 - Company and Personal Details
+    companyName: { x: 200, top: 190 },
+    companyAddress: { x: 200, top: 210 },
+    contactTel: { x: 250, top: 270 },
+    contactEmail: { x: 250, top: 290 },
+    
+    // Personal Details
+    fullName: { x: 275, top: 340 },
+    dateOfBirth: { x: 275, top: 360 },
+    dischargeBook: { x: 275, top: 380 },
+    
+    // Vessel Details
+    vesselName: { x: 195, top: 425 },
+    vesselType: { x: 195, top: 445 },
+    imoNumber: { x: 450, top: 425 },
+    grossTonnage: { x: 450, top: 445 },
+    loadLineLength: { x: 450, top: 465 },
+    dateJoining: { x: 235, top: 485 },
+    dateDischarge: { x: 450, top: 485 },
+    areasCruised: { x: 320, top: 520 },
+    
+    // Service Days
+    actualSeagoingDays: { x: 240, top: 595 },
+    standbyDays: { x: 240, top: 608 },
+    yardDays: { x: 240, top: 622 },
+    
+    // Comments (Page 2)
+    conduct: { x: 160, top: 320, page: 2 },
+    ability: { x: 160, top: 360, page: 2 },
+    generalComments: { x: 160, top: 405, page: 2 },
+    watchDays: { x: 240, top: 622, page: 2 }, // Watch days count on page 2
+    
+    // Master Details (Page 3)
+    masterName: { x: 230, top: 100, page: 3 },
+    masterPosition: { x: 230, top: 130, page: 3 },
+    masterCoC: { x: 230, top: 160, page: 3 },
+    masterIssuingAdmin: { x: 230, top: 195, page: 3 },
+    masterEmail: { x: 230, top: 225, page: 3 },
+    masterSignature: { x: 230, top: 240, w: 150, h: 50, page: 3 },
+    masterDate: { x: 230, top: 285, page: 3 },
+  };
+
+  const page1 = pages[0];
+  const page2 = pages.length > 1 ? pages[1] : null;
+  const page3 = pages.length > 2 ? pages[2] : null;
+  const base = A4_PORTRAIT;
+
+  // Debug marks
+  if (opts?.debug) {
+    Object.entries(COORDS).forEach(([k, v]: any) => {
+      if (v?.x != null && v?.top != null) {
+        const targetPage = v.page === 2 ? page2 : v.page === 3 ? page3 : page1;
+        if (targetPage) {
+          debugMark(targetPage, base, `deckhand.${k}`, v.x, v.top);
+        }
+      }
+    });
+  }
+
+  const fullName = `${safe(userProfile.firstName)} ${safe(userProfile.lastName)}`.trim() || safe(userProfile.username);
+  const dateOfBirth = userProfile.dateOfBirth ? formatDate(userProfile.dateOfBirth, 'DD/MM/YYYY') : '';
+  const dateJoining = formatDate(testimonial.start_date, 'DD/MM/YYYY');
+  const dateDischarge = formatDate(testimonial.end_date, 'DD/MM/YYYY');
+
+  // Company Details
+  drawText(page1, base, safe(companyDetails?.name), COORDS.companyName.x, COORDS.companyName.top);
+  drawText(page1, base, safe(companyDetails?.address), COORDS.companyAddress.x, COORDS.companyAddress.top, { maxW: 400 });
+  // Contact details parsing (assuming format like "Tel: xxx Email: yyy")
+  const contactDetails = safe(companyDetails?.contactDetails);
+  const telMatch = contactDetails.match(/Tel[:\s]+([^\s]+)/i);
+  const emailMatch = contactDetails.match(/Email[:\s]+([^\s]+)/i);
+  if (telMatch) drawText(page1, base, telMatch[1], COORDS.contactTel.x, COORDS.contactTel.top);
+  if (emailMatch) drawText(page1, base, emailMatch[1], COORDS.contactEmail.x, COORDS.contactEmail.top);
+
+  // Personal Details
+  drawText(page1, base, fullName, COORDS.fullName.x, COORDS.fullName.top);
+  drawText(page1, base, dateOfBirth, COORDS.dateOfBirth.x, COORDS.dateOfBirth.top);
+  drawText(page1, base, safe(userProfile.dischargeBookNumber), COORDS.dischargeBook.x, COORDS.dischargeBook.top);
+
+  // Vessel Details
+  drawText(page1, base, safe(vessel.name), COORDS.vesselName.x, COORDS.vesselName.top);
+  drawText(page1, base, safe(vessel.type), COORDS.vesselType.x, COORDS.vesselType.top);
+  drawText(page1, base, safe(vessel.officialNumber), COORDS.imoNumber.x, COORDS.imoNumber.top);
+  drawText(page1, base, vessel.gross_tonnage?.toString() || '', COORDS.grossTonnage.x, COORDS.grossTonnage.top);
+  drawText(page1, base, vessel.length_m?.toString() || '', COORDS.loadLineLength.x, COORDS.loadLineLength.top);
+  drawText(page1, base, dateJoining, COORDS.dateJoining.x, COORDS.dateJoining.top);
+  drawText(page1, base, dateDischarge, COORDS.dateDischarge.x, COORDS.dateDischarge.top);
+  drawText(page1, base, safe(testimonial.notes), COORDS.areasCruised.x, COORDS.areasCruised.top, { maxW: 400 });
+
+  // Service Days
+  drawText(page1, base, testimonial.at_sea_days.toString(), COORDS.actualSeagoingDays.x, COORDS.actualSeagoingDays.top);
+  drawText(page1, base, testimonial.standby_days.toString(), COORDS.standbyDays.x, COORDS.standbyDays.top);
+  drawText(page1, base, testimonial.yard_days.toString(), COORDS.yardDays.x, COORDS.yardDays.top);
+
+  // Comments (Page 2)
+  if (page2) {
+    drawText(page2, base, safe(testimonial.captain_comment_conduct), COORDS.conduct.x, COORDS.conduct.top, { maxW: 400 });
+    drawText(page2, base, safe(testimonial.captain_comment_ability), COORDS.ability.x, COORDS.ability.top, { maxW: 400 });
+    drawText(page2, base, safe(testimonial.captain_comment_general), COORDS.generalComments.x, COORDS.generalComments.top, { maxW: 400 });
+    
+    // Watch Days - calculate from date range if watch dates are available
+    // For now, default to 0 if not provided in testimonial data
+    const watchDays = (testimonial as any).watch_days ?? 0;
+    drawText(page2, base, watchDays.toString(), COORDS.watchDays.x, COORDS.watchDays.top);
+  }
+
+  // Master Details (Page 3)
+  if (page3) {
+    const masterName = captainProfile 
+      ? `${safe(captainProfile.firstName)} ${safe(captainProfile.lastName)}`.trim()
+      : safe(testimonial.captain_name);
+    drawText(page3, base, masterName, COORDS.masterName.x, COORDS.masterName.top);
+    drawText(page3, base, safe(testimonial.captain_position || captainProfile?.position), COORDS.masterPosition.x, COORDS.masterPosition.top);
+    // CoC number and issuing admin would need to be added to captainProfile or testimonial
+    drawText(page3, base, '', COORDS.masterCoC.x, COORDS.masterCoC.top);
+    drawText(page3, base, '', COORDS.masterIssuingAdmin.x, COORDS.masterIssuingAdmin.top);
+    drawText(page3, base, safe(testimonial.captain_email || captainProfile?.email), COORDS.masterEmail.x, COORDS.masterEmail.top);
+    
+    // Signature
+    const signatureDataUrl = testimonial.captain_signature || captainProfile?.signature;
+    if (signatureDataUrl) {
+      await drawSignatureDataUrl(page3, base, signatureDataUrl, COORDS.masterSignature.x, COORDS.masterSignature.top, COORDS.masterSignature.w, COORDS.masterSignature.h);
+    }
+    
+    // Date
+    const approvedDate = testimonial.approved_at || testimonial.signoff_used_at;
+    if (approvedDate) {
+      drawText(page3, base, formatDate(approvedDate, 'DD/MM/YYYY'), COORDS.masterDate.x, COORDS.masterDate.top);
+    }
+  }
+
+  // TODO: Add Table A for standby service if needed (would be on a separate page or section)
+
+  if (data.receiptData) {
+    const page = pdfDoc.addPage([A4_PORTRAIT.w, A4_PORTRAIT.h]);
+    const base = A4_PORTRAIT;
+  
+    const W = base.w;
+    const H = base.h;
+  
+    // ========== Theme ==========
+    const NAVY = rgb(0.06, 0.14, 0.26);
+    const ACCENT = rgb(0.12, 0.45, 0.95);
+    const INK = rgb(0.10, 0.10, 0.12);
+    const MUTED = rgb(0.42, 0.45, 0.52);
+    const BORDER = rgb(0.90, 0.92, 0.95);
+    const BORDER2 = rgb(0.86, 0.88, 0.92);
+    const SOFT = rgb(0.985, 0.988, 0.995);
+    const PILL_BG = rgb(0.94, 0.96, 0.99);
+    const PILL_BORDER = rgb(0.84, 0.88, 0.95);
+    const WHITE = rgb(1, 1, 1);
+  
+    const M = 34; // margins
+    const G = 14; // gap
+    const P = 14; // inner padding
+    const headerH = 92;
+  
+    // ========== Data ==========
+    const docId = data.receiptData.documentId || testimonial.id;
+    const sjCode = data.receiptData.sjCode || testimonial.testimonial_code || 'N/A';
+    const generatedAt = data.receiptData.generatedAt
+      ? format(new Date(data.receiptData.generatedAt), 'dd MMM yyyy HH:mm:ss')
+      : format(new Date(), 'dd MMM yyyy HH:mm:ss');
+  
+    const verificationUrl = data.receiptData.documentId
+      ? `www.seajourney.co.uk/verify/${data.receiptData.documentId}`
+      : `www.seajourney.co.uk/verify/${testimonial.id}`;
+  
+    // If you prefer to always display the actual testimonial_code when present:
+    const refCode = testimonial.testimonial_code || sjCode || 'N/A';
+  
+    const safeInt = (n: any) => {
+      const v = Number(n);
+      return Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0;
+    };
+  
+    // ========== Helpers ==========
+    const t = (text: string, x: number, y: number, size: number, bold = false, color = INK) => {
+      page.drawText(String(text ?? ''), { x, y, size, font: bold ? fontBold : font, color });
+    };
+  
+    const wrapText = (text: string, maxWidth: number, size: number) => {
+      if (!text) return ['N/A'];
+      const s = String(text);
+      const words = s.split(' ');
+      const lines: string[] = [];
+      let current = '';
+  
+      for (const w of words) {
+        const test = current ? `${current} ${w}` : w;
+        if (font.widthOfTextAtSize(test, size) <= maxWidth) {
+          current = test;
+        } else {
+          if (current) lines.push(current);
+  
+          // Hard split if a single token is too long
+          if (font.widthOfTextAtSize(w, size) > maxWidth) {
+            let chunk = '';
+            for (const ch of w) {
+              const tryChunk = chunk + ch;
+              if (font.widthOfTextAtSize(tryChunk, size) <= maxWidth) chunk = tryChunk;
+              else {
+                if (chunk) lines.push(chunk);
+                chunk = ch;
+              }
+            }
+            current = chunk;
+          } else {
+            current = w;
+          }
+        }
+      }
+  
+      if (current) lines.push(current);
+      return lines.length ? lines : ['N/A'];
+    };
+  
+    const drawSoftSection = (x: number, yTop: number, w: number, h: number) => {
+      page.drawRectangle({
+        x,
+        y: yTop - h,
+        width: w,
+        height: h,
+        color: SOFT,
+        borderColor: BORDER,
+        borderWidth: 1,
+      });
+  
+      page.drawRectangle({
+        x,
+        y: yTop - 3,
+        width: w,
+        height: 3,
+        color: ACCENT,
+      });
+    };
+  
+    const sectionTitle = (label: string, x: number, yTop: number) => {
+      t(label, x, yTop - 20, 10, true, INK);
+    };
+  
+    const drawLabelPill = (labelText: string, x: number, y: number, w: number) => {
+      page.drawRectangle({
+        x,
+        y: y - 12,
+        width: w,
+        height: 16,
+        color: PILL_BG,
+        borderColor: PILL_BORDER,
+        borderWidth: 1,
+      });
+      t(labelText.toUpperCase(), x + 8, y - 8, 7, true, MUTED);
+    };
+  
+    const drawRow = (x: number, y: number, labelText: string, valueText: string, rowW: number) => {
+      const pillW = Math.min(
+        132,
+        Math.max(92, fontBold.widthOfTextAtSize(labelText.toUpperCase(), 7) + 24),
+      );
+  
+      drawLabelPill(labelText, x, y, pillW);
+  
+      const valueX = x + pillW + 12;
+      const maxW = rowW - (pillW + 12);
+      const lines = wrapText(valueText || 'N/A', maxW, 9);
+  
+      // up to 2 lines
+      lines.slice(0, 2).forEach((ln, i) => t(ln, valueX, y - i * 12, 9, false, INK));
+  
+      page.drawLine({
+        start: { x, y: y - 20 },
+        end: { x: x + rowW, y: y - 20 },
+        thickness: 1,
+        color: rgb(0.92, 0.93, 0.95),
+      });
+  
+      return 26 + (Math.min(lines.length, 2) - 1) * 12;
+    };
+  
+    const drawStatChip = (labelText: string, valueText: string, x: number, yTop: number) => {
+      const w = 118;
+      const h = 36;
+  
+      page.drawRectangle({
+        x,
+        y: yTop - h,
+        width: w,
+        height: h,
+        color: rgb(0.97, 0.98, 1),
+        borderColor: BORDER2,
+        borderWidth: 1,
+      });
+  
+      t(labelText.toUpperCase(), x + 10, yTop - 14, 7, true, MUTED);
+      t(valueText || '0', x + 10, yTop - 30, 15, true, INK);
+  
+      return { w, h };
+    };
+  
+    // ========== Header ==========
+    page.drawRectangle({ x: 0, y: H - headerH, width: W, height: headerH, color: NAVY });
+    page.drawRectangle({ x: 0, y: H - headerH - 4, width: W, height: 4, color: ACCENT });
+  
+    t('SeaJourney', M, H - 46, 24, true, WHITE);
+    t('Document Verification Summary', M, H - 68, 10, false, rgb(0.90, 0.93, 0.98));
+  
+    const metaX = W - M - 220;
+    t('Document', metaX, H - 40, 9, true, WHITE);
+    t('Type: MCA Testimonial', metaX, H - 54, 8, false, rgb(0.90, 0.93, 0.98));
+    t(`Generated: ${format(new Date(), 'dd MMM yyyy')}`, metaX, H - 66, 8, false, rgb(0.90, 0.93, 0.98));
+  
+    // ========== Layout ==========
+    let y = H - headerH - 18;
+  
+    // Row 1: Document Info (left) + Verification (right)
+    const row1H = 150;
+    const leftW = Math.round((W - 2 * M) * 0.64);
+    const rightW = (W - 2 * M) - leftW - G;
+  
+    drawSoftSection(M, y, leftW, row1H);
+    drawSoftSection(M + leftW + G, y, rightW, row1H);
+  
+    sectionTitle('DOCUMENT INFORMATION', M + P, y);
+    sectionTitle('VERIFICATION', M + leftW + G + P, y);
+  
+    let ry = y - 46;
+    const docRowW = leftW - 2 * P;
+    const docX = M + P;
+  
+    ry -= drawRow(docX, ry, 'Document Type', 'MCA Testimonial', docRowW);
+    ry -= drawRow(docX, ry, 'Document ID', docId, docRowW);
+    ry -= drawRow(docX, ry, 'SeaJourney Code', refCode, docRowW);
+    ry -= drawRow(docX, ry, 'Generated', generatedAt, docRowW);
+  
+    // Verification details (NO verify button)
+    const vX = M + leftW + G + P;
+    const vInnerW = rightW - 2 * P;
+  
+    t('REFERENCE CODE', vX, y - 52, 7, true, MUTED);
+    t(refCode, vX, y - 74, 16, true, INK);
+  
+    drawLabelPill('Verification URL', vX, y - 92, Math.min(160, vInnerW));
+    const urlLines = wrapText(verificationUrl, vInnerW, 8.5);
+    urlLines.slice(0, 4).forEach((ln, i) => t(ln, vX, y - 114 - i * 10, 8.5, false, INK));
+  
+    y -= row1H + 14;
+  
+    // Row 2: Crew + Vessel
+    const row2H = 150;
+    const colW = (W - 2 * M - G) / 2;
+  
+    drawSoftSection(M, y, colW, row2H);
+    drawSoftSection(M + colW + G, y, colW, row2H);
+  
+    sectionTitle('CREW MEMBER', M + P, y);
+    sectionTitle('VESSEL', M + colW + G + P, y);
+  
+    let cy = y - 46;
+    const crewW = colW - 2 * P;
+    const crewX = M + P;
+  
+    cy -= drawRow(crewX, cy, 'Name', fullName, crewW);
+    cy -= drawRow(crewX, cy, 'Date of birth', dateOfBirth || 'N/A', crewW);
+    cy -= drawRow(crewX, cy, 'Position', safe(userProfile.position) || 'N/A', crewW);
+    cy -= drawRow(crewX, cy, 'Email', userProfile.email || 'N/A', crewW);
+    // Optional:
+    // cy -= drawRow(crewX, cy, 'Discharge book', safe(userProfile.dischargeBookNumber) || 'N/A', crewW);
+  
+    let vy = y - 46;
+    const vesselX = M + colW + G + P;
+    const vesselW = colW - 2 * P;
+  
+    vy -= drawRow(vesselX, vy, 'Name', safe(vessel.name) || 'N/A', vesselW);
+    vy -= drawRow(vesselX, vy, 'Type', safe(vessel.type) || 'N/A', vesselW);
+    vy -= drawRow(vesselX, vy, 'Flag state', safe(vessel.flag_state) || 'N/A', vesselW);
+    vy -= drawRow(vesselX, vy, 'IMO', safe(vessel.imo) || safe(vessel.officialNumber) || 'N/A', vesselW);
+    vy -= drawRow(vesselX, vy, 'Gross tonnage', vessel.gross_tonnage?.toString() || 'N/A', vesselW);
+  
+    y -= row2H + 14;
+  
+    // Row 3: Service Summary (ONLY At sea / Standby / Yard)
+    const row3H = 160;
+    drawSoftSection(M, y, W - 2 * M, row3H);
+    sectionTitle('SERVICE SUMMARY', M + P, y);
+  
+    const range = `${formatDate(testimonial.start_date, 'DD/MM/YYYY')} - ${formatDate(testimonial.end_date, 'DD/MM/YYYY')}`;
+    t('DATE RANGE', M + P, y - 46, 7, true, MUTED);
+    t(range, M + P + 74, y - 46, 9, true, INK);
+  
+    // Chips (3), centered
+    const chipsY = y - 64;
+    const chipW = 118;
+    const chipGap = 12;
+    const chips: Array<[string, string]> = [
+      ['At sea', String(safeInt(testimonial.at_sea_days))],
+      ['Standby', String(safeInt(testimonial.standby_days))],
+      ['Yard', String(safeInt(testimonial.yard_days))],
+    ];
+    const totalChipsW = chips.length * chipW + (chips.length - 1) * chipGap;
+    let cx = M + P + ((W - 2 * M - 2 * P) - totalChipsW) / 2;
+  
+    chips.forEach(([lab, val]) => {
+      drawStatChip(lab, val, cx, chipsY);
+      cx += chipW + chipGap;
+    });
+  
+    t(
+      'These values reflect the approved SeaJourney record for this testimonial.',
+      M + P,
+      y - row3H + 18,
+      8,
+      false,
+      MUTED,
+    );
+  
+    // Bottom micro footer
+    t('Generated by SeaJourney for official verification purposes.', M, 10, 7.5, false, MUTED);
+  }
+  
+
+  const pdfBytes = await pdfDoc.save();
+
+  // Output modes
+  if (output === 'blob') {
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+  }
+  if (output === 'newtab') {
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    return;
+  }
+
+  // Download
+  const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `MCA_Deckhand_Testimonial_${fullName.replace(/\s+/g, '_')}_${formatDate(testimonial.start_date, 'DD/MM/YYYY')}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Generate MCA Officer Testimonial PDF
+ * Fills out the MCA Officer Testimonial form with testimonial data
+ */
+export async function generateMCAOfficerTestimonial(
+  data: TestimonialPDFData,
+  output: TestimonialPDFOutput = 'download',
+  opts?: { debug?: boolean }
+) {
+  const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
+
+  const API_BASE_URL =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+
+  const MCA_FORM_API_URL = `${API_BASE_URL}/api/mca-form/testimonial-officer`;
+
+  const res = await fetch(MCA_FORM_API_URL);
+  if (!res.ok) throw new Error(`Failed to fetch MCA Officer Testimonial form: ${res.status} ${res.statusText}`);
+
+  const templateBytes = await res.arrayBuffer();
+  const pdfDoc = await PDFDocument.load(templateBytes);
+
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const pages = pdfDoc.getPages();
+  if (pages.length < 1) throw new Error(`Template PDF has ${pages.length} pages; expected at least 1.`);
+
+  const black = rgb(0, 0, 0);
+  const red = rgb(1, 0, 0);
+
+  const safe = (v?: string | null, fallback = '') => (v ?? '').trim() || fallback;
+  const formatDate = (dateStr: string, format: 'DD/MM/YYYY' | 'DD MMMM YYYY' = 'DD/MM/YYYY') => {
+    try {
+      const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+      return format === 'DD/MM/YYYY' 
+        ? format(date, 'dd/MM/yyyy')
+        : format(date, 'dd MMMM yyyy');
+    } catch {
+      return dateStr;
+    }
+  };
+
+  // A4 portrait
+  const A4_PORTRAIT = { w: 595.28, h: 841.89 };
+
+  // Helper functions (same as deckhand)
+  const X = (page: any, base: { w: number; h: number }, x: number) => x;
+  const Y = (page: any, base: { w: number; h: number }, top: number) => base.h - top;
+  const W = (page: any, base: { w: number; h: number }, w: number) => w;
+
+  const drawText = (
+    page: any,
+    base: { w: number; h: number },
+    text: string,
+    x: number,
+    top: number,
+    opts?: { maxW?: number; size?: number; font?: PDFFont; bold?: boolean }
+  ) => {
+    if (!text) return;
+    const px = X(page, base, x);
+    const py = Y(page, base, top);
+    const size = opts?.size || 10;
+    const useFont = opts?.font || (opts?.bold ? fontBold : font);
+    const maxW = opts?.maxW;
+
+    if (maxW) {
+      const words = text.split(' ');
+      let line = '';
+      let y = py;
+      words.forEach((word) => {
+        const testLine = line + (line ? ' ' : '') + word;
+        const testWidth = useFont.widthOfTextAtSize(testLine, size);
+        if (testWidth > maxW && line) {
+          page.drawText(line, { x: px, y, size, font: useFont, color: black });
+          line = word;
+          y -= size + 2;
+        } else {
+          line = testLine;
+        }
+      });
+      if (line) {
+        page.drawText(line, { x: px, y, size, font: useFont, color: black });
+      }
+      return;
+    }
+
+    page.drawText(text, { x: px, y: py, size, font: useFont, color: black });
+  };
+
+  const debugMark = (page: any, base: { w: number; h: number }, label: string, x: number, top: number) => {
+    if (!opts?.debug) return;
+    const px = X(page, base, x);
+    const py = Y(page, base, top);
+    page.drawLine({ start: { x: px - 6, y: py }, end: { x: px + 6, y: py }, thickness: 0.8, color: red });
+    page.drawLine({ start: { x: px, y: py - 6 }, end: { x: px, y: py + 6 }, thickness: 0.8, color: red });
+    page.drawText(label, { x: px + 8, y: py + 2, size: 6, font, color: red });
+  };
+
+  const drawSignatureDataUrl = async (
+    page: any,
+    base: { w: number; h: number },
+    dataUrl: string | null,
+    x: number,
+    top: number,
+    boxW: number,
+    boxH: number
+  ) => {
+    if (!dataUrl) return;
+    try {
+      const fmt = dataUrl.toLowerCase().includes('image/jpeg') || dataUrl.toLowerCase().includes('image/jpg') ? 'jpg' : 'png';
+      const imgBytes = await fetch(dataUrl).then(r => r.arrayBuffer());
+      const img = fmt === 'jpg' ? await pdfDoc.embedJpg(imgBytes) : await pdfDoc.embedPng(imgBytes);
+
+      const px = X(page, base, x);
+      const pyTop = Y(page, base, top);
+      const bw = W(page, base, boxW);
+      const bh = W(page, base, boxH);
+
+      const scale = Math.min(bw / img.width, bh / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+
+      page.drawImage(img, {
+        x: px,
+        y: pyTop - bh + (bh - h) / 2,
+        width: w,
+        height: h,
+      });
+    } catch (e) {
+      console.warn('Could not draw signature image:', e);
+    }
+  };
+
+  // Coordinate mappings for MCA Officer Testimonial
+  // TODO: These coordinates need to be adjusted based on the actual PDF template
+  // Enable debug mode to visualize field positions
+  const COORDS = {
+    // Page 1 - Company and Personal Details
+    companyName: { x: 150, top: 145 },
+    companyAddress: { x: 150, top: 165 },
+    contactTel: { x: 200, top: 220 },
+    contactEmail: { x: 200, top: 240 },
+    
+    // Personal Details
+    fullName: { x: 235, top: 285 },
+    dateOfBirth: { x: 235, top: 305 },
+    capacity: { x: 235, top: 325 }, // Master/Chief Mate/OOW - positioned after dischargeBook
+    dischargeBook: { x: 235, top: 345 },
+    
+    // Vessel Details
+    vesselName: { x: 150, top: 395 },
+    vesselType: { x: 150, top: 412 },
+    imoNumber: { x: 405, top: 395 },
+    grossTonnage: { x: 405, top: 412 },
+    loadLineLength: { x: 405, top: 433 },
+    dateJoining: { x: 180, top: 450 },
+    dateDischarge: { x: 405, top: 450 },
+    areasCruised: { x: 300, top: 485 },
+    
+    // Service Days
+    actualSeagoingDays: { x: 195, top: 562 },
+    standbyDays: { x: 195, top: 575 },
+    yardDays: { x: 195, top: 588 },
+    
+    // Comments (Page 2)
+    conduct: { x: 200, top: 305, page: 2 },
+    ability: { x: 200, top: 340, page: 2 },
+    generalComments: { x: 200, top: 380, page: 2 },
+    watchDays: { x: 270, top: 250, page: 2 }, // Watch days count on page 2 
+    
+    // Master Details (Page 3)
+    masterName: { x: 180, top: 100, page: 3 },
+    masterPosition: { x: 180, top: 125, page: 3 },
+    masterCoC: { x: 180, top: 150, page: 3 },
+    masterIssuingAdmin: { x: 180, top: 195, page: 3 },
+    masterEmail: { x: 180, top: 220, page: 3 },
+    masterSignature: { x: 180, top: 230, w: 150, h: 50, page: 3 },
+    masterDate: { x: 180, top: 280, page: 3 },
+  };
+
+  const page1 = pages[0];
+  const page2 = pages.length > 1 ? pages[1] : null;
+  const page3 = pages.length > 2 ? pages[2] : null;
+  const base = A4_PORTRAIT;
+
+  // Debug marks
+  if (opts?.debug) {
+    Object.entries(COORDS).forEach(([k, v]: any) => {
+      if (v?.x != null && v?.top != null) {
+        const targetPage = v.page === 2 ? page2 : v.page === 3 ? page3 : page1;
+        if (targetPage) {
+          debugMark(targetPage, base, `officer.${k}`, v.x, v.top);
+        }
+      }
+    });
+  }
+
+  const fullName = `${safe(userProfile.firstName)} ${safe(userProfile.lastName)}`.trim() || safe(userProfile.username);
+  const dateOfBirth = userProfile.dateOfBirth ? formatDate(userProfile.dateOfBirth, 'DD/MM/YYYY') : '';
+  const dateJoining = formatDate(testimonial.start_date, 'DD/MM/YYYY');
+  const dateDischarge = formatDate(testimonial.end_date, 'DD/MM/YYYY');
+  
+  // Determine capacity from position
+  const position = safe(userProfile.position).toLowerCase();
+  let capacity = '';
+  if (position.includes('master') || position.includes('captain')) capacity = 'Master';
+  else if (position.includes('chief mate') || position.includes('chief officer') || position.includes('first mate')) capacity = 'Chief Mate';
+  else if (position.includes('oow') || position.includes('officer of the watch') || position.includes('watch')) capacity = 'OOW';
+  else capacity = safe(userProfile.position);
+
+  // Company Details
+  drawText(page1, base, safe(companyDetails?.name), COORDS.companyName.x, COORDS.companyName.top);
+  drawText(page1, base, safe(companyDetails?.address), COORDS.companyAddress.x, COORDS.companyAddress.top, { maxW: 400 });
+  const contactDetails = safe(companyDetails?.contactDetails);
+  const telMatch = contactDetails.match(/Tel[:\s]+([^\s]+)/i);
+  const emailMatch = contactDetails.match(/Email[:\s]+([^\s]+)/i);
+  if (telMatch) drawText(page1, base, telMatch[1], COORDS.contactTel.x, COORDS.contactTel.top);
+  if (emailMatch) drawText(page1, base, emailMatch[1], COORDS.contactEmail.x, COORDS.contactEmail.top);
+
+  // Personal Details
+  drawText(page1, base, fullName, COORDS.fullName.x, COORDS.fullName.top);
+  drawText(page1, base, dateOfBirth, COORDS.dateOfBirth.x, COORDS.dateOfBirth.top);
+  drawText(page1, base, capacity, COORDS.capacity.x, COORDS.capacity.top);
+  drawText(page1, base, safe(userProfile.dischargeBookNumber), COORDS.dischargeBook.x, COORDS.dischargeBook.top);
+
+  // Vessel Details
+  drawText(page1, base, safe(vessel.name), COORDS.vesselName.x, COORDS.vesselName.top);
+  drawText(page1, base, safe(vessel.type), COORDS.vesselType.x, COORDS.vesselType.top);
+  drawText(page1, base, safe(vessel.officialNumber), COORDS.imoNumber.x, COORDS.imoNumber.top);
+  drawText(page1, base, vessel.gross_tonnage?.toString() || '', COORDS.grossTonnage.x, COORDS.grossTonnage.top);
+  drawText(page1, base, vessel.length_m?.toString() || '', COORDS.loadLineLength.x, COORDS.loadLineLength.top);
+  drawText(page1, base, dateJoining, COORDS.dateJoining.x, COORDS.dateJoining.top);
+  drawText(page1, base, dateDischarge, COORDS.dateDischarge.x, COORDS.dateDischarge.top);
+  drawText(page1, base, safe(testimonial.notes), COORDS.areasCruised.x, COORDS.areasCruised.top, { maxW: 400 });
+
+  // Service Days
+  drawText(page1, base, testimonial.at_sea_days.toString(), COORDS.actualSeagoingDays.x, COORDS.actualSeagoingDays.top);
+  drawText(page1, base, testimonial.standby_days.toString(), COORDS.standbyDays.x, COORDS.standbyDays.top);
+  drawText(page1, base, testimonial.yard_days.toString(), COORDS.yardDays.x, COORDS.yardDays.top);
+
+  // Comments (Page 2)
+  if (page2) {
+    drawText(page2, base, safe(testimonial.captain_comment_conduct), COORDS.conduct.x, COORDS.conduct.top, { maxW: 400 });
+    drawText(page2, base, safe(testimonial.captain_comment_ability), COORDS.ability.x, COORDS.ability.top, { maxW: 400 });
+    drawText(page2, base, safe(testimonial.captain_comment_general), COORDS.generalComments.x, COORDS.generalComments.top, { maxW: 400 });
+    
+    // Watch Days - calculate from date range if watch dates are available
+    // For now, default to 0 if not provided in testimonial data
+    const watchDays = (testimonial as any).watch_days ?? 0;
+    drawText(page2, base, watchDays.toString(), COORDS.watchDays.x, COORDS.watchDays.top);
+  }
+
+  // Master Details (Page 3)
+  if (page3) {
+    const masterName = captainProfile 
+      ? `${safe(captainProfile.firstName)} ${safe(captainProfile.lastName)}`.trim()
+      : safe(testimonial.captain_name);
+    drawText(page3, base, masterName, COORDS.masterName.x, COORDS.masterName.top);
+    drawText(page3, base, safe(testimonial.captain_position || captainProfile?.position), COORDS.masterPosition.x, COORDS.masterPosition.top);
+    // CoC number and issuing admin would need to be added to captainProfile or testimonial
+    drawText(page3, base, '', COORDS.masterCoC.x, COORDS.masterCoC.top);
+    drawText(page3, base, '', COORDS.masterIssuingAdmin.x, COORDS.masterIssuingAdmin.top);
+    drawText(page3, base, safe(testimonial.captain_email || captainProfile?.email), COORDS.masterEmail.x, COORDS.masterEmail.top);
+    
+    // Signature
+    const signatureDataUrl = testimonial.captain_signature || captainProfile?.signature;
+    if (signatureDataUrl) {
+      await drawSignatureDataUrl(page3, base, signatureDataUrl, COORDS.masterSignature.x, COORDS.masterSignature.top, COORDS.masterSignature.w, COORDS.masterSignature.h);
+    }
+    
+    // Date
+    const approvedDate = testimonial.approved_at || testimonial.signoff_used_at;
+    if (approvedDate) {
+      drawText(page3, base, formatDate(approvedDate, 'DD/MM/YYYY'), COORDS.masterDate.x, COORDS.masterDate.top);
+    }
+  }
+
+  // TODO: Add Table A for standby service if needed
+
+  // Add SeaJourney Receipt/Verification Page
+  if (data.receiptData) {
+    const page = pdfDoc.addPage([A4_PORTRAIT.w, A4_PORTRAIT.h]);
+    const base = A4_PORTRAIT;
+  
+    const W = base.w;
+    const H = base.h;
+  
+    // ========== Theme ==========
+    const NAVY = rgb(0.06, 0.14, 0.26);
+    const ACCENT = rgb(0.12, 0.45, 0.95);
+    const INK = rgb(0.10, 0.10, 0.12);
+    const MUTED = rgb(0.42, 0.45, 0.52);
+    const BORDER = rgb(0.90, 0.92, 0.95);
+    const BORDER2 = rgb(0.86, 0.88, 0.92);
+    const SOFT = rgb(0.985, 0.988, 0.995);
+    const PILL_BG = rgb(0.94, 0.96, 0.99);
+    const PILL_BORDER = rgb(0.84, 0.88, 0.95);
+    const WHITE = rgb(1, 1, 1);
+  
+    const M = 34;     // margins
+    const G = 14;     // gap
+    const P = 14;     // inner padding
+    const headerH = 92;
+  
+    // ========== Data ==========
+    const docId = data.receiptData.documentId || testimonial.id;
+    const sjCode = data.receiptData.sjCode || testimonial.testimonial_code || 'N/A';
+    const generatedAt = data.receiptData.generatedAt
+      ? format(new Date(data.receiptData.generatedAt), 'dd MMM yyyy HH:mm:ss')
+      : format(new Date(), 'dd MMM yyyy HH:mm:ss');
+  
+    const verificationUrl = data.receiptData.documentId
+      ? `www.seajourney.co.uk/verify/${data.receiptData.documentId}`
+      : `www.seajourney.co.uk/verify/${testimonial.id}`;
+  
+    // ========== Helpers ==========
+    const t = (
+      text: string,
+      x: number,
+      y: number,
+      size: number,
+      bold = false,
+      color = INK,
+    ) => {
+      page.drawText(String(text ?? ''), {
+        x,
+        y,
+        size,
+        font: bold ? fontBold : font,
+        color,
+      });
+    };
+  
+    const wrapText = (text: string, maxWidth: number, size: number) => {
+      if (!text) return ['N/A'];
+      const s = String(text);
+      const words = s.split(' ');
+      const lines: string[] = [];
+      let current = '';
+  
+      for (const w of words) {
+        const test = current ? `${current} ${w}` : w;
+        if (font.widthOfTextAtSize(test, size) <= maxWidth) {
+          current = test;
+        } else {
+          if (current) lines.push(current);
+  
+          // Hard split if a single token is too long
+          if (font.widthOfTextAtSize(w, size) > maxWidth) {
+            let chunk = '';
+            for (const ch of w) {
+              const tryChunk = chunk + ch;
+              if (font.widthOfTextAtSize(tryChunk, size) <= maxWidth) chunk = tryChunk;
+              else {
+                if (chunk) lines.push(chunk);
+                chunk = ch;
+              }
+            }
+            current = chunk;
+          } else {
+            current = w;
+          }
+        }
+      }
+  
+      if (current) lines.push(current);
+      return lines.length ? lines : ['N/A'];
+    };
+  
+    const drawSoftSection = (x: number, yTop: number, w: number, h: number) => {
+      // Subtle container
+      page.drawRectangle({
+        x,
+        y: yTop - h,
+        width: w,
+        height: h,
+        color: SOFT,
+        borderColor: BORDER,
+        borderWidth: 1,
+      });
+  
+      // Tiny top accent strip
+      page.drawRectangle({
+        x,
+        y: yTop - 3,
+        width: w,
+        height: 3,
+        color: ACCENT,
+      });
+    };
+  
+    const sectionTitle = (label: string, x: number, yTop: number) => {
+      t(label, x, yTop - 20, 10, true, INK);
+    };
+  
+    const drawLabelPill = (labelText: string, x: number, y: number, w: number) => {
+      page.drawRectangle({
+        x,
+        y: y - 12,
+        width: w,
+        height: 16,
+        color: PILL_BG,
+        borderColor: PILL_BORDER,
+        borderWidth: 1,
+      });
+      t(labelText.toUpperCase(), x + 8, y - 8, 7, true, MUTED);
+    };
+  
+    /**
+     * Modern key/value row:
+     * - pill label on left
+     * - wrapped value on right
+     * - subtle divider line
+     * Returns how much vertical space was consumed.
+     */
+    const drawRow = (
+      x: number,
+      y: number,
+      labelText: string,
+      valueText: string,
+      rowW: number,
+    ) => {
+      const pillW = Math.min(
+        132,
+        Math.max(92, fontBold.widthOfTextAtSize(labelText.toUpperCase(), 7) + 24),
+      );
+  
+      drawLabelPill(labelText, x, y, pillW);
+  
+      const valueX = x + pillW + 12;
+      const maxW = rowW - (pillW + 12);
+      const lines = wrapText(valueText || 'N/A', maxW, 9);
+  
+      // up to 2 lines (keeps the layout neat)
+      lines.slice(0, 2).forEach((ln, i) => t(ln, valueX, y - i * 12, 9, false, INK));
+  
+      // divider
+      page.drawLine({
+        start: { x, y: y - 20 },
+        end: { x: x + rowW, y: y - 20 },
+        thickness: 1,
+        color: rgb(0.92, 0.93, 0.95),
+      });
+  
+      return 26 + (Math.min(lines.length, 2) - 1) * 12;
+    };
+  
+    const drawStatChip = (labelText: string, valueText: string, x: number, yTop: number) => {
+      const w = 106;
+      const h = 34;
+  
+      page.drawRectangle({
+        x,
+        y: yTop - h,
+        width: w,
+        height: h,
+        color: rgb(0.97, 0.98, 1),
+        borderColor: BORDER2,
+        borderWidth: 1,
+      });
+  
+      t(labelText.toUpperCase(), x + 10, yTop - 14, 7, true, MUTED);
+      t(valueText || '0', x + 10, yTop - 28, 14, true, INK);
+  
+      return { w, h };
+    };
+  
+    // ========== Header (same colors, better layout) ==========
+    page.drawRectangle({ x: 0, y: H - headerH, width: W, height: headerH, color: NAVY });
+    page.drawRectangle({ x: 0, y: H - headerH - 4, width: W, height: 4, color: ACCENT });
+  
+    // Left: title
+    t('SeaJourney', M, H - 46, 24, true, WHITE);
+    t('Document Verification Summary', M, H - 68, 10, false, rgb(0.90, 0.93, 0.98));
+  
+    // Right: compact header meta (not a white badge)
+    const metaX = W - M - 220;
+    t('Document', metaX, H - 40, 9, true, WHITE);
+    t('Type: MCA Testimonial', metaX, H - 54, 8, false, rgb(0.90, 0.93, 0.98));
+    t(`Generated: ${format(new Date(), 'dd MMM yyyy')}`, metaX, H - 66, 8, false, rgb(0.90, 0.93, 0.98));
+  
+    // ========== Layout ==========
+    let y = H - headerH - 18;
+  
+    // Row 1: Document Info (left) + Verification (right)
+    const row1H = 150;
+    const leftW = Math.round((W - 2 * M) * 0.64);
+    const rightW = (W - 2 * M) - leftW - G;
+  
+    drawSoftSection(M, y, leftW, row1H);
+    drawSoftSection(M + leftW + G, y, rightW, row1H);
+  
+    sectionTitle('DOCUMENT INFORMATION', M + P, y);
+    sectionTitle('VERIFICATION', M + leftW + G + P, y);
+  
+    // Document rows
+    let ry = y - 46;
+    const docRowW = leftW - 2 * P;
+    const docX = M + P;
+  
+    ry -= drawRow(docX, ry, 'Document Type', 'MCA Testimonial', docRowW);
+    ry -= drawRow(docX, ry, 'Document ID', docId, docRowW);
+    ry -= drawRow(docX, ry, 'SeaJourney Code', sjCode, docRowW);
+    ry -= drawRow(docX, ry, 'Generated', generatedAt, docRowW);
+  
+    // Verification block (bigger code, URL wraps)
+    const vX = M + leftW + G + P;
+    const vInnerW = rightW - 2 * P;
+  
+    t('REFERENCE CODE', vX, y - 52, 7, true, MUTED);
+    t(sjCode || 'N/A', vX, y - 74, 16, true, INK);
+  
+    // URL label pill + lines
+    drawLabelPill('Verification URL', vX, y - 92, Math.min(150, vInnerW));
+    const urlLines = wrapText(verificationUrl, vInnerW, 8.5);
+    urlLines.slice(0, 3).forEach((ln, i) => t(ln, vX, y - 114 - i * 10, 8.5, false, INK));
+  
+    // A small “verify” button cue (visual only)
+    page.drawRectangle({
+      x: vX,
+      y: y - row1H + 18,
+      width: 78,
+      height: 18,
+      color: ACCENT,
+    });
+    t('VERIFY', vX + 22, y - row1H + 23, 9, true, WHITE);
+  
+    y -= row1H + 14;
+  
+    // Row 2: Crew + Vessel
+    const row2H = 150;
+    const colW = (W - 2 * M - G) / 2;
+  
+    drawSoftSection(M, y, colW, row2H);
+    drawSoftSection(M + colW + G, y, colW, row2H);
+  
+    sectionTitle('CREW MEMBER', M + P, y);
+    sectionTitle('VESSEL', M + colW + G + P, y);
+  
+    let cy = y - 46;
+    const crewW = colW - 2 * P;
+    const crewX = M + P;
+  
+    cy -= drawRow(crewX, cy, 'Name', fullName, crewW);
+    cy -= drawRow(crewX, cy, 'Date of birth', dateOfBirth || 'N/A', crewW);
+    cy -= drawRow(crewX, cy, 'Position', safe(userProfile.position) || 'N/A', crewW);
+    cy -= drawRow(crewX, cy, 'Email', userProfile.email || 'N/A', crewW);
+    // Optional extra row if you want:
+    // cy -= drawRow(crewX, cy, 'Discharge book', safe(userProfile.dischargeBookNumber) || 'N/A', crewW);
+  
+    let vy = y - 46;
+    const vesselX = M + colW + G + P;
+    const vesselW = colW - 2 * P;
+  
+    vy -= drawRow(vesselX, vy, 'Name', safe(vessel.name) || 'N/A', vesselW);
+    vy -= drawRow(vesselX, vy, 'Type', safe(vessel.type) || 'N/A', vesselW);
+    vy -= drawRow(vesselX, vy, 'Flag state', safe(vessel.flag_state) || 'N/A', vesselW);
+    vy -= drawRow(vesselX, vy, 'IMO', safe(vessel.imo) || safe(vessel.officialNumber) || 'N/A', vesselW);
+    vy -= drawRow(vesselX, vy, 'Gross tonnage', vessel.gross_tonnage?.toString() || 'N/A', vesselW);
+  
+    y -= row2H + 14;
+  
+    // Row 3: Service Summary (clean chips, fills page better)
+    const row3H = 170;
+    drawSoftSection(M, y, W - 2 * M, row3H);
+    sectionTitle('SERVICE SUMMARY', M + P, y);
+  
+    const range = `${formatDate(testimonial.start_date, 'DD/MM/YYYY')} - ${formatDate(testimonial.end_date, 'DD/MM/YYYY')}`;
+  
+    // Date range row
+    t('DATE RANGE', M + P, y - 46, 7, true, MUTED);
+    t(range, M + P + 74, y - 46, 9, true, INK);
+  
+    // Chips
+    const chipsY = y - 62;
+    let cx = M + P;
+  
+    const metrics: Array<[string, string]> = [
+      ['Total', String(testimonial.total_days ?? 0)],
+      ['At sea', String(testimonial.at_sea_days ?? 0)],
+      ['Standby', String(testimonial.standby_days ?? 0)],
+      ['Yard', String(testimonial.yard_days ?? 0)],
+      ['Leave', String(testimonial.leave_days ?? 0)],
+    ];
+  
+    metrics.forEach(([lab, val]) => {
+      drawStatChip(lab, val, cx, chipsY);
+      cx += 106 + 10;
+    });
+  
+    // Note
+    t(
+      'These values reflect the approved SeaJourney record for this testimonial.',
+      M + P,
+      y - row3H + 18,
+      8,
+      false,
+      MUTED,
+    );
+  
+    // Bottom micro footer (no big bar)
+    t('Generated by SeaJourney for official verification purposes.', M, 10, 7.5, false, MUTED);
+  }
+  
+  
+  
+
+  const pdfBytes = await pdfDoc.save();
+
+  // Output modes
+  if (output === 'blob') {
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+  }
+  if (output === 'newtab') {
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    return;
+  }
+
+  // Download
+  const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `MCA_Officer_Testimonial_${fullName.replace(/\s+/g, '_')}_${formatDate(testimonial.start_date, 'DD/MM/YYYY')}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

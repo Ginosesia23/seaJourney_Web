@@ -1,11 +1,12 @@
 'use client';
 
 import { useMemo, useEffect } from 'react';
-import { format, parse, eachDayOfInterval } from 'date-fns';
+import { format, parse, eachDayOfInterval, addDays } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, CheckCircle2, AlertTriangle, User, Ship, XCircle } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { calculateStandbyDays } from '@/lib/standby-calculation';
 import type { StateLog } from '@/lib/types';
 
 interface DateComparisonViewProps {
@@ -15,6 +16,7 @@ interface DateComparisonViewProps {
   actualLogs: StateLog[]; // Crew member's logs
   vesselLogs?: StateLog[]; // All vessel logs (for comparison)
   testimonial?: any; // Testimonial object for day count breakdown
+  watchDates?: Set<string>; // Watch dates for the crew member (officers only)
   onComparisonChange?: (comparison: any) => void; // Callback to pass comparison data to parent
 }
 
@@ -49,8 +51,19 @@ export function DateComparisonView({
   actualLogs,
   vesselLogs = [],
   testimonial,
+  watchDates = new Set(),
   onComparisonChange
 }: DateComparisonViewProps) {
+  // Debug logging for watch dates
+  useEffect(() => {
+    console.log('[DateComparisonView] Watch dates received:', {
+      watchDatesCount: watchDates.size,
+      watchDates: Array.from(watchDates),
+      requestedStart,
+      requestedEnd
+    });
+  }, [watchDates, requestedStart, requestedEnd]);
+
   const comparison = useMemo(() => {
     const startDate = parse(requestedStart, 'yyyy-MM-dd', new Date());
     const endDate = parse(requestedEnd, 'yyyy-MM-dd', new Date());
@@ -97,6 +110,93 @@ export function DateComparisonView({
       }
     });
     
+    // Calculate MCA/PYA compliant standby days for crew member's logs (needed for standby dates)
+    // Extract part of active passage dates from crew member's logs
+    const partOfActivePassageDates = new Set<string>();
+    actualLogs.forEach(log => {
+      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+      if (logDate >= startDate && logDate <= endDate && log.isPartOfActivePassage) {
+        partOfActivePassageDates.add(log.date);
+      }
+    });
+
+    // Filter crew logs to date range for calculation
+    const crewLogsInRange = actualLogs.filter(log => {
+      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+      return logDate >= startDate && logDate <= endDate;
+    });
+
+    // Calculate standby periods using MCA/PYA compliant logic
+    const { standbyPeriods } = calculateStandbyDays(
+      crewLogsInRange,
+      watchDates,
+      partOfActivePassageDates
+    );
+    
+    // Calculate vessel logs breakdown (needed before day-by-day comparison)
+    const vesselLogsInRange = vesselLogs.filter(log => {
+      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+      return logDate >= startDate && logDate <= endDate;
+    });
+    
+    // Extract vessel part of active passage dates
+    const vesselPartOfActivePassageDates = new Set<string>();
+    vesselLogsInRange.forEach(log => {
+      if (log.isPartOfActivePassage) {
+        vesselPartOfActivePassageDates.add(log.date);
+      }
+    });
+    
+    // Calculate vessel standby periods (needed for vesselStandbyDatesSet)
+    const { standbyPeriods: vesselStandbyPeriods } = calculateStandbyDays(
+      vesselLogsInRange,
+      undefined, // No watch dates for vessel (watch is crew-specific)
+      vesselPartOfActivePassageDates
+    );
+    
+    // Create a set of vessel dates that are counted as standby (using MCA/PYA compliant logic)
+    const vesselStandbyDatesSet = new Set<string>();
+    vesselStandbyPeriods.forEach(period => {
+      let currentDate = period.startDate;
+      let counted = 0;
+      while (currentDate <= period.endDate && counted < period.countedDays) {
+        const dateStr = format(currentDate, 'yyyy-MM-dd');
+        const log = vesselLogsInRange.find(l => l.date === dateStr);
+        // Only count if it's within the date range and not part of passage day
+        const logDate = parse(dateStr, 'yyyy-MM-dd', new Date());
+        if (logDate >= startDate && logDate <= endDate && log) {
+          const isPartOfPassage = vesselPartOfActivePassageDates.has(dateStr);
+          if (!isPartOfPassage && (log.state === 'in-port' || log.state === 'at-anchor')) {
+            vesselStandbyDatesSet.add(dateStr);
+            counted++;
+          }
+        }
+        currentDate = addDays(currentDate, 1);
+      }
+    });
+    
+    // Create a set of dates that are counted as standby (crew)
+    const standbyDatesSet = new Set<string>();
+    standbyPeriods.forEach(period => {
+      let currentDate = period.startDate;
+      let counted = 0;
+      while (currentDate <= period.endDate && counted < period.countedDays) {
+        const dateStr = format(currentDate, 'yyyy-MM-dd');
+        const log = crewLogsInRange.find(l => l.date === dateStr);
+        // Only count if it's within the date range and not a watch/part of passage day
+        const logDate = parse(dateStr, 'yyyy-MM-dd', new Date());
+        if (logDate >= startDate && logDate <= endDate && log) {
+          const hasWatch = watchDates.has(dateStr);
+          const isPartOfPassage = partOfActivePassageDates.has(dateStr);
+          if (!hasWatch && !isPartOfPassage && (log.state === 'in-port' || log.state === 'at-anchor')) {
+            standbyDatesSet.add(dateStr);
+            counted++;
+          }
+        }
+        currentDate = addDays(currentDate, 1);
+      }
+    });
+    
     // Build day-by-day comparison
     // EXCLUDE "on-leave" dates from crew member's logs before comparing with vessel
     // Only compare non-leave dates with vessel state logs
@@ -115,6 +215,36 @@ export function DateComparisonView({
       const hasRequested = hasRequestedState && !isOnLeave; // Exclude on-leave from requested count
       const hasVesselLog = !!vesselLog;
       
+      // Check if this date has special flags for crew member
+      const crewLog = crewLogMap.get(dateStr);
+      const crewIsPartOfActivePassage = crewLog?.isPartOfActivePassage || false;
+      const isWatchDay = watchDates.has(dateStr);
+      const crewIsStandbyDay = standbyDatesSet.has(dateStr);
+      
+      // Check if vessel also has the same indicators
+      const vesselIsPartOfActivePassage = vesselLog?.isPartOfActivePassage || false;
+      
+      // Vessel standby: use MCA/PYA compliant calculation (dates that are actually counted as standby)
+      const vesselIsStandbyDay = vesselStandbyDatesSet.has(dateStr);
+      
+      // Both part of passage: both crew and vessel marked as part of passage
+      const bothPartOfPassage = crewIsPartOfActivePassage && vesselIsPartOfActivePassage;
+      
+      // Part of passage mismatch: one has it but not the other (only count if both have logs)
+      const partOfPassageMismatch = hasRequested && hasVesselLog && 
+        ((crewIsPartOfActivePassage && !vesselIsPartOfActivePassage) || 
+         (!crewIsPartOfActivePassage && vesselIsPartOfActivePassage));
+      
+      // Both standby: crew is standby AND vessel is standby (using MCA/PYA compliant calculation)
+      // Note: Standby is NOT included in match rate as it's automatically calculated
+      // Watch days take priority and are NOT counted as standby
+      const bothStandby = crewIsStandbyDay && vesselIsStandbyDay && !crewIsPartOfActivePassage && !vesselIsPartOfActivePassage && !isWatchDay;
+      
+      // Overall match: state matches AND part of passage matches (if applicable)
+      // Standby is excluded from match calculation as it's automatically calculated
+      // Watch validation errors don't affect match rate but are flagged visually
+      const overallMatch = statesMatch && (!crewIsPartOfActivePassage && !vesselIsPartOfActivePassage || bothPartOfPassage);
+      
       return {
         date,
         dateStr,
@@ -123,12 +253,22 @@ export function DateComparisonView({
         actualLogState: requestedLog?.state || null, // Same as crewState (for consistency)
         isOnLeave, // Track if this is a leave day
         statesMatch,
+        overallMatch, // State match AND part of passage match (if applicable)
         hasCrewLog: hasRequested, // Whether crew member logged a state for this date (excluding leave)
         hasVesselLog,
         matchesActualLog: true, // Since we're using actual logs, this is always true
-        isDiscrepancy: !isOnLeave && hasRequested && hasVesselLog && !statesMatch,
+        isDiscrepancy: !isOnLeave && hasRequested && hasVesselLog && !overallMatch, // Updated to use overallMatch
         isMissingCrew: !isOnLeave && !hasRequested && hasVesselLog,
-        isMissingVessel: !isOnLeave && hasRequested && !hasVesselLog
+        isMissingVessel: !isOnLeave && hasRequested && !hasVesselLog,
+        isPartOfActivePassage: crewIsPartOfActivePassage, // Whether crew member marked as part of active passage
+        vesselIsPartOfActivePassage, // Whether vessel marked as part of active passage
+        vesselIsStandbyDay, // Whether vessel day is counted as standby (MCA/PYA compliant)
+        bothPartOfPassage, // Whether both crew and vessel have part of passage
+        partOfPassageMismatch, // Whether part of passage doesn't match
+        isWatchDay, // Whether this day is a watch day (for officers)
+        isStandbyDay: crewIsStandbyDay && !crewIsPartOfActivePassage && !isWatchDay, // Whether crew day is counted as standby (excluding part of passage and watch days)
+        bothStandby, // Whether both crew and vessel are in standby states (excluding part of passage)
+        bothMatchState: statesMatch // Whether both have matching states
       };
     });
     
@@ -136,8 +276,11 @@ export function DateComparisonView({
     // Exclude on-leave days from all calculations
     const nonLeaveDays = dayByDayComparison.filter(d => !d.isOnLeave);
     const crewLoggedDays = nonLeaveDays.filter(d => d.hasCrewLog).length;
-    const vesselLoggedDays = nonLeaveDays.filter(d => d.hasVesselLog).length;
-    const matchingDays = nonLeaveDays.filter(d => d.statesMatch).length;
+    // Only count vessel logs for dates where crew member has a log (to match the requested range)
+    const vesselLoggedDays = nonLeaveDays.filter(d => d.hasCrewLog && d.hasVesselLog).length;
+    // Match includes both state match AND part of passage match (if applicable)
+    // Standby is excluded as it's automatically calculated
+    const matchingDays = nonLeaveDays.filter(d => d.overallMatch).length;
     const discrepancies = nonLeaveDays.filter(d => d.isDiscrepancy);
     const missingCrewDays = nonLeaveDays.filter(d => d.isMissingCrew);
     const missingVesselDays = nonLeaveDays.filter(d => d.isMissingVessel);
@@ -147,22 +290,33 @@ export function DateComparisonView({
       ? Math.round((matchingDays / crewLoggedDays) * 100) 
       : 0;
     
-    // Calculate vessel logs breakdown
-    const vesselLogsInRange = vesselLogs.filter(log => {
-      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
-      return logDate >= startDate && logDate <= endDate;
-    });
+    // Calculate vessel standby days using MCA/PYA compliant logic (reuse already calculated periods)
+    // This ensures standby days don't exceed sea days
+    const { totalStandbyDays: vesselStandbyDays, totalSeaDays: vesselSeaDays } = calculateStandbyDays(
+      vesselLogsInRange,
+      undefined, // No watch dates for vessel (watch is crew-specific)
+      vesselPartOfActivePassageDates
+    );
     
-    // At sea includes both 'underway' and 'at-anchor' states
-    const vesselAtSeaDays = vesselLogsInRange.filter(log => 
-      log.state === 'underway' || log.state === 'at-anchor'
-    ).length;
-    // Standby now only includes 'in-port' (at-anchor counts as sea time)
-    const vesselStandbyDays = vesselLogsInRange.filter(log => 
-      log.state === 'in-port'
-    ).length;
+    // At sea includes 'underway', 'at-anchor', and any days marked as 'part of active passage'
+    // Use the calculated sea days from calculateStandbyDays for consistency
+    const vesselAtSeaDays = vesselSeaDays;
     const vesselYardDays = vesselLogsInRange.filter(log => log.state === 'in-yard').length;
     const vesselLeaveDays = vesselLogsInRange.filter(log => log.state === 'on-leave').length;
+    const vesselPartOfActivePassageDays = vesselPartOfActivePassageDates.size;
+    
+    // Calculate standby days using MCA/PYA compliant logic (reuse already calculated values)
+    const { totalStandbyDays: crewStandbyDays, totalSeaDays: crewSeaDays } = calculateStandbyDays(
+      crewLogsInRange,
+      watchDates,
+      partOfActivePassageDates
+    );
+
+    // Count part of active passage days
+    const crewPartOfActivePassageDays = partOfActivePassageDates.size;
+    
+    // Calculate crew yard days (in-yard state days)
+    const crewYardDays = crewLogsInRange.filter(log => log.state === 'in-yard').length;
     
     return {
       requestedDates: requestedDates.length,
@@ -179,10 +333,20 @@ export function DateComparisonView({
       vesselStandbyDays,
       vesselYardDays,
       vesselLeaveDays,
+      vesselPartOfActivePassageDays,
       hasVesselLogs: vesselLogsInRange.length > 0,
-      hasIssues: discrepancies.length > 0 || missingCrewDays.length > 0 || missingVesselDays.length > 0
+      hasIssues: discrepancies.length > 0 || missingCrewDays.length > 0 || missingVesselDays.length > 0,
+      // MCA/PYA compliant calculations for crew member
+      crewStandbyDays,
+      crewSeaDays,
+      crewYardDays,
+      crewPartOfActivePassageDays,
+      crewWatchDays: Array.from(watchDates).filter(dateStr => {
+        const watchDate = parse(dateStr, 'yyyy-MM-dd', new Date());
+        return watchDate >= startDate && watchDate <= endDate;
+      }).length
     };
-  }, [requestedStart, requestedEnd, actualLogs, vesselLogs, testimonial]);
+  }, [requestedStart, requestedEnd, actualLogs, vesselLogs, testimonial, watchDates]);
 
   // Notify parent component of comparison data when it changes
   useEffect(() => {
@@ -193,131 +357,108 @@ export function DateComparisonView({
 
   return (
     <div className="space-y-6">
-      {/* Summary Cards - Redesigned for better readability */}
+      {/* Summary Cards - Simplified */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Crew Member's Summary */}
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border-2 border-blue-200 dark:border-blue-800 rounded-xl p-5">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 bg-blue-500/20 rounded-lg">
-              <User className="h-5 w-5 text-blue-700 dark:text-blue-400" />
+        {/* Crew Request */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 mb-4">
+              <User className="h-4 w-4 text-muted-foreground" />
+              <div className="font-semibold text-sm">Crew Request</div>
             </div>
-            <div>
-              <div className="font-semibold text-sm text-blue-900 dark:text-blue-100">Crew Request</div>
-              <div className="text-xs text-blue-700/70 dark:text-blue-300/70">What was requested</div>
-            </div>
-          </div>
-          <div className="space-y-3">
-            <div className="bg-white/60 dark:bg-gray-900/40 rounded-lg p-3 border border-blue-200/50 dark:border-blue-800/50">
-              <div className="text-xs text-muted-foreground mb-1">Total Days</div>
-              <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">{testimonial?.total_days || comparison.crewLoggedDays}</div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
-                <div className="text-muted-foreground mb-0.5">Compared</div>
-                <div className="font-semibold">{comparison.crewLoggedDays}</div>
+            <div className="space-y-2">
+              <div>
+                <div className="text-xs text-muted-foreground">Logged Days</div>
+                <div className="text-xl font-bold">{comparison.crewLoggedDays}</div>
               </div>
-              <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
-                <div className="text-muted-foreground mb-0.5">Matching</div>
-                <div className="font-semibold text-green-600 dark:text-green-400">{comparison.matchingDays}</div>
-              </div>
-              </div>
-              {comparison.discrepancies.length > 0 && (
-              <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded p-2">
-                <div className="text-xs text-red-700 dark:text-red-400 font-medium">
-                  {comparison.discrepancies.length} mismatch{comparison.discrepancies.length !== 1 ? 'es' : ''}
+              <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t">
+                <div>
+                  <div className="text-muted-foreground">At Sea</div>
+                  <div className="font-semibold">{comparison.crewSeaDays}</div>
                 </div>
+                <div>
+                  <div className="text-muted-foreground">Standby</div>
+                  <div className="font-semibold">{comparison.crewStandbyDays}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Yard</div>
+                  <div className="font-semibold">{comparison.crewYardDays}</div>
+                </div>
+              </div>
+              {comparison.crewPartOfActivePassageDays > 0 && (
+                <div className="pt-2 border-t text-xs">
+                  <div className="text-muted-foreground">Part of Passage</div>
+                  <div className="font-semibold text-blue-600 dark:text-blue-400">{comparison.crewPartOfActivePassageDays}</div>
                 </div>
               )}
-            {comparison.onLeaveDays > 0 && (
-              <div className="text-xs text-muted-foreground pt-2 border-t border-blue-200/50 dark:border-blue-800/50">
-                {comparison.onLeaveDays} day{comparison.onLeaveDays !== 1 ? 's' : ''} on leave (excluded)
-              </div>
-            )}
-              </div>
             </div>
+          </CardContent>
+        </Card>
 
-        {/* Vessel Summary */}
-        <div className={`bg-gradient-to-br ${comparison.hasVesselLogs ? 'from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 border-2 border-green-200 dark:border-green-800' : 'from-gray-50 to-gray-100/50 dark:from-gray-900/30 dark:to-gray-800/20 border-2 border-gray-200 dark:border-gray-800'} rounded-xl p-5`}>
-          <div className="flex items-center gap-3 mb-4">
-            <div className={`p-2 ${comparison.hasVesselLogs ? 'bg-green-500/20' : 'bg-gray-500/20'} rounded-lg`}>
-              <Ship className={`h-5 w-5 ${comparison.hasVesselLogs ? 'text-green-700 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`} />
+        {/* Vessel Logs */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Ship className="h-4 w-4 text-muted-foreground" />
+              <div className="font-semibold text-sm">Vessel Logs</div>
             </div>
-            <div>
-              <div className={`font-semibold text-sm ${comparison.hasVesselLogs ? 'text-green-900 dark:text-green-100' : 'text-gray-700 dark:text-gray-300'}`}>Vessel Logs</div>
-              <div className={`text-xs ${comparison.hasVesselLogs ? 'text-green-700/70 dark:text-green-300/70' : 'text-gray-600/70 dark:text-gray-400/70'}`}>Actual logged states</div>
-            </div>
-          </div>
-          <div className="space-y-3">
-            <div className={`${comparison.hasVesselLogs ? 'bg-white/60 dark:bg-gray-900/40' : 'bg-white/40 dark:bg-gray-900/30'} rounded-lg p-3 border ${comparison.hasVesselLogs ? 'border-green-200/50 dark:border-green-800/50' : 'border-gray-200/50 dark:border-gray-800/50'}`}>
-              <div className="text-xs text-muted-foreground mb-1">Logged Days</div>
-              <div className={`text-2xl font-bold ${comparison.hasVesselLogs ? 'text-green-900 dark:text-green-100' : 'text-gray-600 dark:text-gray-400'}`}>
-                {comparison.vesselLoggedDays}
+            <div className="space-y-2">
+              <div>
+                <div className="text-xs text-muted-foreground">Logged Days</div>
+                <div className="text-xl font-bold">{comparison.vesselLoggedDays}</div>
               </div>
-              </div>
-              {comparison.hasVesselLogs && (
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
-                  <div className="text-muted-foreground mb-0.5">At Sea</div>
+              <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t">
+                <div>
+                  <div className="text-muted-foreground">At Sea</div>
                   <div className="font-semibold">{comparison.vesselAtSeaDays}</div>
                 </div>
-                <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
-                  <div className="text-muted-foreground mb-0.5">Standby</div>
+                <div>
+                  <div className="text-muted-foreground">Standby</div>
                   <div className="font-semibold">{comparison.vesselStandbyDays}</div>
                 </div>
-                <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
-                  <div className="text-muted-foreground mb-0.5">Yard</div>
+                <div>
+                  <div className="text-muted-foreground">Yard</div>
                   <div className="font-semibold">{comparison.vesselYardDays}</div>
                 </div>
-                <div className="bg-white/40 dark:bg-gray-900/30 rounded p-2">
-                  <div className="text-muted-foreground mb-0.5">Leave</div>
-                  <div className="font-semibold">{comparison.vesselLeaveDays}</div>
-                </div>
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Match Summary - Most Important */}
-        <div className={`bg-gradient-to-br ${comparison.hasIssues ? 'from-yellow-50 to-yellow-100/50 dark:from-yellow-950/30 dark:to-yellow-900/20 border-2 border-yellow-200 dark:border-yellow-800' : 'from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 border-2 border-green-200 dark:border-green-800'} rounded-xl p-5`}>
-          <div className="flex items-center gap-3 mb-4">
-            <div className={`p-2 ${comparison.hasIssues ? 'bg-yellow-500/20' : 'bg-green-500/20'} rounded-lg`}>
-              {comparison.hasIssues ? (
-                <AlertTriangle className="h-5 w-5 text-yellow-700 dark:text-yellow-400" />
-              ) : (
-                <CheckCircle2 className="h-5 w-5 text-green-700 dark:text-green-400" />
+              {comparison.vesselPartOfActivePassageDays > 0 && (
+                <div className="pt-2 border-t text-xs">
+                  <div className="text-muted-foreground">Part of Passage</div>
+                  <div className="font-semibold text-blue-600 dark:text-blue-400">{comparison.vesselPartOfActivePassageDays}</div>
+                </div>
               )}
             </div>
-            <div>
-              <div className={`font-semibold text-sm ${comparison.hasIssues ? 'text-yellow-900 dark:text-yellow-100' : 'text-green-900 dark:text-green-100'}`}>Match Rate</div>
-              <div className={`text-xs ${comparison.hasIssues ? 'text-yellow-700/70 dark:text-yellow-300/70' : 'text-green-700/70 dark:text-green-300/70'}`}>Overall accuracy</div>
+          </CardContent>
+        </Card>
+
+        {/* Match Rate */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 mb-4">
+              {comparison.hasIssues ? (
+                <AlertTriangle className="h-4 w-4 text-yellow-600" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 text-green-600" />
+              )}
+              <div className="font-semibold text-sm">Match Rate</div>
             </div>
-          </div>
-          <div className="space-y-3">
-            <div className={`${comparison.hasIssues ? 'bg-white/60 dark:bg-gray-900/40 border-yellow-200/50 dark:border-yellow-800/50' : 'bg-white/60 dark:bg-gray-900/40 border-green-200/50 dark:border-green-800/50'} rounded-lg p-4 border text-center`}>
-              <div className="text-xs text-muted-foreground mb-2">Match Percentage</div>
-              <div className={`text-4xl font-bold ${comparison.percentageMatch >= 90 ? 'text-green-600 dark:text-green-400' : comparison.percentageMatch >= 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
+            <div className="space-y-2">
+              <div>
+                <div className={`text-3xl font-bold ${comparison.percentageMatch >= 90 ? 'text-green-600' : comparison.percentageMatch >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
                   {comparison.percentageMatch}%
-              </div>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {comparison.matchingDays} of {comparison.crewLoggedDays} days match
+                </div>
               </div>
               {comparison.hasIssues && (
-              <div className="bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded p-3">
-                <div className="text-xs font-medium text-yellow-900 dark:text-yellow-100 mb-1">
-                  ⚠️ Review Required
+                <div className="text-xs text-yellow-600 pt-2 border-t">
+                  {comparison.discrepancies.length} mismatch{comparison.discrepancies.length !== 1 ? 'es' : ''} found
                 </div>
-                <div className="text-xs text-yellow-700 dark:text-yellow-300">
-                  {comparison.discrepancies.length} state mismatch{comparison.discrepancies.length !== 1 ? 'es' : ''} found. Please review the day-by-day comparison below.
-                </div>
-              </div>
-            )}
-            {!comparison.hasIssues && comparison.matchingDays > 0 && (
-              <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded p-3">
-                <div className="text-xs font-medium text-green-900 dark:text-green-100">
-                  ✓ All states match
-                </div>
-              </div>
               )}
             </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Day-by-Day Comparison Table */}
@@ -326,34 +467,36 @@ export function DateComparisonView({
           <h5 className="text-sm font-semibold mb-3">Day-by-Day Comparison</h5>
           <div className="border rounded-lg overflow-hidden">
             <div className="max-h-[400px] overflow-y-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="sticky top-0 bg-background z-10">Date</TableHead>
-                    <TableHead className="sticky top-0 bg-background z-10">Requested State</TableHead>
-                    <TableHead className="sticky top-0 bg-background z-10">Vessel State</TableHead>
-                    <TableHead className="sticky top-0 bg-background z-10">Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+              <table className="w-full caption-bottom text-sm">
+                <thead className="sticky top-0 z-30 bg-background dark:bg-background border-b shadow-sm backdrop-blur-sm [&_tr]:border-b">
+                  <tr className="border-b bg-background dark:bg-background">
+                    <th className="h-12 px-4 text-left align-middle font-semibold whitespace-nowrap bg-background dark:bg-background">Date</th>
+                    <th className="h-12 px-4 text-left align-middle font-semibold whitespace-nowrap bg-background dark:bg-background">Crew State</th>
+                    <th className="h-12 px-4 text-left align-middle font-semibold whitespace-nowrap bg-background dark:bg-background">Crew Indicators</th>
+                    <th className="h-12 px-4 text-left align-middle font-semibold whitespace-nowrap bg-background dark:bg-background">Vessel State</th>
+                    <th className="h-12 px-4 text-left align-middle font-semibold whitespace-nowrap bg-background dark:bg-background">Vessel Indicators</th>
+                    <th className="h-12 px-4 text-left align-middle font-semibold whitespace-nowrap bg-background dark:bg-background">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="[&_tr:last-child]:border-0">
                   {comparison.dayByDayComparison.map((day) => (
-                    <TableRow 
+                    <tr 
                       key={day.dateStr}
-                      className={
+                      className={`border-b transition-colors hover:bg-muted/50 ${
                         day.isOnLeave 
                           ? 'bg-gray-100/50 dark:bg-gray-800/30 opacity-60' 
                           : day.isDiscrepancy 
                             ? 'bg-yellow-500/10 dark:bg-yellow-500/5' 
                             : ''
-                      }
+                      }`}
                     >
-                      <TableCell className="font-medium">
+                      <td className="p-4 align-middle font-medium">
                         {format(day.date, 'MMM d, yyyy')}
                         <div className="text-xs text-muted-foreground">
                           {format(day.date, 'EEEE')}
                         </div>
-                      </TableCell>
-                      <TableCell>
+                      </td>
+                      <td className="p-4 align-middle">
                         {day.isOnLeave ? (
                           <div className="space-y-1">
                             <Badge 
@@ -362,7 +505,7 @@ export function DateComparisonView({
                             >
                               {formatStateName('on-leave')}
                             </Badge>
-                            <div className="text-xs text-muted-foreground italic">(Excluded from comparison)</div>
+                            <div className="text-xs text-muted-foreground italic">(Excluded)</div>
                           </div>
                         ) : day.crewState ? (
                           <Badge 
@@ -374,13 +517,59 @@ export function DateComparisonView({
                         ) : (
                           <span className="text-xs text-muted-foreground italic">Not requested</span>
                         )}
-                        {!day.isOnLeave && day.actualLogState && day.actualLogState !== day.crewState && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            (Actual: {formatStateName(day.actualLogState)})
+                      </td>
+                      <td className="p-4 align-middle">
+                        {!day.isOnLeave && (
+                          <div className="flex flex-wrap gap-1">
+                            {/* Crew Watch - Takes priority over everything */}
+                            {day.isWatchDay && (
+                              <Badge 
+                                variant="outline" 
+                                className="text-xs bg-yellow-500/20 text-yellow-800 border-yellow-600 dark:bg-yellow-500/30 dark:text-yellow-300"
+                                title="Watch Day - Counts as At Sea"
+                              >
+                                Watch
+                              </Badge>
+                            )}
+                            
+                            {/* Crew Part of Passage - Only show if not a watch day */}
+                            {!day.isWatchDay && day.isPartOfActivePassage && (
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs ${
+                                  day.bothPartOfPassage 
+                                    ? 'bg-blue-500/20 text-blue-800 border-blue-600 dark:bg-blue-500/30 dark:text-blue-300' 
+                                    : 'bg-red-500/20 text-red-800 border-red-600 dark:bg-red-500/30 dark:text-red-300'
+                                }`}
+                                title="Crew: Part of Active Passage"
+                              >
+                                Part of Passage
+                              </Badge>
+                            )}
+                            
+                            {/* Crew Standby - Only show if not a watch day and not part of passage */}
+                            {!day.isWatchDay && day.isStandbyDay && (
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs ${
+                                  day.bothStandby 
+                                    ? 'bg-purple-500/20 text-purple-800 border-purple-600 dark:bg-purple-500/30 dark:text-purple-300' 
+                                    : 'bg-red-500/20 text-red-800 border-red-600 dark:bg-red-500/30 dark:text-red-300'
+                                }`}
+                                title="Crew: Standby (MCA/PYA Compliant)"
+                              >
+                                Standby
+                              </Badge>
+                            )}
+                            
+                            {/* No indicators */}
+                            {!day.isWatchDay && !day.isPartOfActivePassage && !day.isStandbyDay && (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
                           </div>
                         )}
-                      </TableCell>
-                      <TableCell>
+                      </td>
+                      <td className="p-4 align-middle">
                         {day.vesselState ? (
                           <Badge 
                             variant="outline" 
@@ -391,14 +580,54 @@ export function DateComparisonView({
                         ) : (
                           <span className="text-xs text-muted-foreground italic">No log</span>
                         )}
-                      </TableCell>
-                      <TableCell>
+                      </td>
+                      <td className="p-4 align-middle">
+                        {day.vesselState && (
+                          <div className="flex flex-wrap gap-1">
+                            {/* Vessel Part of Passage */}
+                            {day.vesselIsPartOfActivePassage && (
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs ${
+                                  day.bothPartOfPassage 
+                                    ? 'bg-blue-500/20 text-blue-800 border-blue-600 dark:bg-blue-500/30 dark:text-blue-300' 
+                                    : 'bg-red-500/20 text-red-800 border-red-600 dark:bg-red-500/30 dark:text-red-300'
+                                }`}
+                                title="Vessel: Part of Active Passage"
+                              >
+                                Part of Passage
+                              </Badge>
+                            )}
+                            
+                            {/* Vessel Standby */}
+                            {day.vesselIsStandbyDay && (
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs ${
+                                  day.bothStandby || day.isWatchDay
+                                    ? 'bg-purple-500/20 text-purple-800 border-purple-600 dark:bg-purple-500/30 dark:text-purple-300' 
+                                    : 'bg-red-500/20 text-red-800 border-red-600 dark:bg-red-500/30 dark:text-red-300'
+                                }`}
+                                title="Vessel: Standby (MCA/PYA Compliant)"
+                              >
+                                Standby
+                              </Badge>
+                            )}
+                            
+                            {/* No indicators */}
+                            {!day.vesselIsPartOfActivePassage && !day.vesselIsStandbyDay && (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-4 align-middle">
                         {day.isOnLeave ? (
                           <div className="flex items-center gap-1 text-gray-400">
                             <XCircle className="h-3 w-3" />
                             <span className="text-xs">Excluded</span>
                           </div>
-                        ) : day.statesMatch ? (
+                        ) : day.overallMatch ? (
                           <div className="flex items-center gap-1 text-green-600">
                             <CheckCircle2 className="h-3 w-3" />
                             <span className="text-xs">Match</span>
@@ -424,11 +653,11 @@ export function DateComparisonView({
                             <span className="text-xs">Both missing</span>
                           </div>
                         )}
-                      </TableCell>
-                    </TableRow>
+                      </td>
+                    </tr>
                   ))}
-                </TableBody>
-              </Table>
+                </tbody>
+              </table>
             </div>
           </div>
           
@@ -467,7 +696,7 @@ export function DateComparisonView({
       <Card>
         <CardContent className="pt-4">
           <h5 className="text-xs font-semibold mb-3">Requested Day Count Breakdown</h5>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-4">
             <div className="flex justify-between">
               <span className="text-muted-foreground">At Sea:</span>
               <span className="font-medium">{testimonial?.at_sea_days || 0}</span>
@@ -484,6 +713,36 @@ export function DateComparisonView({
               <span className="text-muted-foreground">Leave:</span>
               <span className="font-medium">{testimonial?.leave_days || 0}</span>
             </div>
+          </div>
+          
+          {/* MCA/PYA Compliant Calculation Comparison */}
+          <div className="border-t pt-4">
+            <h5 className="text-xs font-semibold mb-3">MCA/PYA Compliant Calculation</h5>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">At Sea:</span>
+                <span className="font-medium text-blue-600 dark:text-blue-400">{comparison.crewSeaDays}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Standby:</span>
+                <span className="font-medium text-orange-600 dark:text-orange-400">{comparison.crewStandbyDays}</span>
+              </div>
+              {comparison.crewPartOfActivePassageDays > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Part of Passage:</span>
+                  <span className="font-medium text-green-600 dark:text-green-400">{comparison.crewPartOfActivePassageDays}</span>
+                </div>
+              )}
+              {comparison.crewWatchDays > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Watch Days:</span>
+                  <span className="font-medium text-purple-600 dark:text-purple-400">{comparison.crewWatchDays}</span>
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">
+              These calculations use MCA/PYA compliant logic, accounting for watch days and part of active passage days.
+            </p>
           </div>
         </CardContent>
       </Card>

@@ -60,6 +60,7 @@ export default function InboxPage() {
   // State for date comparison
   const [vesselStateLogs, setVesselStateLogs] = useState<StateLog[]>([]); // Crew member's logs
   const [allVesselLogs, setAllVesselLogs] = useState<StateLog[]>([]); // All vessel logs (for comparison)
+  const [watchDates, setWatchDates] = useState<Set<string>>(new Set()); // Watch dates for crew member (officers only)
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set()); // Track which crew member groups are expanded
   const [comparisonData, setComparisonData] = useState<any>(null); // Store comparison data for mismatch details
@@ -1137,6 +1138,128 @@ export default function InboxPage() {
         setVesselStateLogs(crewLogs);
         // Store vessel logs for comparison (what the vessel logged)
         setAllVesselLogs(vesselLogsInRange);
+        
+        // Fetch watch logs for the crew member (if they're an officer)
+        // First check if the crew member is an officer by fetching their profile
+        console.log('[INBOX] Starting watch logs fetch check:', {
+          userId: testimonial.user_id,
+          vesselId: testimonial.vessel_id,
+          startDate: testimonial.start_date,
+          endDate: testimonial.end_date
+        });
+        
+        if (testimonial.user_id) {
+          try {
+            // Fetch crew member's profile to check if they're an officer
+            const { data: crewProfile, error: profileError } = await supabase
+              .from('users')
+              .select('position, role')
+              .eq('id', testimonial.user_id)
+              .maybeSingle();
+
+            console.log('[INBOX] Crew profile fetch result:', {
+              userId: testimonial.user_id,
+              profileError,
+              crewProfile,
+              hasProfile: !!crewProfile
+            });
+
+            if (profileError) {
+              console.error('[INBOX] Error fetching crew profile:', profileError);
+            }
+
+            // Check if crew member is an officer
+            const isOfficer = (() => {
+              if (!crewProfile) {
+                console.log('[INBOX] No crew profile found, not an officer');
+                return false;
+              }
+              const position = (crewProfile.position || '').toLowerCase();
+              const role = (crewProfile.role || '').toLowerCase();
+              
+              // Officers include: Captain, Chief Officer, First Officer, First Mate, Second Officer, Third Officer, OOW, Deck Officer
+              // Also Chief Engineer, First Engineer, Second Engineer, Third Engineer, Fourth Engineer
+              const officerPositions = [
+                'captain', 'master', 'chief officer', 'first officer', 'first mate', 
+                'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+                'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer'
+              ];
+              
+              const isOfficerResult = role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+              console.log('[INBOX] Officer check details:', {
+                position,
+                role,
+                officerPositionsMatch: officerPositions.filter(op => position.includes(op)),
+                isOfficerResult
+              });
+              return isOfficerResult;
+            })();
+
+            console.log('[INBOX] Crew member officer check:', {
+              userId: testimonial.user_id,
+              position: crewProfile?.position,
+              role: crewProfile?.role,
+              isOfficer
+            });
+
+            if (isOfficer) {
+              // Fetch watch logs filtered by date range and vessel using API route
+              const startDateStr = testimonial.start_date;
+              const endDateStr = testimonial.end_date;
+              
+              try {
+                // Use API route to fetch watch logs (bypasses RLS server-side)
+                const apiUrl = new URL('/api/watch-logs', window.location.origin);
+                apiUrl.searchParams.set('user_id', testimonial.user_id);
+                apiUrl.searchParams.set('vessel_id', testimonial.vessel_id);
+                apiUrl.searchParams.set('start_date', startDateStr);
+                apiUrl.searchParams.set('end_date', endDateStr);
+
+                const response = await fetch(apiUrl.toString());
+                const data = await response.json();
+
+                console.log('[INBOX] Watch logs API response:', {
+                  userId: testimonial.user_id,
+                  vesselId: testimonial.vessel_id,
+                  dateRange: { start: startDateStr, end: endDateStr },
+                  watchLogsCount: data.watchLogs?.length || 0,
+                  watchLogs: data.watchLogs?.slice(0, 5) // Show first 5 for debugging
+                });
+
+                if (data.watchLogs && data.watchLogs.length > 0) {
+                  // Extract dates from watch logs
+                  const dates = new Set<string>();
+                  data.watchLogs.forEach((log: any) => {
+                    const dateStr = format(new Date(log.watch_start), 'yyyy-MM-dd');
+                    dates.add(dateStr);
+                  });
+                  console.log('[INBOX] Found watch dates for officer:', {
+                    userId: testimonial.user_id,
+                    vesselId: testimonial.vessel_id,
+                    dateRange: { start: startDateStr, end: endDateStr },
+                    watchDatesCount: dates.size,
+                    watchDates: Array.from(dates)
+                  });
+                  setWatchDates(dates);
+                } else {
+                  console.log('[INBOX] No watch logs found in API response');
+                  setWatchDates(new Set());
+                }
+              } catch (error) {
+                console.error('[INBOX] Error fetching watch logs from API:', error);
+                setWatchDates(new Set());
+              }
+            } else {
+              console.log('[INBOX] Crew member is not an officer, skipping watch logs fetch');
+              setWatchDates(new Set());
+            }
+          } catch (error) {
+            console.error('[INBOX] Error fetching watch logs:', error);
+            setWatchDates(new Set());
+          }
+        } else {
+          setWatchDates(new Set());
+        }
       } catch (error: any) {
         console.error('[INBOX] Error fetching vessel state logs:', {
           error,
@@ -1148,11 +1271,13 @@ export default function InboxPage() {
           userId: testimonial.user_id
         });
         setVesselStateLogs([]);
+        setWatchDates(new Set());
       } finally {
         setIsLoadingLogs(false);
       }
     } else {
       setVesselStateLogs([]);
+      setWatchDates(new Set());
     }
   };
 
@@ -2264,6 +2389,7 @@ export default function InboxPage() {
                         actualLogs={vesselStateLogs}
                         vesselLogs={allVesselLogs}
                         testimonial={selectedTestimonial}
+                        watchDates={watchDates}
                         onComparisonChange={setComparisonData}
                       />
                     ) : (

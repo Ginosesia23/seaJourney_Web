@@ -47,6 +47,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Check if vessel is an official vessel (has a vessel manager)
+    const { data: vessel, error: vesselError } = await supabaseAdmin
+      .from('vessels')
+      .select('id, name, vessel_manager_id')
+      .eq('id', vesselId)
+      .maybeSingle();
+
+    if (vesselError) {
+      console.error('[SEA TIME REQUEST] Error checking vessel:', vesselError);
+      return NextResponse.json(
+        { error: 'Failed to verify vessel' },
+        { status: 500 }
+      );
+    }
+
+    if (!vessel) {
+      return NextResponse.json(
+        { error: 'Vessel not found' },
+        { status: 404 }
+      );
+    }
+
+    if (!vessel.vessel_manager_id) {
+      return NextResponse.json(
+        { error: 'Sea time requests can only be sent to official vessels managed by vessel managers' },
+        { status: 400 }
+      );
+    }
+
     // Check if request date range overlaps with assignment
     const assignmentStart = new Date(assignment.start_date);
     const assignmentEnd = assignment.end_date ? new Date(assignment.end_date) : new Date(); // Use today if no end date

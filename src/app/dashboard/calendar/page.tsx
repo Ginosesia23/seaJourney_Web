@@ -1176,8 +1176,8 @@ export default function CalendarPage() {
                       isCurrentDay && !isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-2",
                       isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary/50",
                       (isRangeStart || isRangeEnd) && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-1",
-                      // Watch outline (black) - takes priority (inset to keep inside the square)
-                      hasWatch && "border-[3px] border-black dark:border-white",
+                      // Watch outline (yellow) - takes priority (inset to keep inside the square)
+                      hasWatch && "border-[3px] border-yellow-500",
                       // Part of active passage outline (blue) - only if not watch (border for reliable inside outline, matches underway state)
                       isPartOfActivePassage && !hasWatch && "border-[3px] border-blue-600",
                       // Standby outline (purple) - only if not watch or part of active passage (border for reliable inside outline)
@@ -1189,7 +1189,7 @@ export default function CalendarPage() {
                     style={
                       stateInfo 
                         ? { backgroundColor: stateInfo.color } 
-                        : isInRange 
+                          : isInRange 
                           ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
                           : undefined
                     }
@@ -1420,12 +1420,12 @@ export default function CalendarPage() {
             </div>
             <Separator />
             <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="h-8 w-8 rounded border-[3px] border-black dark:border-white bg-transparent"
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <div 
+                    className="h-8 w-8 rounded border-[3px] border-yellow-500 bg-transparent"
                   />
-                  <span>On Watch (black outline)</span>
+                  <span>On Watch (yellow outline)</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div 
@@ -1441,7 +1441,7 @@ export default function CalendarPage() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Dates marked as watch (officers only) are shown with a black border outline. Dates marked as part of active passage count as "at sea" and are shown with a blue border outline. Dates counted as standby are shown with a purple border outline.
+                Dates marked as watch (officers only) are shown with a yellow border outline. Dates marked as part of active passage count as "at sea" and are shown with a blue border outline. Dates counted as standby are shown with a purple border outline.
               </p>
             </div>
           </div>
