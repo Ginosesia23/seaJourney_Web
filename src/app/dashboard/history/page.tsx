@@ -93,6 +93,7 @@ export default function HistoryPage() {
 
   const [allSeaService, setAllSeaService] = useState<SeaServiceRecord[]>([]);
   const [allStateLogs, setAllStateLogs] = useState<Map<string, StateLog[]>>(new Map());
+  const [watchDates, setWatchDates] = useState<Set<string>>(new Set());
 
   // Fetch user profile to get activeVesselId
   const { data: userProfileRaw } = useDoc<UserProfile>('users', user?.id);
@@ -105,6 +106,57 @@ export default function HistoryPage() {
       activeVesselId: (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId,
     } as UserProfile;
   }, [userProfileRaw]);
+
+  // Check if user is an officer (rank or higher)
+  const isOfficer = useMemo(() => {
+    if (!userProfile) return false;
+    const position = (userProfile.position || '').toLowerCase();
+    const role = (userProfile.role || '').toLowerCase();
+    
+    // Officers include: Captain, Chief Officer, First Officer, First Mate, Second Officer, Third Officer, OOW, Deck Officer
+    // Also Chief Engineer, First Engineer, Second Engineer, Third Engineer, Fourth Engineer
+    const officerPositions = [
+      'captain', 'master', 'chief officer', 'first officer', 'first mate', 
+      'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+      'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer'
+    ];
+    
+    return role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+  }, [userProfile]);
+
+  // Fetch watch logs for the user (officers only)
+  useEffect(() => {
+    const fetchWatchLogs = async () => {
+      if (!user?.id || !isOfficer) {
+        setWatchDates(new Set());
+        return;
+      }
+
+      try {
+        const { data: watchLogs, error } = await supabase
+          .from('watch_logs')
+          .select('watch_start')
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        // Extract dates from watch logs (watch_start timestamps)
+        const dates = new Set<string>();
+        if (watchLogs) {
+          watchLogs.forEach(log => {
+            const dateStr = format(new Date(log.watch_start), 'yyyy-MM-dd');
+            dates.add(dateStr);
+          });
+        }
+        setWatchDates(dates);
+      } catch (error) {
+        console.error('Error fetching watch logs:', error);
+        setWatchDates(new Set());
+      }
+    };
+
+    fetchWatchLogs();
+  }, [user?.id, isOfficer, supabase]);
 
   // Query all vessels (vessels are shared, not owned by users)
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
@@ -157,13 +209,37 @@ export default function HistoryPage() {
           return acc;
       }, {} as Record<string, number>);
 
+      // Calculate at sea days: 
+      // 1. Days with state "underway"
+      // 2. Days marked as part of active passage (regardless of state)
+      // 3. Days on watch (for officers only, regardless of state)
+      const atSeaDaysSet = new Set<string>();
+      
+      vesselLogs.forEach(log => {
+        // Count underway days
+        if (log.state === 'underway') {
+          atSeaDaysSet.add(log.date);
+        }
+        // Count days marked as part of active passage
+        if (log.isPartOfActivePassage === true) {
+          atSeaDaysSet.add(log.date);
+        }
+        // Count days on watch (for officers)
+        if (isOfficer && watchDates.has(log.date)) {
+          atSeaDaysSet.add(log.date);
+        }
+      });
+      
+      const atSeaDays = atSeaDaysSet.size;
+
         // Check if this vessel is the current active vessel
         const isCurrent = vessel.id === userProfile?.activeVesselId;
 
       return {
         ...vessel,
         totalDays,
-        tripCount: vesselServices.length,
+        tripCount: vesselServices.length, // Keep for backward compatibility but use atSeaDays instead
+        atSeaDays,
         dayCountByState,
         isCurrent
       };
@@ -174,7 +250,7 @@ export default function HistoryPage() {
         if (!a.isCurrent && b.isCurrent) return 1;
         return b.totalDays - a.totalDays;
       });
-  }, [vessels, allSeaService, allStateLogs, userProfile]);
+  }, [vessels, allSeaService, allStateLogs, userProfile, isOfficer, watchDates]);
 
   const filteredVessels = useMemo(() => {
     if (!searchTerm) return vesselSummaries;
@@ -518,7 +594,7 @@ export default function HistoryPage() {
                             <TableHead>Vessel</TableHead>
                             <TableHead>Type</TableHead>
                             <TableHead>Total Days</TableHead>
-                            <TableHead>Trips</TableHead>
+                            <TableHead>At Sea Days</TableHead>
                             <TableHead>Status</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -555,7 +631,7 @@ export default function HistoryPage() {
                             <TableHead>Vessel</TableHead>
                             <TableHead>Type</TableHead>
                             <TableHead>Total Days</TableHead>
-                            <TableHead>Trips</TableHead>
+                            <TableHead>At Sea Days</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Actions</TableHead>
                         </TableRow>
@@ -573,7 +649,7 @@ export default function HistoryPage() {
                                     {vesselTypes.find(t => t.value === vessel.type)?.label || vessel.type}
                                 </TableCell>
                                 <TableCell className="font-semibold">{vessel.totalDays}</TableCell>
-                                <TableCell>{vessel.tripCount}</TableCell>
+                                <TableCell className="font-semibold">{vessel.atSeaDays}</TableCell>
                                 <TableCell>
                                     {vessel.isCurrent ? (
                                         <Badge className="bg-primary text-primary-foreground hover:bg-primary/90">Current</Badge>

@@ -177,25 +177,19 @@ export default function AISImportPage() {
                 className="hidden"
                 accept=".csv,.json,.xlsx,.xls"
                 onChange={handleFileUpload}
-                disabled={isUploading}
+                disabled={true}
               />
               <Button
                 onClick={() => document.getElementById('ais-file-upload')?.click()}
-                disabled={isUploading}
+                disabled={true}
                 className="mt-4"
               >
-                {isUploading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Uploading...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="mr-2 h-4 w-4" />
-                    Select File
-                  </>
-                )}
+                <Upload className="mr-2 h-4 w-4" />
+                Select File (Coming Soon)
               </Button>
+              <p className="text-xs text-muted-foreground mt-2">
+                File upload is currently disabled while this feature is being developed.
+              </p>
             </div>
 
             {vesselData && (

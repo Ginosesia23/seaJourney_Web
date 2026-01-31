@@ -2290,7 +2290,7 @@ export default function CurrentPage() {
                           </div>
                         )}
                         {isPartOfActivePassage && !hasWatch && (
-                          <div className="flex items-center gap-2 text-blue-600">
+                          <div className="flex items-center gap-2 text-blue-800">
                             <Ship className="h-3.5 w-3.5" />
                             <span>Part of Active Passage (Counts as At Sea)</span>
                           </div>
@@ -2332,9 +2332,9 @@ export default function CurrentPage() {
                             isInRange && !hasOverride && !isCountedStandby && "ring-2 ring-primary/50",
                             (isRangeStart || isRangeEnd) && !hasOverride && !isCountedStandby && "ring-2 ring-primary ring-offset-1",
                             // Watch full color (yellow) - takes priority
-                            hasWatch && "bg-yellow-500 text-white border-0",
-                            // Part of active passage full color (blue) - only if not watch
-                            isPartOfActivePassage && !hasWatch && "bg-blue-600 text-white border-0",
+                            hasWatch && "bg-yellow-400 text-white border-0",
+                            // Part of active passage full color (darker blue) - only if not watch
+                            isPartOfActivePassage && !hasWatch && "bg-blue-800 text-white border-0",
                             // Standby full color (purple) - only if not watch or part of active passage
                             isCountedStandby && !hasOverride && "bg-purple-600 text-white border-0",
                             stateInfo 
@@ -2342,13 +2342,16 @@ export default function CurrentPage() {
                               : "bg-muted/50 text-muted-foreground hover:bg-muted"
                           )}
                           style={
-                            backgroundStyle
-                              ? backgroundStyle
-                              : stateInfo 
-                                ? { backgroundColor: stateInfo.color } 
-                                : isInRange 
-                                  ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
-                                  : undefined
+                            // Don't set backgroundColor if watch/standby/passage are active (handled by className)
+                            hasWatch || isPartOfActivePassage || isCountedStandby
+                              ? undefined
+                              : backgroundStyle
+                                ? backgroundStyle
+                                : stateInfo 
+                                  ? { backgroundColor: stateInfo.color } 
+                                  : isInRange 
+                                    ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
+                                    : undefined
                           }
                         >
                           <div className="flex flex-col items-center justify-center h-full relative">
@@ -2453,8 +2456,46 @@ export default function CurrentPage() {
   
   const serviceDate = mostRecentServiceDate;
   
-  // Get the active assignment start date for the current vessel
+  // Get the start date for filtering logs
+  // For vessel managers: use vessel's start_date (userProfile.startDate) or vessel creation date
+  // For crew members: use assignment start date (when they joined the vessel)
   const assignmentStartDate = useMemo(() => {
+    // For vessel managers, use the vessel's start date
+    if (userProfile?.role === 'vessel') {
+      let vesselStartDate: Date | null = null;
+      
+      // First priority: user's start_date (official vessel start date)
+      if (userProfile?.startDate) {
+        try {
+          vesselStartDate = startOfDay(parse(userProfile.startDate, 'yyyy-MM-dd', new Date()));
+        } catch (e) {
+          console.error('[CURRENT PAGE] Error parsing start_date:', userProfile.startDate, e);
+        }
+      }
+      
+      // Fallback: vessel creation date
+      if (!vesselStartDate && currentVessel) {
+        const vesselData = vessels?.find(v => v.id === currentVessel.id);
+        if (vesselData && (vesselData as any).created_at) {
+          vesselStartDate = startOfDay(new Date((vesselData as any).created_at));
+        }
+      }
+      
+      if (vesselStartDate) {
+        console.log('[CURRENT PAGE] Vessel manager start date calculated:', {
+          vesselId: currentVessel?.id,
+          vesselName: currentVessel?.name,
+          startDate: format(vesselStartDate, 'yyyy-MM-dd'),
+          source: userProfile?.startDate ? 'user start_date' : 'vessel created_at'
+        });
+        return vesselStartDate;
+      }
+      
+      console.log('[CURRENT PAGE] No vessel start date found for vessel manager');
+      return null;
+    }
+    
+    // For crew members, use assignment start date
     if (!currentVessel || !vesselAssignments.length) {
       console.log('[CURRENT PAGE] No assignment start date - missing vessel or assignments:', {
         hasCurrentVessel: !!currentVessel,
@@ -2493,7 +2534,7 @@ export default function CurrentPage() {
     });
     
     return result;
-  }, [currentVessel, vesselAssignments]);
+  }, [currentVessel, vesselAssignments, userProfile, vessels]);
   
   const { totalDaysByState, atSeaDays, standbyDays } = useMemo(() => {
     console.log('[CURRENT PAGE] Calculating stats from stateLogs:', {
@@ -2985,7 +3026,12 @@ export default function CurrentPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-bold">{atSeaDays}</div>
-                        <p className="text-xs text-muted-foreground mt-1">days logged since joining {currentVessel.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {userProfile?.role === 'vessel' 
+                            ? `days logged since ${userProfile?.startDate ? 'vessel start date' : 'vessel launch'}`
+                            : `days logged since joining ${currentVessel.name}`
+                          }
+                        </p>
                     </CardContent>
                 </Card>
                 <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
@@ -2997,7 +3043,12 @@ export default function CurrentPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-bold">{standbyDays}</div>
-                        <p className="text-xs text-muted-foreground mt-1">days logged since joining {currentVessel.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {userProfile?.role === 'vessel' 
+                            ? `days logged since ${userProfile?.startDate ? 'vessel start date' : 'vessel launch'}`
+                            : `days logged since joining ${currentVessel.name}`
+                          }
+                        </p>
                     </CardContent>
                 </Card>
                 <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
@@ -3018,7 +3069,12 @@ export default function CurrentPage() {
                             : stateLogs.length
                           }
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">total days logged since joining {currentVessel.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {userProfile?.role === 'vessel' 
+                            ? `total days logged since ${userProfile?.startDate ? 'vessel start date' : 'vessel launch'}`
+                            : `total days logged since joining ${currentVessel.name}`
+                          }
+                        </p>
                     </CardContent>
                 </Card>
             </div>

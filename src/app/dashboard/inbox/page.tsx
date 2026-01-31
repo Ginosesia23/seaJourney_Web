@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { getVesselStateLogs } from '@/supabase/database/queries';
 import { DateComparisonView } from './date-comparison-view';
-import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog, SeaTimeRequest } from '@/lib/types';
+import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog, SeaTimeRequest, VesselSeaTimeAccessRequest } from '@/lib/types';
 
 export default function InboxPage() {
   const { user } = useUser();
@@ -31,6 +31,8 @@ export default function InboxPage() {
   const [captainRoleApplications, setCaptainRoleApplications] = useState<any[]>([]);
   const [seaTimeRequests, setSeaTimeRequests] = useState<(SeaTimeRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } })[]>([]);
   const [selectedSeaTimeRequest, setSelectedSeaTimeRequest] = useState<(SeaTimeRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } }) | null>(null);
+  const [vesselSeaTimeAccessRequests, setVesselSeaTimeAccessRequests] = useState<(VesselSeaTimeAccessRequest & { vessel_user?: { email: string; first_name?: string; last_name?: string; username?: string; active_vessel_id?: string }, vessel?: { id: string; name: string } })[]>([]);
+  const [selectedVesselAccessRequest, setSelectedVesselAccessRequest] = useState<(VesselSeaTimeAccessRequest & { vessel_user?: { email: string; first_name?: string; last_name?: string; username?: string; active_vessel_id?: string }, vessel?: { id: string; name: string } }) | null>(null);
   const [isSeaTimeDialogOpen, setIsSeaTimeDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pending' | 'approved'>('pending');
@@ -40,6 +42,7 @@ export default function InboxPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isCaptaincyDialogOpen, setIsCaptaincyDialogOpen] = useState(false);
   const [isCaptainRoleDialogOpen, setIsCaptainRoleDialogOpen] = useState(false);
+  const [isVesselAccessDialogOpen, setIsVesselAccessDialogOpen] = useState(false);
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -91,6 +94,11 @@ export default function InboxPage() {
     return role === 'captain' || role === 'vessel' || role === 'admin' || position.includes('captain');
   }, [userProfile, userProfileRaw]);
 
+  // Check if user has any pending vessel sea time access requests (crew members need access for this)
+  const hasVesselAccessRequests = useMemo(() => {
+    return vesselSeaTimeAccessRequests.length > 0;
+  }, [vesselSeaTimeAccessRequests]);
+
   // Check if user is admin
   const isAdmin = useMemo(() => {
     return userProfile?.role?.toLowerCase() === 'admin';
@@ -113,11 +121,6 @@ export default function InboxPage() {
     const isAdmin = userRole === 'admin';
     const isCaptainRole = userRole === 'captain';
     
-    if (!isCaptain && !isVesselAccount && !isAdmin) {
-      setIsLoading(false);
-      return;
-    }
-
     const fetchPendingData = async () => {
       setIsLoading(true);
       try {
@@ -432,6 +435,63 @@ export default function InboxPage() {
           // Set captaincy requests to empty for non-admins (captains)
           setCaptaincyRequests([]);
           setSeaTimeRequests([]);
+        }
+
+        // Fetch vessel sea time access requests for ALL users (crew members need this)
+        // This is outside the captain/admin check so crew members can see their requests
+        console.log('[INBOX] Fetching vessel sea time access requests for user:', user.id);
+        const { data: accessRequests, error: accessError } = await supabase
+          .from('vessel_sea_time_access_requests')
+          .select('*')
+          .eq('crew_user_id', user.id)
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false });
+
+        console.log('[INBOX] Vessel sea time access requests result:', {
+          requests: accessRequests,
+          error: accessError,
+          count: accessRequests?.length || 0
+        });
+
+        if (accessError) {
+          console.error('[INBOX] Error fetching vessel sea time access requests:', accessError);
+          setVesselSeaTimeAccessRequests([]);
+        } else {
+          // Fetch vessel user details for display
+          const vesselUserIds = [...new Set((accessRequests || []).map(r => r.vessel_user_id))];
+          console.log('[INBOX] Vessel user IDs to fetch:', vesselUserIds);
+          
+          if (vesselUserIds.length > 0) {
+            const { data: vesselUsers, error: vesselUsersError } = await supabase
+              .from('users')
+              .select('id, email, first_name, last_name, username')
+              .in('id', vesselUserIds);
+
+            console.log('[INBOX] Vessel users fetched:', { users: vesselUsers, error: vesselUsersError });
+
+            if (vesselUsersError) {
+              console.error('[INBOX] Error fetching vessel users:', vesselUsersError);
+              setVesselSeaTimeAccessRequests([]);
+            } else {
+              const userMap = new Map((vesselUsers || []).map(u => [u.id, u]));
+
+              // Use vessel information directly from the request (vessel_id and vessel_name are stored)
+              const requestsWithDetails = (accessRequests || []).map(request => ({
+                ...request,
+                vessel_user: userMap.get(request.vessel_user_id),
+                vessel: request.vessel_id && request.vessel_name ? {
+                  id: request.vessel_id,
+                  name: request.vessel_name,
+                } : null,
+              }));
+
+              console.log('[INBOX] Setting vessel sea time access requests:', requestsWithDetails);
+              setVesselSeaTimeAccessRequests(requestsWithDetails as any);
+            }
+          } else {
+            console.log('[INBOX] No vessel user IDs found, setting empty array');
+            setVesselSeaTimeAccessRequests([]);
+          }
         }
       } catch (error: any) {
         console.error('Error fetching pending data:', error);
@@ -1583,6 +1643,92 @@ export default function InboxPage() {
     }
   };
 
+  const handleApproveVesselAccessRequest = async () => {
+    if (!selectedVesselAccessRequest || !user?.id) return;
+
+    setIsProcessing(true);
+    try {
+      const response = await fetch('/api/vessel-sea-time-access', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: selectedVesselAccessRequest.id,
+          crewUserId: user.id,
+          action: 'approve',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to approve request');
+      }
+
+      toast({
+        title: 'Request Approved',
+        description: 'The vessel manager can now view your sea time data.',
+      });
+
+      setVesselSeaTimeAccessRequests(prev => prev.filter(r => r.id !== selectedVesselAccessRequest.id));
+      setIsVesselAccessDialogOpen(false);
+      setSelectedVesselAccessRequest(null);
+      setAction(null);
+    } catch (error: any) {
+      console.error('Error approving vessel access request:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to approve request. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRejectVesselAccessRequest = async () => {
+    if (!selectedVesselAccessRequest || !user?.id) return;
+
+    setIsProcessing(true);
+    try {
+      const response = await fetch('/api/vessel-sea-time-access', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: selectedVesselAccessRequest.id,
+          crewUserId: user.id,
+          action: 'reject',
+          rejectionReason: rejectionReason || null,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to reject request');
+      }
+
+      toast({
+        title: 'Request Rejected',
+        description: 'The vessel manager has been notified.',
+      });
+
+      setVesselSeaTimeAccessRequests(prev => prev.filter(r => r.id !== selectedVesselAccessRequest.id));
+      setIsVesselAccessDialogOpen(false);
+      setSelectedVesselAccessRequest(null);
+      setAction(null);
+      setRejectionReason('');
+    } catch (error: any) {
+      console.error('Error rejecting vessel access request:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to reject request. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleRejectSeaTimeRequest = async () => {
     if (!selectedSeaTimeRequest) return;
 
@@ -1636,20 +1782,24 @@ export default function InboxPage() {
     }
   };
 
-  if (!isCaptain) {
+  // Allow access if user is captain/admin/vessel OR if they have pending vessel sea time access requests
+  // Also allow access while loading so crew members can see the page while data loads
+  const hasAccess = isCaptain || hasVesselAccessRequests || isLoading;
+
+  if (!hasAccess && !isLoading) {
     return (
       <div className="flex flex-col gap-6">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight">Inbox</h1>
-          <p className="text-muted-foreground">View and respond to testimonial requests</p>
+          <p className="text-muted-foreground">View and respond to requests</p>
           <Separator />
         </div>
         <Card className="rounded-xl border">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <AlertCircle className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Access Restricted</h3>
+            <h3 className="text-lg font-semibold mb-2">No Pending Requests</h3>
             <p className="text-sm text-muted-foreground max-w-md">
-              This page is only accessible to captains and vessel managers. If you believe this is an error, please contact support.
+              You don't have any pending requests at this time. This page is accessible when you have requests to review.
             </p>
           </CardContent>
         </Card>
@@ -1667,12 +1817,14 @@ export default function InboxPage() {
             <p className="text-muted-foreground">
               {isAdmin 
                 ? 'Review and approve captaincy requests for vessels'
-                : 'Review and respond to testimonial sign-off requests from crew members'}
+                : isCaptain
+                  ? 'Review and respond to testimonial sign-off requests from crew members'
+                  : 'Review and respond to vessel sea time access requests'}
             </p>
           </div>
-          {(testimonials.length > 0 || captaincyRequests.length > 0 || captainRoleApplications.length > 0 || (userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0)) && (
+          {(testimonials.length > 0 || captaincyRequests.length > 0 || captainRoleApplications.length > 0 || (userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0) || vesselSeaTimeAccessRequests.length > 0) && (
             <Badge variant="secondary" className="text-sm">
-              {testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0)} pending request{(testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0)) !== 1 ? 's' : ''}
+              {testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0) + vesselSeaTimeAccessRequests.length} pending request{(testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0) + vesselSeaTimeAccessRequests.length) !== 1 ? 's' : ''}
             </Badge>
           )}
         </div>
@@ -1694,7 +1846,8 @@ export default function InboxPage() {
           (!isAdmin && (
             testimonials.length > 0 || 
             approvedTestimonials.length > 0 || 
-            (isVesselRole && (seaTimeRequests.length > 0 || captaincyRequests.length > 0))
+            (isVesselRole && (seaTimeRequests.length > 0 || captaincyRequests.length > 0)) ||
+            vesselSeaTimeAccessRequests.length > 0
           ));
         
         return !hasAnyRequests;
@@ -2056,6 +2209,120 @@ export default function InboxPage() {
                                   setSelectedSeaTimeRequest(request);
                                   setAction('reject');
                                   setIsSeaTimeDialogOpen(true);
+                                }}
+                                size="sm"
+                                variant="destructive"
+                                className="rounded-lg"
+                              >
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Reject
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Vessel Sea Time Access Requests Section (Crew members only) */}
+          {vesselSeaTimeAccessRequests.length > 0 && !isAdmin && userProfile?.role?.toLowerCase() !== 'vessel' && (
+            <Card className="rounded-xl border shadow-sm">
+              <CardHeader>
+                <CardTitle>Vessel Sea Time Access Requests</CardTitle>
+                <CardDescription>
+                  Vessel managers are requesting permission to view your sea time data
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Vessel</TableHead>
+                        <TableHead>Vessel Manager</TableHead>
+                        <TableHead>Requested</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {vesselSeaTimeAccessRequests.map((request) => (
+                        <TableRow key={request.id} className="hover:bg-muted/50">
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                                <Ship className="h-5 w-5 text-primary" />
+                              </div>
+                              <div>
+                                <div className="font-semibold text-base">
+                                  {(request as any).vessel_name || request.vessel?.name || 'Unknown Vessel'}
+                                </div>
+                                {((request as any).vessel_id || request.vessel?.id) && (
+                                  <div className="text-xs text-muted-foreground">
+                                    Vessel ID: {((request as any).vessel_id || request.vessel?.id || '').slice(0, 8)}...
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">
+                                {request.vessel_user?.first_name && request.vessel_user?.last_name
+                                  ? `${request.vessel_user.first_name} ${request.vessel_user.last_name}`
+                                  : request.vessel_user?.username || request.vessel_user?.email || 'Unknown'}
+                              </div>
+                              {request.vessel_user?.email && (
+                                <div className="text-xs text-muted-foreground">
+                                  {request.vessel_user.email}
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Clock className="h-4 w-4 text-muted-foreground" />
+                              <div>
+                                <div className="font-medium">
+                                  {request.createdAt ? (() => {
+                                    const date = new Date(request.createdAt);
+                                    return isValid(date) ? format(date, 'MMM d, yyyy') : '—';
+                                  })() : '—'}
+                                </div>
+                                {request.createdAt && (() => {
+                                  const date = new Date(request.createdAt);
+                                  const daysAgo = differenceInDays(new Date(), date);
+                                  return (
+                                    <div className="text-xs text-muted-foreground">
+                                      {daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} days ago`}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                onClick={() => {
+                                  setSelectedVesselAccessRequest(request);
+                                  setAction('approve');
+                                  setIsVesselAccessDialogOpen(true);
+                                }}
+                                size="sm"
+                                className="rounded-lg bg-green-600 hover:bg-green-700 text-white"
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-2" />
+                                Approve
+                              </Button>
+                              <Button
+                                onClick={() => {
+                                  setSelectedVesselAccessRequest(request);
+                                  setAction('reject');
+                                  setIsVesselAccessDialogOpen(true);
                                 }}
                                 size="sm"
                                 variant="destructive"
@@ -3097,6 +3364,123 @@ export default function InboxPage() {
             <Button
               onClick={action === 'approve' ? handleApproveSeaTimeRequest : handleRejectSeaTimeRequest}
               disabled={isProcessing}
+              className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                action === 'approve' ? 'Approve' : 'Reject'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Vessel Sea Time Access Request Action Dialog */}
+      <Dialog open={isVesselAccessDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setIsVesselAccessDialogOpen(false);
+          setSelectedVesselAccessRequest(null);
+          setAction(null);
+          setRejectionReason('');
+        }
+      }}>
+        <DialogContent className="rounded-xl max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {action === 'approve' ? 'Approve Sea Time Access Request' : 'Reject Sea Time Access Request'}
+            </DialogTitle>
+            <DialogDescription>
+              {action === 'approve'
+                ? 'By approving this request, the vessel manager will be able to view your sea time data and breakdown.'
+                : 'Please provide a reason for rejecting this sea time access request.'}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedVesselAccessRequest && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Vessel</Label>
+                <div className="text-sm">
+                  <span className="font-medium">
+                    {(selectedVesselAccessRequest as any).vessel_name || selectedVesselAccessRequest.vessel?.name || 'Unknown Vessel'}
+                  </span>
+                  {((selectedVesselAccessRequest as any).vessel_id || selectedVesselAccessRequest.vessel?.id) && (
+                    <div className="text-muted-foreground mt-1">
+                      Vessel ID: {(selectedVesselAccessRequest as any).vessel_id || selectedVesselAccessRequest.vessel?.id}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Vessel Manager</Label>
+                <div className="text-sm">
+                  <span className="font-medium">
+                    {selectedVesselAccessRequest.vessel_user?.first_name && selectedVesselAccessRequest.vessel_user?.last_name
+                      ? `${selectedVesselAccessRequest.vessel_user.first_name} ${selectedVesselAccessRequest.vessel_user.last_name}`
+                      : selectedVesselAccessRequest.vessel_user?.username || selectedVesselAccessRequest.vessel_user?.email || 'Unknown'}
+                  </span>
+                  {selectedVesselAccessRequest.vessel_user?.email && (
+                    <div className="text-muted-foreground mt-1">
+                      {selectedVesselAccessRequest.vessel_user.email}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Requested On</Label>
+                <div className="text-sm text-muted-foreground">
+                  {selectedVesselAccessRequest.createdAt ? (() => {
+                    const date = new Date(selectedVesselAccessRequest.createdAt);
+                    return isValid(date) ? format(date, 'PPpp') : '—';
+                  })() : '—'}
+                </div>
+              </div>
+
+              {selectedVesselAccessRequest.notes && (
+                <div className="space-y-2">
+                  <Label>Notes</Label>
+                  <div className="text-sm text-muted-foreground p-3 rounded-lg bg-muted/30">
+                    {selectedVesselAccessRequest.notes}
+                  </div>
+                </div>
+              )}
+
+              {action === 'reject' && (
+                <div className="space-y-2">
+                  <Label htmlFor="vessel-access-rejection-reason">Rejection Reason *</Label>
+                  <Textarea
+                    id="vessel-access-rejection-reason"
+                    placeholder="Please provide a reason for rejecting this request..."
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    className="rounded-lg min-h-[100px]"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsVesselAccessDialogOpen(false);
+                setSelectedVesselAccessRequest(null);
+                setAction(null);
+                setRejectionReason('');
+              }}
+              disabled={isProcessing}
+              className="rounded-xl"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={action === 'approve' ? handleApproveVesselAccessRequest : handleRejectVesselAccessRequest}
+              disabled={isProcessing || (action === 'reject' && !rejectionReason.trim())}
               className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
             >
               {isProcessing ? (

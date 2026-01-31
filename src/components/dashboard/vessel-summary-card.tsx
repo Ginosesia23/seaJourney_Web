@@ -22,7 +22,8 @@ type VesselSummary = {
     name: string;
     type: string;
     totalDays: number;
-    tripCount: number;
+    tripCount: number; // Keep for backward compatibility
+    atSeaDays?: number; // At sea days count
     dayCountByState: Record<string, number>;
     isCurrent: boolean;
     officialStartDate?: string; // ISO date string (YYYY-MM-DD) - Official start date for vessel accounts
@@ -77,8 +78,8 @@ export function VesselSummaryCard({
                     </div>
                      <div className="border-l h-10"></div>
                     <div className="px-2">
-                        <p className="text-2xl font-bold">{vesselSummary.tripCount}</p>
-                        <p className="text-xs text-muted-foreground">Trips</p>
+                        <p className="text-2xl font-bold">{vesselSummary.atSeaDays !== undefined ? vesselSummary.atSeaDays : vesselSummary.tripCount}</p>
+                        <p className="text-xs text-muted-foreground">At Sea Days</p>
                     </div>
                 </div>
                 <div>

@@ -1135,7 +1135,7 @@ export default function CalendarPage() {
                           </div>
                         )}
                         {isPartOfActivePassage && !hasWatch && (
-                          <div className="flex items-center gap-2 text-blue-600">
+                          <div className="flex items-center gap-2 text-blue-800">
                             <Ship className="h-3.5 w-3.5" />
                             <span>Part of Active Passage (Counts as At Sea)</span>
                           </div>
@@ -1176,22 +1176,25 @@ export default function CalendarPage() {
                       isCurrentDay && !isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-2",
                       isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary/50",
                       (isRangeStart || isRangeEnd) && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-1",
-                      // Watch outline (yellow) - takes priority (inset to keep inside the square)
-                      hasWatch && "border-[3px] border-yellow-500",
-                      // Part of active passage outline (blue) - only if not watch (border for reliable inside outline, matches underway state)
-                      isPartOfActivePassage && !hasWatch && "border-[3px] border-blue-600",
-                      // Standby outline (purple) - only if not watch or part of active passage (border for reliable inside outline)
-                      isCountedStandby && !hasWatch && !isPartOfActivePassage && "border-[3px] border-purple-600",
+                      // Watch full color (yellow) - takes priority
+                      hasWatch && "bg-yellow-400 text-white border-0",
+                      // Part of active passage full color (darker blue) - only if not watch
+                      isPartOfActivePassage && !hasWatch && "bg-blue-800 text-white border-0",
+                      // Standby full color (purple) - only if not watch or part of active passage
+                      isCountedStandby && !hasWatch && !isPartOfActivePassage && "bg-purple-600 text-white border-0",
                       stateInfo 
                         ? "text-white" 
                         : "bg-muted/50 text-muted-foreground hover:bg-muted"
                     )}
                     style={
-                      stateInfo 
-                        ? { backgroundColor: stateInfo.color } 
+                      // Don't set backgroundColor if watch/standby/passage are active (handled by className)
+                      hasWatch || isPartOfActivePassage || isCountedStandby
+                        ? undefined
+                        : stateInfo 
+                          ? { backgroundColor: stateInfo.color } 
                           : isInRange 
-                          ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
-                          : undefined
+                            ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
+                            : undefined
                     }
                   >
                     <div className="flex flex-col items-center justify-center h-full relative">
@@ -1420,28 +1423,28 @@ export default function CalendarPage() {
             </div>
             <Separator />
             <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <div className="flex flex-wrap items-center gap-4 text-sm">
               <div className="flex items-center gap-2">
                 <div 
-                    className="h-8 w-8 rounded border-[3px] border-yellow-500 bg-transparent"
+                    className="h-8 w-8 rounded bg-yellow-400"
                   />
-                  <span>On Watch (yellow outline)</span>
+                  <span>On Watch (yellow)</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div 
-                    className="h-8 w-8 rounded border-[3px] border-blue-600 bg-transparent"
+                    className="h-8 w-8 rounded bg-blue-800"
                   />
-                  <span>Part of Active Passage (blue outline)</span>
+                  <span>Part of Active Passage (dark blue)</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div 
-                    className="h-8 w-8 rounded border-[3px] border-purple-600 bg-transparent"
+                    className="h-8 w-8 rounded bg-purple-600"
                   />
-                  <span>Counted as Standby (purple outline)</span>
+                  <span>Counted as Standby (purple)</span>
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Dates marked as watch (officers only) are shown with a yellow border outline. Dates marked as part of active passage count as "at sea" and are shown with a blue border outline. Dates counted as standby are shown with a purple border outline.
+                Dates marked as watch (officers only) are shown with a yellow background. Dates marked as part of active passage count as "at sea" and are shown with a dark blue background. Dates counted as standby are shown with a purple background.
               </p>
             </div>
           </div>

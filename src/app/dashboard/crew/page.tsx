@@ -1,11 +1,11 @@
 
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor } from 'lucide-react';
-import { format } from 'date-fns';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar } from 'lucide-react';
+import { format, parse } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,7 +20,7 @@ import { AlertCircle, ArrowUpCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
-import type { UserProfile, VesselAssignment, Vessel } from '@/lib/types';
+import type { UserProfile, VesselAssignment, Vessel, VesselSeaTimeAccessRequest } from '@/lib/types';
 import { getActiveVesselAssignmentsByVessel } from '@/supabase/database/queries';
 import { useCollection } from '@/supabase/database';
 
@@ -30,6 +30,17 @@ const getInitials = (name: string) => name ? name.split(' ').map((n) => n[0]).jo
 interface CrewMemberWithAssignment {
     profile: UserProfile;
     assignment: VesselAssignment;
+    accessRequest?: VesselSeaTimeAccessRequest | null;
+    seaTimeData?: {
+        totalDays: number;
+        atSeaDays: number;
+        standbyDays: number;
+        underwayDays: number;
+        atAnchorDays: number;
+        inPortDays: number;
+        onLeaveDays: number;
+        inYardDays: number;
+    };
 }
 
 export default function CrewPage() {
@@ -42,6 +53,9 @@ export default function CrewPage() {
     const [hasPendingCaptaincyRequest, setHasPendingCaptaincyRequest] = useState(false);
     const [isCheckingCaptaincy, setIsCheckingCaptaincy] = useState(false);
     const [updatingOnboardStatus, setUpdatingOnboardStatus] = useState<string | null>(null);
+    const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+    const [requestingAccess, setRequestingAccess] = useState<string | null>(null);
+    const [loadingSeaTime, setLoadingSeaTime] = useState<Set<string>>(new Set());
 
     // The user's own profile is needed to check their role and active vessel.
     const { data: currentUserProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -359,6 +373,273 @@ export default function CrewPage() {
         fetchCrew();
     }, [supabase, currentUserProfile?.activeVesselId, isAuthorized, user?.id, currentUserProfile?.role]);
 
+    // Fetch access requests for crew members (vessel managers only)
+    useEffect(() => {
+        if (currentUserProfile?.role !== 'vessel' || !user?.id) {
+            return;
+        }
+        
+        // Don't wait for crewMembers.length > 0, fetch immediately when crew members are loaded
+        if (crewMembers.length === 0) {
+            return;
+        }
+
+        const fetchAccessRequests = async () => {
+            try {
+                // Use current crewMembers from state, not closure
+                const currentCrewMembers = crewMembers.length > 0 ? crewMembers : [];
+                const crewUserIds = currentCrewMembers.map(m => m.profile.id);
+                if (crewUserIds.length === 0) {
+                    console.log('[CREW PAGE] No crew user IDs to fetch requests for');
+                    return;
+                }
+                
+                console.log('[CREW PAGE] Fetching access requests for crew user IDs:', crewUserIds);
+
+                // Fetch ALL requests (pending, approved, rejected) so vessel managers can see approved status
+                const { data: requests, error } = await supabase
+                    .from('vessel_sea_time_access_requests')
+                    .select('*')
+                    .eq('vessel_user_id', user.id)
+                    .in('crew_user_id', crewUserIds);
+
+                if (error) {
+                    console.error('[CREW PAGE] Error fetching access requests:', error);
+                    return;
+                }
+
+                console.log('[CREW PAGE] Fetched access requests:', requests);
+
+                // Map requests to crew members
+                const requestMap = new Map<string, VesselSeaTimeAccessRequest>();
+                requests?.forEach(req => {
+                    requestMap.set(req.crew_user_id, {
+                        id: req.id,
+                        vesselUserId: req.vessel_user_id,
+                        crewUserId: req.crew_user_id,
+                        vesselId: req.vessel_id,
+                        vesselName: req.vessel_name,
+                        status: req.status,
+                        notes: req.notes,
+                        rejectionReason: req.rejection_reason,
+                        createdAt: req.created_at,
+                        updatedAt: req.updated_at,
+                    });
+                });
+
+                setCrewMembers(prev => {
+                    const updated = prev.map(member => {
+                        const existingRequest = requestMap.get(member.profile.id);
+                        // Always update to reflect current status
+                        const updatedMember = {
+                            ...member,
+                            accessRequest: existingRequest || null,
+                        };
+                        
+                        // Debug logging
+                        if (existingRequest) {
+                            console.log(`[CREW PAGE] Updated access request for ${member.profile.id}:`, {
+                                status: existingRequest.status,
+                                id: existingRequest.id,
+                                crewUserId: existingRequest.crewUserId,
+                                vesselUserId: existingRequest.vesselUserId,
+                                previousStatus: member.accessRequest?.status,
+                            });
+                        } else if (member.accessRequest) {
+                            console.log(`[CREW PAGE] Removed access request for ${member.profile.id} (no longer exists)`);
+                        }
+                        
+                        return updatedMember;
+                    });
+                    
+                    console.log('[CREW PAGE] Updated crew members with access requests:', updated.map(m => ({
+                        id: m.profile.id,
+                        name: `${m.profile.firstName} ${m.profile.lastName}`,
+                        hasAccessRequest: !!m.accessRequest,
+                        status: m.accessRequest?.status,
+                    })));
+                    
+                    return updated;
+                });
+            } catch (error) {
+                console.error('[CREW PAGE] Exception fetching access requests:', error);
+            }
+        };
+
+        fetchAccessRequests();
+
+        // Set up realtime subscription to listen for changes
+        const channelName = `vessel-sea-time-access-requests-${user.id}`;
+        const channel = supabase
+            .channel(channelName)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'vessel_sea_time_access_requests',
+                    filter: `vessel_user_id=eq.${user.id}`,
+                },
+                (payload) => {
+                    console.log('[CREW PAGE] Access request changed:', payload);
+                    // Refetch requests when they change - use setTimeout to ensure we have latest crewMembers
+                    setTimeout(() => {
+                        fetchAccessRequests();
+                    }, 100);
+                }
+            )
+            .subscribe();
+
+        // Also set up polling as a fallback (every 5 seconds) to ensure updates are seen
+        const pollInterval = setInterval(() => {
+            fetchAccessRequests();
+        }, 5000);
+
+        return () => {
+            supabase.removeChannel(channel);
+            clearInterval(pollInterval);
+        };
+    }, [currentUserProfile?.role, user?.id, supabase, crewMembers.length]);
+
+    // Function to request sea time access
+    const handleRequestAccess = async (crewUserId: string) => {
+        if (!user?.id) return;
+
+        setRequestingAccess(crewUserId);
+        try {
+            const response = await fetch('/api/vessel-sea-time-access', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    vesselUserId: user.id,
+                    crewUserId,
+                }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to request access');
+            }
+
+            toast({
+                title: 'Request Sent',
+                description: 'The crew member will be notified of your request.',
+            });
+
+            // Refresh access requests
+            const { data: requests } = await supabase
+                .from('vessel_sea_time_access_requests')
+                .select('*')
+                .eq('vessel_user_id', user.id)
+                .eq('crew_user_id', crewUserId)
+                .maybeSingle();
+
+            if (requests) {
+                setCrewMembers(prev => prev.map(member => 
+                    member.profile.id === crewUserId
+                        ? { ...member, accessRequest: {
+                            id: requests.id,
+                            vesselUserId: requests.vessel_user_id,
+                            crewUserId: requests.crew_user_id,
+                            status: requests.status,
+                            notes: requests.notes,
+                            rejectionReason: requests.rejection_reason,
+                            createdAt: requests.created_at,
+                            updatedAt: requests.updated_at,
+                        }}
+                        : member
+                ));
+            }
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error requesting access:', error);
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to request access. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setRequestingAccess(null);
+        }
+    };
+
+    // Function to load sea time data for a crew member
+    const loadSeaTimeData = async (crewMember: CrewMemberWithAssignment) => {
+        if (crewMember.seaTimeData || loadingSeaTime.has(crewMember.profile.id)) {
+            return;
+        }
+
+        if (!user?.id || currentUserProfile?.role !== 'vessel') {
+            console.error('[CREW PAGE] Cannot load sea time data: user not authenticated or not vessel manager');
+            return;
+        }
+
+        setLoadingSeaTime(prev => new Set(prev).add(crewMember.profile.id));
+
+        try {
+            // Use API endpoint that verifies access and fetches data with admin privileges
+            const response = await fetch(
+                `/api/vessel-sea-time-access/sea-time-data?crewUserId=${crewMember.profile.id}&vesselUserId=${user.id}`
+            );
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                if (response.status === 403) {
+                    console.error('[CREW PAGE] Access not approved for crew member:', crewMember.profile.id);
+                    toast({
+                        title: 'Access Denied',
+                        description: 'You do not have approved access to view this crew member\'s sea time data.',
+                        variant: 'destructive',
+                    });
+                } else {
+                    throw new Error(errorData.error || 'Failed to fetch sea time data');
+                }
+                return;
+            }
+
+            const { seaTimeData } = await response.json();
+
+            setCrewMembers(prev => prev.map(m => 
+                m.profile.id === crewMember.profile.id
+                    ? { ...m, seaTimeData }
+                    : m
+            ));
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error loading sea time data:', error);
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to load sea time data.',
+                variant: 'destructive',
+            });
+        } finally {
+            setLoadingSeaTime(prev => {
+                const next = new Set(prev);
+                next.delete(crewMember.profile.id);
+                return next;
+            });
+        }
+    };
+
+    // Function to toggle expanded row
+    const toggleRowExpansion = async (crewMember: CrewMemberWithAssignment) => {
+        const isExpanded = expandedRows.has(crewMember.profile.id);
+        
+        if (isExpanded) {
+            setExpandedRows(prev => {
+                const next = new Set(prev);
+                next.delete(crewMember.profile.id);
+                return next;
+            });
+        } else {
+            setExpandedRows(prev => new Set(prev).add(crewMember.profile.id));
+            
+            // Load sea time data if not already loaded and access is approved
+            if (crewMember.accessRequest?.status === 'approved' && !crewMember.seaTimeData) {
+                await loadSeaTimeData(crewMember);
+            }
+        }
+    };
+
     // Function to toggle onboard status (vessel accounts only)
     const handleToggleOnboard = async (assignmentId: string, currentOnboardStatus: boolean, userId: string) => {
         if (currentUserProfile?.role !== 'vessel') return;
@@ -604,7 +885,8 @@ export default function CrewPage() {
                                     </TableCell>
                                 </TableRow>
                             ) : filteredCrewMembers && filteredCrewMembers.length > 0 ? (
-                                filteredCrewMembers.map(({ profile, assignment }) => {
+                                filteredCrewMembers.map((member) => {
+                                    const { profile, assignment } = member;
                                     const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
                                     const displayName = fullName || profile.username;
                                     
@@ -645,107 +927,223 @@ export default function CrewPage() {
                                         : null;
 
                                     return (
-                                        <TableRow key={profile.id}>
-                                            <TableCell className="font-medium">
-                                                <div className="flex items-center gap-3">
-                                                    <Avatar className="h-9 w-9">
-                                                        <AvatarImage src={profile.profilePicture} alt={displayName} />
-                                                        <AvatarFallback className="bg-primary/20">
-                                                            {getInitials(displayName) || <UserIcon />}
-                                                        </AvatarFallback>
-                                                    </Avatar>
-                                                    <div>
-                                                        <div className="font-medium">{displayName}</div>
+                                        <React.Fragment key={profile.id}>
+                                            <TableRow>
+                                                <TableCell className="font-medium">
+                                                    <div className="flex items-center gap-3">
+                                                        <Avatar className="h-9 w-9">
+                                                            <AvatarImage src={profile.profilePicture} alt={displayName} />
+                                                            <AvatarFallback className="bg-primary/20">
+                                                                {getInitials(displayName) || <UserIcon />}
+                                                            </AvatarFallback>
+                                                        </Avatar>
+                                                        <div>
+                                                            <div className="font-medium">{displayName}</div>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>{profile.email}</TableCell>
-                                            {currentUserProfile?.role === 'admin' && (
-                                                <TableCell>
-                                                    <span className="font-medium">{vesselName}</span>
                                                 </TableCell>
-                                            )}
-                                            <TableCell>
-                                                {position ? (
-                                                    <Badge variant="outline" className="rounded-full">{position}</Badge>
-                                                ) : (
-                                                    <span className="text-muted-foreground">—</span>
+                                                <TableCell>{profile.email}</TableCell>
+                                                {currentUserProfile?.role === 'admin' && (
+                                                    <TableCell>
+                                                        <span className="font-medium">{vesselName}</span>
+                                                    </TableCell>
                                                 )}
-                                            </TableCell>
-                                            <TableCell>
-                                                <Badge 
-                                                    variant="outline" 
-                                                    className={getRoleBadgeClassName(profile.role)}
-                                                >
-                                                    {getRoleLabel(profile.role)}
-                                                </Badge>
-                                            </TableCell>
-                                            {currentUserProfile?.role === 'admin' ? (
-                                            <TableCell>
-                                                <Badge 
-                                                        variant="secondary"
-                                                        className={
-                                                            profile.subscriptionStatus === 'active'
-                                                                ? 'bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400'
-                                                                : 'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:bg-gray-500/20 dark:text-gray-400'
-                                                        }
-                                                    >
-                                                        {profile.subscriptionTier && profile.subscriptionTier !== 'free'
-                                                            ? profile.subscriptionTier.charAt(0).toUpperCase() + profile.subscriptionTier.slice(1).replace(/_/g, ' ')
-                                                            : 'Free'}
-                                                </Badge>
-                                            </TableCell>
-                                            ) : (
-                                            <TableCell>
-                                                    {assignment.startDate 
-                                                        ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
-                                                        : 'N/A'}
-                                            </TableCell>
-                                            )}
-                                            {currentUserProfile?.role === 'vessel' && (
                                                 <TableCell>
-                                                    <div className="flex items-center gap-2">
-                                                        <Switch
-                                                            checked={assignment.onboard || false}
-                                                            onCheckedChange={() => {
-                                                                if (assignment.id && !assignment.id.startsWith('placeholder-')) {
-                                                                    handleToggleOnboard(assignment.id, assignment.onboard || false, assignment.userId);
-                                                                }
-                                                            }}
-                                                            disabled={updatingOnboardStatus === assignment.id || assignment.id.startsWith('placeholder-')}
-                                                        />
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {assignment.onboard ? (
-                                                                <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                                                                    <Ship className="h-3 w-3" /> Onboard
-                                                                </span>
-                                                            ) : (
-                                                                <span className="flex items-center gap-1 text-muted-foreground">
-                                                                    <Anchor className="h-3 w-3" /> Offboard
-                                                                </span>
-                                                            )}
-                                                        </span>
-                                                    </div>
+                                                    {position ? (
+                                                        <Badge variant="outline" className="rounded-full">{position}</Badge>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">—</span>
+                                                    )}
                                                 </TableCell>
+                                                <TableCell>
+                                                    <Badge 
+                                                        variant="outline" 
+                                                        className={getRoleBadgeClassName(profile.role)}
+                                                    >
+                                                        {getRoleLabel(profile.role)}
+                                                    </Badge>
+                                                </TableCell>
+                                                {currentUserProfile?.role === 'admin' ? (
+                                                    <TableCell>
+                                                        <Badge 
+                                                                variant="secondary"
+                                                                className={
+                                                                    profile.subscriptionStatus === 'active'
+                                                                        ? 'bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400'
+                                                                        : 'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:bg-gray-500/20 dark:text-gray-400'
+                                                                }
+                                                            >
+                                                                {profile.subscriptionTier && profile.subscriptionTier !== 'free'
+                                                                    ? profile.subscriptionTier.charAt(0).toUpperCase() + profile.subscriptionTier.slice(1).replace(/_/g, ' ')
+                                                                    : 'Free'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                ) : (
+                                                    <TableCell>
+                                                            {assignment.startDate 
+                                                                ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
+                                                                : 'N/A'}
+                                                    </TableCell>
+                                                )}
+                                                {currentUserProfile?.role === 'vessel' && (
+                                                    <TableCell>
+                                                        <div className="flex items-center gap-2">
+                                                            <Switch
+                                                                checked={assignment.onboard || false}
+                                                                onCheckedChange={() => {
+                                                                    if (assignment.id && !assignment.id.startsWith('placeholder-')) {
+                                                                        handleToggleOnboard(assignment.id, assignment.onboard || false, assignment.userId);
+                                                                    }
+                                                                }}
+                                                                disabled={updatingOnboardStatus === assignment.id || assignment.id.startsWith('placeholder-')}
+                                                            />
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {assignment.onboard ? (
+                                                                    <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                                                                        <Ship className="h-3 w-3" /> Onboard
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="flex items-center gap-1 text-muted-foreground">
+                                                                        <Anchor className="h-3 w-3" /> Offboard
+                                                                    </span>
+                                                                )}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                )}
+                                                <TableCell>
+                                                    {currentUserProfile?.role === 'vessel' ? (
+                                                        <div className="flex items-center gap-2">
+                                                            {/* Debug: Log access request status */}
+                                                            {console.log(`[CREW PAGE RENDER] Crew member ${profile.id} (${profile.firstName} ${profile.lastName}):`, {
+                                                                hasAccessRequest: !!member.accessRequest,
+                                                                status: member.accessRequest?.status,
+                                                                accessRequestId: member.accessRequest?.id,
+                                                                fullAccessRequest: member.accessRequest,
+                                                                memberKeys: Object.keys(member),
+                                                            })}
+                                                            {member.accessRequest?.status === 'approved' ? (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => toggleRowExpansion(member)}
+                                                                    className="h-8"
+                                                                >
+                                                                    {expandedRows.has(profile.id) ? (
+                                                                        <>
+                                                                            <ChevronUp className="h-4 w-4 mr-1" />
+                                                                            Hide Details
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <ChevronDown className="h-4 w-4 mr-1" />
+                                                                            View Sea Time
+                                                                        </>
+                                                                    )}
+                                                                </Button>
+                                                            ) : member.accessRequest?.status === 'pending' ? (
+                                                                <Badge variant="secondary" className="text-xs">
+                                                                    Request Pending
+                                                                </Badge>
+                                                            ) : member.accessRequest?.status === 'rejected' ? (
+                                                                <Badge variant="destructive" className="text-xs">
+                                                                    Request Rejected
+                                                                </Badge>
+                                                            ) : (
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() => handleRequestAccess(profile.id)}
+                                                                    disabled={requestingAccess === profile.id}
+                                                                    className="h-8"
+                                                                >
+                                                                    {requestingAccess === profile.id ? (
+                                                                        <>
+                                                                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                                                            Requesting...
+                                                                        </>
+                                                                    ) : (
+                                                                        'Request Sea Time Access'
+                                                                    )}
+                                                                </Button>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <Button variant="ghost" className="h-8 w-8 p-0 rounded-full">
+                                                                    <span className="sr-only">Open menu</span>
+                                                                    <MoreHorizontal className="h-4 w-4" />
+                                                                </Button>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent align="end">
+                                                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                                                <DropdownMenuItem>View Profile</DropdownMenuItem>
+                                                                <DropdownMenuItem>Assign to Vessel</DropdownMenuItem>
+                                                                <DropdownMenuSeparator />
+                                                                <DropdownMenuItem className="text-destructive">Remove User</DropdownMenuItem>
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                            {currentUserProfile?.role === 'vessel' && 
+                                             member.accessRequest?.status === 'approved' && 
+                                             expandedRows.has(profile.id) && (
+                                                <TableRow key={`${profile.id}-expanded`}>
+                                                    <TableCell colSpan={currentUserProfile?.role === 'admin' ? 8 : 7} className="bg-muted/50">
+                                                        {loadingSeaTime.has(profile.id) ? (
+                                                            <div className="flex items-center justify-center py-8">
+                                                                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                                                <span className="ml-2 text-muted-foreground">Loading sea time data...</span>
+                                                            </div>
+                                                        ) : member.seaTimeData ? (
+                                                            <div className="py-4 space-y-4">
+                                                                <h4 className="font-semibold text-sm mb-3">Sea Time Summary</h4>
+                                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">Total Days</div>
+                                                                        <div className="text-lg font-semibold">{member.seaTimeData.totalDays}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">At Sea Days</div>
+                                                                        <div className="text-lg font-semibold text-blue-600">{member.seaTimeData.atSeaDays}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">Standby Days</div>
+                                                                        <div className="text-lg font-semibold text-purple-600">{member.seaTimeData.standbyDays}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">Underway Days</div>
+                                                                        <div className="text-lg font-semibold">{member.seaTimeData.underwayDays}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">At Anchor Days</div>
+                                                                        <div className="text-lg font-semibold">{member.seaTimeData.atAnchorDays}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">In Port Days</div>
+                                                                        <div className="text-lg font-semibold">{member.seaTimeData.inPortDays}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">On Leave Days</div>
+                                                                        <div className="text-lg font-semibold">{member.seaTimeData.onLeaveDays}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">In Yard Days</div>
+                                                                        <div className="text-lg font-semibold">{member.seaTimeData.inYardDays}</div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="py-4 text-center text-muted-foreground text-sm">
+                                                                No sea time data available
+                                                            </div>
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
                                             )}
-                                            <TableCell>
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-                                                        <Button variant="ghost" className="h-8 w-8 p-0 rounded-full">
-                                                            <span className="sr-only">Open menu</span>
-                                                            <MoreHorizontal className="h-4 w-4" />
-                                                        </Button>
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end">
-                                                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                                        <DropdownMenuItem>View Profile</DropdownMenuItem>
-                                                        <DropdownMenuItem>Assign to Vessel</DropdownMenuItem>
-                                                        <DropdownMenuSeparator />
-                                                        <DropdownMenuItem className="text-destructive">Remove User</DropdownMenuItem>
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
-                                            </TableCell>
-                                        </TableRow>
+                                        </React.Fragment>
                                     )
                                 })
                             ) : (

@@ -4382,56 +4382,54 @@ export async function generateMCADeckhandTestimonial(
 
   if (data.receiptData) {
     const page = pdfDoc.addPage([A4_PORTRAIT.w, A4_PORTRAIT.h]);
-    const base = A4_PORTRAIT;
+    const { w: W, h: H } = A4_PORTRAIT;
   
-    const W = base.w;
-    const H = base.h;
-  
-    // ========== Theme ==========
+    // Brand styling
     const NAVY = rgb(0.06, 0.14, 0.26);
     const ACCENT = rgb(0.12, 0.45, 0.95);
     const INK = rgb(0.10, 0.10, 0.12);
     const MUTED = rgb(0.42, 0.45, 0.52);
-    const BORDER = rgb(0.90, 0.92, 0.95);
-    const BORDER2 = rgb(0.86, 0.88, 0.92);
-    const SOFT = rgb(0.985, 0.988, 0.995);
-    const PILL_BG = rgb(0.94, 0.96, 0.99);
-    const PILL_BORDER = rgb(0.84, 0.88, 0.95);
+    const LINE = rgb(0.86, 0.88, 0.92);
     const WHITE = rgb(1, 1, 1);
   
-    const M = 34; // margins
-    const G = 14; // gap
-    const P = 14; // inner padding
-    const headerH = 92;
+    const M = 50; // margins
+    const headerH = 88;
+    const COL_GAP = 20; // gap between columns
   
-    // ========== Data ==========
+    // ===== Data =====
     const docId = data.receiptData.documentId || testimonial.id;
-    const sjCode = data.receiptData.sjCode || testimonial.testimonial_code || 'N/A';
+    const refCode = testimonial.testimonial_code || data.receiptData.sjCode || 'N/A';
+  
     const generatedAt = data.receiptData.generatedAt
       ? format(new Date(data.receiptData.generatedAt), 'dd MMM yyyy HH:mm:ss')
       : format(new Date(), 'dd MMM yyyy HH:mm:ss');
-  
-    const verificationUrl = data.receiptData.documentId
-      ? `www.seajourney.co.uk/verify/${data.receiptData.documentId}`
-      : `www.seajourney.co.uk/verify/${testimonial.id}`;
-  
-    // If you prefer to always display the actual testimonial_code when present:
-    const refCode = testimonial.testimonial_code || sjCode || 'N/A';
   
     const safeInt = (n: any) => {
       const v = Number(n);
       return Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0;
     };
   
-    // ========== Helpers ==========
-    const t = (text: string, x: number, y: number, size: number, bold = false, color = INK) => {
-      page.drawText(String(text ?? ''), { x, y, size, font: bold ? fontBold : font, color });
+    // ===== Helpers =====
+    const t = (
+      text: string,
+      x: number,
+      y: number,
+      size: number,
+      bold = false,
+      color = INK,
+    ) => {
+      page.drawText(String(text ?? ''), {
+        x,
+        y,
+        size,
+        font: bold ? fontBold : font,
+        color,
+      });
     };
   
     const wrapText = (text: string, maxWidth: number, size: number) => {
       if (!text) return ['N/A'];
-      const s = String(text);
-      const words = s.split(' ');
+      const words = String(text).split(' ');
       const lines: string[] = [];
       let current = '';
   
@@ -4441,230 +4439,161 @@ export async function generateMCADeckhandTestimonial(
           current = test;
         } else {
           if (current) lines.push(current);
-  
-          // Hard split if a single token is too long
-          if (font.widthOfTextAtSize(w, size) > maxWidth) {
-            let chunk = '';
-            for (const ch of w) {
-              const tryChunk = chunk + ch;
-              if (font.widthOfTextAtSize(tryChunk, size) <= maxWidth) chunk = tryChunk;
-              else {
-                if (chunk) lines.push(chunk);
-                chunk = ch;
-              }
-            }
-            current = chunk;
-          } else {
             current = w;
           }
         }
-      }
-  
       if (current) lines.push(current);
-      return lines.length ? lines : ['N/A'];
+      return lines;
     };
   
-    const drawSoftSection = (x: number, yTop: number, w: number, h: number) => {
-      page.drawRectangle({
-        x,
-        y: yTop - h,
-        width: w,
-        height: h,
-        color: SOFT,
-        borderColor: BORDER,
-        borderWidth: 1,
-      });
+    const textWidth = (text: string, size: number, bold = false) =>
+      (bold ? fontBold : font).widthOfTextAtSize(String(text ?? ''), size);
   
-      page.drawRectangle({
-        x,
-        y: yTop - 3,
-        width: w,
-        height: 3,
-        color: ACCENT,
-      });
-    };
-  
-    const sectionTitle = (label: string, x: number, yTop: number) => {
-      t(label, x, yTop - 20, 10, true, INK);
-    };
-  
-    const drawLabelPill = (labelText: string, x: number, y: number, w: number) => {
-      page.drawRectangle({
-        x,
-        y: y - 12,
-        width: w,
-        height: 16,
-        color: PILL_BG,
-        borderColor: PILL_BORDER,
-        borderWidth: 1,
-      });
-      t(labelText.toUpperCase(), x + 8, y - 8, 7, true, MUTED);
-    };
-  
-    const drawRow = (x: number, y: number, labelText: string, valueText: string, rowW: number) => {
-      const pillW = Math.min(
-        132,
-        Math.max(92, fontBold.widthOfTextAtSize(labelText.toUpperCase(), 7) + 24),
-      );
-  
-      drawLabelPill(labelText, x, y, pillW);
-  
-      const valueX = x + pillW + 12;
-      const maxW = rowW - (pillW + 12);
-      const lines = wrapText(valueText || 'N/A', maxW, 9);
-  
-      // up to 2 lines
-      lines.slice(0, 2).forEach((ln, i) => t(ln, valueX, y - i * 12, 9, false, INK));
-  
-      page.drawLine({
-        start: { x, y: y - 20 },
-        end: { x: x + rowW, y: y - 20 },
-        thickness: 1,
-        color: rgb(0.92, 0.93, 0.95),
-      });
-  
-      return 26 + (Math.min(lines.length, 2) - 1) * 12;
-    };
-  
-    const drawStatChip = (labelText: string, valueText: string, x: number, yTop: number) => {
-      const w = 118;
-      const h = 36;
-  
-      page.drawRectangle({
-        x,
-        y: yTop - h,
-        width: w,
-        height: h,
-        color: rgb(0.97, 0.98, 1),
-        borderColor: BORDER2,
-        borderWidth: 1,
-      });
-  
-      t(labelText.toUpperCase(), x + 10, yTop - 14, 7, true, MUTED);
-      t(valueText || '0', x + 10, yTop - 30, 15, true, INK);
-  
-      return { w, h };
-    };
-  
-    // ========== Header ==========
+    // ===== Branded Header =====
     page.drawRectangle({ x: 0, y: H - headerH, width: W, height: headerH, color: NAVY });
     page.drawRectangle({ x: 0, y: H - headerH - 4, width: W, height: 4, color: ACCENT });
   
-    t('SeaJourney', M, H - 46, 24, true, WHITE);
-    t('Document Verification Summary', M, H - 68, 10, false, rgb(0.90, 0.93, 0.98));
+    t('SeaJourney', M, H - 42, 22, true, WHITE);
+    t('Document Verification Summary', M, H - 64, 10, false, rgb(0.90, 0.93, 0.98));
   
-    const metaX = W - M - 220;
+    const metaX = W - M - 200;
     t('Document', metaX, H - 40, 9, true, WHITE);
     t('Type: MCA Testimonial', metaX, H - 54, 8, false, rgb(0.90, 0.93, 0.98));
     t(`Generated: ${format(new Date(), 'dd MMM yyyy')}`, metaX, H - 66, 8, false, rgb(0.90, 0.93, 0.98));
   
-    // ========== Layout ==========
-    let y = H - headerH - 18;
-  
-    // Row 1: Document Info (left) + Verification (right)
-    const row1H = 150;
-    const leftW = Math.round((W - 2 * M) * 0.64);
-    const rightW = (W - 2 * M) - leftW - G;
-  
-    drawSoftSection(M, y, leftW, row1H);
-    drawSoftSection(M + leftW + G, y, rightW, row1H);
-  
-    sectionTitle('DOCUMENT INFORMATION', M + P, y);
-    sectionTitle('VERIFICATION', M + leftW + G + P, y);
-  
-    let ry = y - 46;
-    const docRowW = leftW - 2 * P;
-    const docX = M + P;
-  
-    ry -= drawRow(docX, ry, 'Document Type', 'MCA Testimonial', docRowW);
-    ry -= drawRow(docX, ry, 'Document ID', docId, docRowW);
-    ry -= drawRow(docX, ry, 'SeaJourney Code', refCode, docRowW);
-    ry -= drawRow(docX, ry, 'Generated', generatedAt, docRowW);
-  
-    // Verification details (NO verify button)
-    const vX = M + leftW + G + P;
-    const vInnerW = rightW - 2 * P;
-  
-    t('REFERENCE CODE', vX, y - 52, 7, true, MUTED);
-    t(refCode, vX, y - 74, 16, true, INK);
-  
-    drawLabelPill('Verification URL', vX, y - 92, Math.min(160, vInnerW));
-    const urlLines = wrapText(verificationUrl, vInnerW, 8.5);
-    urlLines.slice(0, 4).forEach((ln, i) => t(ln, vX, y - 114 - i * 10, 8.5, false, INK));
-  
-    y -= row1H + 14;
-  
-    // Row 2: Crew + Vessel
-    const row2H = 150;
-    const colW = (W - 2 * M - G) / 2;
-  
-    drawSoftSection(M, y, colW, row2H);
-    drawSoftSection(M + colW + G, y, colW, row2H);
-  
-    sectionTitle('CREW MEMBER', M + P, y);
-    sectionTitle('VESSEL', M + colW + G + P, y);
-  
-    let cy = y - 46;
-    const crewW = colW - 2 * P;
-    const crewX = M + P;
-  
-    cy -= drawRow(crewX, cy, 'Name', fullName, crewW);
-    cy -= drawRow(crewX, cy, 'Date of birth', dateOfBirth || 'N/A', crewW);
-    cy -= drawRow(crewX, cy, 'Position', safe(userProfile.position) || 'N/A', crewW);
-    cy -= drawRow(crewX, cy, 'Email', userProfile.email || 'N/A', crewW);
-    // Optional:
-    // cy -= drawRow(crewX, cy, 'Discharge book', safe(userProfile.dischargeBookNumber) || 'N/A', crewW);
-  
-    let vy = y - 46;
-    const vesselX = M + colW + G + P;
-    const vesselW = colW - 2 * P;
-  
-    vy -= drawRow(vesselX, vy, 'Name', safe(vessel.name) || 'N/A', vesselW);
-    vy -= drawRow(vesselX, vy, 'Type', safe(vessel.type) || 'N/A', vesselW);
-    vy -= drawRow(vesselX, vy, 'Flag state', safe(vessel.flag_state) || 'N/A', vesselW);
-    vy -= drawRow(vesselX, vy, 'IMO', safe(vessel.imo) || safe(vessel.officialNumber) || 'N/A', vesselW);
-    vy -= drawRow(vesselX, vy, 'Gross tonnage', vessel.gross_tonnage?.toString() || 'N/A', vesselW);
-  
-    y -= row2H + 14;
-  
-    // Row 3: Service Summary (ONLY At sea / Standby / Yard)
-    const row3H = 160;
-    drawSoftSection(M, y, W - 2 * M, row3H);
-    sectionTitle('SERVICE SUMMARY', M + P, y);
-  
-    const range = `${formatDate(testimonial.start_date, 'DD/MM/YYYY')} - ${formatDate(testimonial.end_date, 'DD/MM/YYYY')}`;
-    t('DATE RANGE', M + P, y - 46, 7, true, MUTED);
-    t(range, M + P + 74, y - 46, 9, true, INK);
-  
-    // Chips (3), centered
-    const chipsY = y - 64;
-    const chipW = 118;
-    const chipGap = 12;
-    const chips: Array<[string, string]> = [
-      ['At sea', String(safeInt(testimonial.at_sea_days))],
-      ['Standby', String(safeInt(testimonial.standby_days))],
-      ['Yard', String(safeInt(testimonial.yard_days))],
-    ];
-    const totalChipsW = chips.length * chipW + (chips.length - 1) * chipGap;
-    let cx = M + P + ((W - 2 * M - 2 * P) - totalChipsW) / 2;
-  
-    chips.forEach(([lab, val]) => {
-      drawStatChip(lab, val, cx, chipsY);
-      cx += chipW + chipGap;
+    // ===== Authentication Code Display =====
+    let y = H - headerH - 30;
+    const codeBoxH = 70;
+    const codeBoxY = y - codeBoxH;
+    
+    // Compact highlighted box for authentication code
+    page.drawRectangle({
+      x: M,
+      y: codeBoxY,
+      width: W - 2 * M,
+      height: codeBoxH,
+      color: rgb(0.97, 0.98, 1),
+      borderColor: ACCENT,
+      borderWidth: 1.5,
     });
+    
+    // Accent bar at top
+    page.drawRectangle({
+      x: M,
+      y: y - 3,
+      width: W - 2 * M,
+      height: 3,
+      color: ACCENT,
+    });
+    
+    // Label
+    t('Authentication Code', M + 20, y - 18, 8, true, MUTED);
+    
+    // Code display (smaller, professional size)
+    const codeDisplay = refCode.startsWith('SJ-') ? refCode : `SJ-${refCode}`;
+    const codeSize = 18;
+    const codeX = M + (W - 2 * M) / 2;
+    const codeY = y - 42;
+    t(codeDisplay, codeX - textWidth(codeDisplay, codeSize, true) / 2, codeY, codeSize, true, NAVY);
+    
+    // Verification instruction
+    t('Verify at www.seajourney.co.uk/verify', codeX - textWidth('Verify at www.seajourney.co.uk/verify', 7, false) / 2, codeY - 18, 7, false, MUTED);
+    
+    y = codeBoxY - 25;
   
+    // ===== Content - Professional Two Column Layout =====
+    const colW = (W - 2 * M - COL_GAP) / 2;
+    const labelW = 130; // fixed width for labels
+    const valueW = colW - labelW - 12; // remaining width for values
+  
+    const addRow = (label: string, value: string | number | null | undefined, col: 'left' | 'right' = 'left') => {
+      const x = col === 'left' ? M : M + colW + COL_GAP;
+      const valueStr = value !== null && value !== undefined ? String(value) : 'N/A';
+      
+      // Label on left (professional styling)
+      t(label, x, y, 8.5, true, MUTED);
+      
+      // Value on right (within same column)
+      const valueX = x + labelW;
+      const lines = wrapText(valueStr, valueW, 9.5);
+      lines.forEach((line, i) => {
+        t(line, valueX, y - i * 11.5, 9.5, false, INK);
+      });
+      
+      y -= Math.max(11.5, lines.length * 11.5) + 5; // consistent spacing
+    };
+  
+    const addSection = (title: string) => {
+      // Section divider
+      page.drawLine({
+        start: { x: M, y: y + 3 },
+        end: { x: W - M, y: y + 3 },
+        thickness: 0.5,
+        color: LINE,
+      });
+      y -= 12; // More spacing below the line
+      t(title, M, y, 10.5, true, INK);
+      y -= 18;
+    };
+  
+    // Document Information
+    addSection('Document Information');
+    addRow('Document ID', docId, 'left');
+    addRow('Generated', generatedAt, 'left');
+    y -= 10;
+  
+    // Seafarer Information (left column)
+    addSection('Seafarer Information');
+    addRow('Name', fullName || 'N/A', 'left');
+    addRow('Date of Birth', dateOfBirth || 'N/A', 'left');
+    addRow('Position', safe(userProfile.position) || 'N/A', 'left');
+    addRow('Email', userProfile.email || 'N/A', 'left');
+    y -= 10;
+  
+    // Vessel Information (left column)
+    addSection('Vessel Information');
+    addRow('Vessel Name', safe(vessel.name) || 'N/A', 'left');
+    addRow('Vessel Type', safe(vessel.type) || 'N/A', 'left');
+    addRow('Flag State', safe(vessel.flag_state) || 'N/A', 'left');
+    addRow('IMO / Official Number', safe(vessel.imo) || safe(vessel.officialNumber) || 'N/A', 'left');
+    addRow('Gross Tonnage', vessel.gross_tonnage?.toString() || 'N/A', 'left');
+    y -= 10;
+  
+    // Sea Service Summary (all on left)
+    addSection('Sea Service Summary');
+    addRow('Date Range', `${formatDate(testimonial.start_date, 'DD/MM/YYYY')} – ${formatDate(testimonial.end_date, 'DD/MM/YYYY')}`, 'left');
+    addRow('Total Days', safeInt(testimonial.total_days ?? 0), 'left');
+    addRow('At Sea Days', safeInt(testimonial.at_sea_days), 'left');
+    addRow('Standby Days', safeInt(testimonial.standby_days), 'left');
+    addRow('Yard Days', safeInt(testimonial.yard_days), 'left');
+    addRow('Leave Days', safeInt(testimonial.leave_days ?? 0), 'left');
+    y -= 12;
+  
+    // Disclaimer
     t(
-      'These values reflect the approved SeaJourney record for this testimonial.',
-      M + P,
-      y - row3H + 18,
+      'Figures shown are generated from the approved SeaJourney record and are provided for reference only.',
+      M,
+      y,
       8,
       false,
       MUTED,
     );
+    y -= 30;
   
-    // Bottom micro footer
-    t('Generated by SeaJourney for official verification purposes.', M, 10, 7.5, false, MUTED);
+    // ===== Footer at Bottom =====
+    const footerY = 30;
+    page.drawLine({
+      start: { x: M, y: footerY + 20 },
+      end: { x: W - M, y: footerY + 20 },
+      thickness: 1,
+      color: LINE,
+    });
+    t('SeaJourney • Supporting document (not part of the MCA form)', M, footerY, 8, false, MUTED);
+    t(`Reference: ${refCode}`, W - M - textWidth(`Reference: ${refCode}`, 8, true), footerY, 8, true, MUTED);
   }
+  
+  
+  
   
 
   const pdfBytes = await pdfDoc.save();
@@ -4977,40 +4906,34 @@ export async function generateMCAOfficerTestimonial(
   // Add SeaJourney Receipt/Verification Page
   if (data.receiptData) {
     const page = pdfDoc.addPage([A4_PORTRAIT.w, A4_PORTRAIT.h]);
-    const base = A4_PORTRAIT;
+    const { w: W, h: H } = A4_PORTRAIT;
   
-    const W = base.w;
-    const H = base.h;
-  
-    // ========== Theme ==========
+    // Brand styling
     const NAVY = rgb(0.06, 0.14, 0.26);
     const ACCENT = rgb(0.12, 0.45, 0.95);
     const INK = rgb(0.10, 0.10, 0.12);
     const MUTED = rgb(0.42, 0.45, 0.52);
-    const BORDER = rgb(0.90, 0.92, 0.95);
-    const BORDER2 = rgb(0.86, 0.88, 0.92);
-    const SOFT = rgb(0.985, 0.988, 0.995);
-    const PILL_BG = rgb(0.94, 0.96, 0.99);
-    const PILL_BORDER = rgb(0.84, 0.88, 0.95);
+    const LINE = rgb(0.86, 0.88, 0.92);
     const WHITE = rgb(1, 1, 1);
   
-    const M = 34;     // margins
-    const G = 14;     // gap
-    const P = 14;     // inner padding
-    const headerH = 92;
+    const M = 50; // margins
+    const headerH = 88;
+    const COL_GAP = 20; // gap between columns
   
-    // ========== Data ==========
+    // ===== Data =====
     const docId = data.receiptData.documentId || testimonial.id;
-    const sjCode = data.receiptData.sjCode || testimonial.testimonial_code || 'N/A';
+    const refCode = testimonial.testimonial_code || data.receiptData.sjCode || 'N/A';
+  
     const generatedAt = data.receiptData.generatedAt
       ? format(new Date(data.receiptData.generatedAt), 'dd MMM yyyy HH:mm:ss')
       : format(new Date(), 'dd MMM yyyy HH:mm:ss');
   
-    const verificationUrl = data.receiptData.documentId
-      ? `www.seajourney.co.uk/verify/${data.receiptData.documentId}`
-      : `www.seajourney.co.uk/verify/${testimonial.id}`;
+    const safeInt = (n: any) => {
+      const v = Number(n);
+      return Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0;
+    };
   
-    // ========== Helpers ==========
+    // ===== Helpers =====
     const t = (
       text: string,
       x: number,
@@ -5030,8 +4953,7 @@ export async function generateMCAOfficerTestimonial(
   
     const wrapText = (text: string, maxWidth: number, size: number) => {
       if (!text) return ['N/A'];
-      const s = String(text);
-      const words = s.split(' ');
+      const words = String(text).split(' ');
       const lines: string[] = [];
       let current = '';
   
@@ -5041,262 +4963,157 @@ export async function generateMCAOfficerTestimonial(
           current = test;
         } else {
           if (current) lines.push(current);
-  
-          // Hard split if a single token is too long
-          if (font.widthOfTextAtSize(w, size) > maxWidth) {
-            let chunk = '';
-            for (const ch of w) {
-              const tryChunk = chunk + ch;
-              if (font.widthOfTextAtSize(tryChunk, size) <= maxWidth) chunk = tryChunk;
-              else {
-                if (chunk) lines.push(chunk);
-                chunk = ch;
-              }
-            }
-            current = chunk;
-          } else {
             current = w;
           }
         }
-      }
-  
       if (current) lines.push(current);
-      return lines.length ? lines : ['N/A'];
+      return lines;
     };
   
-    const drawSoftSection = (x: number, yTop: number, w: number, h: number) => {
-      // Subtle container
-      page.drawRectangle({
-        x,
-        y: yTop - h,
-        width: w,
-        height: h,
-        color: SOFT,
-        borderColor: BORDER,
-        borderWidth: 1,
-      });
+    const textWidth = (text: string, size: number, bold = false) =>
+      (bold ? fontBold : font).widthOfTextAtSize(String(text ?? ''), size);
   
-      // Tiny top accent strip
-      page.drawRectangle({
-        x,
-        y: yTop - 3,
-        width: w,
-        height: 3,
-        color: ACCENT,
-      });
-    };
-  
-    const sectionTitle = (label: string, x: number, yTop: number) => {
-      t(label, x, yTop - 20, 10, true, INK);
-    };
-  
-    const drawLabelPill = (labelText: string, x: number, y: number, w: number) => {
-      page.drawRectangle({
-        x,
-        y: y - 12,
-        width: w,
-        height: 16,
-        color: PILL_BG,
-        borderColor: PILL_BORDER,
-        borderWidth: 1,
-      });
-      t(labelText.toUpperCase(), x + 8, y - 8, 7, true, MUTED);
-    };
-  
-    /**
-     * Modern key/value row:
-     * - pill label on left
-     * - wrapped value on right
-     * - subtle divider line
-     * Returns how much vertical space was consumed.
-     */
-    const drawRow = (
-      x: number,
-      y: number,
-      labelText: string,
-      valueText: string,
-      rowW: number,
-    ) => {
-      const pillW = Math.min(
-        132,
-        Math.max(92, fontBold.widthOfTextAtSize(labelText.toUpperCase(), 7) + 24),
-      );
-  
-      drawLabelPill(labelText, x, y, pillW);
-  
-      const valueX = x + pillW + 12;
-      const maxW = rowW - (pillW + 12);
-      const lines = wrapText(valueText || 'N/A', maxW, 9);
-  
-      // up to 2 lines (keeps the layout neat)
-      lines.slice(0, 2).forEach((ln, i) => t(ln, valueX, y - i * 12, 9, false, INK));
-  
-      // divider
-      page.drawLine({
-        start: { x, y: y - 20 },
-        end: { x: x + rowW, y: y - 20 },
-        thickness: 1,
-        color: rgb(0.92, 0.93, 0.95),
-      });
-  
-      return 26 + (Math.min(lines.length, 2) - 1) * 12;
-    };
-  
-    const drawStatChip = (labelText: string, valueText: string, x: number, yTop: number) => {
-      const w = 106;
-      const h = 34;
-  
-      page.drawRectangle({
-        x,
-        y: yTop - h,
-        width: w,
-        height: h,
-        color: rgb(0.97, 0.98, 1),
-        borderColor: BORDER2,
-        borderWidth: 1,
-      });
-  
-      t(labelText.toUpperCase(), x + 10, yTop - 14, 7, true, MUTED);
-      t(valueText || '0', x + 10, yTop - 28, 14, true, INK);
-  
-      return { w, h };
-    };
-  
-    // ========== Header (same colors, better layout) ==========
+    // ===== Branded Header =====
     page.drawRectangle({ x: 0, y: H - headerH, width: W, height: headerH, color: NAVY });
     page.drawRectangle({ x: 0, y: H - headerH - 4, width: W, height: 4, color: ACCENT });
   
-    // Left: title
-    t('SeaJourney', M, H - 46, 24, true, WHITE);
-    t('Document Verification Summary', M, H - 68, 10, false, rgb(0.90, 0.93, 0.98));
+    t('SeaJourney', M, H - 42, 22, true, WHITE);
+    t('Document Verification Summary', M, H - 64, 10, false, rgb(0.90, 0.93, 0.98));
   
-    // Right: compact header meta (not a white badge)
-    const metaX = W - M - 220;
+    const metaX = W - M - 200;
     t('Document', metaX, H - 40, 9, true, WHITE);
     t('Type: MCA Testimonial', metaX, H - 54, 8, false, rgb(0.90, 0.93, 0.98));
     t(`Generated: ${format(new Date(), 'dd MMM yyyy')}`, metaX, H - 66, 8, false, rgb(0.90, 0.93, 0.98));
   
-    // ========== Layout ==========
-    let y = H - headerH - 18;
-  
-    // Row 1: Document Info (left) + Verification (right)
-    const row1H = 150;
-    const leftW = Math.round((W - 2 * M) * 0.64);
-    const rightW = (W - 2 * M) - leftW - G;
-  
-    drawSoftSection(M, y, leftW, row1H);
-    drawSoftSection(M + leftW + G, y, rightW, row1H);
-  
-    sectionTitle('DOCUMENT INFORMATION', M + P, y);
-    sectionTitle('VERIFICATION', M + leftW + G + P, y);
-  
-    // Document rows
-    let ry = y - 46;
-    const docRowW = leftW - 2 * P;
-    const docX = M + P;
-  
-    ry -= drawRow(docX, ry, 'Document Type', 'MCA Testimonial', docRowW);
-    ry -= drawRow(docX, ry, 'Document ID', docId, docRowW);
-    ry -= drawRow(docX, ry, 'SeaJourney Code', sjCode, docRowW);
-    ry -= drawRow(docX, ry, 'Generated', generatedAt, docRowW);
-  
-    // Verification block (bigger code, URL wraps)
-    const vX = M + leftW + G + P;
-    const vInnerW = rightW - 2 * P;
-  
-    t('REFERENCE CODE', vX, y - 52, 7, true, MUTED);
-    t(sjCode || 'N/A', vX, y - 74, 16, true, INK);
-  
-    // URL label pill + lines
-    drawLabelPill('Verification URL', vX, y - 92, Math.min(150, vInnerW));
-    const urlLines = wrapText(verificationUrl, vInnerW, 8.5);
-    urlLines.slice(0, 3).forEach((ln, i) => t(ln, vX, y - 114 - i * 10, 8.5, false, INK));
-  
-    // A small “verify” button cue (visual only)
+    // ===== Authentication Code Display =====
+    let y = H - headerH - 30;
+    const codeBoxH = 70;
+    const codeBoxY = y - codeBoxH;
+    
+    // Compact highlighted box for authentication code
     page.drawRectangle({
-      x: vX,
-      y: y - row1H + 18,
-      width: 78,
-      height: 18,
+      x: M,
+      y: codeBoxY,
+      width: W - 2 * M,
+      height: codeBoxH,
+      color: rgb(0.97, 0.98, 1),
+      borderColor: ACCENT,
+      borderWidth: 1.5,
+    });
+    
+    // Accent bar at top
+    page.drawRectangle({
+      x: M,
+      y: y - 3,
+      width: W - 2 * M,
+      height: 3,
       color: ACCENT,
     });
-    t('VERIFY', vX + 22, y - row1H + 23, 9, true, WHITE);
+    
+    // Label
+    t('Authentication Code', M + 20, y - 18, 8, true, MUTED);
+    
+    // Code display (smaller, professional size)
+    const codeDisplay = refCode.startsWith('SJ-') ? refCode : `SJ-${refCode}`;
+    const codeSize = 18;
+    const codeX = M + (W - 2 * M) / 2;
+    const codeY = y - 42;
+    t(codeDisplay, codeX - textWidth(codeDisplay, codeSize, true) / 2, codeY, codeSize, true, NAVY);
+    
+    // Verification instruction
+    t('Verify at www.seajourney.co.uk/verify', codeX - textWidth('Verify at www.seajourney.co.uk/verify', 7, false) / 2, codeY - 18, 7, false, MUTED);
+    
+    y = codeBoxY - 25;
   
-    y -= row1H + 14;
+    // ===== Content - Professional Two Column Layout =====
+    const colW = (W - 2 * M - COL_GAP) / 2;
+    const labelW = 130; // fixed width for labels
+    const valueW = colW - labelW - 12; // remaining width for values
   
-    // Row 2: Crew + Vessel
-    const row2H = 150;
-    const colW = (W - 2 * M - G) / 2;
+    const addRow = (label: string, value: string | number | null | undefined, col: 'left' | 'right' = 'left') => {
+      const x = col === 'left' ? M : M + colW + COL_GAP;
+      const valueStr = value !== null && value !== undefined ? String(value) : 'N/A';
+      
+      // Label on left (professional styling)
+      t(label, x, y, 8.5, true, MUTED);
+      
+      // Value on right (within same column)
+      const valueX = x + labelW;
+      const lines = wrapText(valueStr, valueW, 9.5);
+      lines.forEach((line, i) => {
+        t(line, valueX, y - i * 11.5, 9.5, false, INK);
+      });
+      
+      y -= Math.max(11.5, lines.length * 11.5) + 5; // consistent spacing
+    };
   
-    drawSoftSection(M, y, colW, row2H);
-    drawSoftSection(M + colW + G, y, colW, row2H);
+    const addSection = (title: string) => {
+      // Section divider
+      page.drawLine({
+        start: { x: M, y: y + 3 },
+        end: { x: W - M, y: y + 3 },
+        thickness: 0.5,
+        color: LINE,
+      });
+      y -= 12; // More spacing below the line
+      t(title, M, y, 10.5, true, INK);
+      y -= 18;
+    };
   
-    sectionTitle('CREW MEMBER', M + P, y);
-    sectionTitle('VESSEL', M + colW + G + P, y);
+    // Document Information
+    addSection('Document Information');
+    addRow('Document ID', docId, 'left');
+    addRow('Generated', generatedAt, 'left');
+    y -= 10;
   
-    let cy = y - 46;
-    const crewW = colW - 2 * P;
-    const crewX = M + P;
+    // Seafarer Information (left column)
+    addSection('Seafarer Information');
+    addRow('Name', fullName || 'N/A', 'left');
+    addRow('Date of Birth', dateOfBirth || 'N/A', 'left');
+    addRow('Position', safe(userProfile.position) || 'N/A', 'left');
+    addRow('Email', userProfile.email || 'N/A', 'left');
+    y -= 10;
   
-    cy -= drawRow(crewX, cy, 'Name', fullName, crewW);
-    cy -= drawRow(crewX, cy, 'Date of birth', dateOfBirth || 'N/A', crewW);
-    cy -= drawRow(crewX, cy, 'Position', safe(userProfile.position) || 'N/A', crewW);
-    cy -= drawRow(crewX, cy, 'Email', userProfile.email || 'N/A', crewW);
-    // Optional extra row if you want:
-    // cy -= drawRow(crewX, cy, 'Discharge book', safe(userProfile.dischargeBookNumber) || 'N/A', crewW);
+    // Vessel Information (left column)
+    addSection('Vessel Information');
+    addRow('Vessel Name', safe(vessel.name) || 'N/A', 'left');
+    addRow('Vessel Type', safe(vessel.type) || 'N/A', 'left');
+    addRow('Flag State', safe(vessel.flag_state) || 'N/A', 'left');
+    addRow('IMO / Official Number', safe(vessel.imo) || safe(vessel.officialNumber) || 'N/A', 'left');
+    addRow('Gross Tonnage', vessel.gross_tonnage?.toString() || 'N/A', 'left');
+    y -= 10;
   
-    let vy = y - 46;
-    const vesselX = M + colW + G + P;
-    const vesselW = colW - 2 * P;
+    // Sea Service Summary (all on left)
+    addSection('Sea Service Summary');
+    addRow('Date Range', `${formatDate(testimonial.start_date, 'DD/MM/YYYY')} – ${formatDate(testimonial.end_date, 'DD/MM/YYYY')}`, 'left');
+    addRow('Total Days', safeInt(testimonial.total_days ?? 0), 'left');
+    addRow('At Sea Days', safeInt(testimonial.at_sea_days), 'left');
+    addRow('Standby Days', safeInt(testimonial.standby_days), 'left');
+    addRow('Yard Days', safeInt(testimonial.yard_days), 'left');
+    addRow('Leave Days', safeInt(testimonial.leave_days ?? 0), 'left');
+    y -= 12;
   
-    vy -= drawRow(vesselX, vy, 'Name', safe(vessel.name) || 'N/A', vesselW);
-    vy -= drawRow(vesselX, vy, 'Type', safe(vessel.type) || 'N/A', vesselW);
-    vy -= drawRow(vesselX, vy, 'Flag state', safe(vessel.flag_state) || 'N/A', vesselW);
-    vy -= drawRow(vesselX, vy, 'IMO', safe(vessel.imo) || safe(vessel.officialNumber) || 'N/A', vesselW);
-    vy -= drawRow(vesselX, vy, 'Gross tonnage', vessel.gross_tonnage?.toString() || 'N/A', vesselW);
-  
-    y -= row2H + 14;
-  
-    // Row 3: Service Summary (clean chips, fills page better)
-    const row3H = 170;
-    drawSoftSection(M, y, W - 2 * M, row3H);
-    sectionTitle('SERVICE SUMMARY', M + P, y);
-  
-    const range = `${formatDate(testimonial.start_date, 'DD/MM/YYYY')} - ${formatDate(testimonial.end_date, 'DD/MM/YYYY')}`;
-  
-    // Date range row
-    t('DATE RANGE', M + P, y - 46, 7, true, MUTED);
-    t(range, M + P + 74, y - 46, 9, true, INK);
-  
-    // Chips
-    const chipsY = y - 62;
-    let cx = M + P;
-  
-    const metrics: Array<[string, string]> = [
-      ['Total', String(testimonial.total_days ?? 0)],
-      ['At sea', String(testimonial.at_sea_days ?? 0)],
-      ['Standby', String(testimonial.standby_days ?? 0)],
-      ['Yard', String(testimonial.yard_days ?? 0)],
-      ['Leave', String(testimonial.leave_days ?? 0)],
-    ];
-  
-    metrics.forEach(([lab, val]) => {
-      drawStatChip(lab, val, cx, chipsY);
-      cx += 106 + 10;
-    });
-  
-    // Note
+    // Disclaimer
     t(
-      'These values reflect the approved SeaJourney record for this testimonial.',
-      M + P,
-      y - row3H + 18,
+      'Figures shown are generated from the approved SeaJourney record and are provided for reference only.',
+      M,
+      y,
       8,
       false,
       MUTED,
     );
+    y -= 30;
   
-    // Bottom micro footer (no big bar)
-    t('Generated by SeaJourney for official verification purposes.', M, 10, 7.5, false, MUTED);
+    // ===== Footer at Bottom =====
+    const footerY = 30;
+    page.drawLine({
+      start: { x: M, y: footerY + 20 },
+      end: { x: W - M, y: footerY + 20 },
+      thickness: 1,
+      color: LINE,
+    });
+    t('SeaJourney • Supporting document (not part of the MCA form)', M, footerY, 8, false, MUTED);
+    t(`Reference: ${refCode}`, W - M - textWidth(`Reference: ${refCode}`, 8, true), footerY, 8, true, MUTED);
   }
   
   

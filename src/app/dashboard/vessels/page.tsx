@@ -1055,7 +1055,7 @@ export default function VesselsPage() {
                       <TableHead className="w-[50px]"></TableHead>
                       <TableHead>Vessel Name</TableHead>
                       <TableHead>Type</TableHead>
-                      <TableHead>Official Number</TableHead>
+                      <TableHead>Days on Board</TableHead>
                       {isAdmin && <TableHead>Official</TableHead>}
                       <TableHead>Status</TableHead>
                       {isCaptain && <TableHead>Actions</TableHead>}
@@ -1102,7 +1102,7 @@ export default function VesselsPage() {
                                 <TableHead className="w-[50px]"></TableHead>
                         <TableHead>Vessel Name</TableHead>
                         <TableHead>Type</TableHead>
-                        <TableHead>Official Number</TableHead>
+                        <TableHead>Days on Board</TableHead>
                         {isAdmin && <TableHead>Official</TableHead>}
                         <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
@@ -1120,6 +1120,19 @@ export default function VesselsPage() {
                                 const isExpanded = expandedVesselId === vessel.id;
                                 const vesselRaw = allVessels?.find(v => v.id === vessel.id);
                       const vesselData = vesselRaw as any;
+                      
+                      // Calculate days on board from assignment
+                      const assignment = vesselAssignments.get(vessel.id);
+                      let daysOnBoard: number | null = null;
+                      if (assignment) {
+                        const startDate = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
+                        const endDate = assignment.endDate 
+                          ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
+                          : new Date(); // Use today if no end date
+                        const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+                        daysOnBoard = Math.max(0, daysDiff); // Ensure non-negative
+                      }
+                      
                       const request = captaincyRequests.get(vessel.id);
                       // Normalize status to lowercase for comparison (handle both string and null/undefined)
                       const requestStatus = request?.status ? String(request.status).toLowerCase().trim() : null;
@@ -1182,7 +1195,9 @@ export default function VesselsPage() {
                                         {vesselTypes.find(t => t.value === vessel.type)?.label || vessel.type}
                                                 </Badge>
                                     </TableCell>
-                                            <TableCell className="text-muted-foreground">{vessel.officialNumber || '—'}</TableCell>
+                                            <TableCell className="text-muted-foreground">
+                                              {daysOnBoard !== null ? `${daysOnBoard} day${daysOnBoard !== 1 ? 's' : ''}` : '—'}
+                                            </TableCell>
                                             {isAdmin && (
                                               <TableCell>
                                                 {(() => {

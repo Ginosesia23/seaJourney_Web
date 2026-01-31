@@ -5,7 +5,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Download, Calendar as CalendarIcon, Ship, Loader2, FileText, FileSpreadsheet, FileJson, FileDown, Sparkles, Settings2, Database, Clock, TrendingUp } from 'lucide-react';
-import { format, differenceInDays } from 'date-fns';
+import { format, differenceInDays, startOfYear, endOfYear, getYear, parse } from 'date-fns';
 import { DateRange } from 'react-day-picker';
 import { useRouter } from 'next/navigation';
 import { generateSeaTimeTestimonial } from '@/lib/pdf-generator';
@@ -22,12 +22,13 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments } from '@/supabase/database/queries';
-import type { Vessel, UserProfile } from '@/lib/types';
+import type { Vessel, UserProfile, VesselAssignment } from '@/lib/types';
 import Link from 'next/link';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Lock } from 'lucide-react';
@@ -95,6 +96,8 @@ export default function ExportPage() {
     const { supabase } = useSupabase();
     const router = useRouter();
     const [isGenerating, setIsGenerating] = useState(false);
+    const [exportProgress, setExportProgress] = useState(0);
+    const [exportStatus, setExportStatus] = useState<string>('');
     const [selectedFormat, setSelectedFormat] = useState<'csv' | 'excel' | 'json' | 'pdf'>('csv');
     const [previewStats, setPreviewStats] = useState<{
         recordCount: number;
@@ -116,11 +119,13 @@ export default function ExportPage() {
         const role = (userProfileRaw as any).role || userProfileRaw.role || 'crew';
         const subscriptionTier = (userProfileRaw as any).subscription_tier || userProfileRaw.subscriptionTier || 'free';
         const subscriptionStatus = (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive';
+        const activeVesselId = (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId;
         return {
             ...userProfileRaw,
             role: role,
             subscriptionTier: subscriptionTier,
             subscriptionStatus: subscriptionStatus,
+            activeVesselId: activeVesselId || undefined,
         } as UserProfile;
     }, [userProfileRaw]);
 
@@ -148,15 +153,44 @@ export default function ExportPage() {
         }
     }, [isLoadingProfile, userProfile, hasAccess, router]);
 
+    // Determine if user is a vessel manager
+    const isVesselManager = useMemo(() => {
+        return userProfile?.role?.toLowerCase() === 'vessel';
+    }, [userProfile]);
+
     const form = useForm<ExportFormValues>({
         resolver: zodResolver(exportSchema),
         defaultValues: {
             exportFormat: 'csv',
-            filterType: 'vessel',
+            filterType: isVesselManager ? 'date_range' : 'vessel',
             vesselId: undefined,
             dateRange: { from: undefined, to: undefined }
-        }
+        },
+        mode: 'onChange' // Enable validation on change
     });
+    
+    // Ensure filterType is always set to 'date_range' for vessel managers
+    useEffect(() => {
+        if (isVesselManager) {
+            form.setValue('filterType', 'date_range', { shouldValidate: false });
+        }
+    }, [isVesselManager, form]);
+    
+    // Debug: Log form state changes
+    useEffect(() => {
+        const subscription = form.watch((value, { name, type }) => {
+            console.log('[EXPORT PAGE] Form field changed:', { name, type, value: value[name as keyof typeof value] });
+        });
+        return () => subscription.unsubscribe();
+    }, [form]);
+    
+    // Debug: Log form errors
+    useEffect(() => {
+        const errors = form.formState.errors;
+        if (Object.keys(errors).length > 0) {
+            console.log('[EXPORT PAGE] Form validation errors:', errors);
+        }
+    }, [form.formState.errors]);
 
     const filterType = form.watch('filterType');
     const watchedVesselId = form.watch('vesselId');
@@ -169,7 +203,7 @@ export default function ExportPage() {
     );
 
     // Fetch vessel assignments to filter vessels
-    const [vesselAssignments, setVesselAssignments] = useState<Array<{ vesselId: string }>>([]);
+    const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
     const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
 
     useEffect(() => {
@@ -199,6 +233,116 @@ export default function ExportPage() {
         return allVessels.filter(v => assignedVesselIds.has(v.id));
     }, [allVessels, vesselAssignments]);
 
+    // Get the current vessel for vessel managers
+    const currentVessel = useMemo(() => {
+        if (!isVesselManager || !userProfile?.activeVesselId || !allVessels) return null;
+        return allVessels.find(v => v.id === userProfile.activeVesselId) || null;
+    }, [isVesselManager, userProfile?.activeVesselId, allVessels]);
+
+    // Calculate available years for quick selection
+    // For vessel managers: from vessel start date to current year
+    // For crew: from earliest assignment to current year
+    const availableYears = useMemo(() => {
+        const currentYear = getYear(new Date());
+        const years: number[] = [];
+        
+        let startYear = currentYear;
+        
+        if (isVesselManager && currentVessel) {
+            // Get vessel start date
+            let vesselStartDate: Date | null = null;
+            
+            if (userProfile?.startDate) {
+                try {
+                    vesselStartDate = parse(userProfile.startDate, 'yyyy-MM-dd', new Date());
+                } catch (e) {
+                    console.error('Error parsing vessel start date:', e);
+                }
+            }
+            
+            // Fallback to vessel creation date
+            if (!vesselStartDate && (currentVessel as any).created_at) {
+                vesselStartDate = new Date((currentVessel as any).created_at);
+            }
+            
+            if (vesselStartDate) {
+                startYear = getYear(vesselStartDate);
+            }
+        } else if (!isVesselManager && vesselAssignments.length > 0) {
+            // For crew members, use earliest assignment start date
+            const startDates = vesselAssignments.map(a => {
+                try {
+                    return parse(a.startDate, 'yyyy-MM-dd', new Date());
+                } catch {
+                    return null;
+                }
+            }).filter(Boolean) as Date[];
+            
+            if (startDates.length > 0) {
+                const earliestDate = startDates.reduce((earliest, date) => 
+                    date < earliest ? date : earliest
+                );
+                startYear = getYear(earliestDate);
+            }
+        }
+        
+        // Generate years from start year to current year
+        for (let year = startYear; year <= currentYear; year++) {
+            years.push(year);
+        }
+        
+        return years;
+    }, [isVesselManager, currentVessel, userProfile?.startDate, vesselAssignments]);
+
+    // Helper function to set year range
+    const setYearRange = (year: number) => {
+        const yearStart = startOfYear(new Date(year, 0, 1));
+        const yearEnd = endOfYear(new Date(year, 0, 1));
+        form.setValue('dateRange', { from: yearStart, to: yearEnd });
+    };
+
+    // Helper function to set "All" date range (from start date to today)
+    const setAllDateRange = () => {
+        let startDate: Date | null = null;
+        
+        if (isVesselManager && currentVessel) {
+            // Get vessel start date
+            if (userProfile?.startDate) {
+                try {
+                    startDate = parse(userProfile.startDate, 'yyyy-MM-dd', new Date());
+                } catch (e) {
+                    console.error('Error parsing vessel start date:', e);
+                }
+            }
+            
+            // Fallback to vessel creation date
+            if (!startDate && (currentVessel as any).created_at) {
+                startDate = new Date((currentVessel as any).created_at);
+            }
+        } else if (!isVesselManager && vesselAssignments.length > 0) {
+            // For crew members, use earliest assignment start date
+            const startDates = vesselAssignments.map(a => {
+                try {
+                    return parse(a.startDate, 'yyyy-MM-dd', new Date());
+                } catch {
+                    return null;
+                }
+            }).filter(Boolean) as Date[];
+            
+            if (startDates.length > 0) {
+                startDate = startDates.reduce((earliest, date) => 
+                    date < earliest ? date : earliest
+                );
+            }
+        }
+        
+        // If we have a start date, use it; otherwise use a very early date (e.g., 10 years ago)
+        const allStartDate = startDate || new Date(new Date().getFullYear() - 10, 0, 1);
+        const allEndDate = new Date(); // Today
+        
+        form.setValue('dateRange', { from: allStartDate, to: allEndDate });
+    };
+
     // Fetch preview statistics based on selected filters
     useEffect(() => {
         if (!user?.id || !supabase) {
@@ -214,12 +358,26 @@ export default function ExportPage() {
                     .select('date, vessel_id')
                     .eq('user_id', user.id);
 
-                if (filterType === 'vessel' && watchedVesselId) {
-                    logsQuery = logsQuery.eq('vessel_id', watchedVesselId);
-                } else if (filterType === 'date_range' && watchedDateRange?.from && watchedDateRange?.to) {
-                    const startDateStr = watchedDateRange.from.toISOString().split('T')[0];
-                    const endDateStr = watchedDateRange.to.toISOString().split('T')[0];
-                    logsQuery = logsQuery.gte('date', startDateStr).lte('date', endDateStr);
+                // For vessel managers, always filter by date range (and their active vessel if needed)
+                if (isVesselManager) {
+                    // Vessel managers should only see logs for their active vessel
+                    if (userProfile?.activeVesselId) {
+                        logsQuery = logsQuery.eq('vessel_id', userProfile.activeVesselId);
+                    }
+                    if (watchedDateRange?.from && watchedDateRange?.to) {
+                        const startDateStr = watchedDateRange.from.toISOString().split('T')[0];
+                        const endDateStr = watchedDateRange.to.toISOString().split('T')[0];
+                        logsQuery = logsQuery.gte('date', startDateStr).lte('date', endDateStr);
+                    }
+                } else {
+                    // For non-vessel managers, use the selected filter type
+                    if (filterType === 'vessel' && watchedVesselId) {
+                        logsQuery = logsQuery.eq('vessel_id', watchedVesselId);
+                    } else if (filterType === 'date_range' && watchedDateRange?.from && watchedDateRange?.to) {
+                        const startDateStr = watchedDateRange.from.toISOString().split('T')[0];
+                        const endDateStr = watchedDateRange.to.toISOString().split('T')[0];
+                        logsQuery = logsQuery.gte('date', startDateStr).lte('date', endDateStr);
+                    }
                 }
 
                 const { data: logs, error } = await logsQuery.order('date', { ascending: true });
@@ -250,52 +408,124 @@ export default function ExportPage() {
         };
 
         // Only fetch if we have valid filters
-        if ((filterType === 'vessel' && watchedVesselId) || (filterType === 'date_range' && watchedDateRange?.from && watchedDateRange?.to)) {
+        // For vessel managers, only check date range
+        // For others, check based on filter type
+        const hasValidFilters = isVesselManager
+            ? (watchedDateRange?.from && watchedDateRange?.to)
+            : ((filterType === 'vessel' && watchedVesselId) || (filterType === 'date_range' && watchedDateRange?.from && watchedDateRange?.to));
+        
+        if (hasValidFilters) {
             fetchPreviewStats();
         } else {
             setPreviewStats({ recordCount: 0, dateRange: { earliest: null, latest: null }, vesselCount: 0, isLoading: false });
         }
-    }, [user?.id, supabase, filterType, watchedVesselId, watchedDateRange]);
+    }, [user?.id, supabase, filterType, watchedVesselId, watchedDateRange, isVesselManager, userProfile?.activeVesselId]);
 
     const onSubmit = async (data: ExportFormValues) => {
+        console.log('[EXPORT PAGE] Form submitted with data:', data);
+        console.log('[EXPORT PAGE] Form validation state:', {
+            filterType: data.filterType,
+            vesselId: data.vesselId,
+            dateRange: data.dateRange,
+            exportFormat: data.exportFormat
+        });
+        
         if (!user) {
             toast({ title: 'Error', description: 'You must be logged in to export data.', variant: 'destructive' });
             return;
         }
 
         setIsGenerating(true);
+        setExportProgress(0);
+        setExportStatus('Preparing export...');
+        
         try {
+            console.log('[EXPORT PAGE] Starting export with params:', {
+                userId: user.id,
+                filterType: data.filterType,
+                vesselId: data.vesselId,
+                dateRange: data.dateRange,
+                exportFormat: data.exportFormat
+            });
+
+            // Simulate progress: Fetching data (0-60%)
+            setExportProgress(20);
+            setExportStatus('Fetching sea time data...');
+            
             const reportData = await fetchSeaTimeReportData(
                 user.id,
                 data.filterType,
                 data.vesselId,
                 data.dateRange as { from: Date; to: Date } | undefined
             );
+
+            console.log('[EXPORT PAGE] Report data received:', {
+                serviceRecordsCount: reportData.serviceRecords?.length || 0,
+                stateLogsCount: reportData.stateLogs?.length || 0,
+                watchDatesCount: reportData.watchDates?.length || 0,
+                totalDays: reportData.totalDays,
+                totalSeaDays: reportData.totalSeaDays,
+                totalStandbyDays: reportData.totalStandbyDays
+            });
+
+            // Simulate progress: Processing data (60-90%)
+            setExportProgress(60);
+            setExportStatus(`Generating ${data.exportFormat.toUpperCase()} file...`);
             
             switch (data.exportFormat) {
                 case 'csv':
                     exportToCSV(reportData);
+                    setExportProgress(100);
+                    setExportStatus('Export complete!');
                     toast({ title: 'Success', description: 'Sea time data exported to CSV.' });
                     break;
                 case 'excel':
-                    exportToExcelXML(reportData);
-                    toast({ title: 'Success', description: 'Sea time data exported to Excel.' });
+                    try {
+                        await exportToExcelXML(reportData);
+                        setExportProgress(100);
+                        setExportStatus('Export complete!');
+                        toast({ title: 'Success', description: 'Sea time data exported to Excel.' });
+                    } catch (excelError: any) {
+                        console.error('[EXPORT PAGE] Excel export error:', excelError);
+                        throw new Error(`Excel export failed: ${excelError.message || 'Unknown error'}`);
+                    }
                     break;
                 case 'json':
                     exportToJSON(reportData);
+                    setExportProgress(100);
+                    setExportStatus('Export complete!');
                     toast({ title: 'Success', description: 'Sea time data exported to JSON.' });
                     break;
                 case 'pdf':
-                generateSeaTimeTestimonial(reportData);
-                    toast({ title: 'Success', description: 'Sea time report generated as PDF.' });
+                    try {
+                        generateSeaTimeTestimonial(reportData);
+                        setExportProgress(100);
+                        setExportStatus('Export complete!');
+                        toast({ title: 'Success', description: 'Sea time report generated as PDF.' });
+                    } catch (pdfError: any) {
+                        console.error('[EXPORT PAGE] PDF export error:', pdfError);
+                        throw new Error(`PDF export failed: ${pdfError.message || 'Unknown error'}`);
+                    }
                     break;
                 default:
                     toast({ title: 'Error', description: 'Unknown export format.', variant: 'destructive' });
             }
 
+            // Reset progress after a short delay
+            setTimeout(() => {
+                setExportProgress(0);
+                setExportStatus('');
+            }, 1500);
+
         } catch (error: any) {
-            console.error("Failed to export data:", error);
-            toast({ title: 'Error', description: error.message || 'Failed to export data.', variant: 'destructive' });
+            console.error("[EXPORT PAGE] Failed to export data:", error);
+            setExportProgress(0);
+            setExportStatus('');
+            toast({ 
+                title: 'Error', 
+                description: error.message || 'Failed to export data. Please check the console for details.', 
+                variant: 'destructive' 
+            });
         } finally {
             setIsGenerating(false);
         }
@@ -444,43 +674,69 @@ export default function ExportPage() {
                         <CardDescription>Choose how to filter your sea time data</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
-                        <FormField
-                            control={form.control}
-                            name="filterType"
-                            render={({ field }) => (
-                                <FormItem>
+                        {!isVesselManager && (
+                            <FormField
+                                control={form.control}
+                                name="filterType"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Filter By</FormLabel>
+                                        <Select onValueChange={(value) => {
+                                            field.onChange(value);
+                                            form.setValue('vesselId', undefined);
+                                            form.setValue('dateRange', { from: undefined, to: undefined });
+                                        }} defaultValue={field.value}>
+                                            <FormControl>
+                                                <SelectTrigger className="rounded-lg">
+                                                    <SelectValue placeholder="Select a filter method..." />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                <SelectItem value="vessel">
+                                                     <div className="flex items-center gap-2">
+                                                        <Ship className="h-4 w-4" />
+                                                        <span>By Vessel</span>
+                                                    </div>
+                                                </SelectItem>
+                                                <SelectItem value="date_range">
+                                                    <div className="flex items-center gap-2">
+                                                        <CalendarIcon className="h-4 w-4" />
+                                                        <span>By Date Range</span>
+                                                    </div>
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        )}
+                        
+                        {isVesselManager && (
+                            <>
+                                {/* Hidden FormField to ensure filterType is registered for vessel managers */}
+                                <FormField
+                                    control={form.control}
+                                    name="filterType"
+                                    render={({ field }) => (
+                                        <FormItem className="hidden">
+                                            <FormControl>
+                                                <input type="hidden" {...field} value="date_range" />
+                                            </FormControl>
+                                        </FormItem>
+                                    )}
+                                />
+                                <div className="space-y-2">
                                     <FormLabel>Filter By</FormLabel>
-                                    <Select onValueChange={(value) => {
-                                        field.onChange(value);
-                                        form.setValue('vesselId', undefined);
-                                        form.setValue('dateRange', { from: undefined, to: undefined });
-                                    }} defaultValue={field.value}>
-                                        <FormControl>
-                                            <SelectTrigger className="rounded-lg">
-                                                <SelectValue placeholder="Select a filter method..." />
-                                            </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent>
-                                            <SelectItem value="vessel">
-                                                 <div className="flex items-center gap-2">
-                                                    <Ship className="h-4 w-4" />
-                                                    <span>By Vessel</span>
-                                                </div>
-                                            </SelectItem>
-                                            <SelectItem value="date_range">
-                                                <div className="flex items-center gap-2">
-                                                    <CalendarIcon className="h-4 w-4" />
-                                                    <span>By Date Range</span>
-                                                </div>
-                                            </SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
+                                    <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border">
+                                        <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                                        <span className="text-sm text-muted-foreground">Date Range (Vessel managers can only filter by date range)</span>
+                                    </div>
+                                </div>
+                            </>
+                        )}
 
-                        {filterType === 'vessel' && (
+                        {filterType === 'vessel' && !isVesselManager && (
                             <FormField
                                 control={form.control}
                                 name="vesselId"
@@ -521,61 +777,124 @@ export default function ExportPage() {
                             />
                         )}
 
-                        {filterType === 'date_range' && (
-                           <Controller
-                                control={form.control}
-                                name="dateRange"
-                                render={({ field }) => (
-                                    <FormItem className="flex flex-col">
-                                        <FormLabel>Date Range</FormLabel>
-                                        <Popover>
-                                            <PopoverTrigger asChild>
-                                                <FormControl>
+                        {(filterType === 'date_range' || isVesselManager) && (
+                            <>
+                                {/* Quick Year Selection */}
+                                {availableYears.length > 0 && (
+                                    <div className="space-y-2">
+                                        <FormLabel>Quick Select</FormLabel>
+                                        <div className="flex flex-wrap gap-2">
+                                            {/* "All" button */}
+                                            {(() => {
+                                                // Check if current selection is "All" (not matching any specific year)
+                                                const isAllSelected = watchedDateRange?.from && watchedDateRange?.to && 
+                                                    availableYears.every(year => {
+                                                        const yearStart = format(startOfYear(new Date(year, 0, 1)), 'yyyy-MM-dd');
+                                                        const yearEnd = format(endOfYear(new Date(year, 0, 1)), 'yyyy-MM-dd');
+                                                        const rangeStart = format(watchedDateRange.from, 'yyyy-MM-dd');
+                                                        const rangeEnd = format(watchedDateRange.to, 'yyyy-MM-dd');
+                                                        return !(rangeStart === yearStart && rangeEnd === yearEnd);
+                                                    });
+                                                
+                                                return (
                                                     <Button
-                                                        id="date"
-                                                        variant={"outline"}
+                                                        type="button"
+                                                        variant={isAllSelected ? "default" : "outline"}
+                                                        size="sm"
+                                                        onClick={() => setAllDateRange()}
                                                         className={cn(
-                                                            "w-full justify-start text-left font-normal rounded-lg",
-                                                            !field.value?.from && "text-muted-foreground"
+                                                            "rounded-lg",
+                                                            isAllSelected && "bg-primary text-primary-foreground"
                                                         )}
                                                     >
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {field.value?.from ? (
-                                                            field.value.to ? (
-                                                                <>
-                                                                    {format(field.value.from, "LLL dd, y")} -{" "}
-                                                                    {format(field.value.to, "LLL dd, y")}
-                                                                </>
-                                                            ) : (
-                                                                format(field.value.from, "LLL dd, y")
-                                                            )
-                                                        ) : (
-                                                            <span>Pick a date range</span>
-                                                        )}
+                                                        All
                                                     </Button>
-                                                </FormControl>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0" align="start">
-                                                <Calendar
-                                                    initialFocus
-                                                    mode="range"
-                                                    defaultMonth={field.value?.from}
-                                                    selected={{ from: field.value?.from!, to: field.value?.to }}
-                                                    onSelect={(range) => field.onChange(range)}
-                                                    numberOfMonths={2}
-                                                />
-                                            </PopoverContent>
-                                        </Popover>
-                                        <FormMessage />
-                                    </FormItem>
+                                                );
+                                            })()}
+                                            
+                                            {/* Year buttons */}
+                                            {availableYears.map(year => {
+                                                const isSelected = watchedDateRange?.from && watchedDateRange?.to &&
+                                                    getYear(watchedDateRange.from) === year &&
+                                                    getYear(watchedDateRange.to) === year &&
+                                                    format(watchedDateRange.from, 'yyyy-MM-dd') === format(startOfYear(new Date(year, 0, 1)), 'yyyy-MM-dd') &&
+                                                    format(watchedDateRange.to, 'yyyy-MM-dd') === format(endOfYear(new Date(year, 0, 1)), 'yyyy-MM-dd');
+                                                
+                                                return (
+                                                    <Button
+                                                        key={year}
+                                                        type="button"
+                                                        variant={isSelected ? "default" : "outline"}
+                                                        size="sm"
+                                                        onClick={() => setYearRange(year)}
+                                                        className={cn(
+                                                            "rounded-lg",
+                                                            isSelected && "bg-primary text-primary-foreground"
+                                                        )}
+                                                    >
+                                                        {year}
+                                                    </Button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
                                 )}
-                            />
+                                
+                                <Controller
+                                    control={form.control}
+                                    name="dateRange"
+                                    render={({ field }) => (
+                                        <FormItem className="flex flex-col">
+                                            <FormLabel>Date Range</FormLabel>
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <FormControl>
+                                                        <Button
+                                                            id="date"
+                                                            variant={"outline"}
+                                                            className={cn(
+                                                                "w-full justify-start text-left font-normal rounded-lg",
+                                                                !field.value?.from && "text-muted-foreground"
+                                                            )}
+                                                        >
+                                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                                            {field.value?.from ? (
+                                                                field.value.to ? (
+                                                                    <>
+                                                                        {format(field.value.from, "LLL dd, y")} -{" "}
+                                                                        {format(field.value.to, "LLL dd, y")}
+                                                                    </>
+                                                                ) : (
+                                                                    format(field.value.from, "LLL dd, y")
+                                                                )
+                                                            ) : (
+                                                                <span>Pick a date range</span>
+                                                            )}
+                                                        </Button>
+                                                    </FormControl>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0" align="start">
+                                                    <Calendar
+                                                        initialFocus
+                                                        mode="range"
+                                                        defaultMonth={field.value?.from}
+                                                        selected={{ from: field.value?.from!, to: field.value?.to }}
+                                                        onSelect={(range) => field.onChange(range)}
+                                                        numberOfMonths={2}
+                                                    />
+                                                </PopoverContent>
+                                            </Popover>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </>
                         )}
                     </CardContent>
                 </Card>
 
                 {/* Export Summary Preview */}
-                {(watchedVesselId || (watchedDateRange?.from && watchedDateRange?.to)) && (
+                {((!isVesselManager && watchedVesselId) || (watchedDateRange?.from && watchedDateRange?.to)) && (
                     <Card className="bg-muted/50 border-primary/20">
                         <CardHeader>
                             <CardTitle className="text-base flex items-center gap-2">
@@ -603,7 +922,7 @@ export default function ExportPage() {
                                         </Badge>
                                     </div>
 
-                                    {filterType === 'vessel' && selectedVessel && (
+                                    {filterType === 'vessel' && !isVesselManager && selectedVessel && (
                                         <>
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm text-muted-foreground flex items-center gap-2">
@@ -631,7 +950,7 @@ export default function ExportPage() {
                                         </>
                                     )}
 
-                                    {filterType === 'date_range' && watchedDateRange?.from && watchedDateRange?.to && (
+                                    {(filterType === 'date_range' || isVesselManager) && watchedDateRange?.from && watchedDateRange?.to && (
                                         <>
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm text-muted-foreground flex items-center gap-2">
@@ -662,6 +981,18 @@ export default function ExportPage() {
                                             )}
                                         </>
                                     )}
+                                    
+                                    {isVesselManager && userProfile?.activeVesselId && (
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm text-muted-foreground flex items-center gap-2">
+                                                <Ship className="h-4 w-4" />
+                                                Vessel:
+                                            </span>
+                                            <span className="text-sm font-medium">
+                                                {vessels.find(v => v.id === userProfile.activeVesselId)?.name || 'Your Vessel'}
+                                            </span>
+                                        </div>
+                                    )}
 
                                     {previewStats.dateRange.earliest && previewStats.dateRange.latest && (
                                         <div className="flex items-center justify-between">
@@ -675,7 +1006,7 @@ export default function ExportPage() {
                                         </div>
                                     )}
 
-                                    {previewStats.vesselCount > 0 && filterType === 'date_range' && (
+                                    {previewStats.vesselCount > 0 && (filterType === 'date_range' || isVesselManager) && !isVesselManager && (
                                         <div className="flex items-center justify-between">
                                             <span className="text-sm text-muted-foreground flex items-center gap-2">
                                                 <Ship className="h-4 w-4" />
@@ -698,13 +1029,68 @@ export default function ExportPage() {
                     </Card>
                 )}
 
+                {/* Export Progress Bar */}
+                {isGenerating && (
+                    <Card className="border-primary/20">
+                        <CardContent className="pt-6">
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground font-medium">{exportStatus || 'Exporting...'}</span>
+                                    <span className="text-muted-foreground font-medium">{exportProgress}%</span>
+                                </div>
+                                <Progress value={exportProgress} className="h-2" />
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* Form Validation Errors */}
+                {Object.keys(form.formState.errors).length > 0 && (
+                    <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle>Please fix the following errors:</AlertTitle>
+                        <AlertDescription className="mt-2">
+                            <ul className="list-disc list-inside space-y-1">
+                                {form.formState.errors.filterType && (
+                                    <li>{form.formState.errors.filterType.message}</li>
+                                )}
+                                {form.formState.errors.vesselId && (
+                                    <li>{form.formState.errors.vesselId.message}</li>
+                                )}
+                                {form.formState.errors.dateRange && (
+                                    <li>{form.formState.errors.dateRange.message}</li>
+                                )}
+                            </ul>
+                        </AlertDescription>
+                    </Alert>
+                )}
+
                 {/* Export Button */}
                 <div className="flex items-center gap-4">
                     <Button 
                         type="submit" 
                         disabled={isGenerating} 
                         size="lg"
-                        className="flex-1 rounded-xl h-12 text-base font-semibold"
+                        className="w-full rounded-xl h-12 text-base font-semibold"
+                        onClick={(e) => {
+                            console.log('[EXPORT PAGE] Export button clicked');
+                            console.log('[EXPORT PAGE] Current form values:', form.getValues());
+                            console.log('[EXPORT PAGE] Form errors:', form.formState.errors);
+                            console.log('[EXPORT PAGE] Form isValid:', form.formState.isValid);
+                            
+                            // Trigger validation
+                            form.trigger().then((isValid) => {
+                                console.log('[EXPORT PAGE] Validation result:', isValid);
+                                if (!isValid) {
+                                    console.log('[EXPORT PAGE] Form is invalid, preventing submission');
+                                    toast({
+                                        title: 'Validation Error',
+                                        description: 'Please complete all required fields. Check the form for details.',
+                                        variant: 'destructive'
+                                    });
+                                }
+                            });
+                        }}
                     >
                         {isGenerating ? (
                             <>
@@ -717,7 +1103,7 @@ export default function ExportPage() {
                                 Export Sea Time Data
                             </>
                         )}
-                        </Button>
+                    </Button>
                 </div>
                     </form>
                 </Form>

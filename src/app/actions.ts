@@ -2,7 +2,7 @@
 
 import { createSupabaseServerClient } from '@/supabase/server';
 import type { SeaServiceRecord, UserProfile, Vessel, StateLog } from '@/lib/types';
-import { isWithinInterval, startOfDay, endOfDay, parse, differenceInDays } from 'date-fns';
+import { isWithinInterval, startOfDay, endOfDay, parse, differenceInDays, format } from 'date-fns';
 import { stripe } from '@/lib/stripe';
 import type { Stripe } from 'stripe';
 import { createClient } from '@supabase/supabase-js';
@@ -272,6 +272,8 @@ export type SeaTimeReportData = {
   totalDays: number;
   totalSeaDays: number;
   totalStandbyDays: number;
+  stateLogs?: StateLog[]; // Individual state logs for detailed export
+  watchDates?: string[]; // Dates when user was on watch (as array for serialization)
 };
 
 export async function generateSeaTimeReportData(
@@ -340,10 +342,41 @@ export async function generateSeaTimeReportData(
     userId: log.user_id,
     vesselId: log.vessel_id,
     state: log.state,
-    date: log.date,
+    date: log.date || log.log_date, // Handle both column names
+    isPartOfActivePassage: log.is_part_of_active_passage || false,
     createdAt: log.created_at,
     updatedAt: log.updated_at,
   }));
+
+  // Fetch watch logs for officers (to include watch dates in export)
+  const watchDates = new Set<string>();
+  const position = (userProfile.position || '').toLowerCase();
+  const isOfficer = position.includes('officer') || position.includes('captain') || position.includes('engineer') || position.includes('mate');
+  
+  if (isOfficer) {
+    let watchQuery = supabaseAdmin
+      .from('watch_logs')
+      .select('watch_start')
+      .eq('user_id', userId);
+    
+    if (filterType === 'vessel' && vesselId) {
+      watchQuery = watchQuery.eq('vessel_id', vesselId);
+    } else if (filterType === 'date_range' && dateRange) {
+      const startDateStr = dateRange.from.toISOString().split('T')[0];
+      const endDateStr = dateRange.to.toISOString().split('T')[0];
+      watchQuery = watchQuery.gte('watch_start', `${startDateStr}T00:00:00`)
+                             .lte('watch_start', `${endDateStr}T23:59:59`);
+    }
+    
+    const { data: watchLogs } = await watchQuery;
+    
+    if (watchLogs) {
+      watchLogs.forEach(log => {
+        const dateStr = format(new Date(log.watch_start), 'yyyy-MM-dd');
+        watchDates.add(dateStr);
+      });
+    }
+  }
 
   if (stateLogs.length === 0) {
     return {
@@ -353,6 +386,8 @@ export async function generateSeaTimeReportData(
       totalDays: 0,
       totalSeaDays: 0,
       totalStandbyDays: 0,
+      stateLogs: [],
+      watchDates: Array.from(watchDates),
     };
   }
 
@@ -500,5 +535,7 @@ export async function generateSeaTimeReportData(
     totalDays,
     totalSeaDays,
     totalStandbyDays,
+    stateLogs, // Include individual state logs for detailed export
+    watchDates: Array.from(watchDates), // Convert Set to Array for serialization
   };
 }

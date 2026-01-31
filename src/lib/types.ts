@@ -230,6 +230,19 @@ export interface SeaTimeRequest {
     updatedAt?: string;                // ISO timestamp
 }
 
+export interface VesselSeaTimeAccessRequest {
+    id: string;                        // uuid PK
+    vesselUserId: string;               // uuid FK → auth.users.id (vessel manager requesting)
+    crewUserId: string;                 // uuid FK → auth.users.id (crew member)
+    vesselId: string;                   // uuid FK → vessels.id
+    vesselName: string;                 // Vessel name (stored for easy display)
+    status: 'pending' | 'approved' | 'rejected'; // Request status
+    notes?: string | null;             // Optional notes from vessel manager
+    rejectionReason?: string | null;   // Optional rejection reason from crew member
+    createdAt?: string;                // ISO timestamp
+    updatedAt?: string;               // ISO timestamp
+}
+
 export interface VisaTracker {
     id: string;                        // uuid PK
     userId: string;                    // uuid FK → auth.users.id

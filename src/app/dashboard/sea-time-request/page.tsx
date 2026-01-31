@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, isBefore, isAfter, startOfDay, parse, isValid } from 'date-fns';
-import { CalendarIcon, Loader2, Ship, CheckCircle2, XCircle, Clock, Lock, Sparkles } from 'lucide-react';
+import { CalendarIcon, Loader2, Ship, CheckCircle2, XCircle, Clock, Lock, Sparkles, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useUser, useSupabase } from '@/supabase';
@@ -52,6 +53,9 @@ export default function SeaTimeRequestPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
   const [isLoadingAssignments, setIsLoadingAssignments] = useState(true);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [requestToCancel, setRequestToCancel] = useState<SeaTimeRequest | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
 
   // Fetch user profile to check subscription
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -237,6 +241,39 @@ export default function SeaTimeRequestPage() {
 
   const getVesselName = (vesselId: string) => {
     return availableVessels.find(v => v.id === vesselId)?.name || vesselId;
+  };
+
+  const handleCancelRequest = async () => {
+    if (!requestToCancel || !user?.id) return;
+
+    setIsCancelling(true);
+    try {
+      const { error } = await supabase
+        .from('sea_time_requests')
+        .delete()
+        .eq('id', requestToCancel.id)
+        .eq('crew_user_id', user.id);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Request Cancelled',
+        description: 'The sea time request has been successfully cancelled.',
+      });
+
+      setCancelDialogOpen(false);
+      setRequestToCancel(null);
+      // Data will update automatically via realtime subscription
+    } catch (error: any) {
+      console.error('Error cancelling request:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to cancel request. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsCancelling(false);
+    }
   };
 
   // Show loading state for profile
@@ -455,6 +492,7 @@ export default function SeaTimeRequestPage() {
                   <TableHead>Date Range</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Submitted</TableHead>
+                  <TableHead className="w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -464,6 +502,7 @@ export default function SeaTimeRequestPage() {
                   const endDateStr = request.end_date || request.endDate;
                   const status = request.status;
                   const createdAt = request.created_at || request.createdAt;
+                  const canCancel = status === 'pending';
                   
                   return (
                     <TableRow key={request.id}>
@@ -491,6 +530,23 @@ export default function SeaTimeRequestPage() {
                           return isValid(date) ? format(date, 'MMM d, yyyy') : '—';
                         })() : '—'}
                       </TableCell>
+                      <TableCell>
+                        {canCancel ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setRequestToCancel(request as SeaTimeRequest);
+                              setCancelDialogOpen(true);
+                            }}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">—</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -499,6 +555,52 @@ export default function SeaTimeRequestPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Cancel Request Confirmation Dialog */}
+      <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Sea Time Request?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel this sea time request? This action cannot be undone.
+              {requestToCancel && (
+                <div className="mt-2 text-sm space-y-1">
+                  <div>Vessel: {getVesselName((requestToCancel as any).vessel_id || (requestToCancel as any).vesselId)}</div>
+                  {(() => {
+                    const startDateStr = (requestToCancel as any).start_date || (requestToCancel as any).startDate;
+                    const endDateStr = (requestToCancel as any).end_date || (requestToCancel as any).endDate;
+                    if (startDateStr && endDateStr) {
+                      const startDate = parse(startDateStr, 'yyyy-MM-dd', new Date());
+                      const endDate = parse(endDateStr, 'yyyy-MM-dd', new Date());
+                      if (isValid(startDate) && isValid(endDate)) {
+                        return <div>Date Range: {format(startDate, 'MMM d, yyyy')} - {format(endDate, 'MMM d, yyyy')}</div>;
+                      }
+                    }
+                    return null;
+                  })()}
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isCancelling}>Keep Request</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancelRequest}
+              disabled={isCancelling}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isCancelling ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Cancelling...
+                </>
+              ) : (
+                'Cancel Request'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

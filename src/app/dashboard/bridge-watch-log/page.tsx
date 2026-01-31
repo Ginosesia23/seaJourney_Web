@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { format, differenceInHours, startOfDay, endOfDay, parse, isValid } from 'date-fns';
-import { Loader2, Ship, Clock, Navigation, CalendarDays, PlusCircle, AlertTriangle } from 'lucide-react';
+import { format, differenceInHours, startOfDay, endOfDay, parse, isValid, setHours, setMinutes, isSameDay } from 'date-fns';
+import { Loader2, Ship, Clock, Navigation, CalendarDays, PlusCircle, AlertTriangle, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -12,11 +12,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
@@ -36,9 +39,24 @@ interface WatchLog {
 }
 
 const pastWatchSchema = z.object({
-  date: z.date({ required_error: 'Please select a date.' }),
+  method: z.enum(['hours', 'time_range'], { required_error: 'Please select a logging method.' }),
   vesselId: z.string().min(1, 'Please select a vessel.'),
-  hours: z.number().min(0.1, 'Hours must be greater than 0').max(24, 'Hours cannot exceed 24'),
+  // For hours method
+  date: z.date().optional(),
+  hours: z.number().optional(),
+  // For time range method
+  startDateTime: z.date().optional(),
+  endDateTime: z.date().optional(),
+}).refine((data) => {
+  if (data.method === 'hours') {
+    return data.date !== undefined && data.hours !== undefined && data.hours > 0 && data.hours <= 24;
+  } else {
+    return data.startDateTime !== undefined && data.endDateTime !== undefined && 
+           data.endDateTime > data.startDateTime;
+  }
+}, {
+  message: 'Please complete all required fields.',
+  path: ['method'],
 });
 
 type PastWatchFormValues = z.infer<typeof pastWatchSchema>;
@@ -52,6 +70,9 @@ export default function BridgeWatchLogPage() {
   const [vesselStateError, setVesselStateError] = useState<string | null>(null);
   const [atAnchorDates, setAtAnchorDates] = useState<Set<string>>(new Set());
   const [isLoadingAtAnchorDates, setIsLoadingAtAnchorDates] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [watchToDelete, setWatchToDelete] = useState<WatchLog | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -144,14 +165,20 @@ export default function BridgeWatchLogPage() {
   const form = useForm<PastWatchFormValues>({
     resolver: zodResolver(pastWatchSchema),
     defaultValues: {
-      date: new Date(),
+      method: 'hours',
       vesselId: '',
+      date: new Date(),
       hours: 4,
+      startDateTime: undefined,
+      endDateTime: undefined,
     },
   });
 
   // Watch for date and vessel changes to check vessel state
+  const watchedMethod = form.watch('method');
   const watchedDate = form.watch('date');
+  const watchedStartDateTime = form.watch('startDateTime');
+  const watchedEndDateTime = form.watch('endDateTime');
   const watchedVesselId = form.watch('vesselId');
 
   // Fetch watch logs from watch_logs table
@@ -234,33 +261,70 @@ export default function BridgeWatchLogPage() {
   // Check vessel state when date or vessel changes
   useEffect(() => {
     const checkVesselState = async () => {
-      if (!watchedDate || !watchedVesselId || !user?.id) {
+      if (!watchedVesselId || !user?.id) {
         setVesselStateError(null);
         return;
       }
 
-      setIsCheckingState(true);
-      setVesselStateError(null);
-
-      try {
-        const dateStr = format(watchedDate, 'yyyy-MM-dd');
-
-        // Check if this date is in the at-anchor dates set
-        if (!atAnchorDates.has(dateStr)) {
-          setVesselStateError(`The vessel was not at anchor on ${dateStr}. Watches can only be logged when the vessel is at anchor.`);
-        } else {
+      // Only check for hours method (single date)
+      if (watchedMethod === 'time_range') {
+        // For time range, check both start and end dates
+        if (!watchedStartDateTime) {
           setVesselStateError(null);
+          return;
         }
-      } catch (error: any) {
-        console.error('Error checking vessel state:', error);
-        setVesselStateError('Unable to verify vessel state. Please try again.');
-      } finally {
-        setIsCheckingState(false);
+        
+        setIsCheckingState(true);
+        setVesselStateError(null);
+
+        try {
+          const startDateStr = format(watchedStartDateTime, 'yyyy-MM-dd');
+          const endDateStr = watchedEndDateTime ? format(watchedEndDateTime, 'yyyy-MM-dd') : null;
+          
+          // Check if start date is at anchor
+          if (!atAnchorDates.has(startDateStr)) {
+            setVesselStateError(`The vessel was not at anchor on ${startDateStr}. Watches can only be logged when the vessel is at anchor.`);
+          } else if (endDateStr && endDateStr !== startDateStr && !atAnchorDates.has(endDateStr)) {
+            setVesselStateError(`The vessel was not at anchor on ${endDateStr}. Watches can only be logged when the vessel is at anchor.`);
+          } else {
+            setVesselStateError(null);
+          }
+        } catch (error: any) {
+          console.error('Error checking vessel state:', error);
+          setVesselStateError('Unable to verify vessel state. Please try again.');
+        } finally {
+          setIsCheckingState(false);
+        }
+      } else {
+        // Hours method - check single date
+        if (!watchedDate) {
+          setVesselStateError(null);
+          return;
+        }
+
+        setIsCheckingState(true);
+        setVesselStateError(null);
+
+        try {
+          const dateStr = format(watchedDate, 'yyyy-MM-dd');
+
+          // Check if this date is in the at-anchor dates set
+          if (!atAnchorDates.has(dateStr)) {
+            setVesselStateError(`The vessel was not at anchor on ${dateStr}. Watches can only be logged when the vessel is at anchor.`);
+          } else {
+            setVesselStateError(null);
+          }
+        } catch (error: any) {
+          console.error('Error checking vessel state:', error);
+          setVesselStateError('Unable to verify vessel state. Please try again.');
+        } finally {
+          setIsCheckingState(false);
+        }
       }
     };
 
     checkVesselState();
-  }, [watchedDate, watchedVesselId, user?.id, atAnchorDates]);
+  }, [watchedDate, watchedStartDateTime, watchedMethod, watchedVesselId, user?.id, atAnchorDates, form]);
 
   // Redirect non-officers or non-premium users to dashboard
   useEffect(() => {
@@ -275,11 +339,12 @@ export default function BridgeWatchLogPage() {
 
   const formatDuration = (hours?: number | null) => {
     if (hours === null || hours === undefined) return '—';
-    if (hours < 24) {
-      return `${hours}h`;
+    const roundedHours = Math.floor(hours);
+    if (roundedHours < 24) {
+      return `${roundedHours}h`;
     }
-    const days = Math.floor(hours / 24);
-    const remainingHours = hours % 24;
+    const days = Math.floor(roundedHours / 24);
+    const remainingHours = roundedHours % 24;
     return `${days}d ${remainingHours}h`;
   };
 
@@ -324,8 +389,115 @@ export default function BridgeWatchLogPage() {
 
   const isLoading = isLoadingProfile || isLoadingVessels || isLoadingAssignments;
 
+  const handleDeleteWatch = async () => {
+    if (!watchToDelete || !user?.id) return;
+
+    setIsDeleting(true);
+    try {
+      const { error } = await supabase
+        .from('watch_logs')
+        .delete()
+        .eq('id', watchToDelete.id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Watch Deleted',
+        description: 'The watch log has been successfully deleted.',
+      });
+
+      // Reload watches
+      const { data: watchData, error: fetchError } = await supabase
+        .from('watch_logs')
+        .select('id, user_id, vessel_id, watch_start, watch_end, hours, created_at')
+        .eq('user_id', user.id)
+        .order('watch_start', { ascending: false });
+
+      if (!fetchError && watchData) {
+        setWatches(watchData as WatchLog[]);
+      }
+
+      setDeleteDialogOpen(false);
+      setWatchToDelete(null);
+    } catch (error: any) {
+      console.error('Error deleting watch:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete watch. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const onSubmit = async (data: PastWatchFormValues) => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      toast({
+        title: 'Error',
+        description: 'You must be logged in to log a watch.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    console.log('[BRIDGE WATCH LOG] Form submitted with data:', data);
+    console.log('[BRIDGE WATCH LOG] Form validation errors:', form.formState.errors);
+    console.log('[BRIDGE WATCH LOG] Form is valid:', form.formState.isValid);
+
+    // Validate required fields based on method
+    if (data.method === 'hours') {
+      if (!data.date) {
+        toast({
+          title: 'Validation Error',
+          description: 'Please select a date.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (data.hours === undefined || data.hours === null || data.hours === 0) {
+        toast({
+          title: 'Validation Error',
+          description: 'Please enter hours (must be greater than 0).',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (data.hours <= 0 || data.hours > 24) {
+        toast({
+          title: 'Validation Error',
+          description: 'Hours must be between 0.1 and 24.',
+          variant: 'destructive',
+        });
+        return;
+      }
+    } else {
+      if (!data.startDateTime) {
+        toast({
+          title: 'Validation Error',
+          description: 'Please select start date and time.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (!data.endDateTime) {
+        toast({
+          title: 'Validation Error',
+          description: 'Please select end date and time.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (data.endDateTime <= data.startDateTime) {
+        toast({
+          title: 'Validation Error',
+          description: 'End time must be after start time.',
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
 
     if (vesselStateError) {
       toast({
@@ -339,30 +511,59 @@ export default function BridgeWatchLogPage() {
     setIsSaving(true);
 
     try {
-      const dateStart = startOfDay(data.date);
-      const dateEnd = endOfDay(data.date);
-      
-      // Calculate watch_end based on hours
-      const watchEnd = new Date(dateStart);
-      watchEnd.setHours(watchEnd.getHours() + Math.floor(data.hours));
-      watchEnd.setMinutes(watchEnd.getMinutes() + Math.round((data.hours % 1) * 60));
+      let watchStart: Date;
+      let watchEnd: Date;
+      let hours: number;
+
+      if (data.method === 'hours') {
+        // Hours method: use date + hours
+        if (!data.date || data.hours === undefined || data.hours === null) {
+          throw new Error('Date and hours are required for hours method.');
+        }
+        
+        watchStart = startOfDay(data.date);
+        watchEnd = new Date(watchStart);
+        watchEnd.setHours(watchEnd.getHours() + Math.floor(data.hours));
+        watchEnd.setMinutes(watchEnd.getMinutes() + Math.round((data.hours % 1) * 60));
+        hours = data.hours;
+      } else {
+        // Time range method: use start and end datetime
+        if (!data.startDateTime || !data.endDateTime) {
+          throw new Error('Start and end date/time are required for time range method.');
+        }
+        
+        watchStart = data.startDateTime;
+        watchEnd = data.endDateTime;
+        
+        // Calculate hours from time difference
+        const diffMs = watchEnd.getTime() - watchStart.getTime();
+        hours = diffMs / (1000 * 60 * 60); // Convert to hours
+        
+        if (hours <= 0 || hours > 24) {
+          throw new Error('Watch duration must be between 0 and 24 hours.');
+        }
+      }
 
       const { error } = await supabase
         .from('watch_logs')
         .insert({
           user_id: user.id,
           vessel_id: data.vesselId,
-          watch_start: dateStart.toISOString(),
+          watch_start: watchStart.toISOString(),
           watch_end: watchEnd.toISOString(),
           watch_type: 'bridge',
-          hours: data.hours,
+          hours: hours,
         });
 
       if (error) throw error;
 
+      const successMessage = data.method === 'hours'
+        ? `Successfully logged ${hours.toFixed(1)} hours of watch for ${format(watchStart, 'MMM d, yyyy')}.`
+        : `Successfully logged watch from ${format(watchStart, 'MMM d, yyyy HH:mm')} to ${format(watchEnd, 'MMM d, yyyy HH:mm')} (${hours.toFixed(1)} hours).`;
+
       toast({
         title: 'Watch Logged',
-        description: `Successfully logged ${data.hours} hours of watch for ${format(data.date, 'MMM d, yyyy')}.`,
+        description: successMessage,
       });
 
       // Reload watches
@@ -377,7 +578,14 @@ export default function BridgeWatchLogPage() {
       }
 
       setIsFormOpen(false);
-      form.reset();
+      form.reset({
+        method: 'hours',
+        vesselId: '',
+        date: new Date(),
+        hours: 4,
+        startDateTime: undefined,
+        endDateTime: undefined,
+      });
       setVesselStateError(null);
     } catch (error: any) {
       console.error('Error logging watch:', error);
@@ -429,7 +637,14 @@ export default function BridgeWatchLogPage() {
         <Dialog open={isFormOpen} onOpenChange={(open) => {
           setIsFormOpen(open);
           if (!open) {
-            form.reset();
+            form.reset({
+              method: 'hours',
+              vesselId: '',
+              date: new Date(),
+              hours: 4,
+              startDateTime: undefined,
+              endDateTime: undefined,
+            });
             setVesselStateError(null);
           }
         }}>
@@ -444,7 +659,48 @@ export default function BridgeWatchLogPage() {
               <DialogTitle>Log Past Watch</DialogTitle>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <form onSubmit={form.handleSubmit(onSubmit, (errors) => {
+                console.log('[BRIDGE WATCH LOG] Form validation failed:', errors);
+                toast({
+                  title: 'Validation Error',
+                  description: 'Please check all required fields are filled correctly.',
+                  variant: 'destructive',
+                });
+              })} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="method"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Logging Method</FormLabel>
+                      <FormControl>
+                        <RadioGroup
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          className="flex flex-col space-y-1"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="hours" id="hours" />
+                            <Label htmlFor="hours" className="font-normal cursor-pointer">
+                              Hours Logged
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="time_range" id="time_range" />
+                            <Label htmlFor="time_range" className="font-normal cursor-pointer">
+                              Time Range
+                            </Label>
+                          </div>
+                        </RadioGroup>
+                      </FormControl>
+                      <FormDescription>
+                        Choose how you want to log the watch
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <FormField
                   control={form.control}
                   name="vesselId"
@@ -470,10 +726,12 @@ export default function BridgeWatchLogPage() {
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="date"
-                  render={({ field }) => (
+                {watchedMethod === 'hours' ? (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="date"
+                      render={({ field }) => (
                     <FormItem className="flex flex-col">
                       <FormLabel>Date</FormLabel>
                       <Popover>
@@ -500,12 +758,17 @@ export default function BridgeWatchLogPage() {
                             mode="single"
                             selected={field.value}
                             onSelect={field.onChange}
-                            disabled={(date) => date > new Date()}
+                            disabled={(date) => {
+                              if (date > new Date()) return true;
+                              if (!watchedVesselId || atAnchorDates.size === 0) return false;
+                              const dateStr = format(startOfDay(date), 'yyyy-MM-dd');
+                              return !atAnchorDates.has(dateStr);
+                            }}
                             modifiers={{
                               atAnchor: watchedVesselId ? Array.from(atAnchorDates)
                                 .map(dateStr => {
                                   const parsed = parse(dateStr, 'yyyy-MM-dd', new Date());
-                                  return isValid(parsed) ? parsed : null;
+                                  return isValid(parsed) ? startOfDay(parsed) : null;
                                 })
                                 .filter((date): date is Date => date !== null) : [],
                             }}
@@ -536,30 +799,232 @@ export default function BridgeWatchLogPage() {
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="hours"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Hours</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0.1"
-                          max="24"
-                          placeholder="4.0"
-                          {...field}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Enter the number of hours logged on watch for this date
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                    <FormField
+                      control={form.control}
+                      name="hours"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Hours</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min="0.1"
+                              max="24"
+                              placeholder="4.0"
+                              {...field}
+                              onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                              value={field.value || ''}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Enter the number of hours logged on watch for this date
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="startDateTime"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                          <FormLabel>Start Date & Time</FormLabel>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button
+                                  variant="outline"
+                                  className={cn(
+                                    "w-full pl-3 text-left font-normal",
+                                    !field.value && "text-muted-foreground"
+                                  )}
+                                >
+                                  {field.value ? (
+                                    format(field.value, "PPP p")
+                                  ) : (
+                                    <span>Pick start date and time</span>
+                                  )}
+                                  <CalendarDays className="ml-auto h-4 w-4 opacity-50" />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <CalendarComponent
+                                mode="single"
+                                selected={field.value}
+                                onSelect={(date) => {
+                                  if (date) {
+                                    const newDate = field.value 
+                                      ? setHours(setMinutes(date, new Date(field.value).getMinutes()), new Date(field.value).getHours())
+                                      : date;
+                                    field.onChange(newDate);
+                                  }
+                                }}
+                                disabled={(date) => {
+                                  if (date > new Date()) return true;
+                                  if (!watchedVesselId || atAnchorDates.size === 0) return false;
+                                  const dateStr = format(startOfDay(date), 'yyyy-MM-dd');
+                                  return !atAnchorDates.has(dateStr);
+                                }}
+                                modifiers={{
+                                  atAnchor: watchedVesselId ? Array.from(atAnchorDates)
+                                    .map(dateStr => {
+                                      const parsed = parse(dateStr, 'yyyy-MM-dd', new Date());
+                                      return isValid(parsed) ? startOfDay(parsed) : null;
+                                    })
+                                    .filter((date): date is Date => date !== null) : [],
+                                }}
+                                modifiersClassNames={{
+                                  atAnchor: 'bg-green-500 text-white rounded-md font-semibold hover:bg-green-600',
+                                }}
+                                modifiersStyles={{
+                                  atAnchor: {
+                                    backgroundColor: 'rgb(34, 197, 94)',
+                                    color: 'white',
+                                    fontWeight: 600,
+                                  },
+                                }}
+                                initialFocus
+                              />
+                              {watchedVesselId && (
+                                <div className="p-3 border-t text-xs text-muted-foreground">
+                                  <div className="flex items-center gap-2">
+                                    <div className="h-3 w-3 rounded border-2 border-green-500 bg-green-100 dark:bg-green-900/30"></div>
+                                    <span>At Anchor (can log watch)</span>
+                                  </div>
+                                </div>
+                              )}
+                              <div className="p-3 border-t space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <Label className="text-xs">Time</Label>
+                                  <Input
+                                    type="time"
+                                    value={field.value ? format(field.value, 'HH:mm') : ''}
+                                    onChange={(e) => {
+                                      const [hours, minutes] = e.target.value.split(':').map(Number);
+                                      if (field.value && !isNaN(hours) && !isNaN(minutes)) {
+                                        field.onChange(setHours(setMinutes(field.value, minutes), hours));
+                                      } else if (!field.value) {
+                                        const now = new Date();
+                                        field.onChange(setHours(setMinutes(now, minutes), hours));
+                                      }
+                                    }}
+                                    className="w-full"
+                                  />
+                                </div>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="endDateTime"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                          <FormLabel>End Date & Time</FormLabel>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button
+                                  variant="outline"
+                                  className={cn(
+                                    "w-full pl-3 text-left font-normal",
+                                    !field.value && "text-muted-foreground"
+                                  )}
+                                >
+                                  {field.value ? (
+                                    format(field.value, "PPP p")
+                                  ) : (
+                                    <span>Pick end date and time</span>
+                                  )}
+                                  <CalendarDays className="ml-auto h-4 w-4 opacity-50" />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <CalendarComponent
+                                mode="single"
+                                selected={field.value}
+                                onSelect={(date) => {
+                                  if (date) {
+                                    const newDate = field.value 
+                                      ? setHours(setMinutes(date, new Date(field.value).getMinutes()), new Date(field.value).getHours())
+                                      : date;
+                                    field.onChange(newDate);
+                                  }
+                                }}
+                                disabled={(date) => {
+                                  if (date > new Date()) return true;
+                                  if (!watchedVesselId || atAnchorDates.size === 0) return false;
+                                  const dateStr = format(startOfDay(date), 'yyyy-MM-dd');
+                                  return !atAnchorDates.has(dateStr);
+                                }}
+                                modifiers={{
+                                  atAnchor: watchedVesselId ? Array.from(atAnchorDates)
+                                    .map(dateStr => {
+                                      const parsed = parse(dateStr, 'yyyy-MM-dd', new Date());
+                                      return isValid(parsed) ? startOfDay(parsed) : null;
+                                    })
+                                    .filter((date): date is Date => date !== null) : [],
+                                }}
+                                modifiersClassNames={{
+                                  atAnchor: 'bg-green-500 text-white rounded-md font-semibold hover:bg-green-600',
+                                }}
+                                modifiersStyles={{
+                                  atAnchor: {
+                                    backgroundColor: 'rgb(34, 197, 94)',
+                                    color: 'white',
+                                    fontWeight: 600,
+                                  },
+                                }}
+                                initialFocus
+                              />
+                              {watchedVesselId && (
+                                <div className="p-3 border-t text-xs text-muted-foreground">
+                                  <div className="flex items-center gap-2">
+                                    <div className="h-3 w-3 rounded border-2 border-green-500 bg-green-100 dark:bg-green-900/30"></div>
+                                    <span>At Anchor (can log watch)</span>
+                                  </div>
+                                </div>
+                              )}
+                              <div className="p-3 border-t space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <Label className="text-xs">Time</Label>
+                                  <Input
+                                    type="time"
+                                    value={field.value ? format(field.value, 'HH:mm') : ''}
+                                    onChange={(e) => {
+                                      const [hours, minutes] = e.target.value.split(':').map(Number);
+                                      if (field.value && !isNaN(hours) && !isNaN(minutes)) {
+                                        field.onChange(setHours(setMinutes(field.value, minutes), hours));
+                                      } else if (!field.value) {
+                                        const now = new Date();
+                                        field.onChange(setHours(setMinutes(now, minutes), hours));
+                                      }
+                                    }}
+                                    className="w-full"
+                                  />
+                                </div>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                          <FormDescription>
+                            End time must be after start time
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
 
                 {isCheckingState && (
                   <Alert>
@@ -671,6 +1136,7 @@ export default function BridgeWatchLogPage() {
                   <TableHead>Date</TableHead>
                   <TableHead>Vessel</TableHead>
                   <TableHead>Hours</TableHead>
+                  <TableHead className="w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -702,6 +1168,19 @@ export default function BridgeWatchLogPage() {
                           <span className="text-muted-foreground text-sm">—</span>
                         )}
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setWatchToDelete(watch);
+                            setDeleteDialogOpen(true);
+                          }}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -710,6 +1189,42 @@ export default function BridgeWatchLogPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Watch Log?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this watch log? This action cannot be undone.
+              {watchToDelete && (
+                <div className="mt-2 text-sm">
+                  <div>Date: {format(new Date(watchToDelete.watch_start), 'MMM d, yyyy')}</div>
+                  <div>Vessel: {getVesselName(watchToDelete.vessel_id)}</div>
+                  {watchToDelete.hours && <div>Hours: {watchToDelete.hours}</div>}
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteWatch}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
