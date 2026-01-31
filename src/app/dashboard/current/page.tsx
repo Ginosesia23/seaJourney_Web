@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInDays, eachDayOfInterval, isSameDay, startOfDay, endOfDay, parse, isWithinInterval, startOfMonth, endOfMonth, getDaysInMonth, getDay, isSameMonth, isToday, isAfter, isBefore, addDays, subMonths, startOfYear, endOfYear } from 'date-fns';
-import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, BookText, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, Check, XCircle, User, Play, Square } from 'lucide-react';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, Check, XCircle, User, Play, Square } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -33,11 +33,9 @@ import {
   endVesselAssignment,
   getVesselAssignments
 } from '@/supabase/database/queries';
-import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { DateRange } from 'react-day-picker';
-import StateBreakdownChart from '@/components/dashboard/state-breakdown-chart';
 import type { UserProfile, Vessel, SeaServiceRecord, StateLog, DailyStatus, VesselAssignment } from '@/lib/types';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
@@ -158,8 +156,6 @@ export default function CurrentPage() {
   const [isRequestingCaptaincy, setIsRequestingCaptaincy] = useState(false);
   const [isCaptaincyDialogOpen, setIsCaptaincyDialogOpen] = useState(false);
   const [captaincyDocumentUrls, setCaptaincyDocumentUrls] = useState<string[]>(['']);
-  const [isSavingNotes, setIsSavingNotes] = useState(false);
-  const [notes, setNotes] = useState('');
   
   // View mode for captains: 'personal' (their own sea time) or 'vessel' (vessel's sea time)
   const [captainViewMode, setCaptainViewMode] = useState<'personal' | 'vessel'>('personal');
@@ -951,10 +947,17 @@ export default function CurrentPage() {
     return role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
   }, [userProfile]);
 
-  // Fetch watch logs for the user
+  // Check if user is a vessel account (vessel accounts don't log watches)
+  const isVesselAccount = useMemo(() => {
+    if (!userProfile) return false;
+    const role = (userProfile.role || '').toLowerCase();
+    return role === 'vessel';
+  }, [userProfile]);
+
+  // Fetch watch logs for the user (only for officers, not vessel accounts)
   useEffect(() => {
     const fetchWatchLogs = async () => {
-      if (!user?.id || !isOfficer) {
+      if (!user?.id || !isOfficer || isVesselAccount) {
         setWatchDates(new Set());
         return;
       }
@@ -983,7 +986,7 @@ export default function CurrentPage() {
     };
 
     fetchWatchLogs();
-  }, [user?.id, isOfficer, supabase]);
+  }, [user?.id, isOfficer, isVesselAccount, supabase]);
 
   // Extract part of active passage dates from state logs
   useEffect(() => {
@@ -1172,8 +1175,9 @@ export default function CurrentPage() {
   };
 
   // Check if officer is on watch today and if vessel is at anchor (required for watch logging)
+  // Vessel accounts don't log watches - all days underway and at anchor count as at sea
   useEffect(() => {
-    if (!user?.id || !currentVessel?.id || !isOfficer) {
+    if (!user?.id || !currentVessel?.id || !isOfficer || isVesselAccount) {
       setIsOnWatchToday(false);
       setCanLogWatch(false);
       return;
@@ -1248,7 +1252,7 @@ export default function CurrentPage() {
     }, msUntilMidnight);
 
     return () => clearTimeout(timeoutId);
-  }, [user?.id, currentVessel?.id, isOfficer, supabase, stateLogs]);
+  }, [user?.id, currentVessel?.id, isOfficer, isVesselAccount, supabase, stateLogs]);
 
   // Toggle part of active passage for today (available for all users, any state)
   const handleTogglePartOfActivePassage = async () => {
@@ -1602,8 +1606,8 @@ export default function CurrentPage() {
       setSelectedState(existingState || null);
       // Check if this date is part of active passage
       setIsPartOfActivePassageInDialog(partOfActivePassageDates.has(dateKey));
-      // Check if this date has a watch log (officers only)
-      setIsWatchInDialog(isOfficer && watchDates.has(dateKey));
+      // Check if this date has a watch log (officers only, not vessel accounts)
+      setIsWatchInDialog(isOfficer && !isVesselAccount && watchDates.has(dateKey));
       setDateRange(undefined);
       setIsDialogOpen(true);
     } else {
@@ -2139,26 +2143,6 @@ export default function CurrentPage() {
   };
 
 
-  const handleSaveNotes = async () => {
-    if (!currentVessel || !user?.id) return;
-    setIsSavingNotes(true);
-    
-    try {
-      // Notes can be stored in a separate table or as metadata
-      // For now, we'll skip notes if there's no specific service record to attach them to
-      // You may want to create a separate notes table or add a notes column to daily_state_logs
-      toast({ title: 'Notes Saved', description: 'Your trip notes have been updated.' });
-    } catch (e) {
-      console.error("Error saving notes", e);
-      toast({
-        title: 'Error',
-        description: 'Failed to save notes.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsSavingNotes(false);
-    }
-  };
 
   // Render month function similar to calendar page
   const renderMonth = (month: Date) => {
@@ -2241,10 +2225,11 @@ export default function CurrentPage() {
                 const isCurrentMonth = isSameMonth(day, month);
                 
                 // Check if this date is a standby date (excluding watch dates and part of active passage dates)
+                // Vessel accounts don't show standby - they only show official states
                 const hasWatch = watchDates.has(dateKey);
                 const isPartOfActivePassage = partOfActivePassageDates.has(dateKey);
                 const hasOverride = hasWatch || isPartOfActivePassage;
-                const isCountedStandby = standbyDatesSet.has(dateKey) && !hasOverride;
+                const isCountedStandby = !isVesselAccount && standbyDatesSet.has(dateKey) && !hasOverride;
                 
                 // Check if date is in selected range
                 let isInRange = false;
@@ -2295,7 +2280,7 @@ export default function CurrentPage() {
                             <span>Part of Active Passage (Counts as At Sea)</span>
                           </div>
                         )}
-                        {isCountedStandby && (
+                        {isCountedStandby && !isVesselAccount && (
                           <div className="flex items-center gap-2 text-purple-600">
                             <Clock className="h-3.5 w-3.5" />
                             <span>Counted as Standby</span>
@@ -2333,8 +2318,8 @@ export default function CurrentPage() {
                             (isRangeStart || isRangeEnd) && !hasOverride && !isCountedStandby && "ring-2 ring-primary ring-offset-1",
                             // Watch full color (yellow) - takes priority
                             hasWatch && "bg-yellow-400 text-white border-0",
-                            // Part of active passage full color (darker blue) - only if not watch
-                            isPartOfActivePassage && !hasWatch && "bg-blue-800 text-white border-0",
+                            // Part of active passage: for vessel accounts, apply blue overlay; for others, full blue
+                            isPartOfActivePassage && !hasWatch && !isVesselAccount && "bg-blue-800 text-white border-0",
                             // Standby full color (purple) - only if not watch or part of active passage
                             isCountedStandby && !hasOverride && "bg-purple-600 text-white border-0",
                             stateInfo 
@@ -2342,16 +2327,24 @@ export default function CurrentPage() {
                               : "bg-muted/50 text-muted-foreground hover:bg-muted"
                           )}
                           style={
-                            // Don't set backgroundColor if watch/standby/passage are active (handled by className)
-                            hasWatch || isPartOfActivePassage || isCountedStandby
+                            // Don't set backgroundColor if watch/standby are active (handled by className)
+                            // For vessel accounts with part of active passage, apply blue overlay to state color
+                            hasWatch || isCountedStandby
                               ? undefined
-                              : backgroundStyle
-                                ? backgroundStyle
-                                : stateInfo 
-                                  ? { backgroundColor: stateInfo.color } 
-                                  : isInRange 
-                                    ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
-                                    : undefined
+                              : isPartOfActivePassage && isVesselAccount && stateInfo
+                                ? { 
+                                    backgroundColor: stateInfo.color,
+                                    boxShadow: 'inset 0 0 0 1000px rgba(30, 64, 175, 0.3)'
+                                  }
+                                : isPartOfActivePassage && !isVesselAccount
+                                  ? undefined
+                                  : backgroundStyle
+                                    ? backgroundStyle
+                                    : stateInfo 
+                                      ? { backgroundColor: stateInfo.color } 
+                                      : isInRange 
+                                        ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
+                                        : undefined
                           }
                         >
                           <div className="flex flex-col items-center justify-center h-full relative">
@@ -2778,8 +2771,8 @@ export default function CurrentPage() {
                     </CardContent>
                 </Card>
 
-                {/* Right: Watch Logging (Officers Only) */}
-                {isOfficer && (
+                {/* Right: Watch Logging (Officers Only, Not Vessel Accounts) */}
+                {isOfficer && !isVesselAccount && (
                     <Card className="rounded-xl border shadow-sm bg-gradient-to-r from-blue-500/5 to-blue-500/10">
                         <CardContent className="pt-6">
                             <div className="space-y-4">
@@ -3147,7 +3140,9 @@ export default function CurrentPage() {
                                     </DialogTitle>
                                 </DialogHeader>
                                     <div className="grid grid-cols-1 gap-3 py-4">
-                                {vesselStates.map((state) => {
+                                {vesselStates
+                                  .filter(state => !isVesselAccount || state.value !== 'on-leave')
+                                  .map((state) => {
                                             const StateIcon = state.icon;
                     const isSelected = selectedState === state.value;
                                     return (
@@ -3216,7 +3211,7 @@ export default function CurrentPage() {
                                         <span className="text-xs text-muted-foreground">Counts as At Sea</span>
                                       </Label>
                                     </div>
-                                    {isOfficer && selectedDate && !dateRange && (
+                                    {isOfficer && !isVesselAccount && selectedDate && !dateRange && (
                                       <div className={cn(
                                         "flex items-start space-x-3 p-3 rounded-lg border transition-colors",
                                         selectedState === 'at-anchor' 
@@ -3256,38 +3251,129 @@ export default function CurrentPage() {
                             </DialogContent>
                         </Dialog>
             
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card className="rounded-xl border shadow-sm">
-                    <CardHeader>
-                        <CardTitle>Day Breakdown</CardTitle>
-                        <CardDescription>Distribution of days by state</CardDescription>
-                    </CardHeader>
-                    <CardContent><StateBreakdownChart data={totalDaysByState} /></CardContent>
-                </Card>
-                    
-                <Card className="rounded-xl border shadow-sm">
-                    <CardHeader>
-                        <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                                <BookText className="h-5 w-5 text-primary" />
-                            </div>
-                            <div>
-                                <CardTitle>Trip Notes</CardTitle>
-                                <CardDescription>Add notes about your current trip</CardDescription>
-                            </div>
+            <Card className="rounded-xl border shadow-sm">
+                <CardHeader>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <CardTitle className="text-2xl">Day Breakdown</CardTitle>
+                            <CardDescription className="text-base mt-1">
+                                Comprehensive overview of your sea service statistics
+                            </CardDescription>
                         </div>
-                    </CardHeader>
-                    <CardContent>
-                        <Textarea placeholder="Add notes about your trip..." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[100px]" />
-                    </CardContent>
-                    <CardFooter>
-                        <Button onClick={handleSaveNotes} disabled={isSavingNotes} className="rounded-xl">
-                            {isSavingNotes && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Save Notes
-                        </Button>
-                    </CardFooter>
-                </Card>
-            </div>
+                        <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                            <CalendarDays className="h-6 w-6 text-primary" />
+                        </div>
+                    </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                    {/* Key Statistics Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <Card className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border-blue-200 dark:border-blue-800">
+                            <CardContent className="pt-6">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-medium text-muted-foreground mb-1">At Sea Days</p>
+                                        <p className="text-3xl font-bold text-blue-700 dark:text-blue-400">{atSeaDays}</p>
+                                        <p className="text-xs text-muted-foreground mt-1">Underway + Watch + Active Passage</p>
+                                    </div>
+                                    <div className="h-12 w-12 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                                        <Waves className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                        
+                        <Card className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 border-purple-200 dark:border-purple-800">
+                            <CardContent className="pt-6">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-medium text-muted-foreground mb-1">Standby Days</p>
+                                        <p className="text-3xl font-bold text-purple-700 dark:text-purple-400">{standbyDays}</p>
+                                        <p className="text-xs text-muted-foreground mt-1">MCA/PYA compliant calculation</p>
+                                    </div>
+                                    <div className="h-12 w-12 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                                        <Clock className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                        
+                        <Card className="bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 border-green-200 dark:border-green-800">
+                            <CardContent className="pt-6">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-medium text-muted-foreground mb-1">Total Days</p>
+                                        <p className="text-3xl font-bold text-green-700 dark:text-green-400">
+                                            {stateLogs?.filter(log => {
+                                                if (!assignmentStartDate) return true;
+                                                const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+                                                return isWithinInterval(logDate, { start: assignmentStartDate, end: endOfDay(new Date()) });
+                                            }).length || 0}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground mt-1">Days since joining vessel</p>
+                                    </div>
+                                    <div className="h-12 w-12 rounded-lg bg-green-500/20 flex items-center justify-center">
+                                        <CalendarDays className="h-6 w-6 text-green-600 dark:text-green-400" />
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    {/* State Breakdown */}
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-lg font-semibold mb-2">State Details</h3>
+                            <p className="text-sm text-muted-foreground">Breakdown of days by vessel state</p>
+                        </div>
+                        <div className="space-y-3">
+                            {vesselStates
+                              .filter(state => !isVesselAccount || state.value !== 'on-leave')
+                              .map((stateInfo) => {
+                                const days = totalDaysByState.find(d => d.name === stateInfo.label)?.days || 0;
+                                const totalDays = stateLogs?.filter(log => {
+                                    if (!assignmentStartDate) return true;
+                                    const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+                                    return isWithinInterval(logDate, { start: assignmentStartDate, end: endOfDay(new Date()) });
+                                }).length || 1;
+                                const percentage = totalDays > 0 ? Math.round((days / totalDays) * 100) : 0;
+                                
+                                if (days === 0) return null;
+                                
+                                return (
+                                    <div key={stateInfo.value} className="flex items-center gap-4 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors">
+                                        <div className="h-10 w-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${stateInfo.color}20`, color: stateInfo.color }}>
+                                            <stateInfo.icon className="h-5 w-5" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <p className="font-medium text-sm">{stateInfo.label}</p>
+                                                <p className="text-sm font-semibold">{days} {days === 1 ? 'day' : 'days'}</p>
+                                            </div>
+                                            <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                                                <div 
+                                                    className="h-2 rounded-full transition-all"
+                                                    style={{ 
+                                                        width: `${percentage}%`,
+                                                        backgroundColor: stateInfo.color
+                                                    }}
+                                                />
+                                            </div>
+                                            <p className="text-xs text-muted-foreground mt-1">{percentage}% of total days</p>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {totalDaysByState.length === 0 && (
+                                <div className="text-center py-8 text-muted-foreground">
+                                    <CalendarDays className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                    <p className="text-sm">No state data available yet</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
         </div>
       ) : (
         <div className="space-y-6">

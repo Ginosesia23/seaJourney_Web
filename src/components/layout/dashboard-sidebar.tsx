@@ -98,6 +98,10 @@ export default function DashboardSidebar({ isCollapsed, userProfile }: { isColla
                         if (item.requiredRole && userProfile?.role !== item.requiredRole && userProfile?.role !== 'admin') {
                           return null;
                         }
+                        // Hide Bridge Watch for vessel accounts (watches are irrelevant - all days underway/at anchor count as at sea)
+                        if (item.href === '/dashboard/bridge-watch-log' && userProfile?.role === 'vessel') {
+                          return null;
+                        }
                         
                         return isCollapsed ? (
                           <Tooltip key={item.href}>

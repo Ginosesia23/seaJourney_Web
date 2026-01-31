@@ -101,6 +101,13 @@ export default function CalendarPage() {
     return role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
   }, [userProfile]);
 
+  // Check if user is a vessel account (vessel accounts don't show standby - they only show official states)
+  const isVesselAccount = useMemo(() => {
+    if (!userProfile) return false;
+    const role = (userProfile.role || '').toLowerCase();
+    return role === 'vessel';
+  }, [userProfile]);
+
   // Fetch watch logs for the user (officers only)
   useEffect(() => {
     const fetchWatchLogs = async () => {
@@ -1087,10 +1094,11 @@ export default function CalendarPage() {
                 const isCurrentMonth = isSameMonth(day, month);
                 
                 // Check if this date is a standby date (in-port or at-anchor state)
+                // Vessel accounts don't show standby - they only show official states
                 const isStandbyState = standbyStateDatesSet.has(dateKey);
                 const isPartOfActivePassage = partOfActivePassageDates.has(dateKey);
                 const hasWatch = watchDates.has(dateKey);
-                const isCountedStandby = standbyDatesSet.has(dateKey) && !isPartOfActivePassage && !hasWatch;
+                const isCountedStandby = !isVesselAccount && standbyDatesSet.has(dateKey) && !isPartOfActivePassage && !hasWatch;
                 
                 // Check if date is in selected range
                 let isInRange = false;
@@ -1140,7 +1148,7 @@ export default function CalendarPage() {
                             <span>Part of Active Passage (Counts as At Sea)</span>
                           </div>
                         )}
-                        {isCountedStandby && !hasWatch && (
+                        {isCountedStandby && !hasWatch && !isVesselAccount && (
                           <div className="flex items-center gap-2 text-purple-600">
                             <Clock className="h-3.5 w-3.5" />
                             <span>Counted as Standby</span>
@@ -1178,8 +1186,8 @@ export default function CalendarPage() {
                       (isRangeStart || isRangeEnd) && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-1",
                       // Watch full color (yellow) - takes priority
                       hasWatch && "bg-yellow-400 text-white border-0",
-                      // Part of active passage full color (darker blue) - only if not watch
-                      isPartOfActivePassage && !hasWatch && "bg-blue-800 text-white border-0",
+                      // Part of active passage: for vessel accounts, apply blue overlay; for others, full blue
+                      isPartOfActivePassage && !hasWatch && !isVesselAccount && "bg-blue-800 text-white border-0",
                       // Standby full color (purple) - only if not watch or part of active passage
                       isCountedStandby && !hasWatch && !isPartOfActivePassage && "bg-purple-600 text-white border-0",
                       stateInfo 
@@ -1187,14 +1195,22 @@ export default function CalendarPage() {
                         : "bg-muted/50 text-muted-foreground hover:bg-muted"
                     )}
                     style={
-                      // Don't set backgroundColor if watch/standby/passage are active (handled by className)
-                      hasWatch || isPartOfActivePassage || isCountedStandby
+                      // Don't set backgroundColor if watch/standby are active (handled by className)
+                      // For vessel accounts with part of active passage, apply blue overlay to state color
+                      hasWatch || isCountedStandby
                         ? undefined
-                        : stateInfo 
-                          ? { backgroundColor: stateInfo.color } 
-                          : isInRange 
-                            ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
-                            : undefined
+                        : isPartOfActivePassage && isVesselAccount && stateInfo
+                          ? { 
+                              backgroundColor: stateInfo.color,
+                              boxShadow: 'inset 0 0 0 1000px rgba(30, 64, 175, 0.3)'
+                            }
+                          : isPartOfActivePassage && !isVesselAccount
+                            ? undefined
+                            : stateInfo 
+                              ? { backgroundColor: stateInfo.color } 
+                              : isInRange 
+                                ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
+                                : undefined
                     }
                   >
                     <div className="flex flex-col items-center justify-center h-full relative">
@@ -1406,7 +1422,9 @@ export default function CalendarPage() {
         <CardContent>
           <div className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {vesselStates.map((state) => {
+            {vesselStates
+              .filter(state => !isVesselAccount || state.value !== 'on-leave')
+              .map((state) => {
               const StateIcon = state.icon;
               return (
                 <div key={state.value} className="flex items-center gap-2">
@@ -1421,32 +1439,36 @@ export default function CalendarPage() {
               );
             })}
             </div>
-            <Separator />
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <div 
-                    className="h-8 w-8 rounded bg-yellow-400"
-                  />
-                  <span>On Watch (yellow)</span>
+            {!isVesselAccount && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-4 text-sm">
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="h-8 w-8 rounded bg-yellow-400"
+                      />
+                      <span>On Watch (yellow)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="h-8 w-8 rounded bg-blue-800"
+                      />
+                      <span>Part of Active Passage (dark blue)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="h-8 w-8 rounded bg-purple-600"
+                      />
+                      <span>Counted as Standby (purple)</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Dates marked as watch (officers only) are shown with a yellow background. Dates marked as part of active passage count as "at sea" and are shown with a dark blue background. Dates counted as standby are shown with a purple background.
+                  </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="h-8 w-8 rounded bg-blue-800"
-                  />
-                  <span>Part of Active Passage (dark blue)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="h-8 w-8 rounded bg-purple-600"
-                  />
-                  <span>Counted as Standby (purple)</span>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Dates marked as watch (officers only) are shown with a yellow background. Dates marked as part of active passage count as "at sea" and are shown with a dark blue background. Dates counted as standby are shown with a purple background.
-              </p>
-            </div>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -1499,7 +1521,9 @@ export default function CalendarPage() {
               }}
               className="space-y-3"
             >
-              {vesselStates.map((state) => {
+              {vesselStates
+                .filter(state => !isVesselAccount || state.value !== 'on-leave')
+                .map((state) => {
                 const StateIcon = state.icon;
                 return (
                   <div key={state.value} className="flex items-center space-x-3">

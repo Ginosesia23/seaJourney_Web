@@ -326,12 +326,19 @@ export default function BridgeWatchLogPage() {
     checkVesselState();
   }, [watchedDate, watchedStartDateTime, watchedMethod, watchedVesselId, user?.id, atAnchorDates, form]);
 
-  // Redirect non-officers or non-premium users to dashboard
+  // Check if user is a vessel account
+  const isVesselAccount = useMemo(() => {
+    if (!userProfile) return false;
+    const role = (userProfile as any)?.role || userProfile?.role || 'crew';
+    return role === 'vessel';
+  }, [userProfile]);
+
+  // Redirect non-officers, non-premium users, or vessel accounts to dashboard
   useEffect(() => {
-    if (!isLoadingProfile && userProfile && (!isOfficer || !hasAccess)) {
+    if (!isLoadingProfile && userProfile && (isVesselAccount || !isOfficer || !hasAccess)) {
       router.push('/dashboard');
     }
-  }, [isLoadingProfile, userProfile, isOfficer, hasAccess, router]);
+  }, [isLoadingProfile, userProfile, isVesselAccount, isOfficer, hasAccess, router]);
 
   const getVesselName = (vesselId: string) => {
     return vessels?.find(v => v.id === vesselId)?.name || 'Unknown Vessel';
