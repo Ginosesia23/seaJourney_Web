@@ -1032,20 +1032,38 @@ export default function CurrentPage() {
   }, [stateLogs, watchDates, partOfActivePassageDates]);
 
   // Create a Set of dates that are counted as standby
+  // Exclude watch dates and part of active passage dates (these count as "at sea", not standby)
   const standbyDatesSet = useMemo(() => {
     const dates = new Set<string>();
     standbyPeriods.forEach(period => {
       const startDate = period.startDate instanceof Date 
         ? period.startDate 
         : new Date(period.startDate);
-      const countedDays = period.countedDays;
-      for (let i = 0; i < countedDays; i++) {
-        const date = addDays(startDate, i);
-        dates.add(format(date, 'yyyy-MM-dd'));
+      const periodEndDate = period.endDate instanceof Date
+        ? period.endDate
+        : new Date(period.endDate);
+      
+      // Iterate through all days in the period, but only count non-watch, non-passage days
+      let currentDate = startDate;
+      let counted = 0;
+      const maxCounted = period.countedDays;
+      
+      while (currentDate <= periodEndDate && counted < maxCounted) {
+        const dateStr = format(currentDate, 'yyyy-MM-dd');
+        const hasWatch = watchDates.has(dateStr);
+        const isPartOfActivePassage = partOfActivePassageDates.has(dateStr);
+        
+        // Only add dates that are not watch days and not part of active passage
+        if (!hasWatch && !isPartOfActivePassage) {
+          dates.add(dateStr);
+          counted++;
+        }
+        
+        currentDate = addDays(currentDate, 1);
       }
     });
     return dates;
-  }, [standbyPeriods]);
+  }, [standbyPeriods, watchDates, partOfActivePassageDates]);
 
   // Unified vessel search (works for both crew and captains)
   useEffect(() => {
@@ -2315,36 +2333,26 @@ export default function CurrentPage() {
                             isFuture && "opacity-30 cursor-not-allowed",
                             isCurrentDay && !isInRange && !hasOverride && !isCountedStandby && "ring-2 ring-primary ring-offset-2",
                             isInRange && !hasOverride && !isCountedStandby && "ring-2 ring-primary/50",
-                            (isRangeStart || isRangeEnd) && !hasOverride && !isCountedStandby && "ring-2 ring-primary ring-offset-1",
-                            // Watch full color (yellow) - takes priority
-                            hasWatch && "bg-yellow-400 text-white border-0",
-                            // Part of active passage: for vessel accounts, apply blue overlay; for others, full blue
-                            isPartOfActivePassage && !hasWatch && !isVesselAccount && "bg-blue-800 text-white border-0",
-                            // Standby full color (purple) - only if not watch or part of active passage
-                            isCountedStandby && !hasOverride && "bg-purple-600 text-white border-0",
+                            (isRangeStart || isRangeEnd) && !hasOverride && !isCountedStandby && !hasWatch && !isPartOfActivePassage && "ring-2 ring-primary ring-offset-1",
+                            // Watch outline (yellow) - takes priority
+                            hasWatch && "border-[4px] border-yellow-400",
+                            // Part of active passage outline (blue)
+                            isPartOfActivePassage && !hasWatch && "border-[4px] border-blue-600",
+                            // Standby outline (purple) - only if not watch or part of active passage
+                            isCountedStandby && !hasOverride && !hasWatch && !isPartOfActivePassage && "border-[4px] border-purple-600",
                             stateInfo 
                               ? "text-white" 
                               : "bg-muted/50 text-muted-foreground hover:bg-muted"
                           )}
                           style={
-                            // Don't set backgroundColor if watch/standby are active (handled by className)
-                            // For vessel accounts with part of active passage, apply blue overlay to state color
-                            hasWatch || isCountedStandby
-                              ? undefined
-                              : isPartOfActivePassage && isVesselAccount && stateInfo
-                                ? { 
-                                    backgroundColor: stateInfo.color,
-                                    boxShadow: 'inset 0 0 0 1000px rgba(30, 64, 175, 0.3)'
-                                  }
-                                : isPartOfActivePassage && !isVesselAccount
-                                  ? undefined
-                                  : backgroundStyle
-                                    ? backgroundStyle
-                                    : stateInfo 
-                                      ? { backgroundColor: stateInfo.color } 
-                                      : isInRange 
-                                        ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
-                                        : undefined
+                            // Always show the primary state color, with outlines for secondary indicators
+                            backgroundStyle
+                              ? backgroundStyle
+                              : stateInfo 
+                                ? { backgroundColor: stateInfo.color } 
+                                : isInRange 
+                                  ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
+                                  : undefined
                           }
                         >
                           <div className="flex flex-col items-center justify-center h-full relative">
@@ -2896,7 +2904,9 @@ export default function CurrentPage() {
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                            {vesselStates.map(state => {
+                            {vesselStates
+                              .filter(state => !isVesselAccount || state.value !== 'on-leave')
+                              .map(state => {
                             const isActive = todayStatusValue === state.value;
                             return (
                                 <button

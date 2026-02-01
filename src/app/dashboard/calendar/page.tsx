@@ -457,11 +457,13 @@ export default function CalendarPage() {
     if (!stateLogs || stateLogs.length === 0) {
       return { standbyPeriods: [] };
     }
-    const result = calculateStandbyDays(stateLogs, undefined, partOfActivePassageDates);
+    // Pass watchDates to exclude them from standby calculation
+    const result = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates);
     return { standbyPeriods: result.standbyPeriods };
-  }, [stateLogs, partOfActivePassageDates]);
+  }, [stateLogs, watchDates, partOfActivePassageDates]);
 
   // Create a Set of dates that are counted as standby (for visual differentiation)
+  // Exclude watch dates and part of active passage dates (these count as "at sea", not standby)
   const standbyDatesSet = useMemo(() => {
     const dates = new Set<string>();
     console.log('[CALENDAR] Building standby dates set from periods:', standbyPeriods.length);
@@ -471,27 +473,43 @@ export default function CalendarPage() {
       const startDate = period.startDate instanceof Date 
         ? period.startDate 
         : new Date(period.startDate);
+      const periodEndDate = period.endDate instanceof Date
+        ? period.endDate
+        : new Date(period.endDate);
       const countedDays = period.countedDays;
       const periodDays = period.days;
       
-      console.log(`[CALENDAR] Period ${idx + 1}: ${format(startDate, 'yyyy-MM-dd')} to ${format(period.endDate, 'yyyy-MM-dd')}, period.days=${periodDays}, countedDays=${countedDays}, precedingVoyageDays=${period.precedingVoyageDays}`);
+      console.log(`[CALENDAR] Period ${idx + 1}: ${format(startDate, 'yyyy-MM-dd')} to ${format(periodEndDate, 'yyyy-MM-dd')}, period.days=${periodDays}, countedDays=${countedDays}, precedingVoyageDays=${period.precedingVoyageDays}`);
       
       if (countedDays > periodDays) {
         console.warn(`[CALENDAR] WARNING: countedDays (${countedDays}) > period.days (${periodDays}) for period ${idx + 1}`);
       }
       
+      // Iterate through all days in the period, but only count non-watch, non-passage days
+      let currentDate = startDate;
+      let counted = 0;
+      const maxCounted = countedDays;
       const periodDates: string[] = [];
-      for (let i = 0; i < countedDays; i++) {
-        const date = addDays(startDate, i);
-        const dateStr = format(date, 'yyyy-MM-dd');
-        dates.add(dateStr);
-        periodDates.push(dateStr);
+      
+      while (currentDate <= periodEndDate && counted < maxCounted) {
+        const dateStr = format(currentDate, 'yyyy-MM-dd');
+        const hasWatch = watchDates.has(dateStr);
+        const isPartOfActivePassage = partOfActivePassageDates.has(dateStr);
+        
+        // Only add dates that are not watch days and not part of active passage
+        if (!hasWatch && !isPartOfActivePassage) {
+          dates.add(dateStr);
+          periodDates.push(dateStr);
+          counted++;
+        }
+        
+        currentDate = addDays(currentDate, 1);
       }
       console.log(`[CALENDAR] Period ${idx + 1} counted dates: ${periodDates.join(', ')}`);
     });
     console.log(`[CALENDAR] Total standby dates in set: ${dates.size}`);
     return dates;
-  }, [standbyPeriods]);
+  }, [standbyPeriods, watchDates, partOfActivePassageDates]);
 
   // Also create a set for all potential standby states (in-port, at-anchor) for visual indication
   const standbyStateDatesSet = useMemo(() => {
@@ -1184,33 +1202,23 @@ export default function CalendarPage() {
                       isCurrentDay && !isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-2",
                       isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary/50",
                       (isRangeStart || isRangeEnd) && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-1",
-                      // Watch full color (yellow) - takes priority
-                      hasWatch && "bg-yellow-400 text-white border-0",
-                      // Part of active passage: for vessel accounts, apply blue overlay; for others, full blue
-                      isPartOfActivePassage && !hasWatch && !isVesselAccount && "bg-blue-800 text-white border-0",
-                      // Standby full color (purple) - only if not watch or part of active passage
-                      isCountedStandby && !hasWatch && !isPartOfActivePassage && "bg-purple-600 text-white border-0",
+                      // Watch outline (yellow) - takes priority
+                      hasWatch && "border-[4px] border-yellow-400",
+                      // Part of active passage outline (blue)
+                      isPartOfActivePassage && !hasWatch && "border-[4px] border-blue-600",
+                      // Standby outline (purple) - only if not watch or part of active passage
+                      isCountedStandby && !hasWatch && !isPartOfActivePassage && "border-[4px] border-purple-600",
                       stateInfo 
                         ? "text-white" 
                         : "bg-muted/50 text-muted-foreground hover:bg-muted"
                     )}
                     style={
-                      // Don't set backgroundColor if watch/standby are active (handled by className)
-                      // For vessel accounts with part of active passage, apply blue overlay to state color
-                      hasWatch || isCountedStandby
-                        ? undefined
-                        : isPartOfActivePassage && isVesselAccount && stateInfo
-                          ? { 
-                              backgroundColor: stateInfo.color,
-                              boxShadow: 'inset 0 0 0 1000px rgba(30, 64, 175, 0.3)'
-                            }
-                          : isPartOfActivePassage && !isVesselAccount
-                            ? undefined
-                            : stateInfo 
-                              ? { backgroundColor: stateInfo.color } 
-                              : isInRange 
-                                ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
-                                : undefined
+                      // Always show the primary state color, with outlines for secondary indicators
+                      stateInfo 
+                        ? { backgroundColor: stateInfo.color } 
+                        : isInRange 
+                          ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
+                          : undefined
                     }
                   >
                     <div className="flex flex-col items-center justify-center h-full relative">
@@ -1439,36 +1447,39 @@ export default function CalendarPage() {
               );
             })}
             </div>
-            {!isVesselAccount && (
-              <>
-                <Separator />
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-4 text-sm">
-                    <div className="flex items-center gap-2">
-                      <div 
-                        className="h-8 w-8 rounded bg-yellow-400"
-                      />
-                      <span>On Watch (yellow)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div 
-                        className="h-8 w-8 rounded bg-blue-800"
-                      />
-                      <span>Part of Active Passage (dark blue)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div 
-                        className="h-8 w-8 rounded bg-purple-600"
-                      />
-                      <span>Counted as Standby (purple)</span>
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Dates marked as watch (officers only) are shown with a yellow background. Dates marked as part of active passage count as "at sea" and are shown with a dark blue background. Dates counted as standby are shown with a purple background.
-                  </p>
+            <Separator />
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                {/* Part of Active Passage - shown for all users */}
+                <div className="flex items-center gap-2">
+                  <div 
+                    className="h-8 w-8 rounded border-[4px] border-blue-600 bg-transparent"
+                  />
+                  <span>Part of Active Passage (blue outline)</span>
                 </div>
-              </>
-            )}
+                {!isVesselAccount && (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="h-8 w-8 rounded border-[4px] border-yellow-400 bg-transparent"
+                      />
+                      <span>On Watch (yellow outline)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="h-8 w-8 rounded border-[4px] border-purple-600 bg-transparent"
+                      />
+                      <span>Counted as Standby (purple outline)</span>
+                    </div>
+                  </>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {isVesselAccount 
+                  ? 'Dates marked as part of active passage count as "at sea" and are shown with a blue outline border. The primary state color remains visible.'
+                  : 'Dates marked as watch (officers only) are shown with a yellow outline border. Dates marked as part of active passage count as "at sea" and are shown with a blue outline border. Dates counted as standby are shown with a purple outline border. The primary state color remains visible.'}
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
