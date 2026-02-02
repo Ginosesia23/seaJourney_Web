@@ -4,7 +4,7 @@
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Ship, Anchor, Calendar, Waves, Building, Briefcase, PlayCircle, Loader2, Trash2 } from 'lucide-react';
+import { Ship, Anchor, Calendar, Waves, Building, Briefcase, PlayCircle, Loader2, Trash2, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
@@ -36,6 +36,7 @@ type VesselSummaryCardProps = {
     isResuming?: boolean;
     onDelete?: (vesselId: string, vesselName: string) => void;
     showDeleteButton?: boolean;
+    isActivelyManaged?: boolean;
 };
 
 export function VesselSummaryCard({ 
@@ -44,7 +45,8 @@ export function VesselSummaryCard({
     showResumeButton = false,
     isResuming = false,
     onDelete,
-    showDeleteButton = false
+    showDeleteButton = false,
+    isActivelyManaged = false
 }: VesselSummaryCardProps) {
     return (
         <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow flex flex-col h-full">
@@ -55,7 +57,14 @@ export function VesselSummaryCard({
                             <Ship className="h-6 w-6 text-primary" />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <CardTitle className="text-xl font-semibold truncate">{vesselSummary.name}</CardTitle>
+                            <div className="flex items-center gap-2">
+                                <CardTitle className="text-xl font-semibold truncate">{vesselSummary.name}</CardTitle>
+                                {isActivelyManaged && (
+                                    <Badge variant="default" className="bg-blue-600 hover:bg-blue-700 text-white border-0 p-0 h-5 w-5 rounded-full flex items-center justify-center shrink-0">
+                                        <ShieldCheck className="h-3 w-3" />
+                                    </Badge>
+                                )}
+                            </div>
                             <CardDescription className="truncate">{vesselSummary.type}</CardDescription>
                             {vesselSummary.officialStartDate && (
                                 <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">

@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { createVessel, getVesselStateLogs, getVesselSeaService, updateUserProfile, deleteVesselStateLogs, updateStateLogsBatch, getVesselAssignment, getVesselAssignments, updateVesselAssignment, createVesselAssignment } from '@/supabase/database/queries';
+import { createVessel, getVesselStateLogs, getVesselSeaService, updateUserProfile, deleteVesselStateLogs, updateStateLogsBatch, getVesselAssignment, getVesselAssignments, updateVesselAssignment, createVesselAssignment, getActiveVesselAssignmentsByVessel } from '@/supabase/database/queries';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import type { Vessel, StateLog, UserProfile, SeaServiceRecord, DailyStatus, VesselAssignment } from '@/lib/types';
@@ -98,6 +98,7 @@ export default function VesselsPage() {
   const [vesselSigningAuthorities, setVesselSigningAuthorities] = useState<Map<string, boolean>>(new Map()); // vesselId -> hasActiveCaptain
   const [vesselAssignments, setVesselAssignments] = useState<Map<string, { startDate: string; endDate: string | null; assignmentId?: string }>>(new Map()); // vesselId -> assignment dates
   const [allVesselAssignments, setAllVesselAssignments] = useState<VesselAssignment[]>([]); // Full assignment objects for editing
+  const [activelyManagedVessels, setActivelyManagedVessels] = useState<Set<string>>(new Set()); // vesselId -> is actively managed
   const [isEditStartDateDialogOpen, setIsEditStartDateDialogOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState<{ vesselId: string; assignment: VesselAssignment } | null>(null);
   const [isUpdatingStartDate, setIsUpdatingStartDate] = useState(false);
@@ -257,6 +258,34 @@ export default function VesselsPage() {
       fetchAssignments();
     }
   }, [user?.id, supabase]);
+
+  // Fetch actively managed vessels (vessels with active assignments)
+  useEffect(() => {
+    if (!allVessels || allVessels.length === 0) {
+      setActivelyManagedVessels(new Set());
+      return;
+    }
+
+    const fetchActivelyManagedVessels = async () => {
+      const managedVessels = new Set<string>();
+      
+      // Check each vessel for active assignments
+      await Promise.all(allVessels.map(async (vessel) => {
+        try {
+          const activeAssignments = await getActiveVesselAssignmentsByVessel(supabase, vessel.id);
+          if (activeAssignments && activeAssignments.length > 0) {
+            managedVessels.add(vessel.id);
+          }
+        } catch (error) {
+          console.error(`[VESSELS] Error checking active assignments for vessel ${vessel.id}:`, error);
+        }
+      }));
+      
+      setActivelyManagedVessels(managedVessels);
+    };
+
+    fetchActivelyManagedVessels();
+  }, [allVessels, supabase]);
 
   // Fetch captaincy requests for vessels (if user is captain)
   // Fetch ALL requests for this captain, not just for vessels they've logged time on
@@ -1089,6 +1118,7 @@ export default function VesselsPage() {
                 isResuming={resumingVesselId === vessel.id}
                 onDelete={(vesselId, vesselName) => setVesselToDelete({ id: vesselId, name: vesselName })}
                 showDeleteButton={true}
+                isActivelyManaged={activelyManagedVessels.has(vessel.id)}
               />
             ))}
           </div>
@@ -1188,7 +1218,14 @@ export default function VesselsPage() {
                                                 />
                                             </TableCell>
                                     <TableCell className="font-medium">
-                                                {vessel.name}
+                                                <div className="flex items-center gap-2">
+                                                  {vessel.name}
+                                                  {activelyManagedVessels.has(vessel.id) && (
+                                                    <Badge variant="default" className="bg-blue-600 hover:bg-blue-700 text-white border-0 p-0 h-5 w-5 rounded-full flex items-center justify-center">
+                                                      <ShieldCheck className="h-3 w-3" />
+                                                    </Badge>
+                                                  )}
+                                                </div>
                                     </TableCell>
                                     <TableCell>
                                                 <Badge variant="outline" className="font-normal">

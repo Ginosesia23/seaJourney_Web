@@ -24,7 +24,6 @@ import type { UserProfile } from "@/lib/types"
 const routeLabels: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/dashboard/current": "Current Service",
-  "/dashboard/history": "History",
   "/dashboard/vessels": "Vessels",
   "/dashboard/profile": "Profile",
   "/dashboard/crew": "Crew",

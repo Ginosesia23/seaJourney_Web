@@ -38,7 +38,6 @@ const navGroups = [
     title: 'Sea Time',
     items: [
       { href: '/dashboard/current', label: 'Current', icon: MapPin, disabled: false },
-      { href: '/dashboard/history', label: 'History', icon: History, disabled: false },
     ]
   },
   {

@@ -90,7 +90,6 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/current", label: "Current", icon: MapPin, disabled: false },
       { href: "/dashboard/calendar", label: "Calendar", icon: Calendar, disabled: false },
-      { href: "/dashboard/history", label: "History", icon: History, disabled: false, hideForRoles: ['vessel'] }, // Hide history for vessel managers
       { href: "/dashboard/sea-time-request", label: "Request Sea Time", icon: FileText, disabled: false, hideForRoles: ['vessel'] }, // Only for crew members
       { href: "/dashboard/export", label: "Export", icon: Download, disabled: false },
     ]
@@ -105,10 +104,10 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     ]
   },
   {
-    title: "Applications & Documents",
+    title: "Documents",
     hideForRoles: ['admin', 'vessel'], // Hide entire section for admin and vessel manager users
     items: [
-      { href: "/dashboard/applications", label: "Applications", icon: FileText, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'] },
+      { href: "/dashboard/applications", label: "Documents", icon: FileText, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'] },
       { href: "/dashboard/certificates", label: "Certificates", icon: Award, disabled: false },
     ]
   },
@@ -117,6 +116,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] }, // Hide for vessel role
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/crew-documents", label: "Crew Documents", icon: FileText, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/ais-import", label: "AIS Import", icon: Database, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, requiredRole: "captain", disabled: false }, // Captains and vessel roles can access
       { href: "/dashboard/requests", label: "Requests", icon: ClipboardList, requiredRole: "captain", disabled: false }, // Captains can view their requests

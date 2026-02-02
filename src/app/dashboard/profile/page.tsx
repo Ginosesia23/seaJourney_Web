@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { UserProfileCard } from '@/components/dashboard/user-profile';
 import { SubscriptionCard } from '@/components/dashboard/subscription-card';
 import { UserInfoCard } from '@/components/dashboard/user-info-card';
@@ -2089,6 +2090,32 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
 
 export default function ProfilePage() {
   const { user } = useUser();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<string>('information');
+  
+  // Sync activeTab with URL query parameter on mount and when searchParams change
+  useEffect(() => {
+    const tabFromUrl = searchParams?.get('tab');
+    if (tabFromUrl) {
+      setActiveTab(tabFromUrl);
+    } else {
+      setActiveTab('information');
+    }
+  }, [searchParams]);
+  
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    // Update URL without page reload
+    const url = new URL(window.location.href);
+    if (value === 'information') {
+      url.searchParams.delete('tab');
+    } else {
+      url.searchParams.set('tab', value);
+    }
+    window.history.pushState({}, '', url.toString());
+  };
+  
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
   
   // Transform user profile
@@ -2168,7 +2195,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Tabs Section */}
-      <Tabs defaultValue="information" className="w-full">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="rounded-xl">
           <TabsTrigger value="information" className="!rounded-lg">Information</TabsTrigger>
           <TabsTrigger value="mca-details" className="!rounded-lg">MCA Application</TabsTrigger>

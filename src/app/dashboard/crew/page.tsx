@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar } from 'lucide-react';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck } from 'lucide-react';
 import { format, parse } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
@@ -727,6 +727,12 @@ export default function CrewPage() {
 
     const isLoading = isLoadingProfile || isLoadingAssignments || isCheckingCaptaincy;
     
+    // Calculate summary statistics for vessel managers
+    const totalCrew = useMemo(() => crewMembers.length, [crewMembers.length]);
+    const totalOnboard = useMemo(() => {
+        return crewMembers.filter(member => member.assignment.onboard === true).length;
+    }, [crewMembers]);
+    
     console.log('[CREW PAGE] Render state:', {
         isLoading,
         isLoadingProfile,
@@ -807,6 +813,38 @@ export default function CrewPage() {
                 </div>
                 <Separator />
             </div>
+
+            {/* Summary Cards for Vessel Managers */}
+            {currentUserProfile?.role === 'vessel' && !isLoading && crewMembers.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Card className="rounded-xl border">
+                        <CardContent className="p-6">
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-1">
+                                    <p className="text-sm font-medium text-muted-foreground">Total Crew</p>
+                                    <p className="text-3xl font-bold">{totalCrew}</p>
+                                </div>
+                                <div className="h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                                    <Users className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                    <Card className="rounded-xl border">
+                        <CardContent className="p-6">
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-1">
+                                    <p className="text-sm font-medium text-muted-foreground">Total Onboard</p>
+                                    <p className="text-3xl font-bold">{totalOnboard}</p>
+                                </div>
+                                <div className="h-12 w-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                                    <UserCheck className="h-6 w-6 text-green-600 dark:text-green-400" />
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
 
             {/* Tier Limit Warning */}
             {currentUserProfile?.role === 'vessel' && crewLimit !== Infinity && crewMembers.length > crewLimit && (

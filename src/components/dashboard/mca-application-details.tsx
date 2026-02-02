@@ -13,11 +13,9 @@ import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, FileText, Info, Calendar } from 'lucide-react';
+import { Loader2, FileText, Info } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { format, parse } from 'date-fns';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar as CalendarComponent } from '@/components/ui/calendar';
+import { format, parse, getYear, getMonth, getDate, setYear, setMonth, setDate, isValid } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 const mcaApplicationSchema = z.object({
@@ -260,41 +258,121 @@ export function MCAApplicationDetailsCard() {
                 <FormField
                   control={form.control}
                   name="dateOfBirth"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Date of Birth</FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                "w-full pl-3 text-left font-normal rounded-xl",
-                                !field.value && "text-muted-foreground"
-                              )}
-                            >
-                              {field.value ? (
-                                format(field.value, "PPP")
-                              ) : (
-                                <span>Pick a date</span>
-                              )}
-                              <Calendar className="ml-auto h-4 w-4 opacity-50" />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <CalendarComponent
-                            mode="single"
-                            selected={field.value || undefined}
-                            onSelect={field.onChange}
-                            disabled={(date) => date > new Date()}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                  render={({ field }) => {
+                    const currentDate = field.value || new Date();
+                    const selectedYear = getYear(currentDate);
+                    const selectedMonth = getMonth(currentDate);
+                    const selectedDay = getDate(currentDate);
+                    
+                    const currentYear = new Date().getFullYear();
+                    const years = Array.from({ length: currentYear - 1899 }, (_, i) => currentYear - i);
+                    const months = [
+                      { value: 0, label: 'January' },
+                      { value: 1, label: 'February' },
+                      { value: 2, label: 'March' },
+                      { value: 3, label: 'April' },
+                      { value: 4, label: 'May' },
+                      { value: 5, label: 'June' },
+                      { value: 6, label: 'July' },
+                      { value: 7, label: 'August' },
+                      { value: 8, label: 'September' },
+                      { value: 9, label: 'October' },
+                      { value: 10, label: 'November' },
+                      { value: 11, label: 'December' },
+                    ];
+                    
+                    const getDaysInMonth = (year: number, month: number) => {
+                      return new Date(year, month + 1, 0).getDate();
+                    };
+                    
+                    const days = Array.from({ length: getDaysInMonth(selectedYear, selectedMonth) }, (_, i) => i + 1);
+                    
+                    const handleDateChange = (year?: number, month?: number, day?: number) => {
+                      const newYear = year !== undefined ? year : selectedYear;
+                      const newMonth = month !== undefined ? month : selectedMonth;
+                      const newDay = day !== undefined ? day : selectedDay;
+                      
+                      // Ensure day is valid for the selected month/year
+                      const maxDay = getDaysInMonth(newYear, newMonth);
+                      const finalDay = Math.min(newDay, maxDay);
+                      
+                      try {
+                        const newDate = setDate(setMonth(setYear(new Date(), newYear), newMonth), finalDay);
+                        if (isValid(newDate) && newDate <= new Date()) {
+                          field.onChange(newDate);
+                        }
+                      } catch (error) {
+                        console.error('Error setting date:', error);
+                      }
+                    };
+                    
+                    return (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Date of Birth</FormLabel>
+                        <div className="grid grid-cols-3 gap-2">
+                          <Select
+                            value={selectedYear.toString()}
+                            onValueChange={(value) => handleDateChange(parseInt(value), undefined, undefined)}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="rounded-xl">
+                                <SelectValue placeholder="Year" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className="max-h-[200px]">
+                              {years.map((year) => (
+                                <SelectItem key={year} value={year.toString()}>
+                                  {year}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          
+                          <Select
+                            value={selectedMonth.toString()}
+                            onValueChange={(value) => handleDateChange(undefined, parseInt(value), undefined)}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="rounded-xl">
+                                <SelectValue placeholder="Month" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {months.map((month) => (
+                                <SelectItem key={month.value} value={month.value.toString()}>
+                                  {month.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          
+                          <Select
+                            value={selectedDay.toString()}
+                            onValueChange={(value) => handleDateChange(undefined, undefined, parseInt(value))}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="rounded-xl">
+                                <SelectValue placeholder="Day" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className="max-h-[200px]">
+                              {days.map((day) => (
+                                <SelectItem key={day} value={day.toString()}>
+                                  {day}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        {field.value && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Selected: {format(field.value, "PPP")}
+                          </p>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
                 <FormField
                   control={form.control}
