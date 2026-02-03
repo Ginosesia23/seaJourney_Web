@@ -101,6 +101,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
       { href: "/dashboard/passage-logbook", label: "Passage Log", icon: Map, disabled: false },
       { href: "/dashboard/bridge-watch-log", label: "Bridge Watch", icon: Navigation, disabled: false, hideForRoles: ['vessel'] }, // Hide Bridge Watch for vessel role
       { href: "/dashboard/visa-tracker", label: "Visa Tracker", icon: Globe, disabled: false, hideForRoles: ['vessel', 'admin'] }, // Available for crew, captain roles
+      { href: "/dashboard/ais-import", label: "AIS Import", icon: Database, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
     ]
   },
   {
@@ -117,10 +118,8 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] }, // Hide for vessel role
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
-      { href: "/dashboard/crew-documents", label: "Crew Documents", icon: FileText, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
-      { href: "/dashboard/ais-import", label: "AIS Import", icon: Database, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/crew-documents", label: "Documents", icon: FileText, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/requests", label: "Requests", icon: ClipboardList, requiredRole: "captain", disabled: false }, // Captains can view their requests
-      { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false }, // Captain signature management
     ]
   },
   {
@@ -134,11 +133,12 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false, hideForRoles: ['vessel'] }, // Hide Profile for vessel role
       { href: "/dashboard/profile", label: "Vessel", icon: Ship, disabled: false, requiredRole: "vessel", hideForRoles: ['captain'] }, // Show Vessel page for vessel role only (not captain)
+      { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false }, // Captain signature management
     ]
   },
   {
     title: "Analytics",
-    hideForRoles: ['crew'], // Hide entire section for crew members
+    hideForRoles: ['crew', 'vessel'], // Hide entire section for crew members and vessel managers
     items: [
       { href: "/dashboard/platform-analytics", label: "Platform Overview", icon: BarChart3, requiredRole: "admin", disabled: false },
       { href: "/dashboard/revenue", label: "Revenue & Subscriptions", icon: DollarSign, requiredRole: "admin", disabled: false },

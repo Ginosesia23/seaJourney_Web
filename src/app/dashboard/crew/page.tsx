@@ -4,11 +4,32 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus } from 'lucide-react';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug } from 'lucide-react';
 import { format, parse } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import {
+    DndContext,
+    closestCenter,
+    KeyboardSensor,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    DragEndEvent,
+    DragStartEvent,
+    DragOverlay,
+    useDraggable,
+    useDroppable,
+} from '@dnd-kit/core';
+import {
+    arrayMove,
+    SortableContext,
+    sortableKeyboardCoordinates,
+    useSortable,
+    verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -56,12 +77,267 @@ interface CrewMemberWithAssignment {
     };
 }
 
+// Sortable Row Component
+interface SortableRowProps {
+    member: CrewMemberWithAssignment;
+    index: number;
+    currentUserProfile: UserProfile | null;
+    allVessels: Vessel[] | undefined;
+    expandedRows: Set<string>;
+    updatingOnboardStatus: string | null;
+    requestingAccess: string | null;
+    loadingSeaTime: Set<string>;
+    onToggleOnboard: (assignmentId: string, currentStatus: boolean, userId: string) => void;
+    onToggleRowExpansion: (member: CrewMemberWithAssignment) => void;
+    onRequestAccess: (userId: string) => void;
+    debugMode: boolean;
+}
+
+function SortableRow({
+    member,
+    index,
+    currentUserProfile,
+    allVessels,
+    expandedRows,
+    updatingOnboardStatus,
+    requestingAccess,
+    loadingSeaTime,
+    onToggleOnboard,
+    onToggleRowExpansion,
+    onRequestAccess,
+    debugMode,
+}: SortableRowProps) {
+    const { profile, assignment } = member;
+    const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
+    const displayName = fullName || profile.username;
+    
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging,
+    } = useSortable({ id: profile.id });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+    };
+
+    const position = assignment.position || profile.position || null;
+    
+    const getRoleLabel = (role: string) => {
+        switch (role) {
+            case 'admin':
+                return 'Admin';
+            case 'captain':
+                return 'Captain';
+            case 'vessel':
+                return 'Vessel Manager';
+            default:
+                return 'Crew';
+        }
+    };
+    
+    const getRoleBadgeClassName = (role: string) => {
+        switch (role) {
+            case 'admin':
+                return 'rounded-full bg-red-500/10 text-red-700 border-red-500/20 dark:bg-red-500/20 dark:text-red-400';
+            case 'vessel':
+                return 'rounded-full bg-blue-500/10 text-blue-700 border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400';
+            case 'captain':
+                return 'rounded-full bg-purple-500/10 text-purple-700 border-purple-500/20 dark:bg-purple-500/20 dark:text-purple-400';
+            default:
+                return 'rounded-full bg-gray-500/10 text-gray-700 border-gray-500/20 dark:bg-gray-500/20 dark:text-gray-400';
+        }
+    };
+
+    const vesselName = currentUserProfile?.role === 'admin' && assignment.vesselId
+        ? (allVessels?.find(v => v.id === assignment.vesselId)?.name || 'Unknown Vessel')
+        : null;
+
+    return (
+        <TableRow
+            ref={setNodeRef}
+            style={style}
+            className={isDragging ? 'bg-muted/50' : ''}
+        >
+            <TableCell className="font-medium">
+                <div className="flex items-center gap-3">
+                    {debugMode && (
+                        <div
+                            {...attributes}
+                            {...listeners}
+                            className="cursor-grab active:cursor-grabbing p-1 hover:bg-muted rounded"
+                        >
+                            <GripVertical className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                    )}
+                    <Avatar className="h-9 w-9">
+                        <AvatarImage src={profile.profilePicture} alt={displayName} />
+                        <AvatarFallback className="bg-primary/20">
+                            {getInitials(displayName) || <UserIcon />}
+                        </AvatarFallback>
+                    </Avatar>
+                    <div>
+                        <div className="font-medium">{displayName}</div>
+                        {debugMode && (
+                            <div className="text-xs text-muted-foreground">
+                                Index: {index} | ID: {profile.id.slice(0, 8)}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </TableCell>
+            <TableCell>{profile.email}</TableCell>
+            {currentUserProfile?.role === 'admin' && (
+                <TableCell>
+                    <span className="font-medium">{vesselName}</span>
+                </TableCell>
+            )}
+            <TableCell>
+                {position ? (
+                    <Badge variant="outline" className="rounded-full">{position}</Badge>
+                ) : (
+                    <span className="text-muted-foreground">—</span>
+                )}
+            </TableCell>
+            <TableCell>
+                <Badge 
+                    variant="outline" 
+                    className={getRoleBadgeClassName(profile.role)}
+                >
+                    {getRoleLabel(profile.role)}
+                </Badge>
+            </TableCell>
+            {currentUserProfile?.role === 'admin' ? (
+                <TableCell>
+                    <Badge 
+                            variant="secondary"
+                            className={
+                                profile.subscriptionStatus === 'active'
+                                    ? 'bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400'
+                                    : 'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:bg-gray-500/20 dark:text-gray-400'
+                            }
+                        >
+                            {profile.subscriptionTier && profile.subscriptionTier !== 'free'
+                                ? profile.subscriptionTier.charAt(0).toUpperCase() + profile.subscriptionTier.slice(1).replace(/_/g, ' ')
+                                : 'Free'}
+                    </Badge>
+                </TableCell>
+            ) : (
+                <TableCell>
+                        {assignment.startDate 
+                            ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
+                            : 'N/A'}
+                </TableCell>
+            )}
+            {currentUserProfile?.role === 'vessel' && (
+                <TableCell>
+                    <div className="flex items-center gap-2">
+                        <Switch
+                            checked={assignment.onboard || false}
+                            onCheckedChange={() => {
+                                if (assignment.id && !assignment.id.startsWith('placeholder-')) {
+                                    onToggleOnboard(assignment.id, assignment.onboard || false, assignment.userId);
+                                }
+                            }}
+                            disabled={updatingOnboardStatus === assignment.id || assignment.id.startsWith('placeholder-')}
+                        />
+                        <span className="text-xs text-muted-foreground">
+                            {assignment.onboard ? (
+                                <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                                    <Ship className="h-3 w-3" /> Onboard
+                                </span>
+                            ) : (
+                                <span className="flex items-center gap-1 text-muted-foreground">
+                                    <Anchor className="h-3 w-3" /> Offboard
+                                </span>
+                            )}
+                        </span>
+                    </div>
+                </TableCell>
+            )}
+            <TableCell>
+                {currentUserProfile?.role === 'vessel' ? (
+                    <div className="flex items-center gap-2">
+                        {member.accessRequest?.status === 'approved' ? (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => onToggleRowExpansion(member)}
+                                className="h-8"
+                            >
+                                {expandedRows.has(profile.id) ? (
+                                    <>
+                                        <ChevronUp className="h-4 w-4 mr-1" />
+                                        Hide Details
+                                    </>
+                                ) : (
+                                    <>
+                                        <ChevronDown className="h-4 w-4 mr-1" />
+                                        View Sea Time
+                                    </>
+                                )}
+                            </Button>
+                        ) : member.accessRequest?.status === 'pending' ? (
+                            <Badge variant="secondary" className="text-xs">
+                                Request Pending
+                            </Badge>
+                        ) : member.accessRequest?.status === 'rejected' ? (
+                            <Badge variant="destructive" className="text-xs">
+                                Request Rejected
+                            </Badge>
+                        ) : (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => onRequestAccess(profile.id)}
+                                disabled={requestingAccess === profile.id}
+                                className="h-8"
+                            >
+                                {requestingAccess === profile.id ? (
+                                    <>
+                                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                        Requesting...
+                                    </>
+                                ) : (
+                                    'Request Sea Time Access'
+                                )}
+                            </Button>
+                        )}
+                    </div>
+                ) : (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" className="h-8 w-8 p-0 rounded-full">
+                                <span className="sr-only">Open menu</span>
+                                <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuItem>View Profile</DropdownMenuItem>
+                            <DropdownMenuItem>Assign to Vessel</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive">Remove User</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                )}
+            </TableCell>
+        </TableRow>
+    );
+}
+
 export default function CrewPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const { user } = useUser();
     const { supabase } = useSupabase();
     
     const [crewMembers, setCrewMembers] = useState<CrewMemberWithAssignment[]>([]);
+    const [orderedCrewMembers, setOrderedCrewMembers] = useState<CrewMemberWithAssignment[]>([]);
     const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
     const [hasPendingCaptaincyRequest, setHasPendingCaptaincyRequest] = useState(false);
     const [isCheckingCaptaincy, setIsCheckingCaptaincy] = useState(false);
@@ -71,6 +347,9 @@ export default function CrewPage() {
     const [loadingSeaTime, setLoadingSeaTime] = useState<Set<string>>(new Set());
     const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
     const [isInviting, setIsInviting] = useState(false);
+    const [debugMode, setDebugMode] = useState(false);
+    const [activeId, setActiveId] = useState<string | null>(null);
+    const [dragCoordinates, setDragCoordinates] = useState<{ x: number; y: number; index: number } | null>(null);
 
     // The user's own profile is needed to check their role and active vessel.
     const { data: currentUserProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -704,19 +983,65 @@ export default function CrewPage() {
         }
     };
     
+    // Initialize ordered crew members when crewMembers changes
+    useEffect(() => {
+        setOrderedCrewMembers(crewMembers);
+    }, [crewMembers]);
+
+    // Sensors for drag and drop
+    const sensors = useSensors(
+        useSensor(PointerSensor),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: sortableKeyboardCoordinates,
+        })
+    );
+
+    // Handle drag start
+    const handleDragStart = (event: DragStartEvent) => {
+        setActiveId(event.active.id as string);
+    };
+
+    // Handle drag end
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        
+        if (over && active.id !== over.id) {
+            setOrderedCrewMembers((items) => {
+                const oldIndex = items.findIndex(item => item.profile.id === active.id);
+                const newIndex = items.findIndex(item => item.profile.id === over.id);
+                const newItems = arrayMove(items, oldIndex, newIndex);
+                
+                if (debugMode) {
+                    console.log('[CREW PAGE] Drag coordinates:', {
+                        fromIndex: oldIndex,
+                        toIndex: newIndex,
+                        activeId: active.id,
+                        overId: over.id,
+                    });
+                }
+                
+                return newItems;
+            });
+        }
+        
+        setActiveId(null);
+        setDragCoordinates(null);
+    };
+
+    
     // Filter crew members by search term and apply tier-based limits
     const filteredCrewMembers = useMemo(() => {
         console.log('[CREW PAGE] Filtering crew members:', {
-            crewMembersCount: crewMembers.length,
+            crewMembersCount: orderedCrewMembers.length,
             searchTerm: searchTerm,
             crewLimit: crewLimit,
-            crewMembers: crewMembers
+            crewMembers: orderedCrewMembers
         });
         
         // First apply search filter
-        let filtered = crewMembers;
+        let filtered = orderedCrewMembers;
         if (searchTerm) {
-            filtered = crewMembers.filter(({ profile }) => {
+            filtered = orderedCrewMembers.filter(({ profile }) => {
             const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.toLowerCase();
             const username = profile.username.toLowerCase();
             const email = profile.email.toLowerCase();
@@ -740,7 +1065,7 @@ export default function CrewPage() {
         
         console.log('[CREW PAGE] Final filtered crew members:', filtered.length);
         return filtered;
-    }, [crewMembers, searchTerm, crewLimit]);
+    }, [orderedCrewMembers, searchTerm, crewLimit]);
 
     const isLoading = isLoadingProfile || isLoadingAssignments || isCheckingCaptaincy;
     
@@ -903,6 +1228,15 @@ export default function CrewPage() {
                         </p>
                     </div>
                     <div className="flex gap-2 items-center">
+                        <Button
+                            variant={debugMode ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setDebugMode(!debugMode)}
+                            className="rounded-xl"
+                        >
+                            <Bug className="h-4 w-4 mr-2" />
+                            {debugMode ? 'Debug ON' : 'Debug OFF'}
+                        </Button>
                         <div className="relative w-full sm:max-w-xs">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
@@ -1103,12 +1437,33 @@ export default function CrewPage() {
                 </div>
             )}
 
+            {/* Debug Info Display */}
+            {debugMode && dragCoordinates && (
+                <Card className="rounded-xl border border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                    <CardContent className="p-4">
+                        <div className="text-sm font-mono">
+                            <div><strong>Drag Coordinates:</strong></div>
+                            <div>X: {dragCoordinates.x.toFixed(2)}px</div>
+                            <div>Y: {dragCoordinates.y.toFixed(2)}px</div>
+                            <div>Index: {dragCoordinates.index}</div>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
             <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
+                        <DndContext
+                            sensors={sensors}
+                            collisionDetection={closestCenter}
+                            onDragStart={handleDragStart}
+                            onDragEnd={handleDragEnd}
+                        >
                         <Table>
                         <TableHeader>
                             <TableRow>
+                                    {debugMode && <TableHead className="w-[40px]"></TableHead>}
                                 <TableHead>User</TableHead>
                                 <TableHead>Email</TableHead>
                                 {currentUserProfile?.role === 'admin' && <TableHead>Vessel</TableHead>}
@@ -1137,206 +1492,32 @@ export default function CrewPage() {
                                     </TableCell>
                                 </TableRow>
                             ) : filteredCrewMembers && filteredCrewMembers.length > 0 ? (
-                                filteredCrewMembers.map((member) => {
-                                    const { profile, assignment } = member;
-                                    const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
-                                    const displayName = fullName || profile.username;
-                                    
-                                    // Get position from assignment (vessel-specific) first, fallback to profile
-                                    const position = assignment.position || profile.position || null;
-                                    
-                                    // Get role label
-                                    const getRoleLabel = (role: string) => {
-                                        switch (role) {
-                                            case 'admin':
-                                                return 'Admin';
-                                            case 'captain':
-                                                return 'Captain';
-                                            case 'vessel':
-                                                return 'Vessel Manager';
-                                            default:
-                                                return 'Crew';
-                                        }
-                                    };
-                                    
-                                    // Get role badge styling (pill-shaped)
-                                    const getRoleBadgeClassName = (role: string) => {
-                                        switch (role) {
-                                            case 'admin':
-                                                return 'rounded-full bg-red-500/10 text-red-700 border-red-500/20 dark:bg-red-500/20 dark:text-red-400';
-                                            case 'vessel':
-                                                return 'rounded-full bg-blue-500/10 text-blue-700 border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400';
-                                            case 'captain':
-                                                return 'rounded-full bg-purple-500/10 text-purple-700 border-purple-500/20 dark:bg-purple-500/20 dark:text-purple-400';
-                                            default:
-                                                return 'rounded-full bg-gray-500/10 text-gray-700 border-gray-500/20 dark:bg-gray-500/20 dark:text-gray-400';
-                                        }
-                                    };
-
-                                    // Get vessel name for admins
-                                    const vesselName = currentUserProfile?.role === 'admin' && assignment.vesselId
-                                        ? (allVessels?.find(v => v.id === assignment.vesselId)?.name || 'Unknown Vessel')
-                                        : null;
-
-                                    return (
-                                        <React.Fragment key={profile.id}>
-                                            <TableRow>
-                                                <TableCell className="font-medium">
-                                                    <div className="flex items-center gap-3">
-                                                        <Avatar className="h-9 w-9">
-                                                            <AvatarImage src={profile.profilePicture} alt={displayName} />
-                                                            <AvatarFallback className="bg-primary/20">
-                                                                {getInitials(displayName) || <UserIcon />}
-                                                            </AvatarFallback>
-                                                        </Avatar>
-                                                        <div>
-                                                            <div className="font-medium">{displayName}</div>
-                                                        </div>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>{profile.email}</TableCell>
-                                                {currentUserProfile?.role === 'admin' && (
-                                                    <TableCell>
-                                                        <span className="font-medium">{vesselName}</span>
-                                                    </TableCell>
-                                                )}
-                                                <TableCell>
-                                                    {position ? (
-                                                        <Badge variant="outline" className="rounded-full">{position}</Badge>
-                                                    ) : (
-                                                        <span className="text-muted-foreground">—</span>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge 
-                                                        variant="outline" 
-                                                        className={getRoleBadgeClassName(profile.role)}
-                                                    >
-                                                        {getRoleLabel(profile.role)}
-                                                    </Badge>
-                                                </TableCell>
-                                                {currentUserProfile?.role === 'admin' ? (
-                                                    <TableCell>
-                                                        <Badge 
-                                                                variant="secondary"
-                                                                className={
-                                                                    profile.subscriptionStatus === 'active'
-                                                                        ? 'bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400'
-                                                                        : 'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:bg-gray-500/20 dark:text-gray-400'
-                                                                }
-                                                            >
-                                                                {profile.subscriptionTier && profile.subscriptionTier !== 'free'
-                                                                    ? profile.subscriptionTier.charAt(0).toUpperCase() + profile.subscriptionTier.slice(1).replace(/_/g, ' ')
-                                                                    : 'Free'}
-                                                        </Badge>
-                                                    </TableCell>
-                                                ) : (
-                                                    <TableCell>
-                                                            {assignment.startDate 
-                                                                ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
-                                                                : 'N/A'}
-                                                    </TableCell>
-                                                )}
-                                                {currentUserProfile?.role === 'vessel' && (
-                                                    <TableCell>
-                                                        <div className="flex items-center gap-2">
-                                                            <Switch
-                                                                checked={assignment.onboard || false}
-                                                                onCheckedChange={() => {
-                                                                    if (assignment.id && !assignment.id.startsWith('placeholder-')) {
-                                                                        handleToggleOnboard(assignment.id, assignment.onboard || false, assignment.userId);
-                                                                    }
-                                                                }}
-                                                                disabled={updatingOnboardStatus === assignment.id || assignment.id.startsWith('placeholder-')}
-                                                            />
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {assignment.onboard ? (
-                                                                    <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                                                                        <Ship className="h-3 w-3" /> Onboard
-                                                                    </span>
-                                                                ) : (
-                                                                    <span className="flex items-center gap-1 text-muted-foreground">
-                                                                        <Anchor className="h-3 w-3" /> Offboard
-                                                                    </span>
-                                                                )}
-                                                            </span>
-                                                        </div>
-                                                    </TableCell>
-                                                )}
-                                                <TableCell>
-                                                    {currentUserProfile?.role === 'vessel' ? (
-                                                        <div className="flex items-center gap-2">
-                                                            {member.accessRequest?.status === 'approved' ? (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    onClick={() => toggleRowExpansion(member)}
-                                                                    className="h-8"
-                                                                >
-                                                                    {expandedRows.has(profile.id) ? (
-                                                                        <>
-                                                                            <ChevronUp className="h-4 w-4 mr-1" />
-                                                                            Hide Details
-                                                                        </>
-                                                                    ) : (
-                                                                        <>
-                                                                            <ChevronDown className="h-4 w-4 mr-1" />
-                                                                            View Sea Time
-                                                                        </>
-                                                                    )}
-                                                                </Button>
-                                                            ) : member.accessRequest?.status === 'pending' ? (
-                                                                <Badge variant="secondary" className="text-xs">
-                                                                    Request Pending
-                                                                </Badge>
-                                                            ) : member.accessRequest?.status === 'rejected' ? (
-                                                                <Badge variant="destructive" className="text-xs">
-                                                                    Request Rejected
-                                                                </Badge>
-                                                            ) : (
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => handleRequestAccess(profile.id)}
-                                                                    disabled={requestingAccess === profile.id}
-                                                                    className="h-8"
-                                                                >
-                                                                    {requestingAccess === profile.id ? (
-                                                                        <>
-                                                                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                                                            Requesting...
-                                                                        </>
-                                                                    ) : (
-                                                                        'Request Sea Time Access'
-                                                                    )}
-                                                                </Button>
-                                                            )}
-                                                        </div>
-                                                    ) : (
-                                                        <DropdownMenu>
-                                                            <DropdownMenuTrigger asChild>
-                                                                <Button variant="ghost" className="h-8 w-8 p-0 rounded-full">
-                                                                    <span className="sr-only">Open menu</span>
-                                                                    <MoreHorizontal className="h-4 w-4" />
-                                                                </Button>
-                                                            </DropdownMenuTrigger>
-                                                            <DropdownMenuContent align="end">
-                                                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                                                <DropdownMenuItem>View Profile</DropdownMenuItem>
-                                                                <DropdownMenuItem>Assign to Vessel</DropdownMenuItem>
-                                                                <DropdownMenuSeparator />
-                                                                <DropdownMenuItem className="text-destructive">Remove User</DropdownMenuItem>
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    )}
-                                                </TableCell>
-                                            </TableRow>
+                                    <SortableContext
+                                        items={filteredCrewMembers.map(m => m.profile.id)}
+                                        strategy={verticalListSortingStrategy}
+                                    >
+                                        {filteredCrewMembers.map((member, index) => (
+                                        <React.Fragment key={member.profile.id}>
+                                            <SortableRow
+                                                member={member}
+                                                index={index}
+                                                currentUserProfile={currentUserProfile}
+                                                allVessels={allVessels || undefined}
+                                                expandedRows={expandedRows}
+                                                updatingOnboardStatus={updatingOnboardStatus}
+                                                requestingAccess={requestingAccess}
+                                                loadingSeaTime={loadingSeaTime}
+                                                onToggleOnboard={handleToggleOnboard}
+                                                onToggleRowExpansion={toggleRowExpansion}
+                                                onRequestAccess={handleRequestAccess}
+                                                debugMode={debugMode}
+                                            />
                                             {currentUserProfile?.role === 'vessel' && 
                                              member.accessRequest?.status === 'approved' && 
-                                             expandedRows.has(profile.id) && (
-                                                <TableRow key={`${profile.id}-expanded`}>
-                                                    <TableCell colSpan={7} className="bg-muted/50">
-                                                        {loadingSeaTime.has(profile.id) ? (
+                                             expandedRows.has(member.profile.id) && (
+                                                <TableRow key={`${member.profile.id}-expanded`}>
+                                                    <TableCell colSpan={debugMode ? 8 : 7} className="bg-muted/50">
+                                                        {loadingSeaTime.has(member.profile.id) ? (
                                                             <div className="flex items-center justify-center py-8">
                                                                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
                                                                 <span className="ml-2 text-muted-foreground">Loading sea time data...</span>
@@ -1388,8 +1569,8 @@ export default function CrewPage() {
                                                 </TableRow>
                                             )}
                                         </React.Fragment>
-                                    )
-                                })
+                                    ))}
+                                    </SortableContext>
                             ) : (
                                 <TableRow>
                                     <TableCell colSpan={currentUserProfile?.role === 'admin' ? 7 : 6} className="h-24 text-center">
@@ -1403,6 +1584,7 @@ export default function CrewPage() {
                             )}
                         </TableBody>
                         </Table>
+                        </DndContext>
                     </div>
                 </CardContent>
             </Card>

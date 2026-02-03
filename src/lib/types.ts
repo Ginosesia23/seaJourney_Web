@@ -47,7 +47,8 @@ export interface Vessel {
   gross_tonnage?: number | null;
   number_of_crew?: number | null;
   build_year?: number | null;
-  flag_state?: string | null;
+  flag?: string | null;
+  flag_state?: string | null; // Deprecated - use flag instead
   call_sign?: string | null;
   mmsi?: string | null;
   description?: string | null;

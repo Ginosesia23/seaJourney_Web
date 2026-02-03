@@ -85,6 +85,11 @@ export interface TestimonialPDFData {
     signature?: string | null; // Base64 encoded signature image
   } | null;
   receiptData?: MCAReceiptData; // Optional receipt/verification data
+  standbyPeriods?: Array<{
+    passageStartDate: string; // YYYY-MM-DD
+    passageEndDate: string; // YYYY-MM-DD
+    standbyDays: number;
+  }>; // Standby service periods for Table A
 }
 
 export type TestimonialPDFFormat = 'mca' | 'mlc' | 'pya' | 'seajourney';
@@ -587,7 +592,8 @@ export async function generateTestimonialPDF(
 
   const vesselRows: string[][] = [['Vessel name', safeText(vessel.name, 'Not specified')]];
 
-  if (vessel.flag_state) vesselRows.push(['Flag', safeText(vessel.flag_state)]);
+  const flagState = vessel.flag || vessel.flag_state;
+  if (flagState) vesselRows.push(['Flag', safeText(flagState)]);
   if (vessel.officialNumber) vesselRows.push(['Official No.', safeText(vessel.officialNumber)]);
 
   if (vessel.type) {
@@ -1846,7 +1852,7 @@ export async function generateNavWatchApplicationPDF(
     ['Vessel Name:', vessel.name],
     ['Vessel Type:', vessel.type || '—'],
     ['Official Number:', vessel.officialNumber || '—'],
-    ['Flag State:', vessel.flag_state || '—'],
+    ['Flag State:', vessel.flag || vessel.flag_state || '—'],
     ['Gross Tonnage:', vessel.gross_tonnage ? `${vessel.gross_tonnage} GT` : '—'],
     ['Call Sign:', vessel.call_sign || '—'],
   ];
@@ -4141,10 +4147,10 @@ export async function generateMCADeckhandTestimonial(
   const red = rgb(1, 0, 0);
 
   const safe = (v?: string | null, fallback = '') => (v ?? '').trim() || fallback;
-  const formatDate = (dateStr: string, format: 'DD/MM/YYYY' | 'DD MMMM YYYY' = 'DD/MM/YYYY') => {
+  const formatDateLocal = (dateStr: string, fmt: 'DD/MM/YYYY' | 'DD MMMM YYYY' = 'DD/MM/YYYY') => {
     try {
       const date = parse(dateStr, 'yyyy-MM-dd', new Date());
-      return format === 'DD/MM/YYYY' 
+      return fmt === 'DD/MM/YYYY' 
         ? format(date, 'dd/MM/yyyy')
         : format(date, 'dd MMMM yyyy');
     } catch {
@@ -4279,6 +4285,16 @@ export async function generateMCADeckhandTestimonial(
     generalComments: { x: 160, top: 405, page: 2 },
     watchDays: { x: 240, top: 622, page: 2 }, // Watch days count on page 2
     
+    // Standby Service Table A (Page 2)
+    standbyTableTitle: { x: 25, top: 693, page: 2 },
+    standbyTableStartY: { top: 740, page: 2 },
+    standbyTableRowHeight: 14.5,
+    standbyTableCol1: { x: 60 }, // Passage start date
+    standbyTableCol2: { x: 170 }, // Passage end date
+    standbyTableCol3: { x: 320 }, // Standby days
+    standbyTableCol4: { x: 390 }, // Master signature
+    standbyTableTotal: { x: 280, top: 755, page: 2 }, // Total row position
+    
     // Master Details (Page 3)
     masterName: { x: 230, top: 100, page: 3 },
     masterPosition: { x: 230, top: 130, page: 3 },
@@ -4307,9 +4323,9 @@ export async function generateMCADeckhandTestimonial(
   }
 
   const fullName = `${safe(userProfile.firstName)} ${safe(userProfile.lastName)}`.trim() || safe(userProfile.username);
-  const dateOfBirth = userProfile.dateOfBirth ? formatDate(userProfile.dateOfBirth, 'DD/MM/YYYY') : '';
-  const dateJoining = formatDate(testimonial.start_date, 'DD/MM/YYYY');
-  const dateDischarge = formatDate(testimonial.end_date, 'DD/MM/YYYY');
+  const dateOfBirth = userProfile.dateOfBirth ? formatDateLocal(userProfile.dateOfBirth, 'DD/MM/YYYY') : '';
+  const dateJoining = formatDateLocal(testimonial.start_date, 'DD/MM/YYYY');
+  const dateDischarge = formatDateLocal(testimonial.end_date, 'DD/MM/YYYY');
 
   // Company Details
   drawText(page1, base, safe(companyDetails?.name), COORDS.companyName.x, COORDS.companyName.top);
@@ -4348,9 +4364,60 @@ export async function generateMCADeckhandTestimonial(
     drawText(page2, base, safe(testimonial.captain_comment_general), COORDS.generalComments.x, COORDS.generalComments.top, { maxW: 400 });
     
     // Watch Days - calculate from date range if watch dates are available
-    // For now, default to 0 if not provided in testimonial data
+    // Only display if watch days > 0
     const watchDays = (testimonial as any).watch_days ?? 0;
-    drawText(page2, base, watchDays.toString(), COORDS.watchDays.x, COORDS.watchDays.top);
+    if (watchDays > 0) {
+      drawText(page2, base, watchDays.toString(), COORDS.watchDays.x, COORDS.watchDays.top);
+    }
+    
+    // Table A: Standby Service (if standby periods are available)
+    if (data.standbyPeriods && data.standbyPeriods.length > 0) {
+      const tableStartY = COORDS.standbyTableStartY.top;
+      let currentY = tableStartY;
+      
+      // Calculate total standby days
+      const totalStandbyDays = data.standbyPeriods.reduce((sum, period) => sum + period.standbyDays, 0);
+      
+      // Convert total days to months and days (assuming 30 days per month)
+      const months = Math.floor(totalStandbyDays / 30);
+      const days = totalStandbyDays % 30;
+      const totalText = months > 0 
+        ? `${months} ${months === 1 ? 'month' : 'months'} and ${days} ${days === 1 ? 'day' : 'days'}`
+        : `${days} ${days === 1 ? 'day' : 'days'}`;
+      
+      // Table rows (no title or headers - they're already in the PDF template)
+      const signatureDataUrl = testimonial.captain_signature || captainProfile?.signature;
+      for (let index = 0; index < data.standbyPeriods.length; index++) {
+        const period = data.standbyPeriods[index];
+        if (currentY < 100) break; // Don't draw if too low on page
+        
+        const passageStart = formatDateLocal(period.passageStartDate, 'DD/MM/YYYY');
+        const passageEnd = formatDateLocal(period.passageEndDate, 'DD/MM/YYYY');
+        const standbyDays = period.standbyDays.toString();
+        
+        drawText(page2, base, passageStart, COORDS.standbyTableCol1.x, currentY, { size: 9 });
+        drawText(page2, base, passageEnd, COORDS.standbyTableCol2.x, currentY, { size: 9 });
+        drawText(page2, base, standbyDays, COORDS.standbyTableCol3.x, currentY, { size: 9 });
+        
+        // Draw master signature (small version) - on every row if signature exists
+        // Adjust Y coordinate: signature function positions from top of box and centers vertically
+        // The function draws at pyTop - bh + (bh - h)/2, so we need to account for the box height
+        // To align with text baseline, we need to position the top of the box higher
+        // Since it's appearing one row below, we need to subtract the row height to move it up
+        if (signatureDataUrl) {
+          try {
+            await drawSignatureDataUrl(page2, base, signatureDataUrl, COORDS.standbyTableCol4.x, currentY - COORDS.standbyTableRowHeight + 3, 60, 15);
+          } catch (e) {
+            console.warn('Could not draw signature in standby table:', e);
+          }
+        }
+        
+        currentY -= COORDS.standbyTableRowHeight;
+      }
+      
+      // Add total row at fixed coordinates - display as months and days
+      drawText(page2, base, totalText, COORDS.standbyTableTotal.x, COORDS.standbyTableTotal.top, { size: 9, bold: true });
+    }
   }
 
   // Master Details (Page 3)
@@ -4374,11 +4441,9 @@ export async function generateMCADeckhandTestimonial(
     // Date
     const approvedDate = testimonial.approved_at || testimonial.signoff_used_at;
     if (approvedDate) {
-      drawText(page3, base, formatDate(approvedDate, 'DD/MM/YYYY'), COORDS.masterDate.x, COORDS.masterDate.top);
+      drawText(page3, base, formatDateLocal(approvedDate, 'DD/MM/YYYY'), COORDS.masterDate.x, COORDS.masterDate.top);
     }
   }
-
-  // TODO: Add Table A for standby service if needed (would be on a separate page or section)
 
   if (data.receiptData) {
     const page = pdfDoc.addPage([A4_PORTRAIT.w, A4_PORTRAIT.h]);
@@ -4554,14 +4619,14 @@ export async function generateMCADeckhandTestimonial(
     addSection('Vessel Information');
     addRow('Vessel Name', safe(vessel.name) || 'N/A', 'left');
     addRow('Vessel Type', safe(vessel.type) || 'N/A', 'left');
-    addRow('Flag State', safe(vessel.flag_state) || 'N/A', 'left');
+    addRow('Flag State', safe(vessel.flag || vessel.flag_state) || 'N/A', 'left');
     addRow('IMO / Official Number', safe(vessel.imo) || safe(vessel.officialNumber) || 'N/A', 'left');
     addRow('Gross Tonnage', vessel.gross_tonnage?.toString() || 'N/A', 'left');
     y -= 10;
   
     // Sea Service Summary (all on left)
     addSection('Sea Service Summary');
-    addRow('Date Range', `${formatDate(testimonial.start_date, 'DD/MM/YYYY')} – ${formatDate(testimonial.end_date, 'DD/MM/YYYY')}`, 'left');
+    addRow('Date Range', `${formatDateLocal(testimonial.start_date, 'DD/MM/YYYY')} – ${formatDateLocal(testimonial.end_date, 'DD/MM/YYYY')}`, 'left');
     addRow('Total Days', safeInt(testimonial.total_days ?? 0), 'left');
     addRow('At Sea Days', safeInt(testimonial.at_sea_days), 'left');
     addRow('Standby Days', safeInt(testimonial.standby_days), 'left');
@@ -4614,7 +4679,7 @@ export async function generateMCADeckhandTestimonial(
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `MCA_Deckhand_Testimonial_${fullName.replace(/\s+/g, '_')}_${formatDate(testimonial.start_date, 'DD/MM/YYYY')}.pdf`;
+  a.download = `MCA_Deckhand_Testimonial_${fullName.replace(/\s+/g, '_')}_${formatDateLocal(testimonial.start_date, 'DD/MM/YYYY')}.pdf`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -4655,10 +4720,10 @@ export async function generateMCAOfficerTestimonial(
   const red = rgb(1, 0, 0);
 
   const safe = (v?: string | null, fallback = '') => (v ?? '').trim() || fallback;
-  const formatDate = (dateStr: string, format: 'DD/MM/YYYY' | 'DD MMMM YYYY' = 'DD/MM/YYYY') => {
+  const formatDateLocal = (dateStr: string, fmt: 'DD/MM/YYYY' | 'DD MMMM YYYY' = 'DD/MM/YYYY') => {
     try {
       const date = parse(dateStr, 'yyyy-MM-dd', new Date());
-      return format === 'DD/MM/YYYY' 
+      return fmt === 'DD/MM/YYYY' 
         ? format(date, 'dd/MM/yyyy')
         : format(date, 'dd MMMM yyyy');
     } catch {
@@ -4794,6 +4859,18 @@ export async function generateMCAOfficerTestimonial(
     generalComments: { x: 200, top: 380, page: 2 },
     watchDays: { x: 270, top: 250, page: 2 }, // Watch days count on page 2 
     
+    // Standby Service Table A (Page 2)
+
+    standbyTableTitle: { x: 25, top: 693, page: 2 },
+    standbyTableStartY: { top: 740, page: 2 },
+    standbyTableRowHeight: 14.5,
+    standbyTableCol1: { x: 60 }, // Passage start date
+    standbyTableCol2: { x: 170 }, // Passage end date
+    standbyTableCol3: { x: 320 }, // Standby days
+    standbyTableCol4: { x: 390 }, // Master signature
+    standbyTableTotal: { x: 320, top: 755, page: 2 }, // Total row position
+
+    
     // Master Details (Page 3)
     masterName: { x: 180, top: 100, page: 3 },
     masterPosition: { x: 180, top: 125, page: 3 },
@@ -4822,9 +4899,9 @@ export async function generateMCAOfficerTestimonial(
   }
 
   const fullName = `${safe(userProfile.firstName)} ${safe(userProfile.lastName)}`.trim() || safe(userProfile.username);
-  const dateOfBirth = userProfile.dateOfBirth ? formatDate(userProfile.dateOfBirth, 'DD/MM/YYYY') : '';
-  const dateJoining = formatDate(testimonial.start_date, 'DD/MM/YYYY');
-  const dateDischarge = formatDate(testimonial.end_date, 'DD/MM/YYYY');
+  const dateOfBirth = userProfile.dateOfBirth ? formatDateLocal(userProfile.dateOfBirth, 'DD/MM/YYYY') : '';
+  const dateJoining = formatDateLocal(testimonial.start_date, 'DD/MM/YYYY');
+  const dateDischarge = formatDateLocal(testimonial.end_date, 'DD/MM/YYYY');
   
   // Determine capacity from position
   const position = safe(userProfile.position).toLowerCase();
@@ -4871,9 +4948,61 @@ export async function generateMCAOfficerTestimonial(
     drawText(page2, base, safe(testimonial.captain_comment_general), COORDS.generalComments.x, COORDS.generalComments.top, { maxW: 400 });
     
     // Watch Days - calculate from date range if watch dates are available
-    // For now, default to 0 if not provided in testimonial data
+    // Only display if watch days > 0
     const watchDays = (testimonial as any).watch_days ?? 0;
-    drawText(page2, base, watchDays.toString(), COORDS.watchDays.x, COORDS.watchDays.top);
+    if (watchDays > 0) {
+      drawText(page2, base, watchDays.toString(), COORDS.watchDays.x, COORDS.watchDays.top);
+    }
+    
+    // Table A: Standby Service (if standby periods are available)
+    if (data.standbyPeriods && data.standbyPeriods.length > 0) {
+      const tableStartY = COORDS.standbyTableStartY.top;
+      let currentY = tableStartY;
+      
+      // Calculate total standby days
+      const totalStandbyDays = data.standbyPeriods.reduce((sum, period) => sum + period.standbyDays, 0);
+      
+      // Convert total days to months and days (assuming 30 days per month)
+      const months = Math.floor(totalStandbyDays / 30);
+      const days = totalStandbyDays % 30;
+      const totalText = months > 0 
+        ? `${months} ${months === 1 ? 'month' : 'months'} and ${days} ${days === 1 ? 'day' : 'days'}`
+        : `${days} ${days === 1 ? 'day' : 'days'}`;
+      
+      // Table rows (no title or headers - they're already in the PDF template)
+      const signatureDataUrl = testimonial.captain_signature || captainProfile?.signature;
+      for (let index = 0; index < data.standbyPeriods.length; index++) {
+        const period = data.standbyPeriods[index];
+        if (currentY < 100) break; // Don't draw if too low on page
+        
+        const passageStart = formatDateLocal(period.passageStartDate, 'DD/MM/YYYY');
+        const passageEnd = formatDateLocal(period.passageEndDate, 'DD/MM/YYYY');
+        const standbyDays = period.standbyDays.toString();
+        
+        drawText(page2, base, passageStart, COORDS.standbyTableCol1.x, currentY, { size: 9 });
+        drawText(page2, base, passageEnd, COORDS.standbyTableCol2.x, currentY, { size: 9 });
+        drawText(page2, base, standbyDays, COORDS.standbyTableCol3.x, currentY, { size: 9 });
+        
+        // Draw master signature (small version) - on every row if signature exists
+        // Adjust Y coordinate: signature function positions from top of box and centers vertically
+        // The function draws at pyTop - bh + (bh - h)/2, so we need to account for the box height
+        // To align with text baseline, we need to position the top of the box higher
+        // Since it's appearing one row below, we need to subtract the row height to move it up
+        if (signatureDataUrl) {
+          try {
+            await drawSignatureDataUrl(page2, base, signatureDataUrl, COORDS.standbyTableCol4.x, currentY - COORDS.standbyTableRowHeight + 15, 60, 15);
+          } catch (e) {
+            console.warn('Could not draw signature in standby table:', e);
+          }
+        }
+        
+        currentY -= COORDS.standbyTableRowHeight;
+      }
+      
+      // Add total row at fixed coordinates - display as months and days
+      drawText(page2, base, totalText, COORDS.standbyTableTotal.x, COORDS.standbyTableTotal.top, { size: 9, bold: true });
+      drawText(page2, base, `(${totalText})`, COORDS.standbyTableCol4.x, currentY, { size: 9, bold: true });
+    }
   }
 
   // Master Details (Page 3)
@@ -4897,11 +5026,9 @@ export async function generateMCAOfficerTestimonial(
     // Date
     const approvedDate = testimonial.approved_at || testimonial.signoff_used_at;
     if (approvedDate) {
-      drawText(page3, base, formatDate(approvedDate, 'DD/MM/YYYY'), COORDS.masterDate.x, COORDS.masterDate.top);
+      drawText(page3, base, formatDateLocal(approvedDate, 'DD/MM/YYYY'), COORDS.masterDate.x, COORDS.masterDate.top);
     }
   }
-
-  // TODO: Add Table A for standby service if needed
 
   // Add SeaJourney Receipt/Verification Page
   if (data.receiptData) {
@@ -5078,14 +5205,14 @@ export async function generateMCAOfficerTestimonial(
     addSection('Vessel Information');
     addRow('Vessel Name', safe(vessel.name) || 'N/A', 'left');
     addRow('Vessel Type', safe(vessel.type) || 'N/A', 'left');
-    addRow('Flag State', safe(vessel.flag_state) || 'N/A', 'left');
+    addRow('Flag State', safe(vessel.flag || vessel.flag_state) || 'N/A', 'left');
     addRow('IMO / Official Number', safe(vessel.imo) || safe(vessel.officialNumber) || 'N/A', 'left');
     addRow('Gross Tonnage', vessel.gross_tonnage?.toString() || 'N/A', 'left');
     y -= 10;
   
     // Sea Service Summary (all on left)
     addSection('Sea Service Summary');
-    addRow('Date Range', `${formatDate(testimonial.start_date, 'DD/MM/YYYY')} – ${formatDate(testimonial.end_date, 'DD/MM/YYYY')}`, 'left');
+    addRow('Date Range', `${formatDateLocal(testimonial.start_date, 'DD/MM/YYYY')} – ${formatDateLocal(testimonial.end_date, 'DD/MM/YYYY')}`, 'left');
     addRow('Total Days', safeInt(testimonial.total_days ?? 0), 'left');
     addRow('At Sea Days', safeInt(testimonial.at_sea_days), 'left');
     addRow('Standby Days', safeInt(testimonial.standby_days), 'left');
@@ -5137,7 +5264,7 @@ export async function generateMCAOfficerTestimonial(
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `MCA_Officer_Testimonial_${fullName.replace(/\s+/g, '_')}_${formatDate(testimonial.start_date, 'DD/MM/YYYY')}.pdf`;
+  a.download = `MCA_Officer_Testimonial_${fullName.replace(/\s+/g, '_')}_${formatDateLocal(testimonial.start_date, 'DD/MM/YYYY')}.pdf`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

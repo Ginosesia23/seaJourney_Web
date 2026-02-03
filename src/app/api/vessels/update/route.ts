@@ -32,7 +32,9 @@ export async function PUT(req: NextRequest) {
     if (updates.gross_tonnage !== undefined) updateData.gross_tonnage = updates.gross_tonnage ? parseFloat(updates.gross_tonnage) : null;
     if (updates.number_of_crew !== undefined) updateData.number_of_crew = updates.number_of_crew ? parseInt(updates.number_of_crew) : null;
     if (updates.build_year !== undefined) updateData.build_year = updates.build_year ? parseInt(updates.build_year) : null;
-    if (updates.flag_state !== undefined) updateData.flag_state = updates.flag_state?.trim() || null;
+    if (updates.flag !== undefined) updateData.flag = updates.flag?.trim() || null;
+    // Support legacy flag_state for backward compatibility
+    if (updates.flag_state !== undefined && updates.flag === undefined) updateData.flag = updates.flag_state?.trim() || null;
     if (updates.call_sign !== undefined) updateData.call_sign = updates.call_sign?.trim() || null;
     if (updates.mmsi !== undefined) updateData.mmsi = updates.mmsi?.trim() || null;
     if (updates.description !== undefined) updateData.description = updates.description?.trim() || null;
