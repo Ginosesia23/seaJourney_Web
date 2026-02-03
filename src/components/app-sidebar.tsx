@@ -76,7 +76,7 @@ type NavItem = {
   hideForRoles?: ('vessel' | 'admin' | 'captain')[]; // Roles for which this item should be hidden
 };
 
-const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vessel' | 'admin' | 'captain')[] }> = [
+const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vessel' | 'admin' | 'captain' | 'crew')[] }> = [
   {
     title: "Dashboard",
     items: [
@@ -96,7 +96,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
   },
   {
     title: "Logbooks",
-    hideForRoles: ['admin'], // Only hide for admin
+    hideForRoles: ['admin', 'crew'], // Hide for admin and crew (crew needs premium to see these)
     items: [
       { href: "/dashboard/passage-logbook", label: "Passage Log", icon: Map, disabled: false },
       { href: "/dashboard/bridge-watch-log", label: "Bridge Watch", icon: Navigation, disabled: false, hideForRoles: ['vessel'] }, // Hide Bridge Watch for vessel role
@@ -113,14 +113,20 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
   },
   {
     title: "Vessel Management",
+    hideForRoles: ['crew'], // Hide entire section for crew members
     items: [
       { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] }, // Hide for vessel role
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/crew-documents", label: "Crew Documents", icon: FileText, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/ais-import", label: "AIS Import", icon: Database, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
-      { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, requiredRole: "captain", disabled: false }, // Captains and vessel roles can access
       { href: "/dashboard/requests", label: "Requests", icon: ClipboardList, requiredRole: "captain", disabled: false }, // Captains can view their requests
       { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false }, // Captain signature management
+    ]
+  },
+  {
+    title: "Messages",
+    items: [
+      { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, disabled: false }, // Available to all users
     ]
   },
   {
@@ -132,6 +138,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
   },
   {
     title: "Analytics",
+    hideForRoles: ['crew'], // Hide entire section for crew members
     items: [
       { href: "/dashboard/platform-analytics", label: "Platform Overview", icon: BarChart3, requiredRole: "admin", disabled: false },
       { href: "/dashboard/revenue", label: "Revenue & Subscriptions", icon: DollarSign, requiredRole: "admin", disabled: false },
@@ -185,6 +192,17 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     return group
   })
   
+  // Check if user has crew_limited tier (restricted access - only: Home, Recent Activity, Current, Calendar, Profile, Feedback)
+  const isCrewLimited = React.useMemo(() => {
+    if (!userProfile) return false;
+    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
+    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
+    const role = (userProfile as any).role || userProfile.role || 'crew';
+    
+    // Only crew members can have crew_limited tier
+    return role === 'crew' && tier === 'crew_limited' && status === 'active';
+  }, [userProfile]);
+
   // Check if user has premium/pro subscription for visa tracker access
   const hasPremiumAccess = React.useMemo(() => {
     if (!userProfile) return false;
@@ -198,7 +216,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
       return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && status === 'active';
     }
     
-    // Crew accounts: premium or pro only
+    // Crew accounts: premium or pro only (but not crew_limited)
     return (tier === 'premium' || tier === 'pro') && status === 'active';
   }, [userProfile]);
 
@@ -583,9 +601,27 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
       </SidebarHeader>
       <SidebarContent>
         {displayNavGroups.map((group) => {
-          // Hide entire group if user role matches hideForRoles (captains are not hidden - they're crew members)
-          if (group.hideForRoles && userProfile?.role && group.hideForRoles.includes(userProfile.role as 'vessel' | 'admin')) {
+          // Hide entire group if user role matches hideForRoles
+          const userRole = userProfile?.role?.toLowerCase() || '';
+          
+          // Hide Documents section for crew_limited users
+          if (group.title === 'Documents' && isCrewLimited) {
             return null;
+          }
+          
+          if (group.hideForRoles && userProfile?.role) {
+            // Check if user role is in the hideForRoles array
+            const shouldHide = group.hideForRoles.some(role => {
+              const roleLower = role.toLowerCase();
+              // Handle crew role - if hideForRoles includes 'crew', hide for all crew members
+              if (roleLower === 'crew' && (userRole === 'crew' || userRole === 'captain')) {
+                return true;
+              }
+              return userRole === roleLower;
+            });
+            if (shouldHide) {
+              return null;
+            }
           }
 
           return (
@@ -636,15 +672,33 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     return null
                   }
 
+                  // For crew_limited tier, only show: Home, Recent Activity, Current, Calendar, Profile, Feedback, Inbox
+                  if (isCrewLimited) {
+                    const allowedHrefs = [
+                      '/dashboard', 
+                      '/dashboard/recent-activity', 
+                      '/dashboard/current', 
+                      '/dashboard/calendar', 
+                      '/dashboard/profile',
+                      '/dashboard/feedback',
+                      '/dashboard/inbox'
+                    ];
+                    if (!allowedHrefs.includes(item.href)) {
+                      return null;
+                    }
+                  }
+
                   // Check if feature requires premium access (visa tracker, passage log, bridge watch, export, request sea time, certificates)
                   // Note: Applications page is accessible to all users (testimonials are free), but Nav Watch/OOW are premium-only
+                  // Note: Export is accessible to crew_limited users, so we exclude it from premium requirement for them
                   const isVisaTracker = item.href === '/dashboard/visa-tracker';
                   const isPassageLog = item.href === '/dashboard/passage-logbook';
                   const isBridgeWatch = item.href === '/dashboard/bridge-watch-log';
                   const isExport = item.href === '/dashboard/export';
                   const isSeaTimeRequest = item.href === '/dashboard/sea-time-request';
                   const isCertificates = item.href === '/dashboard/certificates';
-                  const requiresPremium = (isVisaTracker || isPassageLog || isBridgeWatch || isExport || isSeaTimeRequest || isCertificates) && !hasPremiumAccess;
+                  // Export is accessible to crew_limited users, so don't require premium for them
+                  const requiresPremium = (isVisaTracker || isPassageLog || isBridgeWatch || isSeaTimeRequest || isCertificates || (isExport && !isCrewLimited)) && !hasPremiumAccess && !isCrewLimited;
                   
                   // Hide bridge watch log for non-officers
                   if (isBridgeWatch && !isOfficer) {
@@ -663,11 +717,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   // Check if this is the requests item - only show if there are active requests
                   const isRequests = item.href === '/dashboard/requests';
                   
-                  // Hide inbox link if no active messages
-                  if (isInbox && inboxCount === 0) {
-                    return null;
-                  }
-                  
+                  // Always show inbox link (don't hide even if count is 0)
                   // Hide requests link if no active requests
                   if (isRequests && requestsCount === 0) {
                     return null;
@@ -708,19 +758,27 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                           {isInbox && inboxCount > 0 && (
                             <Badge 
                               variant="destructive" 
-                                className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold group-data-[collapsible=icon]:hidden"
+                              className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold group-data-[collapsible=icon]:hidden"
                             >
                               {inboxCount > 99 ? '99+' : inboxCount}
                             </Badge>
                           )}
-                            {isFeedback && feedbackCount > 0 && (
-                              <Badge 
-                                variant="destructive" 
-                                className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold group-data-[collapsible=icon]:hidden"
-                              >
-                                {feedbackCount > 99 ? '99+' : feedbackCount}
-                              </Badge>
-                            )}
+                          {isRequests && requestsCount > 0 && (
+                            <Badge 
+                              variant="destructive" 
+                              className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold group-data-[collapsible=icon]:hidden"
+                            >
+                              {requestsCount > 99 ? '99+' : requestsCount}
+                            </Badge>
+                          )}
+                          {isFeedback && feedbackCount > 0 && (
+                            <Badge 
+                              variant="destructive" 
+                              className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold group-data-[collapsible=icon]:hidden"
+                            >
+                              {feedbackCount > 99 ? '99+' : feedbackCount}
+                            </Badge>
+                          )}
                         </Link>
                       </SidebarMenuButton>
                       )}

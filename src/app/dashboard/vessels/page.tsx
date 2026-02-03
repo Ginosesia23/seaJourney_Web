@@ -186,6 +186,23 @@ export default function VesselsPage() {
     } as UserProfile;
   }, [userProfileRaw]);
 
+  // Check if user has crew_limited tier (restricted access - block vessels page)
+  const isCrewLimited = useMemo(() => {
+    if (!currentUserProfile) return false;
+    const tier = (currentUserProfile as any).subscription_tier || currentUserProfile.subscriptionTier || 'free';
+    const status = (currentUserProfile as any).subscription_status || currentUserProfile.subscriptionStatus || 'inactive';
+    const role = (currentUserProfile as any).role || currentUserProfile.role || 'crew';
+    
+    return role === 'crew' && tier === 'crew_limited' && status === 'active';
+  }, [currentUserProfile]);
+
+  // Redirect crew_limited users away from vessels page
+  useEffect(() => {
+    if (!isLoadingProfile && isCrewLimited) {
+      router.push('/dashboard');
+    }
+  }, [isLoadingProfile, isCrewLimited, router]);
+
   // Check if user is a captain (has captain role, or position contains "captain", or role is "vessel"/"admin")
   const isCaptain = useMemo(() => {
     if (!currentUserProfile) return false;

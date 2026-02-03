@@ -4,8 +4,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck } from 'lucide-react';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus } from 'lucide-react';
 import { format, parse } from 'date-fns';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -18,6 +21,8 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, ArrowUpCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import type { UserProfile, VesselAssignment, Vessel, VesselSeaTimeAccessRequest } from '@/lib/types';
@@ -26,6 +31,14 @@ import { useCollection } from '@/supabase/database';
 
 
 const getInitials = (name: string) => name ? name.split(' ').map((n) => n[0]).join('') : '';
+
+const inviteCrewSchema = z.object({
+  firstName: z.string().min(1, 'First name is required').max(100),
+  lastName: z.string().min(1, 'Last name is required').max(100),
+  email: z.string().email('Invalid email address'),
+});
+
+type InviteCrewFormValues = z.infer<typeof inviteCrewSchema>;
 
 interface CrewMemberWithAssignment {
     profile: UserProfile;
@@ -56,6 +69,8 @@ export default function CrewPage() {
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
     const [requestingAccess, setRequestingAccess] = useState<string | null>(null);
     const [loadingSeaTime, setLoadingSeaTime] = useState<Set<string>>(new Set());
+    const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
+    const [isInviting, setIsInviting] = useState(false);
 
     // The user's own profile is needed to check their role and active vessel.
     const { data: currentUserProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -542,12 +557,14 @@ export default function CrewPage() {
                             id: requests.id,
                             vesselUserId: requests.vessel_user_id,
                             crewUserId: requests.crew_user_id,
+                            vesselId: requests.vessel_id,
+                            vesselName: requests.vessel_name,
                             status: requests.status,
                             notes: requests.notes,
                             rejectionReason: requests.rejection_reason,
                             createdAt: requests.created_at,
                             updatedAt: requests.updated_at,
-                        }}
+                        } as VesselSeaTimeAccessRequest}
                         : member
                 ));
             }
@@ -727,6 +744,90 @@ export default function CrewPage() {
 
     const isLoading = isLoadingProfile || isLoadingAssignments || isCheckingCaptaincy;
     
+    // Form for inviting crew members
+    const inviteForm = useForm<InviteCrewFormValues>({
+        resolver: zodResolver(inviteCrewSchema),
+        defaultValues: {
+            firstName: '',
+            lastName: '',
+            email: '',
+        },
+    });
+
+    // Handler for inviting crew members
+    const handleInviteCrew = async (data: InviteCrewFormValues) => {
+        if (!currentUserProfile?.activeVesselId || !allVessels) {
+            toast({
+                title: 'Error',
+                description: 'No active vessel found. Please select a vessel first.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        const activeVessel = allVessels.find(v => v.id === currentUserProfile.activeVesselId);
+        if (!activeVessel) {
+            toast({
+                title: 'Error',
+                description: 'Active vessel not found.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setIsInviting(true);
+        try {
+            const response = await fetch('/api/users/invite-crew', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    firstName: data.firstName,
+                    lastName: data.lastName,
+                    email: data.email,
+                    vesselId: currentUserProfile.activeVesselId,
+                    vesselName: activeVessel.name,
+                }),
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                console.error('[CREW PAGE] API error response:', result);
+                const errorMessage = result.details 
+                    ? `${result.error}: ${result.details}`
+                    : result.error || 'Failed to invite crew member';
+                throw new Error(errorMessage);
+            }
+
+            toast({
+                title: 'Invitation Sent',
+                description: `An invitation email has been sent to ${data.email}. They will receive instructions to set up their password.`,
+            });
+
+            inviteForm.reset();
+            setIsInviteDialogOpen(false);
+            
+            // Refresh crew list after a short delay
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error inviting crew member:', error);
+            console.error('[CREW PAGE] Error details:', {
+                message: error.message,
+                name: error.name,
+                stack: error.stack,
+            });
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to invite crew member. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsInviting(false);
+        }
+    };
+    
     // Calculate summary statistics for vessel managers
     const totalCrew = useMemo(() => crewMembers.length, [crewMembers.length]);
     const totalOnboard = useMemo(() => {
@@ -801,14 +902,127 @@ export default function CrewPage() {
                                     : "No active vessel found. Please select an active vessel to view crew members."}
                         </p>
                     </div>
-                    <div className="relative w-full sm:max-w-xs">
-                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Search by name, username, or email..."
-                            className="pl-8 rounded-xl"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
+                    <div className="flex gap-2 items-center">
+                        <div className="relative w-full sm:max-w-xs">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Search by name, username, or email..."
+                                className="pl-8 rounded-xl"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        {currentUserProfile?.role === 'vessel' && currentUserProfile?.activeVesselId && (
+                            <Dialog open={isInviteDialogOpen} onOpenChange={setIsInviteDialogOpen}>
+                                <DialogTrigger asChild>
+                                    <Button className="rounded-xl">
+                                        <UserPlus className="h-4 w-4 mr-2" />
+                                        Invite Crew Member
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="rounded-xl sm:max-w-[500px]">
+                                    <DialogHeader>
+                                        <DialogTitle>Invite Crew Member</DialogTitle>
+                                        <DialogDescription>
+                                            Invite a crew member to join your vessel. They will receive an email with instructions to set up their account.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <Form {...inviteForm}>
+                                        <form onSubmit={inviteForm.handleSubmit(handleInviteCrew)} className="space-y-4">
+                                            <FormField
+                                                control={inviteForm.control}
+                                                name="firstName"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>First Name</FormLabel>
+                                                        <FormControl>
+                                                            <Input
+                                                                placeholder="John"
+                                                                {...field}
+                                                                className="rounded-xl"
+                                                                disabled={isInviting}
+                                                            />
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <FormField
+                                                control={inviteForm.control}
+                                                name="lastName"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Last Name</FormLabel>
+                                                        <FormControl>
+                                                            <Input
+                                                                placeholder="Doe"
+                                                                {...field}
+                                                                className="rounded-xl"
+                                                                disabled={isInviting}
+                                                            />
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <FormField
+                                                control={inviteForm.control}
+                                                name="email"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Email Address</FormLabel>
+                                                        <FormControl>
+                                                            <Input
+                                                                type="email"
+                                                                placeholder="john.doe@example.com"
+                                                                {...field}
+                                                                className="rounded-xl"
+                                                                disabled={isInviting}
+                                                            />
+                                                        </FormControl>
+                                                        <FormDescription>
+                                                            The crew member will receive an invitation email at this address.
+                                                        </FormDescription>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <div className="flex justify-end gap-2 pt-4">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={() => {
+                                                        inviteForm.reset();
+                                                        setIsInviteDialogOpen(false);
+                                                    }}
+                                                    disabled={isInviting}
+                                                    className="rounded-xl"
+                                                >
+                                                    Cancel
+                                                </Button>
+                                                <Button
+                                                    type="submit"
+                                                    disabled={isInviting}
+                                                    className="rounded-xl"
+                                                >
+                                                    {isInviting ? (
+                                                        <>
+                                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                            Sending Invitation...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <UserPlus className="mr-2 h-4 w-4" />
+                                                            Send Invitation
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            </div>
+                                        </form>
+                                    </Form>
+                                </DialogContent>
+                            </Dialog>
+                        )}
                     </div>
                 </div>
                 <Separator />
@@ -1052,14 +1266,6 @@ export default function CrewPage() {
                                                 <TableCell>
                                                     {currentUserProfile?.role === 'vessel' ? (
                                                         <div className="flex items-center gap-2">
-                                                            {/* Debug: Log access request status */}
-                                                            {console.log(`[CREW PAGE RENDER] Crew member ${profile.id} (${profile.firstName} ${profile.lastName}):`, {
-                                                                hasAccessRequest: !!member.accessRequest,
-                                                                status: member.accessRequest?.status,
-                                                                accessRequestId: member.accessRequest?.id,
-                                                                fullAccessRequest: member.accessRequest,
-                                                                memberKeys: Object.keys(member),
-                                                            })}
                                                             {member.accessRequest?.status === 'approved' ? (
                                                                 <Button
                                                                     variant="ghost"
@@ -1129,7 +1335,7 @@ export default function CrewPage() {
                                              member.accessRequest?.status === 'approved' && 
                                              expandedRows.has(profile.id) && (
                                                 <TableRow key={`${profile.id}-expanded`}>
-                                                    <TableCell colSpan={currentUserProfile?.role === 'admin' ? 8 : 7} className="bg-muted/50">
+                                                    <TableCell colSpan={7} className="bg-muted/50">
                                                         {loadingSeaTime.has(profile.id) ? (
                                                             <div className="flex items-center justify-center py-8">
                                                                 <Loader2 className="h-6 w-6 animate-spin text-primary" />

@@ -130,11 +130,17 @@ export default function ExportPage() {
     }, [userProfileRaw]);
 
     // Check if user has access (premium/pro for crew, any active tier for vessels)
+    // crew_limited users are NOT allowed on export page
     const hasAccess = useMemo(() => {
         if (!userProfile) return false;
         const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
         const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
         const role = (userProfile as any).role || userProfile.role || 'crew';
+        
+        // Block crew_limited users
+        if (role === 'crew' && tier === 'crew_limited' && status === 'active') {
+            return false;
+        }
         
         // Vessel accounts: allow all active vessel tiers
         if (role === 'vessel') {
@@ -142,8 +148,8 @@ export default function ExportPage() {
             return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && status === 'active';
         }
         
-        // Crew accounts: premium or pro only
-        return (tier === 'premium' || tier === 'pro') && status === 'active';
+        // Crew accounts: premium or pro only (not crew_limited)
+        return ((tier === 'premium' || tier === 'pro') && status === 'active');
     }, [userProfile]);
 
     // Redirect non-premium users to dashboard

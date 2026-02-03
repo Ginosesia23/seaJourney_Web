@@ -28,6 +28,7 @@ import { useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/lib/types';
 import { format } from 'date-fns';
+import { createCheckoutSession } from '@/app/actions';
 import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog,
@@ -249,6 +250,17 @@ export default function ManageSubscriptionPage() {
   const userRole = userProfile?.role || (userProfile as any)?.role || null;
   const isVesselAccount = userRole?.toLowerCase() === 'vessel';
   
+  // Check if user has crew_limited tier (restricted access - can create new subscription)
+  const isCrewLimited = useMemo(() => {
+    if (!userProfile) return false;
+    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
+    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
+    const role = (userProfile as any).role || userProfile.role || 'crew';
+    
+    // Only crew members can have crew_limited tier
+    return role === 'crew' && tier === 'crew_limited' && status === 'active';
+  }, [userProfile]);
+  
   // Log for debugging
   useEffect(() => {
     if (userProfile) {
@@ -256,10 +268,11 @@ export default function ManageSubscriptionPage() {
         userId: userProfile.id,
         role: userRole,
         isVesselAccount,
+        isCrewLimited,
         rawRole: (userProfile as any)?.role,
       });
     }
-  }, [userProfile, userRole, isVesselAccount]);
+  }, [userProfile, userRole, isVesselAccount, isCrewLimited]);
   
   // Select appropriate plan templates based on role
   const selectedPlanTemplates = isVesselAccount ? vesselPlanTemplates : crewPlanTemplates;
@@ -429,10 +442,10 @@ export default function ManageSubscriptionPage() {
   }, [user?.email, toast, isVesselAccount, isProfileLoading, userProfile]);
 
   const handleChangePlan = async (plan: Plan) => {
-    if (!plan.priceId || !stripeSubscription?.subscription) {
+    if (!plan.priceId) {
       toast({
         title: 'Error',
-        description: 'Unable to change plan. Please try again later.',
+        description: 'Plan price information is missing. Please try again later.',
         variant: 'destructive',
       });
       return;
@@ -444,6 +457,56 @@ export default function ManageSubscriptionPage() {
         description: `This plan will be available in ${
           plan.availableDate || '2026'
         }.`,
+      });
+      return;
+    }
+
+    // For crew_limited users, always allow creating a new subscription
+    // (they may not have a Stripe subscription, or may have one that can't be changed)
+    if (isCrewLimited) {
+      if (!user?.id || !user?.email) {
+        toast({
+          title: 'Error',
+          description: 'You must be logged in to subscribe to a plan.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setIsChangingPlan(plan.name);
+
+      try {
+        const { sessionId, url } = await createCheckoutSession(
+          plan.priceId,
+          user.id,
+          user.email,
+        );
+
+        if (url) {
+          router.push(url);
+        } else {
+          throw new Error('Could not create a checkout session.');
+        }
+      } catch (error: any) {
+        console.error('Failed to create subscription:', error);
+        toast({
+          title: 'Subscription Failed',
+          description:
+            error.message ||
+            'Failed to create subscription. Please try again.',
+          variant: 'destructive',
+        });
+        setIsChangingPlan(null);
+      }
+      return;
+    }
+
+    // For users with existing subscriptions, change the plan
+    if (!stripeSubscription?.subscription) {
+      toast({
+        title: 'Error',
+        description: 'Unable to change plan. Please try again later.',
+        variant: 'destructive',
       });
       return;
     }
