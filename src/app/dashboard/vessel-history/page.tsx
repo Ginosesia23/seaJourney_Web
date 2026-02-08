@@ -28,7 +28,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselAssignments, createVesselAssignment, updateVesselAssignment } from '@/supabase/database/queries';
+import { getVesselAssignments, createVesselAssignment, updateVesselAssignment, updateUserProfile } from '@/supabase/database/queries';
 import type { Vessel, VesselAssignment, UserProfile } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -47,6 +47,7 @@ export default function VesselHistoryPage() {
   const [deletingAssignment, setDeletingAssignment] = useState<VesselAssignment | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isResuming, setIsResuming] = useState<string | null>(null); // Track which assignment is being resumed
   
   // Form state for adding new assignment
   const [newAssignmentVesselId, setNewAssignmentVesselId] = useState<string>('');
@@ -92,12 +93,19 @@ export default function VesselHistoryPage() {
     if (!userProfileRaw) return null;
     const activeVesselId = (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId;
     const position = (userProfileRaw as any).position || (userProfileRaw as any).position || undefined;
+    const role = (userProfileRaw as any).role || 'crew';
     return {
       ...userProfileRaw,
       activeVesselId: activeVesselId || undefined,
       position: position,
+      role: role,
     } as UserProfile;
   }, [userProfileRaw]);
+
+  // Check if user is a crew member (not vessel account)
+  const isCrewMember = useMemo(() => {
+    return userProfile?.role !== 'vessel';
+  }, [userProfile?.role]);
 
   // Fetch all vessels
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
@@ -653,6 +661,66 @@ export default function VesselHistoryPage() {
     }
   };
 
+  // Handle resuming a vessel assignment
+  const handleResumeVessel = async (assignment: VesselAssignment) => {
+    if (!user?.id) return;
+
+    setIsResuming(assignment.id);
+    try {
+      // First, end any other active assignments
+      const activeAssignments = assignments.filter(a => isActiveAssignment(a));
+      const today = new Date().toISOString().split('T')[0];
+      
+      for (const activeAssignment of activeAssignments) {
+        if (activeAssignment.id !== assignment.id) {
+          await updateVesselAssignment(supabase, activeAssignment.id, {
+            endDate: today,
+          });
+        }
+      }
+
+      // Then, set the assignment's endDate to null to make it active (preserving original start date)
+      // This preserves the original start date from the assignment
+      await updateVesselAssignment(supabase, assignment.id, {
+        endDate: null,
+      });
+
+      // Update the user's active_vessel_id directly without triggering syncVesselAssignmentForActiveVessel
+      // We've already handled the assignment update manually, so we just need to update the profile
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ active_vessel_id: assignment.vesselId })
+        .eq('id', user.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      // Refresh assignments to show the updated state
+      const refreshedAssignments = await getVesselAssignments(supabase, user.id);
+      setAssignments(refreshedAssignments);
+
+      toast({
+        title: 'Vessel Resumed',
+        description: `You have resumed your assignment on ${vesselMap.get(assignment.vesselId)?.name || 'this vessel'} starting from ${format(parse(assignment.startDate, 'yyyy-MM-dd', new Date()), 'MMMM d, yyyy')}.`,
+      });
+    } catch (error: any) {
+      console.error('[VESSEL HISTORY] Error resuming vessel:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to resume vessel assignment. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsResuming(null);
+    }
+  };
+
+  // Check if user has any active assignment
+  const hasActiveAssignment = useMemo(() => {
+    return assignments.some(a => isActiveAssignment(a));
+  }, [assignments]);
+
   const isLoadingData = isLoading || isLoadingProfile || isLoadingVessels;
   const hasAssignments = assignments.length > 0;
 
@@ -815,6 +883,27 @@ export default function VesselHistoryPage() {
                               </div>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
+                              {isCrewMember && !hasActiveAssignment && (
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  onClick={() => handleResumeVessel(assignment)}
+                                  disabled={isResuming === assignment.id}
+                                  className="flex-shrink-0"
+                                >
+                                  {isResuming === assignment.id ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                      Resuming...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Ship className="h-4 w-4 mr-2" />
+                                      Resume
+                                    </>
+                                  )}
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="sm"

@@ -128,7 +128,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'Vessel state tracking',
       'Digital testimonial approvals',
       'Crew sea time verification',
-      'Basic reporting & exports',
+      'Support and feedback',
     ],
     cta: 'Get Started',
     icon: Shield,
@@ -144,8 +144,6 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'Up to 30 crew members',
       'All Lite features',
       'Advanced crew analytics',
-      'Automated testimonial workflows',
-      'Crew certification tracking',
       'Priority support',
     ],
     cta: 'Get Started',
@@ -163,9 +161,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'Unlimited crew members',
       'Multiple role assignments',
       'All Basic features',
-      'Fleet-wide analytics',
-      'Custom reporting & integrations',
-      'Advanced security & compliance',
+      'Generate documents and applications for crew members',
     ],
     cta: 'Get Started',
     icon: TrendingUp,
@@ -762,13 +758,13 @@ export default function OffersPage() {
                       className={`flex flex-col rounded-2xl border transition-all duration-300 ${
                         isCurrent ? 'hover:scale-102' : 'hover:scale-105'
                       } ${
-                        isHighlighted
+                        isHighlighted || plan.color === 'purple'
                           ? 'border-purple-500/50 ring-2 ring-purple-500/30 dark:border-purple-500/50 dark:ring-purple-500/30'
                           : plan.color === 'blue'
                           ? 'border-blue-500/30 ring-1 ring-blue-500/20 dark:border-blue-500/30 dark:ring-blue-500/20'
                           : 'border-orange-500/30 ring-1 ring-orange-500/20 dark:border-orange-500/30 dark:ring-orange-500/20'
                       } ${
-                        isHighlighted
+                        isHighlighted || plan.color === 'purple'
                           ? 'bg-purple-50/80 dark:bg-purple-950/20'
                           : plan.color === 'blue'
                           ? 'bg-white dark:bg-[rgba(2,22,44,0.6)]'
@@ -777,7 +773,7 @@ export default function OffersPage() {
                         plan.color === 'blue'
                           ? 'shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30'
                           : plan.color === 'purple'
-                          ? 'shadow-lg shadow-purple-500/15 dark:shadow-purple-500/25 hover:shadow-xl hover:shadow-purple-500/25 dark:hover:shadow-purple-500/40'
+                          ? 'shadow-lg shadow-purple-500/20 dark:shadow-purple-500/30 hover:shadow-xl hover:shadow-purple-500/30 dark:hover:shadow-purple-500/50'
                           : 'shadow-lg shadow-orange-500/10 dark:shadow-orange-500/15 hover:shadow-xl hover:shadow-orange-500/20 dark:hover:shadow-orange-500/30'
                       } backdrop-blur-sm dark:backdrop-blur-[20px]`}
                     >
@@ -905,7 +901,7 @@ export default function OffersPage() {
                               purchasingPlan === plan.name
                             }
                             className={`w-full rounded-xl text-base font-semibold h-12 ${
-                              isHighlighted
+                              isHighlighted || plan.color === 'purple'
                                 ? 'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white border-0 shadow-lg shadow-purple-500/30 disabled:opacity-50'
                                 : 'bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/20 text-gray-900 dark:text-white border border-gray-300 dark:border-white/20 disabled:opacity-50'
                             }`}

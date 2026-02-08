@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
-import { CheckCircle2, Clock, Sparkles, Rocket, Target, Zap, Shield, Globe, Users, BarChart3, FileText, Calendar, Bell, MapPin, Ship, ArrowRight, TrendingUp, Star } from 'lucide-react';
+import { CheckCircle2, Clock, Sparkles, Rocket, Target, Zap, Shield, Globe, Users, BarChart3, FileText, Calendar, Bell, MapPin, Ship, ArrowRight, TrendingUp, Star, Lightbulb, Code, Play, Layers } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -387,6 +387,234 @@ export default function RoadmapPage() {
                 </motion.div>
                 <div className="text-sm text-blue-100/70 font-medium">Upcoming</div>
               </motion.div>
+            </div>
+          </div>
+        </section>
+
+        {/* Development Timeline */}
+        <section className="py-12 sm:py-16 relative overflow-hidden" style={{ backgroundColor: '#000b15' }}>
+          <div className="absolute inset-0 opacity-5">
+            <div className="absolute top-1/4 left-0 w-96 h-96 bg-blue-500 rounded-full blur-3xl"></div>
+            <div className="absolute bottom-1/4 right-0 w-96 h-96 bg-purple-500 rounded-full blur-3xl"></div>
+          </div>
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6 }}
+              className="text-center mb-12"
+            >
+              <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">Our Development Journey</h2>
+              <p className="text-lg text-blue-100/80 max-w-2xl mx-auto">
+                From concept to launch and beyond - tracking our growth and milestones
+              </p>
+            </motion.div>
+
+            <div className="relative">
+              {/* Timeline line */}
+              <div className="absolute left-8 md:left-1/2 top-0 bottom-0 w-1 bg-gradient-to-b from-yellow-500/50 via-blue-500/50 via-cyan-500/50 via-green-500/50 via-purple-500/50 to-orange-500/50 transform md:-translate-x-1/2 hidden md:block"></div>
+
+              {/* Timeline milestones */}
+              <div className="space-y-12 md:space-y-16">
+                {/* Idea Phase */}
+                <motion.div
+                  initial={{ opacity: 0, x: -50 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.6 }}
+                  className="relative md:flex md:items-center"
+                >
+                  <div className="md:w-1/2 md:pr-12 md:text-right">
+                    <Card className="rounded-2xl border-2 bg-gradient-to-br from-yellow-500/10 via-card/50 to-card/50 backdrop-blur-sm border-yellow-500/30 overflow-hidden group hover:shadow-xl hover:shadow-yellow-500/20 transition-all">
+                      <CardHeader>
+                        <div className="flex items-center gap-3 md:justify-end mb-3">
+                          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-yellow-500/30 to-yellow-500/10 flex items-center justify-center border-2 border-yellow-500/40">
+                            <Lightbulb className="h-6 w-6 text-yellow-400" />
+                          </div>
+                          <div className="md:text-right">
+                            <CardTitle className="text-xl font-bold text-white">The Idea</CardTitle>
+                            <p className="text-sm text-muted-foreground mt-1">Q1 2024</p>
+                          </div>
+                        </div>
+                        <CardDescription className="text-base text-blue-100/80">
+                          Conceptualizing SeaJourney - a platform to revolutionize maritime career management and sea time tracking
+                        </CardDescription>
+                      </CardHeader>
+                    </Card>
+                  </div>
+                  <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
+                    <div className="absolute inset-0 bg-yellow-500/30 blur-md rounded-full"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-yellow-500 border-4 border-yellow-400 ring-4 ring-yellow-500/20"></div>
+                  </div>
+                  <div className="md:w-1/2 md:pl-12"></div>
+                </motion.div>
+
+                {/* Development Phase */}
+                <motion.div
+                  initial={{ opacity: 0, x: 50 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.6, delay: 0.1 }}
+                  className="relative md:flex md:items-center md:flex-row-reverse"
+                >
+                  <div className="md:w-1/2 md:pl-12">
+                    <Card className="rounded-2xl border-2 bg-gradient-to-br from-blue-500/10 via-card/50 to-card/50 backdrop-blur-sm border-blue-500/30 overflow-hidden group hover:shadow-xl hover:shadow-blue-500/20 transition-all">
+                      <CardHeader>
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-500/30 to-blue-500/10 flex items-center justify-center border-2 border-blue-500/40">
+                            <Code className="h-6 w-6 text-blue-400" />
+                          </div>
+                          <div>
+                            <CardTitle className="text-xl font-bold text-white">Development Begins</CardTitle>
+                            <p className="text-sm text-muted-foreground mt-1">Q2-Q3 2024</p>
+                          </div>
+                        </div>
+                        <CardDescription className="text-base text-blue-100/80">
+                          Building the core platform - user authentication, vessel management, and sea time tracking systems
+                        </CardDescription>
+                      </CardHeader>
+                    </Card>
+                  </div>
+                  <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
+                    <div className="absolute inset-0 bg-blue-500/30 blur-md rounded-full"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-blue-500 border-4 border-blue-400 ring-4 ring-blue-500/20"></div>
+                  </div>
+                  <div className="md:w-1/2 md:pr-12"></div>
+                </motion.div>
+
+                {/* Beta Launch Phase */}
+                <motion.div
+                  initial={{ opacity: 0, x: 50 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.6, delay: 0.2 }}
+                  className="relative md:flex md:items-center md:flex-row-reverse"
+                >
+                  <div className="md:w-1/2 md:pl-12">
+                    <Card className="rounded-2xl border-2 bg-gradient-to-br from-cyan-500/10 via-card/50 to-card/50 backdrop-blur-sm border-cyan-500/30 overflow-hidden group hover:shadow-xl hover:shadow-cyan-500/20 transition-all">
+                      <CardHeader>
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-cyan-500/30 to-cyan-500/10 flex items-center justify-center border-2 border-cyan-500/40">
+                            <Rocket className="h-6 w-6 text-cyan-400" />
+                          </div>
+                          <div>
+                            <CardTitle className="text-xl font-bold text-white">Beta Launch</CardTitle>
+                            <p className="text-sm text-muted-foreground mt-1">Q4 2025</p>
+                          </div>
+                        </div>
+                        <CardDescription className="text-base text-blue-100/80">
+                          Beta release with early adopters - testing core features, gathering feedback, and refining the platform
+                        </CardDescription>
+                      </CardHeader>
+                    </Card>
+                  </div>
+                  <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
+                    <div className="absolute inset-0 bg-cyan-500/30 blur-md rounded-full"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-cyan-500 border-4 border-cyan-400 ring-4 ring-cyan-500/20"></div>
+                  </div>
+                  <div className="md:w-1/2 md:pr-12"></div>
+                </motion.div>
+
+                {/* Public Launch Phase */}
+                <motion.div
+                  initial={{ opacity: 0, x: -50 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.6, delay: 0.3 }}
+                  className="relative md:flex md:items-center"
+                >
+                  <div className="md:w-1/2 md:pr-12 md:text-right">
+                    <Card className="rounded-2xl border-2 bg-gradient-to-br from-green-500/10 via-card/50 to-card/50 backdrop-blur-sm border-green-500/30 overflow-hidden group hover:shadow-xl hover:shadow-green-500/20 transition-all">
+                      <CardHeader>
+                        <div className="flex items-center gap-3 md:justify-end mb-3">
+                          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-green-500/30 to-green-500/10 flex items-center justify-center border-2 border-green-500/40">
+                            <Play className="h-6 w-6 text-green-400" />
+                          </div>
+                          <div className="md:text-right">
+                            <CardTitle className="text-xl font-bold text-white">Public Launch</CardTitle>
+                            <p className="text-sm text-muted-foreground mt-1">Q1 2026</p>
+                          </div>
+                        </div>
+                        <CardDescription className="text-base text-blue-100/80">
+                          SeaJourney officially launches! Core features including digital testimonials, sea time tracking, and vessel management are available to all users
+                        </CardDescription>
+                      </CardHeader>
+                    </Card>
+                  </div>
+                  <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
+                    <div className="absolute inset-0 bg-green-500/30 blur-md rounded-full animate-pulse"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-green-500 border-4 border-green-400 ring-4 ring-green-500/20"></div>
+                  </div>
+                  <div className="md:w-1/2 md:pl-12"></div>
+                </motion.div>
+
+                {/* Features & Growth Phase */}
+                <motion.div
+                  initial={{ opacity: 0, x: 50 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.6, delay: 0.4 }}
+                  className="relative md:flex md:items-center md:flex-row-reverse"
+                >
+                  <div className="md:w-1/2 md:pl-12">
+                    <Card className="rounded-2xl border-2 bg-gradient-to-br from-purple-500/10 via-card/50 to-card/50 backdrop-blur-sm border-purple-500/30 overflow-hidden group hover:shadow-xl hover:shadow-purple-500/20 transition-all">
+                      <CardHeader>
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-purple-500/30 to-purple-500/10 flex items-center justify-center border-2 border-purple-500/40">
+                            <Layers className="h-6 w-6 text-purple-400" />
+                          </div>
+                          <div>
+                            <CardTitle className="text-xl font-bold text-white">Feature Expansion</CardTitle>
+                            <p className="text-sm text-muted-foreground mt-1">Q2 2026 - Present</p>
+                          </div>
+                        </div>
+                        <CardDescription className="text-base text-blue-100/80">
+                          Continuous innovation - iOS app launch, watch logging, position history, MCA applications, Android app, and many more features
+                        </CardDescription>
+                      </CardHeader>
+                    </Card>
+                  </div>
+                  <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
+                    <div className="absolute inset-0 bg-purple-500/30 blur-md rounded-full"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-purple-500 border-4 border-purple-400 ring-4 ring-purple-500/20"></div>
+                  </div>
+                  <div className="md:w-1/2 md:pr-12"></div>
+                </motion.div>
+
+                {/* Future Phase */}
+                <motion.div
+                  initial={{ opacity: 0, x: -50 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.6, delay: 0.5 }}
+                  className="relative md:flex md:items-center"
+                >
+                  <div className="md:w-1/2 md:pr-12 md:text-right">
+                    <Card className="rounded-2xl border-2 bg-gradient-to-br from-orange-500/10 via-card/50 to-card/50 backdrop-blur-sm border-orange-500/30 overflow-hidden group hover:shadow-xl hover:shadow-orange-500/20 transition-all">
+                      <CardHeader>
+                        <div className="flex items-center gap-3 md:justify-end mb-3">
+                          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-orange-500/30 to-orange-500/10 flex items-center justify-center border-2 border-orange-500/40">
+                            <Rocket className="h-6 w-6 text-orange-400" />
+                          </div>
+                          <div className="md:text-right">
+                            <CardTitle className="text-xl font-bold text-white">Future Growth</CardTitle>
+                            <p className="text-sm text-muted-foreground mt-1">2027+</p>
+                          </div>
+                        </div>
+                        <CardDescription className="text-base text-blue-100/80">
+                          Advanced analytics, AIS integration, fleet management, social features, and more exciting innovations on the horizon
+                        </CardDescription>
+                      </CardHeader>
+                    </Card>
+                  </div>
+                  <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
+                    <div className="absolute inset-0 bg-orange-500/30 blur-md rounded-full animate-pulse"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-orange-500 border-4 border-orange-400 ring-4 ring-orange-500/20"></div>
+                  </div>
+                  <div className="md:w-1/2 md:pl-12"></div>
+                </motion.div>
+              </div>
             </div>
           </div>
         </section>

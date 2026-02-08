@@ -157,6 +157,26 @@ export default function PaymentSuccessClient() {
                 }
               }
 
+              // Ensure vessel accounts have their active_vessel_id set
+              try {
+                const ensureVesselResponse = await fetch('/api/users/ensure-vessel-active', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ userId: user.id }),
+                });
+                
+                if (ensureVesselResponse.ok) {
+                  const result = await ensureVesselResponse.json();
+                  if (result.success && result.active_vessel_id) {
+                    console.log('[CLIENT] ✅ Ensured vessel account has active_vessel_id:', result.active_vessel_id);
+                  }
+                } else {
+                  console.warn('[CLIENT] Failed to ensure vessel active (non-critical):', await ensureVesselResponse.text());
+                }
+              } catch (e: any) {
+                console.warn('[CLIENT] Error ensuring vessel active (non-critical):', e?.message);
+              }
+
               setIsSuccess(true);
               setIsVerifying(false);
 

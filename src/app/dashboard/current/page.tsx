@@ -985,6 +985,16 @@ export default function CurrentPage() {
     return role === 'vessel';
   }, [userProfile]);
 
+  // For vessel accounts, automatically set their vessel if they have active_vessel_id
+  useEffect(() => {
+    if (isVesselAccount && userProfile?.activeVesselId && vessels) {
+      const vessel = vessels.find(v => v.id === userProfile.activeVesselId);
+      if (vessel) {
+        startServiceForm.setValue('vesselId', vessel.id);
+      }
+    }
+  }, [isVesselAccount, userProfile?.activeVesselId, vessels, startServiceForm]);
+
   // Fetch watch logs for the user (only for officers, not vessel accounts)
   useEffect(() => {
     const fetchWatchLogs = async () => {
@@ -3936,118 +3946,155 @@ export default function CurrentPage() {
                             <FormField
                               control={startServiceForm.control}
                               name="vesselId"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-base font-semibold">Vessel</FormLabel>
-                                  <div className="flex gap-2">
-                                    <Popover open={isVesselSearchOpen} onOpenChange={setIsVesselSearchOpen}>
-                                      <PopoverTrigger asChild>
-                                        <FormControl>
-                                          <Button
-                                            variant="outline"
-                                            role="combobox"
-                                            className={cn(
-                                              "w-full justify-between font-medium",
-                                              !field.value && "text-muted-foreground"
-                                            )}
-                                            disabled={isLoadingVessels}
-                                          >
-                                            {field.value
-                                              ? vessels?.find((v) => v.id === field.value)?.name || 'Select vessel...'
-                                              : vesselSearchTerm || "Search for a vessel..."}
-                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                          </Button>
-                                        </FormControl>
-                                      </PopoverTrigger>
-                                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                                        <div className="p-2 border-b bg-muted/30">
-                                          <Input
-                                            placeholder="Search vessels..."
-                                            value={vesselSearchTerm}
-                                            onChange={(e) => {
-                                              setVesselSearchTerm(e.target.value);
-                                              if (!isVesselSearchOpen) setIsVesselSearchOpen(true);
-                                            }}
-                                            className="h-9 bg-background"
-                                            onKeyDown={(e) => {
-                                              if (e.key === "Escape") {
-                                                setIsVesselSearchOpen(false);
-                                              }
-                                            }}
-                                          />
-                                        </div>
-                                        <div className="max-h-[300px] overflow-auto p-1">
-                                          {isSearchingVessels ? (
-                                            <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-                                              <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
-                                              Searching...
+                              render={({ field }) => {
+                                // For vessel accounts, show a confirmation card instead of dropdown
+                                if (isVesselAccount && field.value) {
+                                  const vessel = vessels?.find((v) => v.id === field.value);
+                                  if (vessel) {
+                                    return (
+                                      <FormItem>
+                                        <FormLabel className="text-base font-semibold">Vessel</FormLabel>
+                                        <Card className="border-primary/20 bg-primary/5">
+                                          <CardContent className="pt-4">
+                                            <div className="flex items-center gap-3">
+                                              <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
+                                                <Ship className="h-5 w-5 text-primary" />
+                                              </div>
+                                              <div className="flex-1">
+                                                <div className="font-semibold text-base">{vessel.name}</div>
+                                                <div className="text-sm text-muted-foreground">{vessel.type}</div>
+                                              </div>
+                                              <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+                                                Your Vessel
+                                              </Badge>
                                             </div>
-                                          ) : vesselSearchResults.length > 0 ? (
-                                            vesselSearchResults.map((vessel) => (
-                                              <button
-                                                key={vessel.id}
-                                                onClick={() => {
-                                                  field.onChange(vessel.id);
+                                            <p className="text-xs text-muted-foreground mt-3">
+                                              This is the vessel you manage. You can start a service for this vessel.
+                                            </p>
+                                          </CardContent>
+                                        </Card>
+                                        <FormMessage />
+                                      </FormItem>
+                                    );
+                                  }
+                                }
+                                
+                                // For non-vessel accounts or vessel accounts without a vessel, show the dropdown
+                                return (
+                                  <FormItem>
+                                    <FormLabel className="text-base font-semibold">Vessel</FormLabel>
+                                    <div className="flex gap-2">
+                                      <Popover open={isVesselSearchOpen} onOpenChange={setIsVesselSearchOpen}>
+                                        <PopoverTrigger asChild>
+                                          <FormControl>
+                                            <Button
+                                              variant="outline"
+                                              role="combobox"
+                                              className={cn(
+                                                "w-full justify-between font-medium",
+                                                !field.value && "text-muted-foreground"
+                                              )}
+                                              disabled={isLoadingVessels}
+                                            >
+                                              {field.value
+                                                ? vessels?.find((v) => v.id === field.value)?.name || 'Select vessel...'
+                                                : vesselSearchTerm || "Search for a vessel..."}
+                                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                            </Button>
+                                          </FormControl>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                                          <div className="p-2 border-b bg-muted/30">
+                                            <Input
+                                              placeholder="Search vessels..."
+                                              value={vesselSearchTerm}
+                                              onChange={(e) => {
+                                                setVesselSearchTerm(e.target.value);
+                                                if (!isVesselSearchOpen) setIsVesselSearchOpen(true);
+                                              }}
+                                              className="h-9 bg-background"
+                                              onKeyDown={(e) => {
+                                                if (e.key === "Escape") {
                                                   setIsVesselSearchOpen(false);
-                                                  setVesselSearchTerm('');
-                                                }}
-                                                className={cn(
-                                                  "relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground transition-colors",
-                                                  field.value === vessel.id && "bg-accent"
-                                                )}
-                                              >
-                                                <Check
+                                                }
+                                              }}
+                                            />
+                                          </div>
+                                          <div className="max-h-[300px] overflow-auto p-1">
+                                            {isSearchingVessels ? (
+                                              <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                                                <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
+                                                Searching...
+                                              </div>
+                                            ) : vesselSearchResults.length > 0 ? (
+                                              vesselSearchResults.map((vessel) => (
+                                                <button
+                                                  key={vessel.id}
+                                                  onClick={() => {
+                                                    field.onChange(vessel.id);
+                                                    setIsVesselSearchOpen(false);
+                                                    setVesselSearchTerm('');
+                                                  }}
                                                   className={cn(
-                                                    "mr-3 h-4 w-4 shrink-0",
-                                                    field.value === vessel.id ? "opacity-100" : "opacity-0"
+                                                    "relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground transition-colors",
+                                                    field.value === vessel.id && "bg-accent"
                                                   )}
-                                                />
-                                                <div className="flex-1 text-left">
-                                                  <div className="font-medium">{vessel.name}</div>
-                                                  <div className="text-xs text-muted-foreground">{vessel.type}</div>
-                                                </div>
-                                              </button>
-                                            ))
-                                          ) : vesselSearchTerm.length >= 2 ? (
-                                            <div className="px-2 py-1">
-                                              <button
-                                                onClick={() => {
-                                                  addVesselForm.setValue('name', vesselSearchTerm);
-                                                  setIsVesselSearchOpen(false);
-                                                  setIsAddVesselDialogOpen(true);
-                                                }}
-                                                className="relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary border border-dashed border-primary/50 transition-colors"
-                                              >
-                                                <PlusCircle className="mr-3 h-4 w-4 text-primary shrink-0" />
-                                                <span className="font-medium">Create new vessel: <span className="text-primary">{vesselSearchTerm}</span></span>
-                                              </button>
-                                            </div>
-                                          ) : (
-                                            <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-                                              Type at least 2 characters to search vessels
-                                            </div>
-                                          )}
-                                        </div>
-                                      </PopoverContent>
-                                    </Popover>
-                                  </div>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
+                                                >
+                                                  <Check
+                                                    className={cn(
+                                                      "mr-3 h-4 w-4 shrink-0",
+                                                      field.value === vessel.id ? "opacity-100" : "opacity-0"
+                                                    )}
+                                                  />
+                                                  <div className="flex-1 text-left">
+                                                    <div className="font-medium">{vessel.name}</div>
+                                                    <div className="text-xs text-muted-foreground">{vessel.type}</div>
+                                                  </div>
+                                                </button>
+                                              ))
+                                            ) : vesselSearchTerm.length >= 2 ? (
+                                              <div className="px-2 py-1">
+                                                <button
+                                                  onClick={() => {
+                                                    addVesselForm.setValue('name', vesselSearchTerm);
+                                                    setIsVesselSearchOpen(false);
+                                                    setIsAddVesselDialogOpen(true);
+                                                  }}
+                                                  className="relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary border border-dashed border-primary/50 transition-colors"
+                                                >
+                                                  <PlusCircle className="mr-3 h-4 w-4 text-primary shrink-0" />
+                                                  <span className="font-medium">Create new vessel: <span className="text-primary">{vesselSearchTerm}</span></span>
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                                                Type at least 2 characters to search vessels
+                                              </div>
+                                            )}
+                                          </div>
+                                        </PopoverContent>
+                                      </Popover>
+                                    </div>
+                                    <FormMessage />
+                                  </FormItem>
+                                );
+                              }}
                             />
-                            <FormField
-                              control={startServiceForm.control}
-                              name="position"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-base font-semibold">Position</FormLabel>
-                                  <FormControl>
-                                    <Input placeholder="e.g., Captain, Engineer, Deckhand" {...field} className="rounded-lg" />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
+                            {!isVesselAccount && (
+                              <FormField
+                                control={startServiceForm.control}
+                                name="position"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel className="text-base font-semibold">Position</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="e.g., Captain, Engineer, Deckhand" {...field} className="rounded-lg" />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
                           </div>
                           <div className="space-y-6">
                             <FormField
@@ -4390,227 +4437,264 @@ export default function CurrentPage() {
                       <FormField
                         control={startServiceForm.control}
                         name="vesselId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-base font-semibold">Vessel</FormLabel>
-                      <div className="flex gap-2">
-                      <Popover open={isVesselSearchOpen} onOpenChange={setIsVesselSearchOpen}>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              role="combobox"
-                              className={cn(
-                                "w-full justify-between font-medium",
-                                !field.value && "text-muted-foreground"
-                              )}
-                              disabled={isLoadingVessels}
-                            >
-                              {field.value
-                                ? vessels?.find((v) => v.id === field.value)?.name || 'Select vessel...'
-                                : vesselSearchTerm || "Search for a vessel..."}
-                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                          <div className="p-2 border-b bg-muted/30">
-                            <Input
-                              placeholder="Search vessels..."
-                              value={vesselSearchTerm}
-                              onChange={(e) => {
-                                setVesselSearchTerm(e.target.value);
-                                if (!isVesselSearchOpen) setIsVesselSearchOpen(true);
-                              }}
-                              className="h-9 bg-background"
-                              onKeyDown={(e) => {
-                                if (e.key === "Escape") {
-                                  setIsVesselSearchOpen(false);
-                                }
-                              }}
-                            />
-                          </div>
-                          <div className="max-h-[300px] overflow-auto p-1">
-                            {isSearchingVessels ? (
-                              <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-                                <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
-                                Searching...
-                              </div>
-                            ) : vesselSearchResults.length > 0 ? (
-                              vesselSearchResults.map((vessel) => (
-                                <button
-                                  key={vessel.id}
-                                  onClick={() => {
-                                    field.onChange(vessel.id);
-                                    setIsVesselSearchOpen(false);
-                                    setVesselSearchTerm('');
-                                  }}
-                                  className={cn(
-                                    "relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground transition-colors",
-                                    field.value === vessel.id && "bg-accent"
-                                  )}
-                                >
-                                  <Check
-                                    className={cn(
-                                      "mr-3 h-4 w-4 shrink-0",
-                                      field.value === vessel.id ? "opacity-100" : "opacity-0"
-                                    )}
-                                  />
-                                  <div className="flex-1 text-left">
-                                    <div className="font-medium">{vessel.name}</div>
-                                    <div className="text-xs text-muted-foreground">{vessel.type}</div>
-                                  </div>
-                                </button>
-                              ))
-                            ) : vesselSearchTerm.length >= 2 ? (
-                              <div className="px-2 py-1">
-                                <button
-                                  onClick={() => {
-                                    // Pre-fill the add vessel dialog and open it
-                                    addVesselForm.setValue('name', vesselSearchTerm);
-                                    setIsVesselSearchOpen(false);
-                                    setIsAddVesselDialogOpen(true);
-                                  }}
-                                  className="relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary border border-dashed border-primary/50 transition-colors"
-                                >
-                                  <PlusCircle className="mr-3 h-4 w-4 text-primary shrink-0" />
-                                  <span className="font-medium">Create new vessel: <span className="text-primary">{vesselSearchTerm}</span></span>
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-                                Type at least 2 characters to search vessels
-                              </div>
-                            )}
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-                      <Dialog open={isAddVesselDialogOpen} onOpenChange={(open) => {
-                        setIsAddVesselDialogOpen(open);
-                        if (!open) {
-                          // Reset search when dialog closes
-                          setVesselSearchTerm('');
-                          setVesselSearchResults([]);
-                        }
-                      }}>
-                        <DialogTrigger asChild>
-                          <Button 
-                            type="button"
-                            variant="outline" 
-                            size="icon" 
-                            className="ml-2 shrink-0 rounded-lg"
-                            onClick={() => {
-                              // Clear the vessel search term when opening add dialog
-                              setVesselSearchTerm('');
-                              setIsVesselSearchOpen(false);
-                            }}
-                          >
-                            <PlusCircle className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
-                                <DialogContent className="sm:max-w-[500px]">
-                                  <DialogHeader>
-                                    <div className="flex items-center gap-3 mb-2">
-                                      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                        <Ship className="h-5 w-5 text-primary" />
+                        render={({ field }) => {
+                          // For vessel accounts, show a confirmation card instead of dropdown
+                          if (isVesselAccount && field.value) {
+                            const vessel = vessels?.find((v) => v.id === field.value);
+                            if (vessel) {
+                              return (
+                                <FormItem>
+                                  <FormLabel className="text-base font-semibold">Vessel</FormLabel>
+                                  <Card className="border-primary/20 bg-primary/5">
+                                    <CardContent className="pt-4">
+                                      <div className="flex items-center gap-3">
+                                        <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
+                                          <Ship className="h-5 w-5 text-primary" />
+                                        </div>
+                                        <div className="flex-1">
+                                          <div className="font-semibold text-base">{vessel.name}</div>
+                                          <div className="text-sm text-muted-foreground">{vessel.type}</div>
+                                        </div>
+                                        <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+                                          Your Vessel
+                                        </Badge>
                                       </div>
-                                      <DialogTitle>Add a New Vessel</DialogTitle>
+                                      <p className="text-xs text-muted-foreground mt-3">
+                                        This is the vessel you manage. You can start a service for this vessel.
+                                      </p>
+                                    </CardContent>
+                                  </Card>
+                                  <FormMessage />
+                                </FormItem>
+                              );
+                            }
+                          }
+                          
+                          // For non-vessel accounts or vessel accounts without a vessel, show the dropdown
+                          return (
+                            <FormItem>
+                              <FormLabel className="text-base font-semibold">Vessel</FormLabel>
+                              <div className="flex gap-2">
+                                <Popover open={isVesselSearchOpen} onOpenChange={setIsVesselSearchOpen}>
+                                  <PopoverTrigger asChild>
+                                    <FormControl>
+                                      <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        className={cn(
+                                          "w-full justify-between font-medium",
+                                          !field.value && "text-muted-foreground"
+                                        )}
+                                        disabled={isLoadingVessels}
+                                      >
+                                        {field.value
+                                          ? vessels?.find((v) => v.id === field.value)?.name || 'Select vessel...'
+                                          : vesselSearchTerm || "Search for a vessel..."}
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                      </Button>
+                                    </FormControl>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                                    <div className="p-2 border-b bg-muted/30">
+                                      <Input
+                                        placeholder="Search vessels..."
+                                        value={vesselSearchTerm}
+                                        onChange={(e) => {
+                                          setVesselSearchTerm(e.target.value);
+                                          if (!isVesselSearchOpen) setIsVesselSearchOpen(true);
+                                        }}
+                                        className="h-9 bg-background"
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Escape") {
+                                            setIsVesselSearchOpen(false);
+                                          }
+                                        }}
+                                      />
                                     </div>
-                                  </DialogHeader>
-                                  <Form {...addVesselForm}>
-                                      <form onSubmit={addVesselForm.handleSubmit(onAddVesselSubmit)} className="space-y-4">
-                                        <FormField 
-                                          control={addVesselForm.control} 
-                                          name="name" 
-                                          render={({ field }) => (
-                                            <FormItem>
-                                              <FormLabel>Vessel Name</FormLabel>
-                                              <FormControl>
-                                                <Input placeholder="e.g., M/Y Odyssey" {...field} />
-                                              </FormControl>
-                                              <FormMessage />
-                                            </FormItem>
-                                          )} 
-                                        />
-                                        <FormField 
-                                          control={addVesselForm.control} 
-                                          name="type" 
-                                          render={({ field }) => (
-                                            <FormItem>
-                                              <FormLabel>Vessel Type</FormLabel>
-                                              <FormControl>
-                                                <SearchableSelect
-                                                  options={vesselTypes}
-                                                  value={field.value}
-                                                  onValueChange={field.onChange}
-                                                  placeholder="Select a vessel type"
-                                                  searchPlaceholder="Search vessel types..."
-                                                />
-                                              </FormControl>
-                                              <FormMessage />
-                                            </FormItem>
-                                          )} 
-                                        />
-                                        <FormField 
-                                          control={addVesselForm.control} 
-                                          name="officialNumber" 
-                                          render={({ field }) => (
-                                            <FormItem>
-                                              <FormLabel>Official Number (Optional)</FormLabel>
-                                              <FormControl>
-                                                <Input placeholder="e.g., IMO 1234567" {...field} />
-                                              </FormControl>
-                                              <FormMessage />
-                                            </FormItem>
-                                          )} 
-                                        />
-                                        <DialogFooter className="pt-4 gap-2">
-                                          <DialogClose asChild>
-                                            <Button type="button" variant="ghost" className="rounded-lg">Cancel</Button>
-                                          </DialogClose>
-                                          <Button type="submit" disabled={isSavingVessel} className="rounded-lg">
-                                            {isSavingVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                            Save Vessel
-                                          </Button>
-                                        </DialogFooter>
-                                      </form>
-                                    </Form>
-                            </DialogContent>
-                        </Dialog>
-                      </div>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                      <FormField 
-                        control={startServiceForm.control} 
-                        name="position" 
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-base font-semibold">Your Position/Role</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value || ''}>
-                              <FormControl>
-                                <SelectTrigger className="rounded-lg">
-                                  <SelectValue placeholder="Select your position..." />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent className="rounded-lg">
-                                {POSITION_OPTIONS.map((position) => (
-                                  <SelectItem key={position} value={position}>
-                                    {position}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                            <p className="text-xs text-muted-foreground">
-                              {userProfile?.position 
-                                ? `Pre-filled from your profile. Update if you've changed position.`
-                                : 'Select your current position on this vessel'}
-                            </p>
-                          </FormItem>
-                        )} 
-                      />
+                                    <div className="max-h-[300px] overflow-auto p-1">
+                                        {isSearchingVessels ? (
+                                          <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                                            <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
+                                            Searching...
+                                          </div>
+                                        ) : vesselSearchResults.length > 0 ? (
+                                          vesselSearchResults.map((vessel) => (
+                                            <button
+                                              key={vessel.id}
+                                              onClick={() => {
+                                                field.onChange(vessel.id);
+                                                setIsVesselSearchOpen(false);
+                                                setVesselSearchTerm('');
+                                              }}
+                                              className={cn(
+                                                "relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground transition-colors",
+                                                field.value === vessel.id && "bg-accent"
+                                              )}
+                                            >
+                                              <Check
+                                                className={cn(
+                                                  "mr-3 h-4 w-4 shrink-0",
+                                                  field.value === vessel.id ? "opacity-100" : "opacity-0"
+                                                )}
+                                              />
+                                              <div className="flex-1 text-left">
+                                                <div className="font-medium">{vessel.name}</div>
+                                                <div className="text-xs text-muted-foreground">{vessel.type}</div>
+                                              </div>
+                                            </button>
+                                          ))
+                                        ) : vesselSearchTerm.length >= 2 ? (
+                                          <div className="px-2 py-1">
+                                            <button
+                                              onClick={() => {
+                                                // Pre-fill the add vessel dialog and open it
+                                                addVesselForm.setValue('name', vesselSearchTerm);
+                                                setIsVesselSearchOpen(false);
+                                                setIsAddVesselDialogOpen(true);
+                                              }}
+                                              className="relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary border border-dashed border-primary/50 transition-colors"
+                                            >
+                                              <PlusCircle className="mr-3 h-4 w-4 text-primary shrink-0" />
+                                              <span className="font-medium">Create new vessel: <span className="text-primary">{vesselSearchTerm}</span></span>
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                                            Type at least 2 characters to search vessels
+                                          </div>
+                                        )}
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                  <Dialog open={isAddVesselDialogOpen} onOpenChange={(open) => {
+                                    setIsAddVesselDialogOpen(open);
+                                    if (!open) {
+                                      // Reset search when dialog closes
+                                      setVesselSearchTerm('');
+                                      setVesselSearchResults([]);
+                                    }
+                                  }}>
+                                    <DialogTrigger asChild>
+                                      <Button 
+                                        type="button"
+                                        variant="outline" 
+                                        size="icon" 
+                                        className="ml-2 shrink-0 rounded-lg"
+                                        onClick={() => {
+                                          // Clear the vessel search term when opening add dialog
+                                          setVesselSearchTerm('');
+                                          setIsVesselSearchOpen(false);
+                                        }}
+                                      >
+                                        <PlusCircle className="h-4 w-4" />
+                                      </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="sm:max-w-[500px]">
+                                      <DialogHeader>
+                                        <div className="flex items-center gap-3 mb-2">
+                                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                            <Ship className="h-5 w-5 text-primary" />
+                                          </div>
+                                          <DialogTitle>Add a New Vessel</DialogTitle>
+                                        </div>
+                                      </DialogHeader>
+                                      <Form {...addVesselForm}>
+                                        <form onSubmit={addVesselForm.handleSubmit(onAddVesselSubmit)} className="space-y-4">
+                                          <FormField 
+                                            control={addVesselForm.control} 
+                                            name="name" 
+                                            render={({ field }) => (
+                                              <FormItem>
+                                                <FormLabel>Vessel Name</FormLabel>
+                                                <FormControl>
+                                                  <Input placeholder="e.g., M/Y Odyssey" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                              </FormItem>
+                                            )} 
+                                          />
+                                          <FormField 
+                                            control={addVesselForm.control} 
+                                            name="type" 
+                                            render={({ field }) => (
+                                              <FormItem>
+                                                <FormLabel>Vessel Type</FormLabel>
+                                                <FormControl>
+                                                  <SearchableSelect
+                                                    options={vesselTypes}
+                                                    value={field.value}
+                                                    onValueChange={field.onChange}
+                                                    placeholder="Select a vessel type"
+                                                    searchPlaceholder="Search vessel types..."
+                                                  />
+                                                </FormControl>
+                                                <FormMessage />
+                                              </FormItem>
+                                            )} 
+                                          />
+                                          <FormField 
+                                            control={addVesselForm.control} 
+                                            name="officialNumber" 
+                                            render={({ field }) => (
+                                              <FormItem>
+                                                <FormLabel>Official Number (Optional)</FormLabel>
+                                                <FormControl>
+                                                  <Input placeholder="e.g., IMO 1234567" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                              </FormItem>
+                                            )} 
+                                          />
+                                          <DialogFooter className="pt-4 gap-2">
+                                            <DialogClose asChild>
+                                              <Button type="button" variant="ghost" className="rounded-lg">Cancel</Button>
+                                            </DialogClose>
+                                            <Button type="submit" disabled={isSavingVessel} className="rounded-lg">
+                                              {isSavingVessel && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                              Save Vessel
+                                            </Button>
+                                          </DialogFooter>
+                                        </form>
+                                      </Form>
+                                    </DialogContent>
+                                  </Dialog>
+                                </div>
+                                <FormMessage />
+                              </FormItem>
+                            );
+                          }}
+                        />
+                      {!isVesselAccount && (
+                        <FormField 
+                          control={startServiceForm.control} 
+                          name="position" 
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-base font-semibold">Your Position/Role</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value || ''}>
+                                <FormControl>
+                                  <SelectTrigger className="rounded-lg">
+                                    <SelectValue placeholder="Select your position..." />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent className="rounded-lg">
+                                  {POSITION_OPTIONS.map((position) => (
+                                    <SelectItem key={position} value={position}>
+                                      {position}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                              <p className="text-xs text-muted-foreground">
+                                {userProfile?.position 
+                                  ? `Pre-filled from your profile. Update if you've changed position.`
+                                  : 'Select your current position on this vessel'}
+                              </p>
+                            </FormItem>
+                          )} 
+                        />
+                      )}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <FormField 
                           control={startServiceForm.control} 

@@ -48,6 +48,70 @@ async function markEmailSent(args: {
 /** --------------------------
  * Subscription → DB sync helpers
  * -------------------------- */
+
+/**
+ * Ensures that vessel accounts have their active_vessel_id set to the vessel they manage.
+ * This is called after subscription updates to ensure vessel accounts are properly connected.
+ */
+async function ensureVesselActiveVesselId(userId: string | null) {
+  if (!userId) return;
+
+  try {
+    // Get user profile to check role and active_vessel_id
+    const { data: user, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('id, role, active_vessel_id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (userError || !user) {
+      console.warn('[ENSURE VESSEL ACTIVE] User not found:', userId);
+      return;
+    }
+
+    // Only process vessel accounts
+    if (user.role !== 'vessel') {
+      return;
+    }
+
+    // If already has active_vessel_id, no action needed
+    if (user.active_vessel_id) {
+      return;
+    }
+
+    // Find the vessel where this user is the manager
+    const { data: vessel, error: vesselError } = await supabaseAdmin
+      .from('vessels')
+      .select('id, name')
+      .eq('vessel_manager_id', userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (vesselError) {
+      console.error('[ENSURE VESSEL ACTIVE] Error finding vessel:', vesselError);
+      return;
+    }
+
+    if (!vessel) {
+      console.warn('[ENSURE VESSEL ACTIVE] No vessel found for vessel account user:', userId);
+      return;
+    }
+
+    // Set active_vessel_id to the vessel they manage
+    const { error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({ active_vessel_id: vessel.id })
+      .eq('id', userId);
+
+    if (updateError) {
+      console.error('[ENSURE VESSEL ACTIVE] Error setting active_vessel_id:', updateError);
+    } else {
+      console.log('[ENSURE VESSEL ACTIVE] ✅ Set active_vessel_id to vessel:', vessel.id, vessel.name);
+    }
+  } catch (error: any) {
+    console.error('[ENSURE VESSEL ACTIVE] Unexpected error:', error);
+  }
+}
 function normalizeTier(raw: string | undefined | null) {
   const t = (raw || "").toLowerCase().trim();
   return t || "standard";
@@ -281,9 +345,15 @@ async function syncUserFromSubscription(
     console.log("[SYNC] update-by-customerId result:", { updated2, updateErr2 });
     
     if (updated2 && updated2.length > 0) {
-      return { before, after: updated2[0], userId };
+      const result = { before, after: updated2[0], userId };
+      // Ensure vessel accounts have their active_vessel_id set
+      await ensureVesselActiveVesselId(userId);
+      return result;
     }
   }
+
+  // Ensure vessel accounts have their active_vessel_id set
+  await ensureVesselActiveVesselId(userId);
 
   return { before, after, userId };
 }
@@ -366,12 +436,15 @@ export async function POST(req: NextRequest) {
             subscription_tier: tier,
           })
           .eq("id", userId)
-          .select("id, email, stripe_customer_id, stripe_subscription_id, subscription_tier");
+          .select("id, email, role, active_vessel_id, stripe_customer_id, stripe_subscription_id, subscription_tier");
 
         if (error) {
           console.error("[STRIPE WEBHOOK] Failed to store mapping:", error);
         } else {
           console.log("[STRIPE WEBHOOK] ✅ Stored mapping:", updated);
+          
+          // Ensure vessel accounts have their active_vessel_id set
+          await ensureVesselActiveVesselId(userId);
         }
 
         break;

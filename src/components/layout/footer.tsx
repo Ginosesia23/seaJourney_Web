@@ -35,7 +35,6 @@ const Footer = () => {
             <h3 className="font-headline text-lg font-bold text-accent">Explore</h3>
             <ul className="mt-4 space-y-2 text-sm">
               <li><Link href="/how-to-use" className="text-header-foreground/80 hover:text-accent transition-colors">Guide</Link></li>
-              <li><Link href="/dashboard-offering" className="text-header-foreground/80 hover:text-accent transition-colors">Dashboard</Link></li>
               <li><Link href="/roadmap" className="text-header-foreground/80 hover:text-accent transition-colors">Roadmap</Link></li>
             </ul>
           </div>

@@ -302,7 +302,7 @@ const CrewDashboard = () => {
               size="lg" 
               className="rounded-xl border-purple-400/30 text-white bg-purple-800/20 hover:bg-purple-800/30 backdrop-blur-sm hover:scale-105 transition-transform duration-300"
             >
-              <Link href="/dashboard-offering">Learn More About Features</Link>
+              <Link href="/roadmap">Learn More About Features</Link>
             </Button>
           </div>
         </motion.div>
