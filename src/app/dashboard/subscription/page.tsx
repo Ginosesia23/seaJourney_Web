@@ -275,7 +275,9 @@ export default function ManageSubscriptionPage() {
   }, [userProfile, userRole, isVesselAccount, isCrewLimited]);
   
   // Select appropriate plan templates based on role
-  const selectedPlanTemplates = isVesselAccount ? vesselPlanTemplates : crewPlanTemplates;
+  // Filter out Fleet plan for now (not finished yet)
+  const filteredVesselPlans = vesselPlanTemplates.filter(plan => plan.name !== 'Vessel Fleet');
+  const selectedPlanTemplates = isVesselAccount ? filteredVesselPlans : crewPlanTemplates;
 
   // Format subscription tier for display
   const formatTierName = (tier: string) => {

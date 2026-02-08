@@ -262,7 +262,9 @@ export default function OffersPage() {
   }, [userProfile, userProfileRaw, userRole, isVesselAccount]);
   
   // Select appropriate plan templates based on toggle state
-  const selectedPlanTemplates = showVesselPlans ? vesselPlanTemplates : crewPlanTemplates;
+  // Filter out Fleet plan for now (not finished yet)
+  const filteredVesselPlans = vesselPlanTemplates.filter(plan => plan.name !== 'Vessel Fleet');
+  const selectedPlanTemplates = showVesselPlans ? filteredVesselPlans : crewPlanTemplates;
 
   // Format subscription tier for display
   const formatTierName = (tier: string) => {
@@ -681,7 +683,7 @@ export default function OffersPage() {
               </motion.div>
             </div>
 
-            <div className={`mx-auto mt-16 grid max-w-lg grid-cols-1 gap-8 lg:max-w-none ${showVesselPlans ? 'lg:grid-cols-2 xl:grid-cols-4' : 'lg:grid-cols-2 xl:grid-cols-3'}`}>
+            <div className={`mx-auto mt-16 grid max-w-lg grid-cols-1 gap-8 lg:max-w-none ${showVesselPlans ? 'lg:grid-cols-3' : 'lg:grid-cols-2 xl:grid-cols-3'}`}>
               {/* Free tier card - only show for crew plans */}
               {!showVesselPlans && (
               <motion.div

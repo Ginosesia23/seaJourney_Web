@@ -69,7 +69,7 @@ const Hero = () => {
                   variant="outline"
                   className="rounded-xl border-2 border-white/20 bg-white/5 hover:bg-white/10 text-white px-6 h-12 text-base font-semibold backdrop-blur-sm"
                 >
-                  <Link href="/offers" className="flex items-center gap-2">
+                  <Link href="#become-a-member" className="flex items-center gap-2">
                     Explore Web Portal
                     <ArrowRight className="h-4 w-4" />
                   </Link>

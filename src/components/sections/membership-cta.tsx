@@ -242,8 +242,10 @@ export default function MembershipCTA() {
     );
   };
 
+  // Filter out Fleet plan for now (not finished yet)
+  const filteredVesselPlans = vesselPlanTemplates.filter(plan => plan.name !== 'Vessel Fleet');
   // Determine which plan templates to use based on toggle
-  const selectedPlanTemplates = showVesselPlans ? vesselPlanTemplates : planTemplates;
+  const selectedPlanTemplates = showVesselPlans ? filteredVesselPlans : planTemplates;
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -538,6 +540,7 @@ export default function MembershipCTA() {
 
   return (
     <section
+      id="become-a-member"
       className="py-20 sm:py-28 relative overflow-hidden"
       style={{ backgroundColor: '#000b15' }}
     >
@@ -601,7 +604,7 @@ export default function MembershipCTA() {
           </motion.div>
         </div>
 
-        <div className={`mx-auto mt-16 grid max-w-lg grid-cols-1 gap-8 lg:max-w-none ${showVesselPlans ? 'lg:grid-cols-2 xl:grid-cols-4' : 'lg:grid-cols-3'}`}>
+        <div className={`mx-auto mt-16 grid max-w-lg grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-3`}>
           {plans.map((plan, index) => {
             const Icon = plan.icon;
             const isHighlighted = plan.highlighted;
