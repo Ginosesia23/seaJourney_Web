@@ -115,7 +115,7 @@ const CrewBenefits = () => {
                   size="lg"
                   className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 px-6 h-12 text-base font-semibold"
                 >
-                  <Link href="/offers">
+                  <Link href="/signup">
                     Start Your Journey
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>

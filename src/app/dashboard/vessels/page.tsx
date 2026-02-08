@@ -99,6 +99,7 @@ export default function VesselsPage() {
   const [vesselAssignments, setVesselAssignments] = useState<Map<string, { startDate: string; endDate: string | null; assignmentId?: string }>>(new Map()); // vesselId -> assignment dates
   const [allVesselAssignments, setAllVesselAssignments] = useState<VesselAssignment[]>([]); // Full assignment objects for editing
   const [activelyManagedVessels, setActivelyManagedVessels] = useState<Set<string>>(new Set()); // vesselId -> is actively managed
+  const [vesselCrewCounts, setVesselCrewCounts] = useState<Map<string, number>>(new Map()); // vesselId -> crew count (for admin)
   const [isEditStartDateDialogOpen, setIsEditStartDateDialogOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState<{ vesselId: string; assignment: VesselAssignment } | null>(null);
   const [isUpdatingStartDate, setIsUpdatingStartDate] = useState(false);
@@ -276,33 +277,151 @@ export default function VesselsPage() {
     }
   }, [user?.id, supabase]);
 
+  // Check if user is admin
+  const isAdmin = useMemo(() => {
+    return currentUserProfile?.role === 'admin';
+  }, [currentUserProfile?.role]);
+
   // Fetch actively managed vessels (vessels with active assignments)
+  // Also fetch crew counts for admin users
   useEffect(() => {
+    console.log('[VESSELS] useEffect triggered:', { 
+      allVesselsLength: allVessels?.length || 0, 
+      isAdmin,
+      hasSupabase: !!supabase 
+    });
+    
     if (!allVessels || allVessels.length === 0) {
+      console.log('[VESSELS] No vessels, clearing counts');
       setActivelyManagedVessels(new Set());
+      if (isAdmin) {
+        setVesselCrewCounts(new Map());
+      }
       return;
     }
 
     const fetchActivelyManagedVessels = async () => {
       const managedVessels = new Set<string>();
+      const crewCounts = new Map<string, number>();
       
-      // Check each vessel for active assignments
-      await Promise.all(allVessels.map(async (vessel) => {
+      // Initialize all vessels with 0 crew count for admin
+      if (isAdmin) {
+        allVessels.forEach(vessel => {
+          crewCounts.set(vessel.id, 0);
+        });
+      }
+      
+      if (isAdmin) {
+        // For admin users, fetch all active assignments at once (more efficient and works better with RLS)
+        // Then fetch user roles to exclude vessel accounts from crew count
+        console.log('[VESSELS] Admin user detected, fetching all active assignments...');
         try {
-          const activeAssignments = await getActiveVesselAssignmentsByVessel(supabase, vessel.id);
-          if (activeAssignments && activeAssignments.length > 0) {
-            managedVessels.add(vessel.id);
+          const { data: allActiveAssignments, error: assignmentsError } = await supabase
+            .from('vessel_assignments')
+            .select('vessel_id, user_id')
+            .is('end_date', null);
+          
+          console.log('[VESSELS] Query result:', { 
+            data: allActiveAssignments, 
+            error: assignmentsError,
+            count: allActiveAssignments?.length || 0 
+          });
+          
+          if (assignmentsError) {
+            console.error('[VESSELS] Error fetching all active assignments:', assignmentsError);
+          } else {
+            console.log('[VESSELS] Fetched active assignments:', allActiveAssignments?.length || 0, allActiveAssignments);
+            
+            if (!allActiveAssignments || allActiveAssignments.length === 0) {
+              console.log('[VESSELS] No active assignments found');
+            } else {
+              // Fetch user roles to filter out vessel accounts
+              const userIds = [...new Set((allActiveAssignments || []).map((a: any) => a.user_id))];
+              console.log('[VESSELS] Fetching user roles for', userIds.length, 'users');
+              
+              if (userIds.length === 0) {
+                console.log('[VESSELS] No user IDs to fetch');
+              } else {
+                const { data: usersData, error: usersError } = await supabase
+                  .from('users')
+                  .select('id, role')
+                  .in('id', userIds);
+                
+                if (usersError) {
+                  console.error('[VESSELS] Error fetching user roles:', usersError);
+                  // Fallback: count all assignments (vessel accounts rarely have assignments anyway)
+                  console.log('[VESSELS] Falling back to counting all assignments');
+                  const assignmentCounts = new Map<string, number>();
+                  (allActiveAssignments || []).forEach((assignment: any) => {
+                    const vesselId = assignment.vessel_id;
+                    assignmentCounts.set(vesselId, (assignmentCounts.get(vesselId) || 0) + 1);
+                    managedVessels.add(vesselId);
+                  });
+                  assignmentCounts.forEach((count, vesselId) => {
+                    crewCounts.set(vesselId, count);
+                  });
+                } else {
+                  console.log('[VESSELS] Fetched user roles:', usersData?.length || 0);
+                  
+                  // Create a map of user_id -> role for quick lookup
+                  const userRoleMap = new Map<string, string>();
+                  (usersData || []).forEach((u: any) => {
+                    userRoleMap.set(u.id, u.role);
+                  });
+                  
+                  // Count assignments per vessel, excluding vessel accounts
+                  const assignmentCounts = new Map<string, number>();
+                  (allActiveAssignments || []).forEach((assignment: any) => {
+                    const userRole = userRoleMap.get(assignment.user_id);
+                    // Only count if user is not a vessel account (or if role not found, count it anyway)
+                    if (userRole !== 'vessel') {
+                      const vesselId = assignment.vessel_id;
+                      assignmentCounts.set(vesselId, (assignmentCounts.get(vesselId) || 0) + 1);
+                      managedVessels.add(vesselId);
+                    }
+                  });
+                  
+                  console.log('[VESSELS] Assignment counts per vessel (excluding vessel accounts):', Array.from(assignmentCounts.entries()));
+                  
+                  // Update crew counts
+                  assignmentCounts.forEach((count, vesselId) => {
+                    crewCounts.set(vesselId, count);
+                  });
+                  
+                  console.log('[VESSELS] Final crew counts per vessel:', Array.from(crewCounts.entries()));
+                }
+              }
+            }
+            console.log('[VESSELS] All vessels:', allVessels.map(v => ({ id: v.id, name: v.name })));
           }
         } catch (error) {
-          console.error(`[VESSELS] Error checking active assignments for vessel ${vessel.id}:`, error);
+          console.error('[VESSELS] Error fetching active assignments:', error);
         }
-      }));
+      } else {
+        // For non-admin users, check each vessel individually
+        await Promise.all(allVessels.map(async (vessel) => {
+          try {
+            const activeAssignments = await getActiveVesselAssignmentsByVessel(supabase, vessel.id);
+            if (activeAssignments && activeAssignments.length > 0) {
+              managedVessels.add(vessel.id);
+            }
+          } catch (error) {
+            console.error(`[VESSELS] Error checking active assignments for vessel ${vessel.id}:`, error);
+          }
+        }));
+      }
       
       setActivelyManagedVessels(managedVessels);
+      if (isAdmin) {
+        console.log('[VESSELS] Setting crew counts:', Array.from(crewCounts.entries()));
+        setVesselCrewCounts(crewCounts);
+        console.log('[VESSELS] Crew counts set, map size:', crewCounts.size);
+      }
     };
 
+    console.log('[VESSELS] Calling fetchActivelyManagedVessels');
     fetchActivelyManagedVessels();
-  }, [allVessels, supabase]);
+  }, [allVessels, supabase, isAdmin]);
 
   // Fetch captaincy requests for vessels (if user is captain)
   // Fetch ALL requests for this captain, not just for vessels they've logged time on
@@ -446,11 +565,6 @@ export default function VesselsPage() {
     const timeoutId = setTimeout(searchVessels, 300); // Debounce
     return () => clearTimeout(timeoutId);
   }, [vesselSearchTerm]);
-
-  // Check if user is admin
-  const isAdmin = useMemo(() => {
-    return currentUserProfile?.role === 'admin';
-  }, [currentUserProfile?.role]);
 
   // Filter vessels to only show ones the user has logged time on (except for admins who see all, and captains who also see vessels with requests)
   // Sort to show current vessel first
@@ -1101,7 +1215,7 @@ export default function VesselsPage() {
                       <TableHead className="w-[50px]"></TableHead>
                       <TableHead>Vessel Name</TableHead>
                       <TableHead>Type</TableHead>
-                      <TableHead>Days on Board</TableHead>
+                      <TableHead>{isAdmin ? 'Crew Count' : 'Days on Board'}</TableHead>
                       {isAdmin && <TableHead>Official</TableHead>}
                       <TableHead>Status</TableHead>
                       {isCaptain && <TableHead>Actions</TableHead>}
@@ -1149,7 +1263,7 @@ export default function VesselsPage() {
                                 <TableHead className="w-[50px]"></TableHead>
                         <TableHead>Vessel Name</TableHead>
                         <TableHead>Type</TableHead>
-                        <TableHead>Days on Board</TableHead>
+                        <TableHead>{isAdmin ? 'Crew Count' : 'Days on Board'}</TableHead>
                         {isAdmin && <TableHead>Official</TableHead>}
                         <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
@@ -1168,16 +1282,29 @@ export default function VesselsPage() {
                                 const vesselRaw = allVessels?.find(v => v.id === vessel.id);
                       const vesselData = vesselRaw as any;
                       
-                      // Calculate days on board from assignment
+                      // Calculate days on board from assignment (for non-admin users)
+                      // For admin users, get crew count instead
                       const assignment = vesselAssignments.get(vessel.id);
                       let daysOnBoard: number | null = null;
-                      if (assignment) {
+                      if (!isAdmin && assignment) {
                         const startDate = parse(assignment.startDate, 'yyyy-MM-dd', new Date());
                         const endDate = assignment.endDate 
                           ? parse(assignment.endDate, 'yyyy-MM-dd', new Date())
                           : new Date(); // Use today if no end date
                         const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
                         daysOnBoard = Math.max(0, daysDiff); // Ensure non-negative
+                      }
+                      const crewCount = isAdmin ? (vesselCrewCounts.get(vessel.id) ?? 0) : null;
+                      if (isAdmin && vessel.id === '5ae35be5-d0dc-4666-9114-bb08e5bdfb12') {
+                        console.log('[VESSELS TABLE] Crew count for Flying Fox:', {
+                          vesselId: vessel.id,
+                          crewCount,
+                          vesselCrewCountsSize: vesselCrewCounts.size,
+                          vesselCrewCountsEntries: Array.from(vesselCrewCounts.entries()),
+                          hasKey: vesselCrewCounts.has(vessel.id),
+                          getValue: vesselCrewCounts.get(vessel.id),
+                          allEntries: Array.from(vesselCrewCounts.entries()).map(([id, count]) => ({ id, count }))
+                        });
                       }
                       
                       const request = captaincyRequests.get(vessel.id);
@@ -1250,7 +1377,11 @@ export default function VesselsPage() {
                                                 </Badge>
                                     </TableCell>
                                             <TableCell className="text-muted-foreground">
-                                              {daysOnBoard !== null ? `${daysOnBoard} day${daysOnBoard !== 1 ? 's' : ''}` : '—'}
+                                              {isAdmin ? (
+                                                crewCount !== null ? `${crewCount} ${crewCount === 1 ? 'crew member' : 'crew members'}` : '—'
+                                              ) : (
+                                                daysOnBoard !== null ? `${daysOnBoard} day${daysOnBoard !== 1 ? 's' : ''}` : '—'
+                                              )}
                                             </TableCell>
                                             {isAdmin && (
                                               <TableCell>

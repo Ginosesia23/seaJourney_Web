@@ -57,12 +57,20 @@ export async function getStripeProducts(
   }
 
   try {
+    console.log(`\n========================================`);
+    console.log(`[STRIPE] Fetching ${productType} subscription prices`);
+    console.log(`[STRIPE] Product ID: ${productId}`);
+    console.log(`[STRIPE] Timestamp: ${new Date().toISOString()}`);
+    console.log(`========================================\n`);
+
     const prices = await stripe.prices.list({
       active: true,
       product: productId,
       limit: 100,
       expand: ['data.product'],
     });
+
+    console.log(`[STRIPE] Total prices fetched: ${prices.data.length}`);
 
     // Filter to ensure we only return active prices on the right product
     const filteredPrices: StripeProduct[] = prices.data.filter((price) => {
@@ -74,6 +82,45 @@ export async function getStripeProducts(
 
       return isSubscriptionProduct && !!product && product.active && price.active;
     }) as StripeProduct[];
+
+    console.log(`[STRIPE] Filtered active prices: ${filteredPrices.length}\n`);
+
+    // Print detailed information for each tier
+    console.log(`========================================`);
+    console.log(`[STRIPE] ${productType} SUBSCRIPTION TIER DETAILS`);
+    console.log(`========================================`);
+    
+    filteredPrices.forEach((price, index) => {
+      const product = price.product as Stripe.Product;
+      const amount = price.unit_amount ? (price.unit_amount / 100).toFixed(2) : 'N/A';
+      const currency = price.currency?.toUpperCase() || 'N/A';
+      const interval = price.recurring?.interval || 'one-time';
+      const intervalCount = price.recurring?.interval_count || 1;
+      const tier = price.metadata?.tier || price.metadata?.price_tier || price.nickname || 'unknown';
+      
+      console.log(`\n--- Tier ${index + 1} ---`);
+      console.log(`  Price ID: ${price.id}`);
+      console.log(`  Tier Name: ${tier}`);
+      console.log(`  Amount: ${currency} ${amount}`);
+      console.log(`  Interval: ${intervalCount} ${interval}(s)`);
+      console.log(`  Nickname: ${price.nickname || 'N/A'}`);
+      console.log(`  Active: ${price.active ? 'Yes' : 'No'}`);
+      console.log(`  Livemode: ${price.livemode ? 'Yes' : 'No'}`);
+      console.log(`  Product ID: ${product?.id || 'N/A'}`);
+      console.log(`  Product Name: ${product?.name || 'N/A'}`);
+      console.log(`  Metadata:`, JSON.stringify(price.metadata || {}, null, 2));
+      if (price.recurring) {
+        console.log(`  Recurring Details:`, {
+          interval: price.recurring.interval,
+          interval_count: price.recurring.interval_count,
+          usage_type: price.recurring.usage_type,
+        });
+      }
+    });
+
+    console.log(`\n========================================`);
+    console.log(`[STRIPE] End of ${productType} tier details`);
+    console.log(`========================================\n`);
 
     return filteredPrices;
   } catch (error: any) {

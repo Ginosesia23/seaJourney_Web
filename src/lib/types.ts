@@ -74,6 +74,7 @@ export interface StateLog {
     state: DailyStatus;
     date: string; // Date in YYYY-MM-DD format
     isPartOfActivePassage?: boolean; // When true, counts as "at sea" instead of standby
+    notes?: string; // Optional notes for the date
     createdAt?: string; // ISO timestamp
     updatedAt?: string; // ISO timestamp
 }
@@ -120,6 +121,7 @@ export interface Testimonial {
     signoff_token_expires_at: string | null;   // ISO timestamp
     signoff_target_email: string | null;       // Email address the token was generated for
     signoff_used_at: string | null;            // ISO timestamp
+    data_source?: 'crew' | 'vessel' | null;    // Data source used: 'crew' for crew member logs, 'vessel' for vessel logs
     created_at: string;           // ISO timestamp
     updated_at: string;           // ISO timestamp
 }

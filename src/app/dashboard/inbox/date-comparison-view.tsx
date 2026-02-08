@@ -608,7 +608,7 @@ export function DateComparisonView({
                                     ? 'bg-purple-500/20 text-purple-800 border-purple-600 dark:bg-purple-500/30 dark:text-purple-300' 
                                     : 'bg-red-500/20 text-red-800 border-red-600 dark:bg-red-500/30 dark:text-red-300'
                                 }`}
-                                title="Vessel: Standby (MCA/PYA Compliant)"
+                                title="Vessel: Standby (MCA/PYA Compliant Calculations)"
                               >
                                 Standby
                               </Badge>
@@ -717,7 +717,7 @@ export function DateComparisonView({
           
           {/* MCA/PYA Compliant Calculation Comparison */}
           <div className="border-t pt-4">
-            <h5 className="text-xs font-semibold mb-3">MCA/PYA Compliant Calculation</h5>
+            <h5 className="text-xs font-semibold mb-3">MCA/PYA Compliant Calculation Methods</h5>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">At Sea:</span>
@@ -741,7 +741,7 @@ export function DateComparisonView({
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-3">
-              These calculations use MCA/PYA compliant logic, accounting for watch days and part of active passage days.
+              These calculations use MCA/PYA compliant calculation methods, accounting for watch days and part of active passage days.
             </p>
           </div>
         </CardContent>

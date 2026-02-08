@@ -351,6 +351,45 @@ export default function ManageSubscriptionPage() {
           stripePrices: StripePrice[];
         } = await res.json();
 
+        // Log detailed tier information
+        console.log(`\n========================================`);
+        console.log(`[SUBSCRIPTION PAGE] ${isVesselAccount ? 'VESSEL' : 'CREW'} SUBSCRIPTION TIER DETAILS`);
+        console.log(`========================================`);
+        console.log(`[SUBSCRIPTION PAGE] Total prices received: ${stripePrices.length}`);
+        console.log(`[SUBSCRIPTION PAGE] User role: ${userProfile?.role || 'unknown'}`);
+        console.log(`[SUBSCRIPTION PAGE] Is vessel account: ${isVesselAccount}`);
+        console.log(`[SUBSCRIPTION PAGE] Timestamp: ${new Date().toISOString()}\n`);
+
+        stripePrices.forEach((price, index) => {
+          const amount = price.unit_amount ? (price.unit_amount / 100).toFixed(2) : 'N/A';
+          const currency = price.currency?.toUpperCase() || 'N/A';
+          const interval = price.recurring?.interval || 'one-time';
+          const intervalCount = price.recurring?.interval_count || 1;
+          const tier = price.metadata?.tier || price.metadata?.price_tier || price.nickname || 'unknown';
+          
+          console.log(`--- Tier ${index + 1} ---`);
+          console.log(`  Price ID: ${price.id}`);
+          console.log(`  Tier Name: ${tier}`);
+          console.log(`  Amount: ${currency} ${amount}`);
+          console.log(`  Interval: ${intervalCount} ${interval}(s)`);
+          console.log(`  Nickname: ${price.nickname || 'N/A'}`);
+          console.log(`  Active: ${price.active !== false ? 'Yes' : 'No'}`);
+          console.log(`  Livemode: ${price.livemode ? 'Yes' : 'No'}`);
+          console.log(`  Metadata:`, JSON.stringify(price.metadata || {}, null, 2));
+          if (price.recurring) {
+            console.log(`  Recurring Details:`, {
+              interval: price.recurring.interval,
+              interval_count: price.recurring.interval_count,
+              usage_type: price.recurring.usage_type,
+            });
+          }
+          console.log(``);
+        });
+
+        console.log(`========================================`);
+        console.log(`[SUBSCRIPTION PAGE] End of tier details`);
+        console.log(`========================================\n`);
+
         setStripeSubscription(subscriptionData || null);
 
         const getTemplateTierKey = (templateName: string) => {
@@ -366,6 +405,9 @@ export default function ManageSubscriptionPage() {
           if (lower === 'pro') return 'professional';
           return lower;
         };
+
+        console.log(`[SUBSCRIPTION PAGE] Mapping prices to plan templates...`);
+        console.log(`[SUBSCRIPTION PAGE] Available templates:`, selectedPlanTemplates.map(t => t.name));
 
         const mappedPlans: Plan[] = selectedPlanTemplates.map((template) => {
           const templateTier = getTemplateTierKey(template.name);
@@ -398,6 +440,13 @@ export default function ManageSubscriptionPage() {
             const interval =
               matchingPrice.recurring?.interval?.toString() || 'month';
 
+            console.log(`[SUBSCRIPTION PAGE] ✅ Matched "${template.name}" to price:`, {
+              priceId: matchingPrice.id,
+              amount: `£${amount.toFixed(2)}`,
+              interval: interval,
+              tier: matchingPrice.metadata?.tier || matchingPrice.nickname || 'unknown',
+            });
+
             return {
               ...template,
               price: `£${amount.toFixed(2)}`,
@@ -406,11 +455,21 @@ export default function ManageSubscriptionPage() {
             };
           }
 
+          console.log(`[SUBSCRIPTION PAGE] ⚠️ No price match found for template: "${template.name}" (tier key: "${templateTier}")`);
+
           return {
             ...template,
             priceId: undefined,
           };
         });
+
+        console.log(`[SUBSCRIPTION PAGE] Final mapped plans:`, mappedPlans.map(p => ({
+          name: p.name,
+          price: p.price,
+          priceSuffix: p.priceSuffix,
+          priceId: p.priceId || 'NOT FOUND',
+        })));
+        console.log(`\n`);
 
         setPlans(mappedPlans);
       } catch (error: any) {

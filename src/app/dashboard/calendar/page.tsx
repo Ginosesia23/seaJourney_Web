@@ -9,10 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
@@ -29,6 +29,18 @@ const vesselStates: { value: DailyStatus; label: string; color: string; icon: Re
   { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
 ];
 
+// Helper function to get CSS variable name for a state
+const getStateColorVar = (state: DailyStatus): string => {
+  const colorMap: Record<DailyStatus, string> = {
+    'underway': 'chart-blue',
+    'at-anchor': 'chart-orange',
+    'in-port': 'chart-green',
+    'on-leave': 'chart-gray',
+    'in-yard': 'chart-red',
+  };
+  return colorMap[state];
+};
+
 export default function CalendarPage() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -42,6 +54,7 @@ export default function CalendarPage() {
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
   const [isPartOfActivePassageInDialog, setIsPartOfActivePassageInDialog] = useState<boolean>(false);
   const [isWatchInDialog, setIsWatchInDialog] = useState<boolean>(false);
+  const [notesInDialog, setNotesInDialog] = useState<string>('');
   const [watchDates, setWatchDates] = useState<Set<string>>(new Set());
   
   // View mode for captains: 'personal' (their own sea time) or 'vessel' (vessel's sea time)
@@ -700,6 +713,9 @@ export default function CalendarPage() {
       setIsPartOfActivePassageInDialog(partOfActivePassageDates.has(dateKey));
       // Check if this date has a watch log (officers only)
       setIsWatchInDialog(isOfficer && watchDates.has(dateKey));
+      // Load existing notes for this date
+      const existingLog = stateLogs.find(log => log.date === dateKey);
+      setNotesInDialog(existingLog?.notes || '');
       setDateRange(undefined);
       setIsDialogOpen(true);
     } else {
@@ -790,6 +806,7 @@ export default function CalendarPage() {
         setSelectedState(null);
         setIsPartOfActivePassageInDialog(false); // Reset for range selection
         setIsWatchInDialog(false); // Reset for range selection (watch only applies to single dates)
+        setNotesInDialog(''); // Reset notes for range selection
         setIsDialogOpen(true);
       }
     }
@@ -802,7 +819,7 @@ export default function CalendarPage() {
 
     try {
       // Group logs by vessel
-      const logsByVessel = new Map<string, Array<{ date: string; state: DailyStatus; is_part_of_active_passage?: boolean }>>();
+      const logsByVessel = new Map<string, Array<{ date: string; state: DailyStatus; is_part_of_active_passage?: boolean; notes?: string }>>();
       
       if (dateRange?.from && dateRange?.to) {
         // Range update
@@ -824,7 +841,7 @@ export default function CalendarPage() {
           if (!logsByVessel.has(vesselId)) {
             logsByVessel.set(vesselId, []);
           }
-          logsByVessel.get(vesselId)!.push({ date: dateKey, state, is_part_of_active_passage: isPartOfActivePassageInDialog });
+          logsByVessel.get(vesselId)!.push({ date: dateKey, state, is_part_of_active_passage: isPartOfActivePassageInDialog, notes: notesInDialog.trim() || undefined });
         }
         
         if (logsByVessel.size === 0) {
@@ -849,7 +866,7 @@ export default function CalendarPage() {
           return;
         }
         const dateKey = format(selectedDate, 'yyyy-MM-dd');
-        logsByVessel.set(validation.vessel.id, [{ date: dateKey, state, is_part_of_active_passage: isPartOfActivePassageInDialog }]);
+        logsByVessel.set(validation.vessel.id, [{ date: dateKey, state, is_part_of_active_passage: isPartOfActivePassageInDialog, notes: notesInDialog.trim() || undefined }]);
       } else {
         setIsSaving(false);
         return;
@@ -1000,6 +1017,7 @@ export default function CalendarPage() {
       setSelectedDate(null);
       setIsPartOfActivePassageInDialog(false);
       setIsWatchInDialog(false);
+      setNotesInDialog('');
       
       const stateLabel = vesselStates.find(s => s.value === state)?.label || state;
       
@@ -1108,15 +1126,16 @@ export default function CalendarPage() {
                 const dateKey = format(day, 'yyyy-MM-dd');
                 const state = stateLogMap.get(dateKey);
                 const stateInfo = state ? vesselStates.find(s => s.value === state) : null;
+                const existingLog = stateLogs.find(log => log.date === dateKey);
+                const notes = existingLog?.notes;
                 const isCurrentDay = isToday(day);
                 const isCurrentMonth = isSameMonth(day, month);
                 
                 // Check if this date is a standby date (in-port or at-anchor state)
-                // Vessel accounts don't show standby - they only show official states
                 const isStandbyState = standbyStateDatesSet.has(dateKey);
                 const isPartOfActivePassage = partOfActivePassageDates.has(dateKey);
                 const hasWatch = watchDates.has(dateKey);
-                const isCountedStandby = !isVesselAccount && standbyDatesSet.has(dateKey) && !isPartOfActivePassage && !hasWatch;
+                const isCountedStandby = standbyDatesSet.has(dateKey) && !isPartOfActivePassage && !hasWatch;
                 
                 // Check if date is in selected range
                 let isInRange = false;
@@ -1166,10 +1185,16 @@ export default function CalendarPage() {
                             <span>Part of Active Passage (Counts as At Sea)</span>
                           </div>
                         )}
-                        {isCountedStandby && !hasWatch && !isVesselAccount && (
+                        {isCountedStandby && !hasWatch && (
                           <div className="flex items-center gap-2 text-purple-600">
                             <Clock className="h-3.5 w-3.5" />
                             <span>Counted as Standby</span>
+                          </div>
+                        )}
+                        {notes && (
+                          <div className="text-muted-foreground text-xs pt-1 border-t border-border/50">
+                            <div className="font-medium mb-1">Notes:</div>
+                            <div className="whitespace-pre-wrap">{notes}</div>
                           </div>
                         )}
                         {currentVessel && (
@@ -1203,11 +1228,11 @@ export default function CalendarPage() {
                       isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary/50",
                       (isRangeStart || isRangeEnd) && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-1",
                       // Watch outline (yellow) - takes priority
-                      hasWatch && "border-[4px] border-yellow-400",
+                      hasWatch && "border-[3px] border-yellow-400",
                       // Part of active passage outline (blue)
-                      isPartOfActivePassage && !hasWatch && "border-[4px] border-blue-600",
+                      isPartOfActivePassage && !hasWatch && "border-[3px] border-blue-600",
                       // Standby outline (purple) - only if not watch or part of active passage
-                      isCountedStandby && !hasWatch && !isPartOfActivePassage && "border-[4px] border-purple-600",
+                      isCountedStandby && !hasWatch && !isPartOfActivePassage && "border-[3px] border-purple-600",
                       stateInfo 
                         ? "text-white" 
                         : "bg-muted/50 text-muted-foreground hover:bg-muted"
@@ -1453,7 +1478,7 @@ export default function CalendarPage() {
                 {/* Part of Active Passage - shown for all users */}
                 <div className="flex items-center gap-2">
                   <div 
-                    className="h-8 w-8 rounded border-[4px] border-blue-600 bg-transparent"
+                    className="h-8 w-8 rounded border-[3px] border-blue-600 bg-transparent"
                   />
                   <span>Part of Active Passage (blue outline)</span>
                 </div>
@@ -1461,13 +1486,13 @@ export default function CalendarPage() {
                   <>
                     <div className="flex items-center gap-2">
                       <div 
-                        className="h-8 w-8 rounded border-[4px] border-yellow-400 bg-transparent"
+                        className="h-8 w-8 rounded border-[3px] border-yellow-400 bg-transparent"
                       />
                       <span>On Watch (yellow outline)</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div 
-                        className="h-8 w-8 rounded border-[4px] border-purple-600 bg-transparent"
+                        className="h-8 w-8 rounded border-[3px] border-purple-600 bg-transparent"
                       />
                       <span>Counted as Standby (purple outline)</span>
                     </div>
@@ -1493,7 +1518,7 @@ export default function CalendarPage() {
 
       {/* State Change Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={(open) => {
-        setIsDialogOpen(open);
+          setIsDialogOpen(open);
         if (!open) {
           // Reset selection when dialog closes
           if (selectionMode === 'range') {
@@ -1503,9 +1528,10 @@ export default function CalendarPage() {
           }
           setIsPartOfActivePassageInDialog(false);
           setIsWatchInDialog(false);
+          setNotesInDialog('');
         }
       }}>
-        <DialogContent className="rounded-xl">
+        <DialogContent className="rounded-xl max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {dateRange?.from && dateRange?.to
@@ -1521,40 +1547,55 @@ export default function CalendarPage() {
             )}
           </DialogHeader>
           <div className="py-4">
-            <RadioGroup
-              value={selectedState || undefined}
-              onValueChange={(value) => {
-                setSelectedState(value as DailyStatus);
-                // Disable watch checkbox if state is not at-anchor
-                if (value !== 'at-anchor' && isWatchInDialog) {
-                  setIsWatchInDialog(false);
-                }
-              }}
-              className="space-y-3"
-            >
+            <div className="grid grid-cols-2 gap-3">
               {vesselStates
                 .filter(state => !isVesselAccount || state.value !== 'on-leave')
                 .map((state) => {
                 const StateIcon = state.icon;
+                const isSelected = selectedState === state.value;
                 return (
-                  <div key={state.value} className="flex items-center space-x-3">
-                    <RadioGroupItem value={state.value} id={state.value} />
-                    <Label
-                      htmlFor={state.value}
-                      className="flex items-center gap-3 flex-1 cursor-pointer py-2 px-3 rounded-lg hover:bg-accent transition-colors"
+                  <Button
+                    key={state.value}
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedState(state.value);
+                      // Disable watch checkbox if state is not at-anchor
+                      if (state.value !== 'at-anchor' && isWatchInDialog) {
+                        setIsWatchInDialog(false);
+                      }
+                    }}
+                    disabled={isSaving}
+                    className={cn(
+                      "h-auto py-4 px-4 flex flex-col items-center gap-3 rounded-xl transition-all relative border-2",
+                      isSelected 
+                        ? "shadow-md scale-[1.02]" 
+                        : "hover:scale-[1.01]"
+                    )}
+                    style={{
+                      backgroundColor: isSelected 
+                        ? `hsl(var(--${getStateColorVar(state.value)}) / 0.15)` 
+                        : `hsl(var(--${getStateColorVar(state.value)}) / 0.08)`,
+                      borderColor: isSelected 
+                        ? state.color 
+                        : `hsl(var(--${getStateColorVar(state.value)}) / 0.3)`,
+                    }}
+                  >
+                    <div
+                      className="h-12 w-12 rounded-xl flex items-center justify-center shadow-sm"
+                      style={{ backgroundColor: state.color }}
                     >
-                      <div
-                        className="h-8 w-8 rounded-xl flex items-center justify-center"
-                        style={{ backgroundColor: state.color }}
-                      >
-                        <StateIcon className="h-4 w-4 text-white" />
+                      <StateIcon className="h-6 w-6 text-white" />
+                    </div>
+                    <span className="font-semibold text-sm">{state.label}</span>
+                    {isSelected && (
+                      <div className="absolute top-2 right-2">
+                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: state.color }}></div>
                       </div>
-                      <span className="font-medium">{state.label}</span>
-                    </Label>
-                  </div>
+                    )}
+                  </Button>
                 );
               })}
-            </RadioGroup>
+            </div>
           </div>
           <div className="border-t pt-4 px-1">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1609,6 +1650,49 @@ export default function CalendarPage() {
               )}
             </div>
           </div>
+          {selectedDate && !dateRange && (() => {
+            const dateKey = format(selectedDate, 'yyyy-MM-dd');
+            const isPartOfActivePassage = partOfActivePassageDates.has(dateKey);
+            const hasWatch = watchDates.has(dateKey);
+            const isCountedStandby = standbyDatesSet.has(dateKey) && !isPartOfActivePassage && !hasWatch;
+            
+            if (isCountedStandby) {
+              return (
+                <div className="border-t pt-4 px-1">
+                  <div className="flex items-start space-x-3 p-3 rounded-lg border border-purple-600/30 bg-purple-600/10">
+                    <Clock className="h-5 w-5 text-purple-600 mt-0.5 shrink-0" />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold text-purple-700 dark:text-purple-400">
+                        Counted as Standby
+                      </div>
+                      <div className="text-xs text-purple-600 dark:text-purple-500 mt-1">
+                        This date is counted as standby time and will be included in your standby calculations.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+          <div className="border-t pt-4 px-1">
+            <div className="space-y-2">
+              <Label htmlFor="notes-calendar" className="text-sm font-medium">
+                Notes (Optional)
+              </Label>
+              <Textarea
+                id="notes-calendar"
+                placeholder="Add any notes or reminders for this date..."
+                value={notesInDialog}
+                onChange={(e) => setNotesInDialog(e.target.value)}
+                disabled={isSaving}
+                className="min-h-[80px]"
+              />
+              <p className="text-xs text-muted-foreground">
+                Add any additional information or reminders you want to remember for this date.
+              </p>
+            </div>
+          </div>
           <div className="flex justify-end gap-3">
             <Button
               variant="outline"
@@ -1621,6 +1705,7 @@ export default function CalendarPage() {
                 }
                 setIsPartOfActivePassageInDialog(false);
                 setIsWatchInDialog(false);
+                setNotesInDialog('');
               }}
               className="rounded-xl"
             >

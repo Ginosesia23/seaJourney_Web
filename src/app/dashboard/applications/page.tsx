@@ -2398,7 +2398,7 @@ export default function ApplicationsPage() {
       vessel: {
         name: vessel.name,
         type: vessel.type || null,
-        officialNumber: vessel.officialNumber || null,
+                    officialNumber: vessel.officialNumber || vessel.imo || null,
         flag_state: vessel.flag || vessel.flag_state || null,
         length_m: vessel.length_m || null,
         gross_tonnage: vessel.gross_tonnage || null,

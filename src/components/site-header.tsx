@@ -2,8 +2,10 @@
 
 import * as React from "react"
 import { useMemo } from "react"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { Info } from "lucide-react"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -30,6 +32,7 @@ const routeLabels: Record<string, string> = {
   "/dashboard/applications": "Applications",
   "/dashboard/export": "Export",
   "/dashboard/world-map": "World Map",
+  "/dashboard/calculations": "How Calculations Work",
 }
 
 function getBreadcrumbs(pathname: string) {
@@ -69,6 +72,7 @@ interface SiteHeaderProps extends React.ComponentProps<"header"> {
 
 export function SiteHeader({ className, userProfile, ...props }: SiteHeaderProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const breadcrumbs = getBreadcrumbs(pathname)
 
   const getRoleLabel = (role?: string) => {
@@ -144,6 +148,16 @@ export function SiteHeader({ className, userProfile, ...props }: SiteHeaderProps
           >
             BETA
           </Badge>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-full"
+            onClick={() => router.push('/dashboard/calculations')}
+            title="How calculations work"
+          >
+            <Info className="h-4 w-4" />
+            <span className="sr-only">View calculation information</span>
+          </Button>
           <Badge 
             variant="outline" 
             className={`rounded-full px-4 py-1.5 text-sm font-medium border hidden sm:flex ${getRoleBadgeClassName(userProfile?.role)}`}

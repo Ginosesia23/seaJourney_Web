@@ -90,7 +90,6 @@ interface SortableRowProps {
     onToggleOnboard: (assignmentId: string, currentStatus: boolean, userId: string) => void;
     onToggleRowExpansion: (member: CrewMemberWithAssignment) => void;
     onRequestAccess: (userId: string) => void;
-    debugMode: boolean;
 }
 
 function SortableRow({
@@ -105,7 +104,6 @@ function SortableRow({
     onToggleOnboard,
     onToggleRowExpansion,
     onRequestAccess,
-    debugMode,
 }: SortableRowProps) {
     const { profile, assignment } = member;
     const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
@@ -166,15 +164,6 @@ function SortableRow({
         >
             <TableCell className="font-medium">
                 <div className="flex items-center gap-3">
-                    {debugMode && (
-                        <div
-                            {...attributes}
-                            {...listeners}
-                            className="cursor-grab active:cursor-grabbing p-1 hover:bg-muted rounded"
-                        >
-                            <GripVertical className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                    )}
                     <Avatar className="h-9 w-9">
                         <AvatarImage src={profile.profilePicture} alt={displayName} />
                         <AvatarFallback className="bg-primary/20">
@@ -183,11 +172,6 @@ function SortableRow({
                     </Avatar>
                     <div>
                         <div className="font-medium">{displayName}</div>
-                        {debugMode && (
-                            <div className="text-xs text-muted-foreground">
-                                Index: {index} | ID: {profile.id.slice(0, 8)}
-                            </div>
-                        )}
                     </div>
                 </div>
             </TableCell>
@@ -1228,15 +1212,6 @@ export default function CrewPage() {
                         </p>
                     </div>
                     <div className="flex gap-2 items-center">
-                        <Button
-                            variant={debugMode ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => setDebugMode(!debugMode)}
-                            className="rounded-xl"
-                        >
-                            <Bug className="h-4 w-4 mr-2" />
-                            {debugMode ? 'Debug ON' : 'Debug OFF'}
-                        </Button>
                         <div className="relative w-full sm:max-w-xs">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
@@ -1437,20 +1412,6 @@ export default function CrewPage() {
                 </div>
             )}
 
-            {/* Debug Info Display */}
-            {debugMode && dragCoordinates && (
-                <Card className="rounded-xl border border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
-                    <CardContent className="p-4">
-                        <div className="text-sm font-mono">
-                            <div><strong>Drag Coordinates:</strong></div>
-                            <div>X: {dragCoordinates.x.toFixed(2)}px</div>
-                            <div>Y: {dragCoordinates.y.toFixed(2)}px</div>
-                            <div>Index: {dragCoordinates.index}</div>
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
-
             <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
@@ -1463,7 +1424,6 @@ export default function CrewPage() {
                         <Table>
                         <TableHeader>
                             <TableRow>
-                                    {debugMode && <TableHead className="w-[40px]"></TableHead>}
                                 <TableHead>User</TableHead>
                                 <TableHead>Email</TableHead>
                                 {currentUserProfile?.role === 'admin' && <TableHead>Vessel</TableHead>}
@@ -1510,13 +1470,12 @@ export default function CrewPage() {
                                                 onToggleOnboard={handleToggleOnboard}
                                                 onToggleRowExpansion={toggleRowExpansion}
                                                 onRequestAccess={handleRequestAccess}
-                                                debugMode={debugMode}
                                             />
                                             {currentUserProfile?.role === 'vessel' && 
                                              member.accessRequest?.status === 'approved' && 
                                              expandedRows.has(member.profile.id) && (
                                                 <TableRow key={`${member.profile.id}-expanded`}>
-                                                    <TableCell colSpan={debugMode ? 8 : 7} className="bg-muted/50">
+                                                    <TableCell colSpan={7} className="bg-muted/50">
                                                         {loadingSeaTime.has(member.profile.id) ? (
                                                             <div className="flex items-center justify-center py-8">
                                                                 <Loader2 className="h-6 w-6 animate-spin text-primary" />

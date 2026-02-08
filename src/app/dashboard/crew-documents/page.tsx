@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { FileText, Download, Loader2, Search, Users, User as UserIcon, Ship, Calendar as CalendarIcon, CheckCircle2, AlertCircle, Plus, ExternalLink } from 'lucide-react';
-import { format as formatDate, parse } from 'date-fns';
+import { format as formatDate, parse, addDays } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Label } from '@/components/ui/label';
@@ -67,6 +67,7 @@ export default function CrewDocumentsPage() {
     } | null>(null);
     const [isSendingToCaptain, setIsSendingToCaptain] = useState(false);
     const [activeCaptain, setActiveCaptain] = useState<{ id: string; name: string } | null>(null);
+    const [selectedDataSource, setSelectedDataSource] = useState<'crew' | 'vessel' | null>(null);
 
     // The user's own profile is needed to check their role and active vessel.
     const { data: currentUserProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -667,7 +668,7 @@ export default function CrewDocumentsPage() {
                 vessel: {
                     name: vessel.name,
                     type: vessel.type || null,
-                    officialNumber: vessel.officialNumber || null,
+                    officialNumber: vessel.officialNumber || vessel.imo || null,
                     flag_state: vessel.flag || vessel.flag_state || null,
                     length_m: vessel.length_m || null,
                     gross_tonnage: vessel.gross_tonnage || null,
@@ -763,9 +764,12 @@ export default function CrewDocumentsPage() {
             // Check if crew member has approved access - if yes, use their logs; if no, use vessel logs
             const hasApprovedAccess = selectedMemberData.hasApprovedAccess;
             
+            // For vessel managers with approved access, use selected data source (default to crew if not set)
+            const useCrewLogs = hasApprovedAccess && (selectedDataSource === null || selectedDataSource === 'crew');
+            
             let filteredLogs: StateLog[] = [];
             
-            if (hasApprovedAccess) {
+            if (useCrewLogs) {
                 // Fetch crew member's own state logs (using approved access)
                 // This ensures we get their individual logs including watch days and part-of-active-passage flags
                 console.log('[CREW DOCUMENTS] Using crew member logs (approved access):', {
@@ -853,9 +857,11 @@ export default function CrewDocumentsPage() {
                 officerPositionsMatch: officerPositions.filter(op => position.includes(op))
             });
 
-            // Fetch watch logs if officer AND has approved access (watch logs are user-specific)
+            // Fetch watch logs if officer (watch logs are user-specific and always needed for officers)
+            // Even when using vessel logs as data source, we need watch logs for officers because
+            // watch days count as "at sea" days for officers regardless of data source
             let watchDates = new Set<string>();
-            if (hasApprovedAccess && isOfficer && selectedMemberData.profile.id && currentUserProfile.activeVesselId) {
+            if (isOfficer && selectedMemberData.profile.id && currentUserProfile.activeVesselId) {
                 try {
                     const { data: watchLogs, error: watchError } = await supabase
                         .from('watch_logs')
@@ -872,7 +878,9 @@ export default function CrewDocumentsPage() {
                         });
                         console.log('[CREW DOCUMENTS] Found watch dates for officer:', {
                             watchDatesCount: watchDates.size,
-                            watchDates: Array.from(watchDates).slice(0, 10) // Log first 10
+                            watchDates: Array.from(watchDates).slice(0, 10), // Log first 10
+                            dataSource: useCrewLogs ? 'crew' : 'vessel',
+                            isOfficer
                         });
                     } else if (watchError) {
                         console.error('[CREW DOCUMENTS] Error fetching watch logs:', watchError);
@@ -880,8 +888,8 @@ export default function CrewDocumentsPage() {
                 } catch (error) {
                     console.error('[CREW DOCUMENTS] Exception fetching watch logs:', error);
                 }
-            } else if (isOfficer && !hasApprovedAccess) {
-                console.log('[CREW DOCUMENTS] Skipping watch logs - using vessel logs (no approved access)');
+            } else if (isOfficer) {
+                console.log('[CREW DOCUMENTS] Skipping watch logs - crew member is not an officer or missing required data');
             }
 
             // Extract part of active passage dates
@@ -893,33 +901,125 @@ export default function CrewDocumentsPage() {
             });
 
             // Calculate sea time using standby calculation
-            const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(
+            const { totalSeaDays, totalStandbyDays, voyages, standbyPeriods } = calculateStandbyDays(
                 filteredLogs,
                 watchDates.size > 0 ? watchDates : undefined,
                 partOfActivePassageDates.size > 0 ? partOfActivePassageDates : undefined
             );
 
-            // Calculate other day counts
-            const yardDays = filteredLogs.filter(log => log.state === 'in-yard').length;
-            const leaveDays = filteredLogs.filter(log => log.state === 'on-leave').length;
+            // Create a set of dates within the selected range and a map of logs by date
+            const dateRangeSet = new Set<string>();
+            const logMap = new Map<string, StateLog>();
+            filteredLogs.forEach(log => {
+                logMap.set(log.date, log);
+            });
+            
+            const startDateObj = parse(startDateStr, 'yyyy-MM-dd', new Date());
+            const endDateObj = parse(endDateStr, 'yyyy-MM-dd', new Date());
+            let currentDate = new Date(startDateObj);
+            while (currentDate <= endDateObj) {
+                dateRangeSet.add(formatDate(currentDate, 'yyyy-MM-dd'));
+                currentDate = addDays(currentDate, 1);
+            }
+
+            // Create sets for quick lookup
+            const voyageDatesSet = new Set<string>();
+            voyages.forEach(voyage => {
+                let date = new Date(voyage.startDate);
+                const endDate = new Date(voyage.endDate);
+                while (date <= endDate) {
+                    voyageDatesSet.add(formatDate(date, 'yyyy-MM-dd'));
+                    date = addDays(date, 1);
+                }
+            });
+
+            const standbyDatesSet = new Set<string>();
+            standbyPeriods.forEach(period => {
+                let date = new Date(period.startDate);
+                const endDate = new Date(period.endDate);
+                let counted = 0;
+                const maxCounted = period.countedDays;
+                while (date <= endDate && counted < maxCounted) {
+                    const dateStr = formatDate(date, 'yyyy-MM-dd');
+                    const log = logMap.get(dateStr);
+                    if (log && (log.state === 'in-port' || log.state === 'at-anchor')) {
+                        const hasWatch = watchDates?.has(dateStr);
+                        const isPartOfPassage = partOfActivePassageDates?.has(dateStr);
+                        if (!hasWatch && !isPartOfPassage) {
+                            standbyDatesSet.add(dateStr);
+                            counted++;
+                        }
+                    }
+                    date = addDays(date, 1);
+                }
+            });
+
+            // Count each day in the date range exactly once
+            let finalSeaDays = 0;
+            let finalStandbyDays = 0;
+            let yardDays = 0;
+            let leaveDays = 0;
+
+            dateRangeSet.forEach(dateStr => {
+                const log = logMap.get(dateStr);
+                if (!log) return; // Skip if no log for this date
+
+                // Check if it's a yard day or leave day
+                if (log.state === 'in-yard') {
+                    yardDays++;
+                    return;
+                }
+                if (log.state === 'on-leave') {
+                    leaveDays++;
+                    return;
+                }
+
+                // Check if it's part of a voyage (underway days count as sea days)
+                if (voyageDatesSet.has(dateStr)) {
+                    finalSeaDays++;
+                    return;
+                }
+
+                // Check if it's a watch day (counts as sea day for officers)
+                if (watchDates?.has(dateStr) && (log.state === 'in-port' || log.state === 'at-anchor')) {
+                    finalSeaDays++;
+                    return;
+                }
+
+                // Check if it's part of active passage (counts as sea day)
+                if (partOfActivePassageDates?.has(dateStr) && log.state !== 'underway') {
+                    finalSeaDays++;
+                    return;
+                }
+
+                // Check if it's a standby day
+                if (standbyDatesSet.has(dateStr)) {
+                    finalStandbyDays++;
+                    return;
+                }
+            });
             
             // Calculate total_days as the sum to satisfy the database constraint
             // The constraint requires: total_days = at_sea_days + standby_days + yard_days + leave_days
-            const totalDays = totalSeaDays + totalStandbyDays + yardDays + leaveDays;
+            const totalDays = finalSeaDays + finalStandbyDays + yardDays + leaveDays;
 
             console.log('[CREW DOCUMENTS] Day counts calculation:', {
-                totalSeaDays,
-                totalStandbyDays,
+                dateRange: { start: startDateStr, end: endDateStr },
+                dateRangeDays: dateRangeSet.size,
+                filteredLogsLength: filteredLogs.length,
+                rawTotalSeaDays: totalSeaDays,
+                rawTotalStandbyDays: totalStandbyDays,
+                constrainedSeaDays: finalSeaDays,
+                constrainedStandbyDays: finalStandbyDays,
                 yardDays,
                 leaveDays,
                 totalDays,
-                filteredLogsLength: filteredLogs.length,
             });
 
             setCalculatedSeaTime({
                 totalDays,
-                atSeaDays: totalSeaDays,
-                standbyDays: totalStandbyDays,
+                atSeaDays: finalSeaDays,
+                standbyDays: finalStandbyDays,
                 yardDays,
                 leaveDays,
                 isOfficer,
@@ -1015,7 +1115,7 @@ export default function CrewDocumentsPage() {
                 vessel: {
                     name: vessel.name,
                     type: vessel.type || null,
-                    officialNumber: vessel.officialNumber || null,
+                    officialNumber: vessel.officialNumber || vessel.imo || null,
                     flag_state: vessel.flag || vessel.flag_state || null,
                     length_m: vessel.length_m || null,
                     gross_tonnage: vessel.gross_tonnage || null,
@@ -1113,6 +1213,11 @@ export default function CrewDocumentsPage() {
                 originalTotalDays: calculatedSeaTime.totalDays,
             });
 
+            // Determine data source: use selectedDataSource if approved access, otherwise default to 'vessel'
+            const dataSource = selectedMemberData.hasApprovedAccess 
+                ? (selectedDataSource || 'crew') 
+                : 'vessel';
+
             // Create testimonial with status 'pending_captain' - it will go to captain's inbox
             const testimonialData = {
                 user_id: selectedMemberData.profile.id, // Crew member's ID
@@ -1137,6 +1242,7 @@ export default function CrewDocumentsPage() {
                 official_reference: null,
                 notes: `Generated by vessel manager on ${formatDate(new Date(), 'dd MMMM yyyy')}. Awaiting captain approval.`,
                 testimonial_code: null, // Will be auto-generated when approved
+                data_source: dataSource as 'crew' | 'vessel',
             };
 
             console.log('[CREW DOCUMENTS] Creating testimonial for captain approval:', {
@@ -1245,7 +1351,7 @@ export default function CrewDocumentsPage() {
             const seaServiceRecord = {
                 vesselName: vessel.name || 'Unknown Vessel',
                 flag: vessel.flag || vessel.flag_state || '—',
-                imoNumber: vessel.officialNumber || undefined,
+                imoNumber: vessel.officialNumber || vessel.imo || undefined,
                 grossTonnage: vessel.gross_tonnage || undefined,
                 kilowatts: undefined, // Not stored in vessel data
                 length: vessel.length_m || undefined,
@@ -1469,7 +1575,10 @@ export default function CrewDocumentsPage() {
                                                             ? 'bg-green-50 dark:bg-green-950/20'
                                                             : 'hover:bg-muted/50'
                                                     }`}
-                                                    onClick={() => setSelectedCrewMember(member.profile.id)}
+                                                    onClick={() => {
+                                                        setSelectedCrewMember(member.profile.id);
+                                                        setSelectedDataSource(null);
+                                                    }}
                                                 >
                                                     <TableCell>
                                                         <div className="flex items-center gap-3">
@@ -1515,11 +1624,11 @@ export default function CrewDocumentsPage() {
                                                     <TableCell>
                                                         {hasApprovedAccess ? (
                                                             <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
-                                                                Crew Member Logs
+                                                                Crew
                                                             </Badge>
                                                         ) : (
                                                             <Badge variant="outline" className="border-orange-500 text-orange-700 bg-orange-50 dark:bg-orange-950/30 dark:text-orange-400">
-                                                                Vessel Logs
+                                                                Vessel
                                                             </Badge>
                                                         )}
                                                     </TableCell>
@@ -1548,6 +1657,7 @@ export default function CrewDocumentsPage() {
                                 variant="outline"
                                 onClick={() => {
                                     setSelectedCrewMember(null);
+                                    setSelectedDataSource(null);
                                     setShowGenerateForm(false);
                                     setStartDate(undefined);
                                     setEndDate(undefined);
@@ -1676,7 +1786,7 @@ export default function CrewDocumentsPage() {
                                     <p className="text-sm text-muted-foreground mt-1">
                                         {selectedMemberData?.hasApprovedAccess ? (
                                             <>
-                                                Select a date range and generate a document using the crew member's own sea time logs (includes watch days for officers).
+                                                Select a date range and choose a data source to generate a document. You can use either the crew member's individual logs (includes watch days for officers) or vessel logs.
                                             </>
                                         ) : (
                                             <>
@@ -1766,6 +1876,29 @@ export default function CrewDocumentsPage() {
                                                 </div>
                                             </div>
 
+                                            {selectedMemberData?.hasApprovedAccess && (
+                                                <div className="space-y-2">
+                                                    <Label>Data Source</Label>
+                                                    <Select
+                                                        value={selectedDataSource || 'crew'}
+                                                        onValueChange={(value) => setSelectedDataSource(value as 'crew' | 'vessel')}
+                                                    >
+                                                        <SelectTrigger className="w-full">
+                                                            <SelectValue placeholder="Select data source" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="crew">Crew</SelectItem>
+                                                            <SelectItem value="vessel">Vessel</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {selectedDataSource === 'crew' || selectedDataSource === null
+                                                            ? 'Using crew member\'s individual logs (includes watch days for officers)'
+                                                            : 'Using vessel logs (watch days for officers are still included in calculations)'}
+                                                    </p>
+                                                </div>
+                                            )}
+
                                             {startDate && endDate && (
                                                 <div className="flex items-center gap-2">
                                                     <Button
@@ -1790,15 +1923,18 @@ export default function CrewDocumentsPage() {
                                                         <div className="flex items-center justify-between mb-3">
                                                             <h4 className="font-semibold">Calculated Sea Time</h4>
                                                             <div className="flex items-center gap-2">
-                                                                {selectedMemberData?.hasApprovedAccess ? (
-                                                                    <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
-                                                                        Using Crew Logs
-                                                                    </Badge>
-                                                                ) : (
-                                                                    <Badge variant="outline" className="border-orange-500 text-orange-700 bg-orange-50 dark:bg-orange-950/30 dark:text-orange-400">
-                                                                        Using Vessel Logs
-                                                                    </Badge>
-                                                                )}
+                                                                {(() => {
+                                                                    const useCrew = selectedMemberData?.hasApprovedAccess && (selectedDataSource === null || selectedDataSource === 'crew');
+                                                                    return useCrew ? (
+                                                                        <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
+                                                                            Using Crew
+                                                                        </Badge>
+                                                                    ) : (
+                                                                        <Badge variant="outline" className="border-orange-500 text-orange-700 bg-orange-50 dark:bg-orange-950/30 dark:text-orange-400">
+                                                                            Using Vessel
+                                                                        </Badge>
+                                                                    );
+                                                                })()}
                                                                 {calculatedSeaTime.isOfficer && (
                                                                     <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400">
                                                                         Officer
@@ -1814,7 +1950,7 @@ export default function CrewDocumentsPage() {
                                                             <div>
                                                                 <span className="text-muted-foreground">At Sea Days:</span>
                                                                 <span className="ml-2 font-medium">{calculatedSeaTime.atSeaDays}</span>
-                                                                {calculatedSeaTime.isOfficer && selectedMemberData?.hasApprovedAccess && (
+                                                                {calculatedSeaTime.isOfficer && (
                                                                     <span className="ml-2 text-xs text-muted-foreground">(includes watch days)</span>
                                                                 )}
                                                             </div>
@@ -1833,7 +1969,7 @@ export default function CrewDocumentsPage() {
                                                         </div>
                                                         {!selectedMemberData?.hasApprovedAccess && (
                                                             <p className="text-xs text-orange-600 dark:text-orange-400 mt-3">
-                                                                ⚠️ Using vessel logs. Request access on the Crew page to use individual logs with watch days for more accurate calculations.
+                                                                ⚠️ Using vessel. Request access on the Crew page to use individual logs with watch days for more accurate calculations.
                                                             </p>
                                                         )}
                                                         {calculatedSeaTime.isOfficer && selectedMemberData?.hasApprovedAccess && (

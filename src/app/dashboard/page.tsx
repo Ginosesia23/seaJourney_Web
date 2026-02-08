@@ -1471,7 +1471,7 @@ export default function DashboardPage() {
 
         {/* Key Metrics Grid */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/10">
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Crew Members</CardTitle>
               <div className="h-10 w-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
@@ -1487,7 +1487,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/20 dark:to-green-900/10">
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Total Sea Days</CardTitle>
               <div className="h-10 w-10 rounded-xl bg-green-500/20 flex items-center justify-center">
@@ -1505,7 +1505,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/10">
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">This Month</CardTitle>
               <div className="h-10 w-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
@@ -1523,7 +1523,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/20 dark:to-orange-900/10">
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Pending Testimonials</CardTitle>
               <div className="h-10 w-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
@@ -1591,7 +1591,7 @@ export default function DashboardPage() {
           <Card className="rounded-xl border shadow-sm">
             <CardHeader>
               <CardTitle className="text-lg font-semibold">Sea Time Summary</CardTitle>
-              <CardDescription>MCA/PYA compliant calculations</CardDescription>
+              <CardDescription>MCA/PYA compliant calculation methods</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -1617,7 +1617,7 @@ export default function DashboardPage() {
                       {vesselStats.totalStandbyDays}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground">MCA/PYA compliant</p>
+                  <p className="text-xs text-muted-foreground">MCA/PYA compliant calculations</p>
                 </div>
                 <div className="pt-2 border-t">
                   <div className="flex items-center justify-between">

@@ -96,6 +96,7 @@ function transformStateLog(dbLog: any): StateLog {
     state: dbLog.state,
     date: dateValue,
     isPartOfActivePassage: dbLog.is_part_of_active_passage || false,
+    notes: dbLog.notes || undefined,
     createdAt: dbLog.created_at,
     updatedAt: dbLog.updated_at,
   };
@@ -201,6 +202,10 @@ export async function createSeaServiceRecord(
     ? recordData.date.split('T')[0] // Extract date part if ISO string
     : recordData.date.toISOString().split('T')[0];
 
+  // If state is 'underway', automatically set is_part_of_active_passage to false
+  // Underway already means the vessel is at sea, so marking as part of passage is redundant
+  const isUnderway = recordData.state === 'underway';
+  
   // Use upsert to create or update (only state can change)
   const { data, error } = await supabase
     .from('daily_state_logs')
@@ -209,6 +214,7 @@ export async function createSeaServiceRecord(
       vessel_id: recordData.vesselId,
       date: dateStr,
       state: recordData.state,
+      is_part_of_active_passage: isUnderway ? false : undefined, // Only set if underway, otherwise leave existing value
     }, {
       onConflict: 'user_id,vessel_id,date',
       ignoreDuplicates: false
@@ -229,6 +235,7 @@ export async function createSeaServiceRecord(
 
 /**
  * Update only the state of a daily state log record
+ * If state is 'underway', automatically set is_part_of_active_passage to false
  */
 export async function updateDailyStateLogState(
   supabase: SupabaseClient,
@@ -237,9 +244,16 @@ export async function updateDailyStateLogState(
   date: string,
   newState: string
 ) {
+  // If state is 'underway', automatically set is_part_of_active_passage to false
+  const isUnderway = newState === 'underway';
+  const updateData: { state: string; is_part_of_active_passage?: boolean } = { state: newState };
+  if (isUnderway) {
+    updateData.is_part_of_active_passage = false;
+  }
+  
   const { data, error } = await supabase
     .from('daily_state_logs')
-    .update({ state: newState })
+    .update(updateData)
     .eq('user_id', userId)
     .eq('vessel_id', vesselId)
     .eq('date', date)
@@ -259,6 +273,7 @@ export async function updateDailyStateLogState(
 
 /**
  * Create or update a single state log entry
+ * If state is 'underway', automatically set is_part_of_active_passage to false
  */
 export async function upsertStateLog(
   supabase: SupabaseClient,
@@ -267,6 +282,9 @@ export async function upsertStateLog(
   date: string,
   state: string
 ) {
+  // If state is 'underway', automatically set is_part_of_active_passage to false
+  const isUnderway = state === 'underway';
+  
   const { data, error } = await supabase
     .from('daily_state_logs')
     .upsert(
@@ -275,6 +293,7 @@ export async function upsertStateLog(
         vessel_id: vesselId,
         date: date,
         state: state,
+        is_part_of_active_passage: isUnderway ? false : undefined, // Only set if underway, otherwise leave existing value
       },
       {
         onConflict: 'user_id,vessel_id,date',
@@ -298,22 +317,32 @@ export async function upsertStateLog(
 
 /**
  * Update state logs in batch
+ * If state is 'underway', automatically set is_part_of_active_passage to false
+ * (underway already means at sea, so marking as part of passage would be redundant)
  */
 export async function updateStateLogsBatch(
   supabase: SupabaseClient,
   userId: string,
   vesselId: string,
-  logs: Array<{ date: string; state: string; is_part_of_active_passage?: boolean }>
+  logs: Array<{ date: string; state: string; is_part_of_active_passage?: boolean; notes?: string }>
 ) {
   // Use upsert to handle both inserts and updates
   const { error } = await supabase.from('daily_state_logs').upsert(
-    logs.map((log) => ({
-      user_id: userId,
-      vessel_id: vesselId,
-      date: log.date,
-      state: log.state,
-      is_part_of_active_passage: log.is_part_of_active_passage ?? false,
-    })),
+    logs.map((log) => {
+      // If state is 'underway', automatically set is_part_of_active_passage to false
+      // Underway already means the vessel is at sea, so marking as part of passage is redundant
+      const isUnderway = log.state === 'underway';
+      const isPartOfActivePassage = isUnderway ? false : (log.is_part_of_active_passage ?? false);
+      
+      return {
+        user_id: userId,
+        vessel_id: vesselId,
+        date: log.date,
+        state: log.state,
+        is_part_of_active_passage: isPartOfActivePassage,
+        notes: log.notes || null,
+      };
+    }),
     {
       onConflict: 'user_id,vessel_id,date',
     }

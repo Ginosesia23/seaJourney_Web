@@ -14,6 +14,7 @@ import {
   Sun,
   Laptop,
   User,
+  Info,
 } from 'lucide-react';
 import { useSupabase, useUser } from '@/supabase';
 import { Avatar, AvatarFallback } from '../ui/avatar';
@@ -138,6 +139,16 @@ export default function DashboardHeader({ userProfile }: { userProfile: UserProf
         >
           BETA
         </Badge>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-full"
+          onClick={() => router.push('/dashboard/calculations')}
+          title="How calculations work"
+        >
+          <Info className="h-4 w-4" />
+          <span className="sr-only">View calculation information</span>
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="rounded-full">
