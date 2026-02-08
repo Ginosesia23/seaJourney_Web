@@ -13,6 +13,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
   Check,
   Download,
@@ -22,6 +24,8 @@ import {
   Shield,
   TrendingUp,
   ArrowRight,
+  Ship,
+  User,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useUser } from '@/supabase';
@@ -208,6 +212,7 @@ export default function OffersPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [purchasingPlan, setPurchasingPlan] = useState<string | null>(null);
+  const [showVesselPlans, setShowVesselPlans] = useState(false);
   const redirectingRef = useRef(false);
 
   const { user, isUserLoading } = useUser();
@@ -236,6 +241,13 @@ export default function OffersPage() {
   const userRole = userProfile?.role || 'crew';
   const isVesselAccount = userRole?.toLowerCase() === 'vessel';
   
+  // Initialize toggle based on user role, but allow manual switching
+  useEffect(() => {
+    if (userProfile && !showVesselPlans && isVesselAccount) {
+      setShowVesselPlans(true);
+    }
+  }, [userProfile, isVesselAccount]);
+  
   // Log for debugging
   useEffect(() => {
     if (userProfile) {
@@ -249,8 +261,8 @@ export default function OffersPage() {
     }
   }, [userProfile, userProfileRaw, userRole, isVesselAccount]);
   
-  // Select appropriate plan templates based on role
-  const selectedPlanTemplates = isVesselAccount ? vesselPlanTemplates : crewPlanTemplates;
+  // Select appropriate plan templates based on toggle state
+  const selectedPlanTemplates = showVesselPlans ? vesselPlanTemplates : crewPlanTemplates;
 
   // Format subscription tier for display
   const formatTierName = (tier: string) => {
@@ -330,8 +342,8 @@ export default function OffersPage() {
       
       try {
         console.log('[OFFERS PAGE] Calling getStripeProducts()...');
-        console.log('[OFFERS PAGE] Is vessel account:', isVesselAccount);
-        const stripePrices: StripeProduct[] = await getStripeProducts(isVesselAccount);
+        console.log('[OFFERS PAGE] Show vessel plans:', showVesselPlans);
+        const stripePrices: StripeProduct[] = await getStripeProducts(showVesselPlans);
 
         console.log('[OFFERS PAGE] ✅ Received prices from Stripe:', stripePrices.length);
         console.log('[OFFERS PAGE] Prices received:', stripePrices.map((p: any) => ({
@@ -355,24 +367,35 @@ export default function OffersPage() {
           return lower;
         };
 
+        // Helper to normalize tier names for matching
+        const normalizeTierName = (tier: string): string => {
+          return tier
+            .toLowerCase()
+            .replace(/^(sj_|sea_journey_)/i, '') // Remove common prefixes
+            .trim();
+        };
+
         console.log('[OFFERS PAGE] Mapping prices to plan templates...');
-        console.log('[OFFERS PAGE] User role:', isVesselAccount ? 'vessel' : 'crew');
+        console.log('[OFFERS PAGE] Plan type:', showVesselPlans ? 'vessel' : 'crew');
         console.log('[OFFERS PAGE] Available templates:', selectedPlanTemplates.map(t => t.name));
         
         const mappedPlans: Plan[] = selectedPlanTemplates.map((template) => {
           const templateTier = getTemplateTierKey(template.name);
-          console.log(`[OFFERS PAGE] Mapping template "${template.name}" (tier key: "${templateTier}")...`);
+          const normalizedTemplateTier = normalizeTierName(templateTier);
+          console.log(`[OFFERS PAGE] Mapping template "${template.name}" (tier key: "${templateTier}", normalized: "${normalizedTemplateTier}")...`);
 
           const matchingPrice = stripePrices.find((price) => {
             const anyPrice: any = price;
-            const priceTier = (
+            const rawPriceTier = (
               anyPrice.metadata?.tier ||
+              anyPrice.metadata?.price_tier ||
               anyPrice.nickname ||
               ''
-            ).toLowerCase();
+            ).toString();
+            const priceTier = normalizeTierName(rawPriceTier);
 
             // Match vessel plans with vessel prices, crew plans with crew prices
-            const isVesselPrice = priceTier.includes('vessel');
+            const isVesselPrice = priceTier.includes('vessel') || rawPriceTier.toLowerCase().includes('vessel');
             const isVesselTemplate = templateTier.includes('vessel');
             
             // Only match if both are vessel or both are crew
@@ -380,16 +403,22 @@ export default function OffersPage() {
               return false;
             }
 
-            const match =
-              priceTier === templateTier ||
-              priceTier.includes(templateTier) ||
-              templateTier.includes(priceTier);
+            // Try multiple matching strategies
+            const exactMatch = priceTier === normalizedTemplateTier || priceTier === templateTier;
+            const containsMatch = priceTier.includes(normalizedTemplateTier) || normalizedTemplateTier.includes(priceTier);
+            // Special handling for "pro" vs "professional"
+            const proMatch = (normalizedTemplateTier === 'professional' && priceTier === 'pro') ||
+                            (normalizedTemplateTier === 'pro' && priceTier === 'professional');
+            
+            const match = exactMatch || containsMatch || proMatch;
 
             if (match) {
               console.log(`[OFFERS PAGE] ✅ Found match for "${template.name}":`, {
                 price_id: anyPrice.id,
-                price_tier: priceTier,
+                price_tier: rawPriceTier,
+                normalized_price_tier: priceTier,
                 template_tier: templateTier,
+                normalized_template_tier: normalizedTemplateTier,
               });
             }
 
@@ -417,11 +446,18 @@ export default function OffersPage() {
             return mappedPlan;
           }
 
-          console.log(`[OFFERS PAGE] ⚠️ No Stripe price found for "${template.name}", using template defaults`);
+          console.log(`[OFFERS PAGE] ⚠️ No Stripe price found for "${template.name}"`);
+          console.log(`[OFFERS PAGE] Available Stripe prices:`, stripePrices.map((p: any) => ({
+            id: p.id,
+            tier: p.metadata?.tier || p.nickname || 'unknown',
+            amount: p.unit_amount ? `£${(p.unit_amount / 100).toFixed(2)}` : 'N/A',
+          })));
           
-          // Fallback to template values if no Stripe price found
+          // Don't use template price - show unavailable instead
           return {
             ...template,
+            price: 'Price unavailable',
+            priceSuffix: '',
             priceId: undefined,
           };
         });
@@ -455,7 +491,7 @@ export default function OffersPage() {
         console.error('[OFFERS PAGE] Error code:', error?.code);
         console.error('[OFFERS PAGE] Error stack:', error?.stack);
         console.error('[OFFERS PAGE] Full error:', error);
-        console.error('[OFFERS PAGE] Is vessel account:', isVesselAccount);
+        console.error('[OFFERS PAGE] Show vessel plans:', showVesselPlans);
         console.error('[OFFERS PAGE] User role:', userProfile?.role);
         console.error('[OFFERS PAGE] ========================================');
         
@@ -483,7 +519,7 @@ export default function OffersPage() {
     };
 
     fetchProducts();
-  }, [toast, hasActiveSub, isVesselAccount, selectedPlanTemplates, isProfileLoading, userProfile]);
+  }, [toast, hasActiveSub, showVesselPlans, selectedPlanTemplates, isProfileLoading, userProfile]);
 
 
   const handlePurchase = async (plan: Plan) => {
@@ -589,23 +625,52 @@ export default function OffersPage() {
                 <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-5xl mb-4">
                   {hasActiveSub && user
                     ? 'Change Your Plan'
-                    : isVesselAccount
+                    : showVesselPlans
                     ? 'Choose Your Vessel Plan'
                     : 'Choose Your Voyage'}
-              </h1>
+                </h1>
                 <p className="mt-6 text-xl leading-8 text-blue-100">
                   {hasActiveSub && user
                     ? 'Upgrade or downgrade your subscription to match your needs. Changes take effect immediately.'
-                    : isVesselAccount
+                    : showVesselPlans
                     ? 'Select the perfect plan for managing your vessel and crew based on your fleet size and crew numbers.'
                     : 'Find the perfect fit for your maritime career and get ready to set sail. Start your journey today.'}
-              </p>
+                </p>
               </motion.div>
             </div>
 
-            <div className={`mx-auto mt-16 grid max-w-lg grid-cols-1 gap-8 lg:max-w-none ${isVesselAccount ? 'lg:grid-cols-2 xl:grid-cols-4' : 'lg:grid-cols-2 xl:grid-cols-3'}`}>
-              {/* Free tier card - only show for crew accounts */}
-              {!isVesselAccount && (
+            {/* Plan Type Toggle */}
+            <div className="flex justify-center mb-12">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+                className="flex items-center gap-4 p-4 rounded-xl border-2 border-white/30 bg-white/10 backdrop-blur-md shadow-lg"
+              >
+                <div className="flex items-center gap-2">
+                  <User className="h-5 w-5 text-white" />
+                  <Label htmlFor="plan-toggle" className="text-white font-medium cursor-pointer">
+                    Crew Plans
+                  </Label>
+                </div>
+                <Switch
+                  id="plan-toggle"
+                  checked={showVesselPlans}
+                  onCheckedChange={setShowVesselPlans}
+                  className="data-[state=checked]:bg-blue-600"
+                />
+                <div className="flex items-center gap-2">
+                  <Ship className="h-5 w-5 text-white" />
+                  <Label htmlFor="plan-toggle" className="text-white font-medium cursor-pointer">
+                    Vessel Plans
+                  </Label>
+                </div>
+              </motion.div>
+            </div>
+
+            <div className={`mx-auto mt-16 grid max-w-lg grid-cols-1 gap-8 lg:max-w-none ${showVesselPlans ? 'lg:grid-cols-2 xl:grid-cols-4' : 'lg:grid-cols-2 xl:grid-cols-3'}`}>
+              {/* Free tier card - only show for crew plans */}
+              {!showVesselPlans && (
               <motion.div
                 initial={{ opacity: 0, y: 30 }}
                 whileInView={{ opacity: 1, y: 0 }}

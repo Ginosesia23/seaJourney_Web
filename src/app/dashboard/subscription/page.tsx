@@ -406,21 +406,29 @@ export default function ManageSubscriptionPage() {
           return lower;
         };
 
+        // Helper to normalize tier names for matching
+        const normalizeTierName = (tier: string): string => {
+          return tier
+            .toLowerCase()
+            .replace(/^(sj_|sea_journey_)/i, '') // Remove common prefixes
+            .trim();
+        };
+
         console.log(`[SUBSCRIPTION PAGE] Mapping prices to plan templates...`);
         console.log(`[SUBSCRIPTION PAGE] Available templates:`, selectedPlanTemplates.map(t => t.name));
 
         const mappedPlans: Plan[] = selectedPlanTemplates.map((template) => {
           const templateTier = getTemplateTierKey(template.name);
+          const normalizedTemplateTier = normalizeTierName(templateTier);
 
           const matchingPrice = stripePrices.find((price: StripePrice) => {
-            const priceTier = (
-              price.metadata?.tier || price.nickname || ''
-            )
-              .toString()
-              .toLowerCase();
+            const rawPriceTier = (
+              price.metadata?.tier || price.metadata?.price_tier || price.nickname || ''
+            ).toString();
+            const priceTier = normalizeTierName(rawPriceTier);
 
             // Match vessel plans with vessel prices, crew plans with crew prices
-            const isVesselPrice = priceTier.includes('vessel');
+            const isVesselPrice = priceTier.includes('vessel') || rawPriceTier.toLowerCase().includes('vessel');
             const isVesselTemplate = templateTier.includes('vessel');
             
             // Only match if both are vessel or both are crew
@@ -428,11 +436,14 @@ export default function ManageSubscriptionPage() {
               return false;
             }
 
-            return (
-              priceTier === templateTier ||
-              priceTier.includes(templateTier) ||
-              templateTier.includes(priceTier)
-            );
+            // Try multiple matching strategies
+            const exactMatch = priceTier === normalizedTemplateTier || priceTier === templateTier;
+            const containsMatch = priceTier.includes(normalizedTemplateTier) || normalizedTemplateTier.includes(priceTier);
+            // Special handling for "pro" vs "professional"
+            const proMatch = (normalizedTemplateTier === 'professional' && priceTier === 'pro') ||
+                            (normalizedTemplateTier === 'pro' && priceTier === 'professional');
+
+            return exactMatch || containsMatch || proMatch;
           });
 
           if (matchingPrice) {
@@ -456,9 +467,17 @@ export default function ManageSubscriptionPage() {
           }
 
           console.log(`[SUBSCRIPTION PAGE] ⚠️ No price match found for template: "${template.name}" (tier key: "${templateTier}")`);
+          console.log(`[SUBSCRIPTION PAGE] Available Stripe prices:`, stripePrices.map((p: StripePrice) => ({
+            id: p.id,
+            tier: p.metadata?.tier || p.nickname || 'unknown',
+            amount: p.unit_amount ? `£${(p.unit_amount / 100).toFixed(2)}` : 'N/A',
+          })));
 
+          // Don't use template price - show unavailable instead
           return {
             ...template,
+            price: 'Price unavailable',
+            priceSuffix: '',
             priceId: undefined,
           };
         });

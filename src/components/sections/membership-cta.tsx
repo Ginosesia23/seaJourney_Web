@@ -19,6 +19,8 @@ import {
   TrendingUp,
   ArrowRight,
   Loader2,
+  Ship,
+  User,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import {
@@ -32,6 +34,8 @@ import { hasActiveSubscription } from '@/supabase/database/subscription-helpers'
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/lib/types';
 import Link from 'next/link';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 interface Plan {
   name: string;
@@ -106,10 +110,92 @@ const planTemplates: Omit<Plan, 'priceId'>[] = [
   },
 ];
 
+// Vessel plan templates - for vessel accounts
+const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
+  {
+    name: 'Vessel Lite',
+    price: '£24.99',
+    priceSuffix: '/ month',
+    description: 'Essential vessel management for small operations.',
+    features: [
+      'Single vessel',
+      'Up to 15 crew members',
+      'Crew management & assignments',
+      'Vessel state tracking',
+      'Digital testimonial approvals',
+      'Crew sea time verification',
+      'Basic reporting & exports',
+    ],
+    cta: 'Get Started',
+    icon: Shield,
+    color: 'blue',
+  },
+  {
+    name: 'Vessel Basic',
+    price: '£49.99',
+    priceSuffix: '/ month',
+    description: 'Advanced vessel management for growing operations.',
+    features: [
+      'Single vessel',
+      'Up to 30 crew members',
+      'All Lite features',
+      'Advanced crew analytics',
+      'Automated testimonial workflows',
+      'Crew certification tracking',
+      'Priority support',
+    ],
+    cta: 'Get Started',
+    highlighted: false,
+    icon: Zap,
+    color: 'purple',
+  },
+  {
+    name: 'Vessel Pro',
+    price: '£99.99',
+    priceSuffix: '/ month',
+    description: 'Complete vessel management solution.',
+    features: [
+      'Single vessel',
+      'Unlimited crew members',
+      'Multiple role assignments',
+      'All Basic features',
+      'Fleet-wide analytics',
+      'Custom reporting & integrations',
+      'Advanced security & compliance',
+    ],
+    cta: 'Get Started',
+    icon: TrendingUp,
+    color: 'orange',
+    comingSoon: false,
+  },
+  {
+    name: 'Vessel Fleet',
+    price: '£249.99',
+    priceSuffix: '/ month',
+    description: 'Enterprise fleet management for large operations.',
+    features: [
+      'Up to 3 vessels (included)',
+      'Unlimited crew members',
+      '£50 per additional vessel',
+      'All Pro features',
+      'Enterprise-grade analytics',
+      'Custom integrations & API access',
+      'Dedicated account manager',
+      '24/7 priority support',
+      'Advanced compliance & security',
+    ],
+    cta: 'Get Started',
+    icon: TrendingUp,
+    color: 'orange',
+    comingSoon: false,
+  },
+];
+
 export default function MembershipCTA() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [purchasingPlan, setPurchasingPlan] = useState<string | null>(null);
+  const [showVesselPlans, setShowVesselPlans] = useState(false);
   const { user } = useUser();
   const router = useRouter();
   const { toast } = useToast();
@@ -156,17 +242,21 @@ export default function MembershipCTA() {
     );
   };
 
+  // Determine which plan templates to use based on toggle
+  const selectedPlanTemplates = showVesselPlans ? vesselPlanTemplates : planTemplates;
+
   useEffect(() => {
     const fetchProducts = async () => {
       console.log('========================================');
       console.log('[MEMBERSHIP CTA] ===== FETCHING PRODUCTS =====');
       console.log('[MEMBERSHIP CTA] Timestamp:', new Date().toISOString());
+      console.log('[MEMBERSHIP CTA] Show vessel plans:', showVesselPlans);
       console.log('========================================');
       
       try {
         console.log('[MEMBERSHIP CTA] Calling getStripeProducts()...');
         // ⚠️ getStripeProducts should now return Stripe Price objects, NOT products
-        const stripePrices: StripeProduct[] = await getStripeProducts();
+        const stripePrices: StripeProduct[] = await getStripeProducts(showVesselPlans);
 
         console.log(
           '[MEMBERSHIP CTA] ✅ Received prices from Stripe:',
@@ -206,29 +296,46 @@ export default function MembershipCTA() {
           return lower; // 'standard', 'premium', etc.
         };
 
-        const mappedPlans: Plan[] = planTemplates.map((template) => {
+        // Helper to normalize tier names for matching
+        const normalizeTierName = (tier: string): string => {
+          return tier
+            .toLowerCase()
+            .replace(/^(sj_|sea_journey_)/i, '') // Remove common prefixes
+            .trim();
+        };
+
+        const mappedPlans: Plan[] = selectedPlanTemplates.map((template) => {
           console.log(
             `[MEMBERSHIP CTA] Mapping template "${template.name}"...`,
           );
 
           const templateTier = getTemplateTierKey(template.name); // e.g. 'standard', 'premium', 'professional'
+          const normalizedTemplateTier = normalizeTierName(templateTier);
 
           const matchingPrice = stripePrices.find((price) => {
             const anyPrice: any = price;
-            const priceTier = (
+            const rawPriceTier = (
               anyPrice.metadata?.tier ||
-              anyPrice.nickname || // fallback to nickname if you like
+              anyPrice.metadata?.price_tier ||
+              anyPrice.nickname ||
               ''
-            ).toLowerCase();
+            ).toString();
+            const priceTier = normalizeTierName(rawPriceTier);
 
-            const match =
-              priceTier === templateTier ||
-              priceTier.includes(templateTier) ||
-              templateTier.includes(priceTier);
+            // Try multiple matching strategies
+            const exactMatch = priceTier === normalizedTemplateTier || priceTier === templateTier;
+            const containsMatch = priceTier.includes(normalizedTemplateTier) || normalizedTemplateTier.includes(priceTier);
+            // Special handling for "pro" vs "professional"
+            const proMatch = (normalizedTemplateTier === 'professional' && priceTier === 'pro') ||
+                            (normalizedTemplateTier === 'pro' && priceTier === 'professional');
+            
+            const match = exactMatch || containsMatch || proMatch;
 
             console.log(`[MEMBERSHIP CTA] Checking price ${anyPrice.id}:`, {
               template_tier: templateTier,
-              price_tier: priceTier,
+              normalized_template_tier: normalizedTemplateTier,
+              price_tier: rawPriceTier,
+              normalized_price_tier: priceTier,
               nickname: anyPrice.nickname,
               metadata: anyPrice.metadata,
               match,
@@ -264,12 +371,19 @@ export default function MembershipCTA() {
           }
 
           console.log(
-            `[MEMBERSHIP CTA] No Stripe price match found for "${template.name}", using template defaults.`,
+            `[MEMBERSHIP CTA] No Stripe price match found for "${template.name}"`,
           );
+          console.log(`[MEMBERSHIP CTA] Available Stripe prices:`, stripePrices.map((p: any) => ({
+            id: p.id,
+            tier: p.metadata?.tier || p.nickname || 'unknown',
+            amount: p.unit_amount ? `£${(p.unit_amount / 100).toFixed(2)}` : 'N/A',
+          })));
 
-          // Fallback to template values if no Stripe price found
+          // Don't use template price - show unavailable instead
           return {
             ...template,
+            price: 'Price unavailable',
+            priceSuffix: '',
             priceId: undefined,
           };
         });
@@ -308,7 +422,7 @@ export default function MembershipCTA() {
         // Fallback to templates without price IDs
         console.log('[MEMBERSHIP CTA] Falling back to template defaults (no price IDs)');
         setPlans(
-          planTemplates.map((t) => ({ ...t, priceId: undefined })),
+          selectedPlanTemplates.map((t) => ({ ...t, priceId: undefined })),
         );
       } finally {
         setIsLoading(false);
@@ -317,7 +431,7 @@ export default function MembershipCTA() {
     };
 
     fetchProducts();
-  }, []);
+  }, [showVesselPlans, selectedPlanTemplates]);
 
   const handlePurchase = async (plan: Plan) => {
     if (plan.comingSoon) {
@@ -414,17 +528,50 @@ export default function MembershipCTA() {
             <h2 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-5xl mb-4">
               {hasActiveSub && user
                 ? 'Change Your Plan'
+                : showVesselPlans
+                ? 'Choose Your Vessel Plan'
                 : 'Become a Member Now'}
             </h2>
             <p className="mt-6 text-xl leading-8 text-blue-100">
               {hasActiveSub && user
                 ? 'Upgrade or downgrade your subscription to match your needs. Changes take effect immediately.'
+                : showVesselPlans
+                ? 'Select the perfect plan for managing your vessel and crew based on your fleet size and crew numbers.'
                 : 'Choose the perfect plan for your maritime career. Start your journey today.'}
             </p>
           </motion.div>
         </div>
 
-        <div className="mx-auto mt-16 grid max-w-lg grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-3">
+        {/* Plan Type Toggle */}
+        <div className="flex justify-center mb-12">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+            className="flex items-center gap-4 p-4 rounded-xl border-2 border-white/30 bg-white/10 backdrop-blur-md shadow-lg"
+          >
+            <div className="flex items-center gap-2">
+              <User className="h-5 w-5 text-white" />
+              <Label htmlFor="plan-toggle-membership" className="text-white font-medium cursor-pointer">
+                Crew Plans
+              </Label>
+            </div>
+            <Switch
+              id="plan-toggle-membership"
+              checked={showVesselPlans}
+              onCheckedChange={setShowVesselPlans}
+              className="data-[state=checked]:bg-blue-600"
+            />
+            <div className="flex items-center gap-2">
+              <Ship className="h-5 w-5 text-white" />
+              <Label htmlFor="plan-toggle-membership" className="text-white font-medium cursor-pointer">
+                Vessel Plans
+              </Label>
+            </div>
+          </motion.div>
+        </div>
+
+        <div className={`mx-auto mt-16 grid max-w-lg grid-cols-1 gap-8 lg:max-w-none ${showVesselPlans ? 'lg:grid-cols-2 xl:grid-cols-4' : 'lg:grid-cols-3'}`}>
           {plans.map((plan, index) => {
             const Icon = plan.icon;
             const isHighlighted = plan.highlighted;
