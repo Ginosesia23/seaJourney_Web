@@ -411,6 +411,7 @@ export default function ManageSubscriptionPage() {
           return tier
             .toLowerCase()
             .replace(/^(sj_|sea_journey_)/i, '') // Remove common prefixes
+            .replace(/\s+/g, '_') // Replace spaces with underscores
             .trim();
         };
 
@@ -442,8 +443,20 @@ export default function ManageSubscriptionPage() {
             // Special handling for "pro" vs "professional"
             const proMatch = (normalizedTemplateTier === 'professional' && priceTier === 'pro') ||
                             (normalizedTemplateTier === 'pro' && priceTier === 'professional');
+            
+            // Handle vessel plan matching: "vessel basic" should match "vessel_basic"
+            // Extract the plan type (basic, lite, pro, fleet) from both
+            const templatePlanType = normalizedTemplateTier.split('_').pop() || '';
+            const pricePlanType = priceTier.split(/[_\s]+/).pop() || '';
+            const vesselMatch = isVesselTemplate && (
+              priceTier === normalizedTemplateTier || // Exact match after normalization
+              normalizedTemplateTier === priceTier || // Reverse exact match
+              (templatePlanType && pricePlanType && templatePlanType === pricePlanType) || // Plan type matches
+              priceTier.includes(templatePlanType) || // Price contains template plan type
+              normalizedTemplateTier.includes(pricePlanType) // Template contains price plan type
+            );
 
-            return exactMatch || containsMatch || proMatch;
+            return exactMatch || containsMatch || proMatch || vesselMatch;
           });
 
           if (matchingPrice) {

@@ -292,6 +292,14 @@ export default function MembershipCTA() {
 
         const getTemplateTierKey = (templateName: string) => {
           const lower = templateName.toLowerCase();
+          // Handle vessel plans
+          if (lower.includes('vessel')) {
+            if (lower.includes('fleet')) return 'vessel_fleet';
+            if (lower.includes('pro')) return 'vessel_pro';
+            if (lower.includes('basic')) return 'vessel_basic';
+            if (lower.includes('lite')) return 'vessel_lite';
+          }
+          // Handle crew plans
           if (lower === 'pro') return 'professional'; // map "Pro" card → professional tier
           return lower; // 'standard', 'premium', etc.
         };
@@ -301,6 +309,7 @@ export default function MembershipCTA() {
           return tier
             .toLowerCase()
             .replace(/^(sj_|sea_journey_)/i, '') // Remove common prefixes
+            .replace(/\s+/g, '_') // Replace spaces with underscores
             .trim();
         };
 
@@ -322,6 +331,15 @@ export default function MembershipCTA() {
             ).toString();
             const priceTier = normalizeTierName(rawPriceTier);
 
+            // Match vessel plans with vessel prices, crew plans with crew prices
+            const isVesselPrice = priceTier.includes('vessel') || rawPriceTier.toLowerCase().includes('vessel');
+            const isVesselTemplate = templateTier.includes('vessel');
+            
+            // Only match if both are vessel or both are crew
+            if (isVesselPrice !== isVesselTemplate) {
+              return false;
+            }
+
             // Try multiple matching strategies
             const exactMatch = priceTier === normalizedTemplateTier || priceTier === templateTier;
             const containsMatch = priceTier.includes(normalizedTemplateTier) || normalizedTemplateTier.includes(priceTier);
@@ -329,7 +347,19 @@ export default function MembershipCTA() {
             const proMatch = (normalizedTemplateTier === 'professional' && priceTier === 'pro') ||
                             (normalizedTemplateTier === 'pro' && priceTier === 'professional');
             
-            const match = exactMatch || containsMatch || proMatch;
+            // Handle vessel plan matching: "vessel basic" should match "vessel_basic"
+            // Extract the plan type (basic, lite, pro, fleet) from both
+            const templatePlanType = normalizedTemplateTier.split('_').pop() || '';
+            const pricePlanType = priceTier.split(/[_\s]+/).pop() || '';
+            const vesselMatch = isVesselTemplate && (
+              priceTier === normalizedTemplateTier || // Exact match after normalization
+              normalizedTemplateTier === priceTier || // Reverse exact match
+              (templatePlanType && pricePlanType && templatePlanType === pricePlanType) || // Plan type matches
+              priceTier.includes(templatePlanType) || // Price contains template plan type
+              normalizedTemplateTier.includes(pricePlanType) // Template contains price plan type
+            );
+            
+            const match = exactMatch || containsMatch || proMatch || vesselMatch;
 
             console.log(`[MEMBERSHIP CTA] Checking price ${anyPrice.id}:`, {
               template_tier: templateTier,

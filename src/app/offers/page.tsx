@@ -372,6 +372,7 @@ export default function OffersPage() {
           return tier
             .toLowerCase()
             .replace(/^(sj_|sea_journey_)/i, '') // Remove common prefixes
+            .replace(/\s+/g, '_') // Replace spaces with underscores
             .trim();
         };
 
@@ -410,7 +411,19 @@ export default function OffersPage() {
             const proMatch = (normalizedTemplateTier === 'professional' && priceTier === 'pro') ||
                             (normalizedTemplateTier === 'pro' && priceTier === 'professional');
             
-            const match = exactMatch || containsMatch || proMatch;
+            // Handle vessel plan matching: "vessel basic" should match "vessel_basic"
+            // Extract the plan type (basic, lite, pro, fleet) from both
+            const templatePlanType = normalizedTemplateTier.split('_').pop() || '';
+            const pricePlanType = priceTier.split(/[_\s]+/).pop() || '';
+            const vesselMatch = isVesselTemplate && (
+              priceTier === normalizedTemplateTier || // Exact match after normalization
+              normalizedTemplateTier === priceTier || // Reverse exact match
+              (templatePlanType && pricePlanType && templatePlanType === pricePlanType) || // Plan type matches
+              priceTier.includes(templatePlanType) || // Price contains template plan type
+              normalizedTemplateTier.includes(pricePlanType) // Template contains price plan type
+            );
+            
+            const match = exactMatch || containsMatch || proMatch || vesselMatch;
 
             if (match) {
               console.log(`[OFFERS PAGE] ✅ Found match for "${template.name}":`, {
