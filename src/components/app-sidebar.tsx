@@ -83,6 +83,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard", label: "Home", icon: Home, disabled: false },
       { href: "/dashboard/recent-activity", label: "Recent Activity", icon: History, disabled: false, hideForRoles: ['vessel', 'admin'] },
+      { href: "/dashboard/vessel-history", label: "Vessel History", icon: Ship, disabled: false, hideForRoles: ['vessel', 'admin'] },
     ]
   },
   {
@@ -124,6 +125,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
   },
   {
     title: "Messages",
+    hideForRoles: ['admin'], // Hide for admin since Inbox is already in Vessel Management section
     items: [
       { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, disabled: false }, // Available to all users
     ]
@@ -142,6 +144,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/platform-analytics", label: "Platform Overview", icon: BarChart3, requiredRole: "admin", disabled: false },
       { href: "/dashboard/revenue", label: "Revenue & Subscriptions", icon: DollarSign, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/vessel-subscriptions", label: "Vessel Subscriptions", icon: Ship, requiredRole: "admin", disabled: false },
       { href: "/dashboard/crew-analytics", label: "Crew Analytics", icon: Users, requiredRole: "admin", disabled: false },
       { href: "/dashboard/login-activity", label: "Login Activity", icon: LogIn, requiredRole: "admin", disabled: false },
     ]
@@ -672,7 +675,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     return null
                   }
 
-                  // For crew_limited tier, only show: Home, Recent Activity, Current, Calendar, Profile, Feedback, Inbox
+                  // For crew_limited tier, only show: Home, Recent Activity, Current, Calendar, Profile, Feedback, Inbox, Vessel History
                   if (isCrewLimited) {
                     const allowedHrefs = [
                       '/dashboard', 
@@ -681,7 +684,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                       '/dashboard/calendar', 
                       '/dashboard/profile',
                       '/dashboard/feedback',
-                      '/dashboard/inbox'
+                      '/dashboard/inbox',
+                      '/dashboard/vessel-history'
                     ];
                     if (!allowedHrefs.includes(item.href)) {
                       return null;

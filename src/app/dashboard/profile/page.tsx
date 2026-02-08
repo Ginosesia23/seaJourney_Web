@@ -2209,10 +2209,9 @@ export default function ProfilePage() {
             <CaptainRoleApplicationCard userProfile={userProfile} userId={user?.id} />
             
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              {/* Left Column - User Info and Subscription Cards */}
-              <div className="lg:col-span-1 space-y-6">
+              {/* Left Column - User Info Card */}
+              <div className="lg:col-span-1">
                 <UserInfoCard userId={user?.id} />
-                <SubscriptionCard />
               </div>
               
               {/* Right Column - User Profile Card - Takes 2/3 of width on large screens */}
@@ -2220,6 +2219,9 @@ export default function ProfilePage() {
                 <UserProfileCard />
               </div>
             </div>
+            
+            {/* Subscription Card - Below vessel details */}
+            <SubscriptionCard />
           </div>
         </TabsContent>
 

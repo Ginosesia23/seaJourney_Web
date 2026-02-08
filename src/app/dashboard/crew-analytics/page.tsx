@@ -45,7 +45,7 @@ export default function CrewAnalyticsPage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
   const router = useRouter();
-  const [crewWithoutVessels, setCrewWithoutVessels] = useState<CrewWithoutVessel[]>([]);
+  const [allCrewMembers, setAllCrewMembers] = useState<CrewWithoutVessel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -105,7 +105,7 @@ export default function CrewAnalyticsPage() {
 
         if (crewError) {
           console.error('[CREW ANALYTICS] Error fetching crew:', crewError);
-          setCrewWithoutVessels([]);
+          setAllCrewMembers([]);
           setIsLoading(false);
           return;
         }
@@ -158,20 +158,54 @@ export default function CrewAnalyticsPage() {
         const crewData: CrewWithoutVessel[] = (allCrew || []).map(crewMember => {
           const userAssignments = assignmentsByUser.get(crewMember.id) || [];
           
-          // Find active assignments (end_date is null or empty string)
-          // More robust check: endDate should be null, undefined, or empty string to be considered active
+          // Find active assignments (end_date is null, undefined, or empty string)
+          // Also check if end_date is in the future (assignment hasn't ended yet)
+          const today = startOfDay(new Date());
           const activeAssignments = userAssignments.filter(a => {
             const endDate = a.endDate;
-            return endDate === null || endDate === undefined || endDate === '';
+            // Assignment is active if end_date is null/undefined/empty
+            if (endDate === null || endDate === undefined || endDate === '') {
+              return true;
+            }
+            // Or if end_date is in the future (assignment hasn't ended yet)
+            try {
+              const parsedEndDate = parse(endDate, 'yyyy-MM-dd', new Date());
+              return isAfter(parsedEndDate, today) || parsedEndDate.getTime() === today.getTime();
+            } catch (e) {
+              // If parsing fails, treat as inactive
+              return false;
+            }
           });
           const hasActiveAssignment = activeAssignments.length > 0;
           
-          // Get the active vessel info
-          const activeAssignment = activeAssignments.length > 0 ? activeAssignments[0] : null;
-          const activeVesselId = activeAssignment?.vesselId || null;
-          const activeVesselName = activeVesselId && allVessels 
-            ? (allVessels.find(v => v.id === activeVesselId)?.name || null)
+          // Get the active vessel info - prefer the most recent active assignment
+          const activeAssignment = activeAssignments.length > 0 
+            ? activeAssignments.sort((a, b) => {
+                // Sort by start date, most recent first
+                const dateA = parse(a.startDate, 'yyyy-MM-dd', new Date());
+                const dateB = parse(b.startDate, 'yyyy-MM-dd', new Date());
+                return dateB.getTime() - dateA.getTime();
+              })[0]
             : null;
+          const activeVesselId = activeAssignment?.vesselId || null;
+          
+          // Look up vessel name - try multiple ways
+          let activeVesselName: string | null = null;
+          if (activeVesselId && allVessels) {
+            const vessel = allVessels.find(v => v.id === activeVesselId);
+            activeVesselName = vessel?.name || null;
+            
+            // Log if vessel not found for debugging
+            if (!activeVesselName) {
+              console.warn('[CREW ANALYTICS] Vessel not found:', {
+                crewId: crewMember.id,
+                crewName: `${crewMember.first_name || ''} ${crewMember.last_name || ''}`,
+                vesselId: activeVesselId,
+                availableVessels: allVessels.length,
+                vesselIds: allVessels.map(v => v.id).slice(0, 5),
+              });
+            }
+          }
 
           // Find the most recent assignment end date
           const assignmentsWithEndDate = userAssignments
@@ -217,35 +251,26 @@ export default function CrewAnalyticsPage() {
           };
         });
 
-        // Filter to only show crew without active vessels
-        // Also log any users that have active assignments but are being included (for debugging)
-        const crewWithoutActive = crewData.filter(crew => {
-          const shouldInclude = !crew.hasActiveAssignment;
-          if (!shouldInclude && crew.activeVesselName) {
-            console.warn('[CREW ANALYTICS] User with active vessel found in "without vessels" list:', {
-              id: crew.id,
-              name: `${crew.firstName} ${crew.lastName}`,
-              activeVesselId: crew.activeVesselId,
-              activeVesselName: crew.activeVesselName,
-              hasActiveAssignment: crew.hasActiveAssignment,
-            });
-          }
-          return shouldInclude;
-        });
-        
-        console.log('[CREW ANALYTICS] Filter results:', {
+        console.log('[CREW ANALYTICS] All crew data:', {
           totalCrew: crewData.length,
-          withoutActiveVessels: crewWithoutActive.length,
-          withActiveVessels: crewData.length - crewWithoutActive.length,
+          withActiveVessels: crewData.filter(c => c.hasActiveAssignment).length,
+          withoutActiveVessels: crewData.filter(c => !c.hasActiveAssignment).length,
           usersWithActiveVessels: crewData.filter(c => c.hasActiveAssignment).map(c => ({
             id: c.id,
             name: `${c.firstName} ${c.lastName}`,
+            vesselId: c.activeVesselId,
             vessel: c.activeVesselName,
+            hasActiveAssignment: c.hasActiveAssignment,
           })),
         });
         
-        // Sort by days since last assignment (most recent first, then by account creation)
-        crewWithoutActive.sort((a, b) => {
+        // Sort: show crew with active vessels first, then by days since last assignment
+        crewData.sort((a, b) => {
+          // First sort: active assignments first
+          if (a.hasActiveAssignment && !b.hasActiveAssignment) return -1;
+          if (!a.hasActiveAssignment && b.hasActiveAssignment) return 1;
+          
+          // Then sort by days since last assignment (most recent first)
           if (a.daysSinceLastAssignment !== null && b.daysSinceLastAssignment !== null) {
             return b.daysSinceLastAssignment - a.daysSinceLastAssignment;
           }
@@ -254,10 +279,10 @@ export default function CrewAnalyticsPage() {
           return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         });
 
-        setCrewWithoutVessels(crewWithoutActive);
+        setAllCrewMembers(crewData);
       } catch (error) {
         console.error('[CREW ANALYTICS] Error fetching analytics:', error);
-        setCrewWithoutVessels([]);
+        setAllCrewMembers([]);
       } finally {
         setIsLoading(false);
       }
@@ -268,29 +293,31 @@ export default function CrewAnalyticsPage() {
 
   // Filter crew by search term
   const filteredCrew = useMemo(() => {
-    if (!searchTerm.trim()) return crewWithoutVessels;
+    if (!searchTerm.trim()) return allCrewMembers;
     
     const search = searchTerm.toLowerCase();
-    return crewWithoutVessels.filter(crew => 
+    return allCrewMembers.filter(crew => 
       crew.firstName.toLowerCase().includes(search) ||
       crew.lastName.toLowerCase().includes(search) ||
       crew.username.toLowerCase().includes(search) ||
-      crew.email.toLowerCase().includes(search)
+      crew.email.toLowerCase().includes(search) ||
+      (crew.activeVesselName && crew.activeVesselName.toLowerCase().includes(search))
     );
-  }, [crewWithoutVessels, searchTerm]);
+  }, [allCrewMembers, searchTerm]);
 
   const stats = useMemo(() => {
-    const total = crewWithoutVessels.length;
-    const noAssignments = crewWithoutVessels.filter(c => c.lastAssignmentEndDate === null).length;
-    const recentEnded = crewWithoutVessels.filter(c => 
-      c.daysSinceLastAssignment !== null && c.daysSinceLastAssignment <= 30
+    const total = allCrewMembers.length;
+    const withActiveVessels = allCrewMembers.filter(c => c.hasActiveAssignment).length;
+    const noAssignments = allCrewMembers.filter(c => c.lastAssignmentEndDate === null && !c.hasActiveAssignment).length;
+    const recentEnded = allCrewMembers.filter(c => 
+      !c.hasActiveAssignment && c.daysSinceLastAssignment !== null && c.daysSinceLastAssignment <= 30
     ).length;
-    const longTermInactive = crewWithoutVessels.filter(c => 
-      c.daysSinceLastAssignment !== null && c.daysSinceLastAssignment > 90
+    const longTermInactive = allCrewMembers.filter(c => 
+      !c.hasActiveAssignment && c.daysSinceLastAssignment !== null && c.daysSinceLastAssignment > 90
     ).length;
 
-    return { total, noAssignments, recentEnded, longTermInactive };
-  }, [crewWithoutVessels]);
+    return { total, withActiveVessels, noAssignments, recentEnded, longTermInactive };
+  }, [allCrewMembers]);
 
   if (isLoadingProfile || isLoading) {
     return (
@@ -326,7 +353,7 @@ export default function CrewAnalyticsPage() {
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">Crew Analytics</h1>
         <p className="text-muted-foreground">
-          Analyze crew members who are not currently tracking an active vessel.
+          View all crew members and their current vessel assignments.
         </p>
       </div>
 
@@ -334,13 +361,26 @@ export default function CrewAnalyticsPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Without Vessel</CardTitle>
-            <UserX className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Total Crew Members</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.total}</div>
             <p className="text-xs text-muted-foreground">
-              Crew members without active assignments
+              All crew members
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">With Active Vessels</CardTitle>
+            <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.withActiveVessels}</div>
+            <p className="text-xs text-muted-foreground">
+              Currently assigned to vessels
             </p>
           </CardContent>
         </Card>
@@ -388,9 +428,9 @@ export default function CrewAnalyticsPage() {
       {/* Search */}
       <Card>
         <CardHeader>
-          <CardTitle>Crew Without Active Vessels</CardTitle>
+          <CardTitle>All Crew Members</CardTitle>
           <CardDescription>
-            {filteredCrew.length} of {crewWithoutVessels.length} crew members
+            {filteredCrew.length} of {allCrewMembers.length} crew members
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -424,7 +464,7 @@ export default function CrewAnalyticsPage() {
                 {filteredCrew.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      {searchTerm ? 'No crew members found matching your search.' : 'All crew members have active vessel assignments.'}
+                      {searchTerm ? 'No crew members found matching your search.' : 'No crew members found.'}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -446,14 +486,19 @@ export default function CrewAnalyticsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {crew.activeVesselName ? (
+                        {crew.hasActiveAssignment && crew.activeVesselName ? (
+                          <div className="flex items-center gap-2">
+                            <Ship className="h-3 w-3 text-green-600 dark:text-green-400" />
+                            <span className="font-medium">{crew.activeVesselName}</span>
+                            <Badge variant="default" className="text-xs bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">Active</Badge>
+                          </div>
+                        ) : crew.activeVesselId && !crew.activeVesselName ? (
                           <div className="flex items-center gap-2">
                             <Ship className="h-3 w-3 text-muted-foreground" />
-                            <span className="font-medium">{crew.activeVesselName}</span>
-                            <Badge variant="destructive" className="text-xs">Has Active Vessel</Badge>
+                            <span className="text-muted-foreground">Vessel ID: {crew.activeVesselId.slice(0, 8)}...</span>
                           </div>
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span className="text-muted-foreground">Not assigned</span>
                         )}
                       </TableCell>
                       <TableCell>

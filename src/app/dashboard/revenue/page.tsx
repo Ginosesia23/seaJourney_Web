@@ -30,7 +30,8 @@ interface RevenueStats {
   activeCrewSubscriptions: number;
   activeVesselSubscriptions: number;
   totalActiveSubscriptions: number;
-  subscriptionsByTier: Record<string, { count: number; revenue: number }>;
+  crewSubscriptionsByTier: Record<string, { count: number; revenue: number }>;
+  vesselSubscriptionsByTier: Record<string, { count: number; revenue: number }>;
   revenueByAccountType: {
     crew: number;
     vessel: number;
@@ -62,15 +63,17 @@ export default function RevenuePage() {
   // Pricing map for subscription tiers (monthly prices in GBP)
   const tierPricing: Record<string, number> = {
     // Crew plans
+    'free': 0,
+    'crew_limited': 0,
     'standard': 4.99,
     'premium': 9.99,
     'pro': 14.99,
     'professional': 14.99,
     // Vessel plans
-    'vessel_lite': 24.99,
-    'vessel_basic': 49.99,
-    'vessel_pro': 99.99,
-    'vessel_fleet': 249.99,
+    'vessel_lite': 49.99,
+    'vessel_basic': 99.99,
+    'vessel_pro': 299.99,
+    'vessel_fleet': 799.99,
   };
 
   useEffect(() => {
@@ -103,7 +106,8 @@ export default function RevenuePage() {
         }
 
         // Calculate current revenue
-        const subscriptionsByTier: Record<string, { count: number; revenue: number }> = {};
+        const crewSubscriptionsByTier: Record<string, { count: number; revenue: number }> = {};
+        const vesselSubscriptionsByTier: Record<string, { count: number; revenue: number }> = {};
         let monthlyRevenue = 0;
         let activeCrewSubscriptions = 0;
         let activeVesselSubscriptions = 0;
@@ -113,19 +117,25 @@ export default function RevenuePage() {
         // Process crew subscriptions
         allUsers?.forEach(user => {
           if ((user.subscription_status || '').toLowerCase() === 'active') {
-            activeCrewSubscriptions++;
             const tier = (user.subscription_tier || 'free').toLowerCase();
             const price = tierPricing[tier] || 0;
             
+            // Exclude crew_limited and free from active subscription counts
+            if (tier !== 'crew_limited' && tier !== 'free') {
+              activeCrewSubscriptions++;
+            }
+            
+            // Always count subscriptions by tier, even if free
+            if (!crewSubscriptionsByTier[tier]) {
+              crewSubscriptionsByTier[tier] = { count: 0, revenue: 0 };
+            }
+            crewSubscriptionsByTier[tier].count++;
+            
+            // Only add to revenue if tier has a price > 0
             if (price > 0) {
               monthlyRevenue += price;
               crewRevenue += price;
-              
-              if (!subscriptionsByTier[tier]) {
-                subscriptionsByTier[tier] = { count: 0, revenue: 0 };
-              }
-              subscriptionsByTier[tier].count++;
-              subscriptionsByTier[tier].revenue += price;
+              crewSubscriptionsByTier[tier].revenue += price;
             }
           }
         });
@@ -133,19 +143,25 @@ export default function RevenuePage() {
         // Process vessel subscriptions
         allVesselAccounts?.forEach(vessel => {
           if ((vessel.subscription_status || '').toLowerCase() === 'active') {
-            activeVesselSubscriptions++;
             const tier = (vessel.subscription_tier || 'free').toLowerCase();
             const price = tierPricing[tier] || 0;
             
+            // Exclude free tiers from active subscription counts
+            if (tier !== 'free') {
+              activeVesselSubscriptions++;
+            }
+            
+            // Always count subscriptions by tier, even if free
+            if (!vesselSubscriptionsByTier[tier]) {
+              vesselSubscriptionsByTier[tier] = { count: 0, revenue: 0 };
+            }
+            vesselSubscriptionsByTier[tier].count++;
+            
+            // Only add to revenue if tier has a price > 0
             if (price > 0) {
               monthlyRevenue += price;
               vesselRevenue += price;
-              
-              if (!subscriptionsByTier[tier]) {
-                subscriptionsByTier[tier] = { count: 0, revenue: 0 };
-              }
-              subscriptionsByTier[tier].count++;
-              subscriptionsByTier[tier].revenue += price;
+              vesselSubscriptionsByTier[tier].revenue += price;
             }
           }
         });
@@ -194,7 +210,8 @@ export default function RevenuePage() {
           activeCrewSubscriptions,
           activeVesselSubscriptions,
           totalActiveSubscriptions: activeCrewSubscriptions + activeVesselSubscriptions,
-          subscriptionsByTier,
+          crewSubscriptionsByTier,
+          vesselSubscriptionsByTier,
           revenueByAccountType: {
             crew: crewRevenue,
             vessel: vesselRevenue,
@@ -447,11 +464,11 @@ export default function RevenuePage() {
         </Card>
       </div>
 
-      {/* Subscription Tiers Table */}
+      {/* Crew Subscription Tiers Table */}
       <Card className="rounded-xl border shadow-sm">
         <CardHeader>
-          <CardTitle className="text-lg font-semibold">Revenue by Subscription Tier</CardTitle>
-          <CardDescription>Detailed breakdown of subscriptions and revenue by plan</CardDescription>
+          <CardTitle className="text-lg font-semibold">Crew Subscriptions</CardTitle>
+          <CardDescription>Detailed breakdown of crew subscriptions and revenue by plan</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -466,7 +483,7 @@ export default function RevenuePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {Object.entries(revenueStats.subscriptionsByTier)
+                {Object.entries(revenueStats.crewSubscriptionsByTier)
                   .sort(([, a], [, b]) => b.revenue - a.revenue)
                   .map(([tier, data]) => {
                     const annualRevenue = data.revenue * 12;
@@ -476,8 +493,8 @@ export default function RevenuePage() {
                     
                     return (
                       <TableRow key={tier}>
-                        <TableCell className="font-medium capitalize">
-                          {tier.replace(/_/g, ' ')}
+                        <TableCell className="font-medium">
+                          {tier === 'crew_limited' ? 'Crew Limited' : tier.replace(/_/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
                         </TableCell>
                         <TableCell>
                           <Badge variant="secondary">{data.count}</Badge>
@@ -504,7 +521,7 @@ export default function RevenuePage() {
                       </TableRow>
                     );
                   })}
-                {Object.keys(revenueStats.subscriptionsByTier).length === 0 && (
+                {Object.keys(revenueStats.crewSubscriptionsByTier).length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                       No active subscriptions found

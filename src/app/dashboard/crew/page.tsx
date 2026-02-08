@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink } from 'lucide-react';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight } from 'lucide-react';
 import { format, parse, eachDayOfInterval, format as formatDate, addDays } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -100,6 +100,7 @@ interface SortableRowProps {
     updatingOnboardStatus: string | null;
     requestingAccess: string | null;
     loadingSeaTime: Set<string>;
+    hasProTier: boolean;
     onToggleOnboard: (assignmentId: string, currentStatus: boolean, userId: string) => void;
     onToggleRowExpansion: (member: CrewMemberWithAssignment) => void;
     onRequestAccess: (userId: string) => void;
@@ -115,6 +116,7 @@ function SortableRow({
     updatingOnboardStatus,
     requestingAccess,
     loadingSeaTime,
+    hasProTier,
     onToggleOnboard,
     onToggleRowExpansion,
     onRequestAccess,
@@ -167,13 +169,17 @@ function SortableRow({
         }
     };
 
-    const vesselName = currentUserProfile?.role === 'admin' && assignment.vesselId
-        ? (allVessels?.find(v => v.id === assignment.vesselId)?.name || 'Unknown Vessel')
+    // For admin view, show vessel name if assignment has a vesselId
+    const vesselName = currentUserProfile?.role === 'admin' && assignment.vesselId && !assignment.id.startsWith('placeholder-')
+        ? (allVessels?.find(v => v.id === assignment.vesselId)?.name || `Vessel ID: ${assignment.vesselId.slice(0, 8)}...`)
+        : currentUserProfile?.role === 'admin' && assignment.id.startsWith('placeholder-') && !assignment.vesselId
+        ? 'Not assigned'
         : null;
 
     const isVesselManager = currentUserProfile?.role === 'vessel';
     const handleRowClick = () => {
-        if (isVesselManager && !isDragging) {
+        // Only allow clicking to open crew member details if vessel has Pro tier
+        if (isVesselManager && hasProTier && !isDragging) {
             onOpenLeavePeriodsDialog(member);
         }
     };
@@ -184,7 +190,8 @@ function SortableRow({
             style={style}
             className={cn(
                 isDragging ? 'bg-muted/50' : '',
-                isVesselManager ? 'cursor-pointer hover:bg-muted/30 transition-colors' : ''
+                isVesselManager && hasProTier ? 'cursor-pointer hover:bg-muted/30 transition-colors' : '',
+                isVesselManager && !hasProTier ? 'cursor-default' : ''
             )}
             onClick={handleRowClick}
         >
@@ -246,7 +253,7 @@ function SortableRow({
             )}
             {currentUserProfile?.role === 'vessel' && (
                 <TableCell>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                         <Switch
                             checked={assignment.onboard || false}
                             onCheckedChange={() => {
@@ -289,7 +296,10 @@ function SortableRow({
                             <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => onRequestAccess(profile.id)}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onRequestAccess(profile.id);
+                                }}
                                 disabled={requestingAccess === profile.id}
                                 className="h-8"
                             >
@@ -322,6 +332,24 @@ function SortableRow({
                     </DropdownMenu>
                 )}
             </TableCell>
+            {currentUserProfile?.role === 'vessel' && hasProTier && (
+                <TableCell className="w-[50px]">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenLeavePeriodsDialog(member);
+                        }}
+                        className="h-8 w-8 p-0"
+                    >
+                        <ChevronRight className="h-4 w-4" />
+                    </Button>
+                </TableCell>
+            )}
+            {currentUserProfile?.role === 'vessel' && !hasProTier && (
+                <TableCell className="w-[50px]"></TableCell>
+            )}
         </TableRow>
     );
 }
@@ -375,7 +403,10 @@ export default function CrewPage() {
     const { data: currentUserProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
     
     // Fetch all vessels (needed to display vessel names for admins who see all crew)
-    const { data: allVessels } = useCollection<Vessel>('vessels');
+    const { data: allVesselsFromCollection } = useCollection<Vessel>('vessels');
+    
+    // For admins, we'll fetch vessels directly to ensure we have access to all data
+    const [allVesselsForAdmin, setAllVesselsForAdmin] = useState<Vessel[] | undefined>(undefined);
     
     // Transform user profile to handle both snake_case (from DB) and camelCase (from types)
     const currentUserProfile = useMemo(() => {
@@ -406,6 +437,9 @@ export default function CrewPage() {
         } as UserProfile;
     }, [currentUserProfileRaw]);
 
+    // Use admin-fetched vessels if admin, otherwise use collection
+    const allVessels = currentUserProfile?.role === 'admin' ? allVesselsForAdmin : allVesselsFromCollection;
+
     // Get crew limit based on vessel subscription tier
     const getCrewLimit = (tier: string | undefined, status: string | undefined): number => {
         if (!tier || (status || '').toLowerCase() !== 'active') {
@@ -432,6 +466,16 @@ export default function CrewPage() {
             return Infinity; // Admins and captains see all
         }
         return getCrewLimit(currentUserProfile.subscriptionTier, currentUserProfile.subscriptionStatus);
+    }, [currentUserProfile?.role, currentUserProfile?.subscriptionTier, currentUserProfile?.subscriptionStatus]);
+
+    // Check if vessel has Pro tier subscription (required for document generation and crew member details)
+    const hasProTier = useMemo(() => {
+        if (currentUserProfile?.role !== 'vessel') {
+            return true; // Admins always have access
+        }
+        const tier = (currentUserProfile.subscriptionTier || '').toLowerCase();
+        const status = (currentUserProfile.subscriptionStatus || '').toLowerCase();
+        return (tier === 'vessel_pro' || tier === 'vessel_fleet') && status === 'active';
     }, [currentUserProfile?.role, currentUserProfile?.subscriptionTier, currentUserProfile?.subscriptionStatus]);
 
     // Check if captain has pending captaincy request
@@ -509,42 +553,141 @@ export default function CrewPage() {
             setIsLoadingAssignments(true);
             try {
                 if (isAdmin) {
-                    // Admins: Get ALL users (except vessel accounts)
-                    console.log('[CREW PAGE] Admin user - fetching all users from users table');
-                    const { data: allProfiles, error: profilesError } = await supabase
-                        .from('users')
+                    // Admins: Start with vessel_assignments table, then fetch user info
+                    console.log('[CREW PAGE] Admin user - fetching assignments first');
+                    
+                    // Step 1: Fetch ALL assignments (not just active) to get all users with assignments
+                    const { data: allAssignments, error: assignmentsError } = await supabase
+                        .from('vessel_assignments')
                         .select('*')
-                        .neq('role', 'vessel')
-                        .order('created_at', { ascending: false });
+                        .order('start_date', { ascending: false });
 
-                    if (profilesError) {
-                        console.error('[CREW PAGE] Error fetching all users:', profilesError);
+                    if (assignmentsError) {
+                        console.error('[CREW PAGE] Error fetching assignments for admin:', {
+                            error: assignmentsError,
+                            message: assignmentsError.message,
+                            code: assignmentsError.code,
+                            details: assignmentsError.details,
+                            hint: assignmentsError.hint
+                        });
                         setCrewMembers([]);
                         setIsLoadingAssignments(false);
                         return;
                     }
 
-                    console.log('[CREW PAGE] Fetched all users:', allProfiles?.length);
-
-                    // Get all active assignments to match with users for position/vessel info
-                    const { data: allAssignments } = await supabase
-                        .from('vessel_assignments')
-                        .select('*')
-                        .is('end_date', null);
-
-                    // Create a map of userId -> active assignment (most recent if multiple)
-                    const assignmentMap = new Map<string, any>();
-                    if (allAssignments) {
-                        allAssignments.forEach(assignment => {
-                            const existing = assignmentMap.get(assignment.user_id);
-                            if (!existing || new Date(assignment.start_date) > new Date(existing.start_date)) {
-                                assignmentMap.set(assignment.user_id, assignment);
-                            }
-                        });
+                    console.log('[CREW PAGE] Fetched assignments:', allAssignments?.length);
+                    if (allAssignments && allAssignments.length > 0) {
+                        console.log('[CREW PAGE] Sample assignments:', allAssignments.slice(0, 3));
                     }
 
-                    // Transform profiles and match with assignments
-                    const crewWithProfiles = (allProfiles || []).map(profile => {
+                    if (!allAssignments || allAssignments.length === 0) {
+                        console.log('[CREW PAGE] No assignments found - this might be an RLS issue or there are no assignments in the database');
+                        setCrewMembers([]);
+                        setIsLoadingAssignments(false);
+                        return;
+                    }
+
+                    // Step 2: Get unique user IDs from assignments
+                    const userIds = [...new Set(allAssignments.map(a => a.user_id))];
+                    console.log('[CREW PAGE] Unique user IDs from assignments:', userIds.length, userIds);
+
+                    if (userIds.length === 0) {
+                        console.log('[CREW PAGE] No user IDs found in assignments');
+                        setCrewMembers([]);
+                        setIsLoadingAssignments(false);
+                        return;
+                    }
+
+                    // Step 3: Fetch user profiles for those user IDs (excluding vessel accounts)
+                    // Note: RLS policy should allow admins to view all users
+                    const { data: userProfiles, error: profilesError } = await supabase
+                        .from('users')
+                        .select('*')
+                        .in('id', userIds)
+                        .neq('role', 'vessel');
+
+                    console.log('[CREW PAGE] User IDs requested:', userIds.length);
+                    console.log('[CREW PAGE] User profiles fetched:', userProfiles?.length);
+
+                    if (profilesError) {
+                        console.error('[CREW PAGE] Error fetching user profiles:', {
+                            error: profilesError,
+                            message: profilesError.message,
+                            code: profilesError.code,
+                            details: profilesError.details,
+                            hint: profilesError.hint
+                        });
+                        setCrewMembers([]);
+                        setIsLoadingAssignments(false);
+                        return;
+                    }
+
+                    if (!userProfiles || userProfiles.length === 0) {
+                        console.warn('[CREW PAGE] No user profiles returned, but we had', userIds.length, 'user IDs');
+                        console.warn('[CREW PAGE] This might be an RLS policy issue. User IDs were:', userIds);
+                        setCrewMembers([]);
+                        setIsLoadingAssignments(false);
+                        return;
+                    }
+
+                    console.log('[CREW PAGE] Fetched user profiles:', userProfiles.length);
+
+                    // Step 4: Fetch all vessels for admin to display vessel names
+                    const { data: allVesselsData, error: vesselsError } = await supabase
+                        .from('vessels')
+                        .select('*')
+                        .order('name', { ascending: true });
+
+                    if (vesselsError) {
+                        console.error('[CREW PAGE] Error fetching vessels for admin:', {
+                            error: vesselsError,
+                            message: vesselsError.message,
+                            code: vesselsError.code,
+                            details: vesselsError.details,
+                            hint: vesselsError.hint
+                        });
+                        setAllVesselsForAdmin([]);
+                    } else {
+                        console.log('[CREW PAGE] Fetched vessels for admin:', allVesselsData?.length);
+                        // Transform vessels to match Vessel type
+                        const transformedVessels: Vessel[] = (allVesselsData || []).map((v: any) => ({
+                            id: v.id,
+                            name: v.name,
+                            type: v.type,
+                            officialNumber: v.imo || v.official_number,
+                        }));
+                        setAllVesselsForAdmin(transformedVessels);
+                    }
+
+                    // Step 5: Create a map of userId -> most recent assignment (prefer active, but show latest if no active)
+                    const assignmentMap = new Map<string, any>();
+                    allAssignments.forEach(assignment => {
+                        const existing = assignmentMap.get(assignment.user_id);
+                        if (!existing) {
+                            // No assignment yet, use this one
+                            assignmentMap.set(assignment.user_id, assignment);
+                        } else {
+                            // Prefer active assignments, otherwise use most recent
+                            const existingIsActive = !existing.end_date;
+                            const currentIsActive = !assignment.end_date;
+                            
+                            if (currentIsActive && !existingIsActive) {
+                                // Current is active, existing is not - prefer current
+                                assignmentMap.set(assignment.user_id, assignment);
+                            } else if (!currentIsActive && existingIsActive) {
+                                // Existing is active, current is not - keep existing
+                                // Do nothing
+                            } else {
+                                // Both same status - use most recent by start_date
+                                if (new Date(assignment.start_date) > new Date(existing.start_date)) {
+                                    assignmentMap.set(assignment.user_id, assignment);
+                                }
+                            }
+                        }
+                    });
+
+                    // Step 6: Match assignments with user profiles
+                    const crewWithProfiles = (userProfiles || []).map(profile => {
                         const transformedProfile: UserProfile = {
                             id: profile.id,
                             email: profile.email || '',
@@ -563,19 +706,19 @@ export default function CrewPage() {
                             activeVesselId: profile.active_vessel_id || profile.activeVesselId,
                         };
 
-                        // Get active assignment if exists
-                        const activeAssignment = assignmentMap.get(profile.id);
-                        const assignment: VesselAssignment = activeAssignment ? {
-                            id: activeAssignment.id,
-                            userId: activeAssignment.user_id,
-                            vesselId: activeAssignment.vessel_id,
-                            startDate: activeAssignment.start_date,
-                            endDate: activeAssignment.end_date || null,
-                            position: activeAssignment.position || null,
-                            onboard: activeAssignment.onboard || false,
+                        // Get most recent assignment (should always exist since we filtered by assignments)
+                        const mostRecentAssignment = assignmentMap.get(profile.id);
+                        const assignment: VesselAssignment = mostRecentAssignment ? {
+                            id: mostRecentAssignment.id,
+                            userId: mostRecentAssignment.user_id,
+                            vesselId: mostRecentAssignment.vessel_id,
+                            startDate: mostRecentAssignment.start_date,
+                            endDate: mostRecentAssignment.end_date || null,
+                            position: mostRecentAssignment.position || null,
+                            onboard: mostRecentAssignment.onboard || false,
                         } : {
-                            // Create a placeholder assignment if user has no active assignment
-                            id: `placeholder-${profile.id}`,
+                            // Fallback (shouldn't happen, but handle gracefully)
+                            id: `fallback-${profile.id}`,
                             userId: profile.id,
                             vesselId: profile.active_vessel_id || '',
                             startDate: profile.registration_date || new Date().toISOString().split('T')[0],
@@ -586,7 +729,12 @@ export default function CrewPage() {
                         return { profile: transformedProfile, assignment };
                     });
 
-                    console.log('[CREW PAGE] Final crew members (all users):', crewWithProfiles.length);
+                    console.log('[CREW PAGE] Final crew members (from assignments):', crewWithProfiles.length);
+                    if (crewWithProfiles.length > 0) {
+                        console.log('[CREW PAGE] Sample crew member:', crewWithProfiles[0]);
+                    } else {
+                        console.warn('[CREW PAGE] No crew members created despite having', userProfiles.length, 'user profiles and', allAssignments.length, 'assignments');
+                    }
                     setCrewMembers(crewWithProfiles);
                 } else {
                     // Non-admins: Get active assignments for their vessel only
@@ -2929,38 +3077,40 @@ export default function CrewPage() {
                             )}
                         </div>
 
-                        {/* Documents Section */}
-                        <Separator className="my-6" />
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h3 className="text-lg font-semibold">Documents</h3>
-                                    <p className="text-sm text-muted-foreground mt-1">
-                                        Generate PDF documents on behalf of this crew member.
-                                    </p>
-                                </div>
-                                <Button
-                                    variant={showGenerateForm ? "outline" : "default"}
-                                    onClick={() => {
-                                        setShowGenerateForm(!showGenerateForm);
-                                        if (showGenerateForm) {
-                                            setDocumentStartDate(undefined);
-                                            setDocumentEndDate(undefined);
-                                            setCalculatedSeaTime(null);
-                                        }
-                                    }}
-                                    className="rounded-xl"
-                                >
-                                    {showGenerateForm ? (
-                                        'Cancel'
-                                    ) : (
-                                        <>
-                                            <Plus className="h-4 w-4 mr-2" />
-                                            Generate Document
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
+                        {/* Documents Section - Only for Pro Tier */}
+                        {hasProTier && (
+                            <>
+                                <Separator className="my-6" />
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-lg font-semibold">Documents</h3>
+                                            <p className="text-sm text-muted-foreground mt-1">
+                                                Generate PDF documents on behalf of this crew member.
+                                            </p>
+                                        </div>
+                                        <Button
+                                            variant={showGenerateForm ? "outline" : "default"}
+                                            onClick={() => {
+                                                setShowGenerateForm(!showGenerateForm);
+                                                if (showGenerateForm) {
+                                                    setDocumentStartDate(undefined);
+                                                    setDocumentEndDate(undefined);
+                                                    setCalculatedSeaTime(null);
+                                                }
+                                            }}
+                                            className="rounded-xl"
+                                        >
+                                            {showGenerateForm ? (
+                                                'Cancel'
+                                            ) : (
+                                                <>
+                                                    <Plus className="h-4 w-4 mr-2" />
+                                                    Generate Document
+                                                </>
+                                            )}
+                                        </Button>
+                                    </div>
 
                             {/* MCA Information Warning */}
                             {!isMCAInfoComplete && (
@@ -3199,97 +3349,99 @@ export default function CrewPage() {
                                             </Button>
 
                                             {/* Calculated Sea Time Results */}
-                            {calculatedSeaTime && (
-                                <div className="border rounded-lg p-4 bg-muted/30">
-                                    <h5 className="font-semibold text-sm mb-3">Calculated Sea Time</h5>
-                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">Total Days</div>
-                                            <div className="text-lg font-semibold">{calculatedSeaTime.totalDays}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">At Sea Days</div>
-                                            <div className="text-lg font-semibold text-blue-600">{calculatedSeaTime.atSeaDays}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">Standby Days</div>
-                                            <div className="text-lg font-semibold text-purple-600">{calculatedSeaTime.standbyDays}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">Yard Days</div>
-                                            <div className="text-lg font-semibold">{calculatedSeaTime.yardDays}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">Leave Days</div>
-                                            <div className="text-lg font-semibold">{calculatedSeaTime.leaveDays}</div>
-                                        </div>
-                                    </div>
+                                            {calculatedSeaTime && (
+                                                <div className="border rounded-lg p-4 bg-muted/30">
+                                                    <h5 className="font-semibold text-sm mb-3">Calculated Sea Time</h5>
+                                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                                        <div className="space-y-1">
+                                                            <div className="text-xs text-muted-foreground">Total Days</div>
+                                                            <div className="text-lg font-semibold">{calculatedSeaTime.totalDays}</div>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <div className="text-xs text-muted-foreground">At Sea Days</div>
+                                                            <div className="text-lg font-semibold text-blue-600">{calculatedSeaTime.atSeaDays}</div>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <div className="text-xs text-muted-foreground">Standby Days</div>
+                                                            <div className="text-lg font-semibold text-purple-600">{calculatedSeaTime.standbyDays}</div>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <div className="text-xs text-muted-foreground">Yard Days</div>
+                                                            <div className="text-lg font-semibold">{calculatedSeaTime.yardDays}</div>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <div className="text-xs text-muted-foreground">Leave Days</div>
+                                                            <div className="text-lg font-semibold">{calculatedSeaTime.leaveDays}</div>
+                                                        </div>
+                                                    </div>
 
-                                    {/* Action Buttons */}
-                                    <div className="flex flex-wrap gap-2 mt-4">
-                                        <Button
-                                            onClick={handleSaveTestimonial}
-                                            disabled={isSavingTestimonial || generatingPDF === 'date-range'}
-                                            variant="outline"
-                                            className="rounded-xl"
-                                        >
-                                            {isSavingTestimonial ? (
-                                                <>
-                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                    Saving...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <FileText className="mr-2 h-4 w-4" />
-                                                    Save
-                                                </>
+                                                    {/* Action Buttons */}
+                                                    <div className="flex flex-wrap gap-2 mt-4">
+                                                        <Button
+                                                            onClick={handleSaveTestimonial}
+                                                            disabled={isSavingTestimonial || generatingPDF === 'date-range'}
+                                                            variant="outline"
+                                                            className="rounded-xl"
+                                                        >
+                                                            {isSavingTestimonial ? (
+                                                                <>
+                                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                    Saving...
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <FileText className="mr-2 h-4 w-4" />
+                                                                    Save
+                                                                </>
+                                                            )}
+                                                        </Button>
+
+                                                        <Select
+                                                            onValueChange={(format) => handleGenerateFromDateRange(format as TestimonialPDFFormat)}
+                                                            disabled={generatingPDF === 'date-range' || isSavingTestimonial}
+                                                        >
+                                                            <SelectTrigger className="w-[140px] rounded-xl">
+                                                                <SelectValue placeholder="Generate PDF" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="seajourney">SeaJourney PDF</SelectItem>
+                                                                <SelectItem value="mca">MCA PDF</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                        
+                                                        {activeCaptain && (
+                                                            <Button
+                                                                onClick={handleSendToCaptain}
+                                                                disabled={isSendingToCaptain}
+                                                                className="rounded-xl"
+                                                            >
+                                                                {isSendingToCaptain ? (
+                                                                    <>
+                                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                        Sending...
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                                                                        Send to Captain
+                                                                    </>
+                                                                )}
+                                                            </Button>
+                                                        )}
+                                                        
+                                                        {generatingPDF === 'date-range' && (
+                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                        )}
+                                                    </div>
+                                                </div>
                                             )}
-                                        </Button>
-
-                                        <Select
-                                            onValueChange={(format) => handleGenerateFromDateRange(format as TestimonialPDFFormat)}
-                                            disabled={generatingPDF === 'date-range' || isSavingTestimonial}
-                                        >
-                                            <SelectTrigger className="w-[140px] rounded-xl">
-                                                <SelectValue placeholder="Generate PDF" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="seajourney">SeaJourney PDF</SelectItem>
-                                                <SelectItem value="mca">MCA PDF</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        
-                                        {activeCaptain && (
-                                            <Button
-                                                onClick={handleSendToCaptain}
-                                                disabled={isSendingToCaptain}
-                                                className="rounded-xl"
-                                            >
-                                                {isSendingToCaptain ? (
-                                                    <>
-                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                        Sending...
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                                                        Send to Captain
-                                                    </>
-                                                )}
-                                            </Button>
-                                        )}
-                                        
-                                        {generatingPDF === 'date-range' && (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                        )}
-                                    </div>
-                                </div>
-                            )}
                                         </div>
                                     </CardContent>
                                 </Card>
                             )}
                         </div>
+                            </>
+                        )}
                     </CardContent>
                 </Card>
 
@@ -3673,7 +3825,8 @@ export default function CrewPage() {
                                     <TableHead>Joined Vessel</TableHead>
                                 )}
                                 {currentUserProfile?.role === 'vessel' && <TableHead>Onboard</TableHead>}
-                                <TableHead className="w-[50px]"></TableHead>
+                                {currentUserProfile?.role === 'vessel' && <TableHead className="w-[50px]"></TableHead>}
+                                {currentUserProfile?.role !== 'vessel' && <TableHead className="w-[50px]"></TableHead>}
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -3705,6 +3858,7 @@ export default function CrewPage() {
                                                 updatingOnboardStatus={updatingOnboardStatus}
                                                 requestingAccess={requestingAccess}
                                                 loadingSeaTime={loadingSeaTime}
+                                                hasProTier={hasProTier}
                                                 onToggleOnboard={handleToggleOnboard}
                                                 onToggleRowExpansion={toggleRowExpansion}
                                                 onRequestAccess={handleRequestAccess}

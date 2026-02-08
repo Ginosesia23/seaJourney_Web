@@ -1,7 +1,7 @@
 
 'use client';
 
-import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, CalendarDays, TrendingDown, Activity, Target, Trophy, CheckCircle2, XCircle, FileText, Users, CreditCard, BarChart3, Globe, LogIn } from 'lucide-react';
+import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, CalendarDays, TrendingDown, Activity, Target, Trophy, CheckCircle2, XCircle, FileText, Users, CreditCard, BarChart3, Globe, LogIn, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -50,10 +50,15 @@ export default function DashboardPage() {
     activeSubscriptions: number;
     activeVesselSubscriptions: number;
     totalVessels: number;
-    subscriptionsByTier: Record<string, number>;
+    crewSubscriptionsByTier: Record<string, number>;
+    vesselSubscriptionsByTier: Record<string, number>;
     recentSignups: number;
     monthlyRevenue: number;
     annualRevenue: number;
+    crewRevenue: number;
+    vesselRevenue: number;
+    recentUserSignups: Array<{ id: string; email: string; firstName: string | null; lastName: string | null; createdAt: string; role: string }>;
+    recentVesselSignups: Array<{ id: string; email: string; firstName: string | null; lastName: string | null; createdAt: string; vesselName: string | null }>;
   } | null>(null);
   const [isLoadingAdminStats, setIsLoadingAdminStats] = useState(false);
   const [vesselStats, setVesselStats] = useState<{
@@ -178,7 +183,7 @@ export default function DashboardPage() {
         // Fetch all users (crew members)
         const { data: allUsers, error: usersError } = await supabase
           .from('users')
-          .select('id, subscription_status, subscription_tier, created_at, role')
+          .select('id, email, first_name, last_name, subscription_status, subscription_tier, created_at, role')
           .neq('role', 'vessel');
 
         if (usersError) {
@@ -188,7 +193,7 @@ export default function DashboardPage() {
         // Fetch all vessel accounts
         const { data: allVesselAccounts, error: vesselAccountsError } = await supabase
           .from('users')
-          .select('id, subscription_status, subscription_tier, created_at, role')
+          .select('id, email, first_name, last_name, subscription_status, subscription_tier, created_at, role, active_vessel_id')
           .eq('role', 'vessel');
 
         if (vesselAccountsError) {
@@ -198,7 +203,7 @@ export default function DashboardPage() {
         // Fetch all vessels
         const { data: allVesselsData, error: vesselsError } = await supabase
           .from('vessels')
-          .select('id, is_official');
+          .select('id, name, is_official, vessel_manager_id');
 
         if (vesselsError) {
           console.error('[ADMIN DASHBOARD] Error fetching vessels:', vesselsError);
@@ -206,9 +211,12 @@ export default function DashboardPage() {
 
         // Calculate statistics
         const totalUsers = allUsers?.length || 0;
-        const activeSubscriptions = allUsers?.filter(u => 
-          (u.subscription_status || '').toLowerCase() === 'active'
-        ).length || 0;
+        const activeSubscriptions = allUsers?.filter(u => {
+          const status = (u.subscription_status || '').toLowerCase();
+          const tier = (u.subscription_tier || 'free').toLowerCase();
+          // Exclude crew_limited and free from active subscription counts
+          return status === 'active' && tier !== 'crew_limited' && tier !== 'free';
+        }).length || 0;
         
         const activeVesselSubscriptions = allVesselAccounts?.filter(u => 
           (u.subscription_status || '').toLowerCase() === 'active'
@@ -222,31 +230,37 @@ export default function DashboardPage() {
         // Pricing map for subscription tiers (monthly prices in GBP)
         const tierPricing: Record<string, number> = {
           // Crew plans
+          'free': 0,
+          'crew_limited': 0,
           'standard': 4.99,
           'premium': 9.99,
           'pro': 14.99,
           'professional': 14.99,
           // Vessel plans
-          'vessel_lite': 24.99,
-          'vessel_basic': 49.99,
-          'vessel_pro': 99.99,
-          'vessel_fleet': 249.99,
+          'vessel_lite': 49.99,
+          'vessel_basic': 99.99,
+          'vessel_pro': 299.99,
+          'vessel_fleet': 799.99,
         };
 
         // Count subscriptions by tier and calculate revenue
-        const subscriptionsByTier: Record<string, number> = {};
+        const crewSubscriptionsByTier: Record<string, number> = {};
+        const vesselSubscriptionsByTier: Record<string, number> = {};
         let monthlyRevenue = 0;
+        let crewRevenue = 0;
+        let vesselRevenue = 0;
 
         // Calculate revenue from crew subscriptions
         allUsers?.forEach(user => {
           if ((user.subscription_status || '').toLowerCase() === 'active') {
             const tier = (user.subscription_tier || 'free').toLowerCase();
-            subscriptionsByTier[tier] = (subscriptionsByTier[tier] || 0) + 1;
+            crewSubscriptionsByTier[tier] = (crewSubscriptionsByTier[tier] || 0) + 1;
             
-            // Add to revenue if tier has pricing
-            const price = tierPricing[tier];
-            if (price) {
+            // Add to revenue if tier has pricing > 0
+            const price = tierPricing[tier] || 0;
+            if (price > 0) {
               monthlyRevenue += price;
+              crewRevenue += price;
             }
           }
         });
@@ -255,19 +269,20 @@ export default function DashboardPage() {
         allVesselAccounts?.forEach(vessel => {
           if ((vessel.subscription_status || '').toLowerCase() === 'active') {
             const tier = (vessel.subscription_tier || 'free').toLowerCase();
-            subscriptionsByTier[tier] = (subscriptionsByTier[tier] || 0) + 1;
+            vesselSubscriptionsByTier[tier] = (vesselSubscriptionsByTier[tier] || 0) + 1;
             
-            // Add to revenue if tier has pricing
-            const price = tierPricing[tier];
-            if (price) {
+            // Add to revenue if tier has pricing > 0
+            const price = tierPricing[tier] || 0;
+            if (price > 0) {
               monthlyRevenue += price;
+              vesselRevenue += price;
             }
           }
         });
 
         const annualRevenue = monthlyRevenue * 12;
 
-        // Count recent signups (last 30 days)
+        // Count recent signups (last 30 days) - keep for stats
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         const recentSignups = allUsers?.filter(u => {
@@ -275,15 +290,61 @@ export default function DashboardPage() {
           return createdAt && createdAt >= thirtyDaysAgo;
         }).length || 0;
 
+        // Get recent user signups (last 10, regardless of date)
+        const recentUserSignups = (allUsers || [])
+          .sort((a, b) => {
+            const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return dateB - dateA; // Most recent first
+          })
+          .slice(0, 10)
+          .map(u => ({
+            id: u.id,
+            email: (u as any).email || '',
+            firstName: (u as any).first_name || null,
+            lastName: (u as any).last_name || null,
+            createdAt: u.created_at || '',
+            role: (u as any).role || 'crew',
+          }));
+
+        // Get recent vessel signups (last 10, regardless of date)
+        const recentVesselSignups = (allVesselAccounts || [])
+          .sort((a, b) => {
+            const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return dateB - dateA; // Most recent first
+          })
+          .slice(0, 10)
+          .map(v => {
+            // Find vessel name for this vessel account
+            const vessel = allVesselsData?.find(vessel => 
+              (vessel as any).vessel_manager_id === v.id || 
+              (vessel as any).id === (v as any).active_vessel_id
+            );
+            return {
+              id: v.id,
+              email: (v as any).email || '',
+              firstName: (v as any).first_name || null,
+              lastName: (v as any).last_name || null,
+              createdAt: v.created_at || '',
+              vesselName: vessel ? (vessel as any).name : null,
+            };
+          });
+
         setAdminStats({
           totalUsers,
           activeSubscriptions,
           activeVesselSubscriptions,
           totalVessels: officialVessels,
-          subscriptionsByTier,
+          crewSubscriptionsByTier,
+          vesselSubscriptionsByTier,
           recentSignups,
           monthlyRevenue,
           annualRevenue,
+          crewRevenue,
+          vesselRevenue,
+          recentUserSignups,
+          recentVesselSignups,
         });
       } catch (error) {
         console.error('[ADMIN DASHBOARD] Error fetching admin stats:', error);
@@ -1095,8 +1156,28 @@ export default function DashboardPage() {
 
   const availableVessels = useMemo(() => {
     if(!vessels) return [];
-    return [{ id: 'all', name: 'All Vessels' }, ...vessels];
-  }, [vessels]);
+    
+    // Admins can see all vessels
+    if (isAdmin) {
+      return [{ id: 'all', name: 'All Vessels' }, ...vessels];
+    }
+    
+    // Filter to only show vessels the user has been on
+    // A user has been on a vessel if they have:
+    // 1. State logs for that vessel, OR
+    // 2. A vessel assignment for that vessel
+    const vesselsUserHasBeenOn = vessels.filter(vessel => {
+      // Check if user has state logs for this vessel
+      const hasStateLogs = allStateLogs.has(vessel.id) && allStateLogs.get(vessel.id)!.length > 0;
+      
+      // Check if user has an assignment for this vessel
+      const hasAssignment = vesselAssignments.some(assignment => assignment.vesselId === vessel.id);
+      
+      return hasStateLogs || hasAssignment;
+    });
+    
+    return [{ id: 'all', name: 'All Vessels' }, ...vesselsUserHasBeenOn];
+  }, [vessels, allStateLogs, vesselAssignments, isAdmin]);
 
   // Calculate stats for the past 7 days
   const past7DaysStats = useMemo(() => {
@@ -1854,57 +1935,142 @@ export default function DashboardPage() {
 
         {/* Subscription Breakdown */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <Card className="rounded-xl border shadow-sm">
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader>
-              <CardTitle className="text-lg font-semibold">Subscription Tiers</CardTitle>
-              <CardDescription>Active subscriptions by tier</CardDescription>
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <Users className="h-5 w-5 text-muted-foreground" />
+                Crew Subscription Tiers
+              </CardTitle>
+              <CardDescription>Active crew subscriptions by tier</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {Object.entries(adminStats.subscriptionsByTier).length > 0 ? (
-                  Object.entries(adminStats.subscriptionsByTier)
-                    .sort(([, a], [, b]) => b - a)
-                    .map(([tier, count]) => (
-                      <div key={tier} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <CreditCard className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm font-medium capitalize">
-                            {tier.replace(/_/g, ' ')}
-                          </span>
+                {Object.entries(adminStats.crewSubscriptionsByTier).length > 0 ? (
+                  Object.entries(adminStats.crewSubscriptionsByTier)
+                    .sort(([, a], [, b]) => (b as number) - (a as number))
+                    .map(([tier, count]) => {
+                      const tierPricing: Record<string, number> = {
+                        'free': 0,
+                        'crew_limited': 0,
+                        'standard': 4.99,
+                        'premium': 9.99,
+                        'pro': 14.99,
+                        'professional': 14.99,
+                      };
+                      const price = tierPricing[tier.toLowerCase()] || 0;
+                      const tierRevenue = price * (count as number);
+                      return (
+                        <div key={tier} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <CreditCard className="h-4 w-4 text-muted-foreground" />
+                            <div>
+                              <span className="text-sm font-medium">
+                                {tier === 'crew_limited' ? 'Crew Limited' : tier.replace(/_/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                              </span>
+                              {price > 0 && (
+                                <p className="text-xs text-muted-foreground">£{price.toFixed(2)}/mo</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <Badge variant="secondary">{count}</Badge>
+                            {tierRevenue > 0 && (
+                              <p className="text-xs text-muted-foreground mt-1">£{tierRevenue.toFixed(2)}/mo</p>
+                            )}
+                          </div>
                         </div>
-                        <Badge variant="secondary">{count}</Badge>
-                      </div>
-                    ))
+                      );
+                    })
                 ) : (
-                  <p className="text-sm text-muted-foreground">No active subscriptions</p>
+                  <p className="text-sm text-muted-foreground text-center py-4">No active crew subscriptions</p>
                 )}
               </div>
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl border shadow-sm">
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader>
-              <CardTitle className="text-lg font-semibold">Quick Actions</CardTitle>
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <Ship className="h-5 w-5 text-muted-foreground" />
+                Vessel Subscription Tiers
+              </CardTitle>
+              <CardDescription>Active vessel subscriptions by tier</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {Object.entries(adminStats.vesselSubscriptionsByTier).length > 0 ? (
+                  Object.entries(adminStats.vesselSubscriptionsByTier)
+                    .sort(([, a], [, b]) => (b as number) - (a as number))
+                    .map(([tier, count]) => {
+                      const tierPricing: Record<string, number> = {
+                        'vessel_lite': 49.99,
+                        'vessel_basic': 99.99,
+                        'vessel_pro': 299.99,
+                        'vessel_fleet': 799.99,
+                      };
+                      const price = tierPricing[tier.toLowerCase()] || 0;
+                      const tierRevenue = price * (count as number);
+                      return (
+                        <div key={tier} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <CreditCard className="h-4 w-4 text-muted-foreground" />
+                            <div>
+                              <span className="text-sm font-medium">
+                                {tier.replace(/_/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                              </span>
+                              {price > 0 && (
+                                <p className="text-xs text-muted-foreground">£{price.toFixed(2)}/mo</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <Badge variant="secondary">{count}</Badge>
+                            {tierRevenue > 0 && (
+                              <p className="text-xs text-muted-foreground mt-1">£{tierRevenue.toFixed(2)}/mo</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">No active vessel subscriptions</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <Activity className="h-5 w-5 text-muted-foreground" />
+                Quick Actions
+              </CardTitle>
               <CardDescription>Common admin tasks</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <Button asChild variant="outline" className="w-full justify-start rounded-lg">
+                <Button asChild variant="outline" className="w-full justify-start rounded-lg hover:bg-muted">
                   <Link href="/dashboard/crew">
                     <Users className="mr-2 h-4 w-4" />
                     Manage Crew Members
                   </Link>
                 </Button>
-                <Button asChild variant="outline" className="w-full justify-start rounded-lg">
+                <Button asChild variant="outline" className="w-full justify-start rounded-lg hover:bg-muted">
                   <Link href="/dashboard/vessels">
                     <Ship className="mr-2 h-4 w-4" />
                     Manage Vessels
                   </Link>
                 </Button>
-                <Button asChild variant="outline" className="w-full justify-start rounded-lg">
-                  <Link href="/dashboard/vessels">
+                <Button asChild variant="outline" className="w-full justify-start rounded-lg hover:bg-muted">
+                  <Link href="/dashboard/revenue">
                     <BarChart3 className="mr-2 h-4 w-4" />
                     View Analytics
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="w-full justify-start rounded-lg hover:bg-muted">
+                  <Link href="/dashboard/vessel-subscriptions">
+                    <CreditCard className="mr-2 h-4 w-4" />
+                    Vessel Subscriptions
                   </Link>
                 </Button>
               </div>
@@ -1913,44 +2079,156 @@ export default function DashboardPage() {
 
           <Card className="rounded-xl border shadow-sm">
             <CardHeader>
-              <CardTitle className="text-lg font-semibold">Revenue Breakdown</CardTitle>
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-muted-foreground" />
+                Revenue Breakdown
+              </CardTitle>
               <CardDescription>Subscription revenue by account type</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Active Vessel Accounts</span>
-                  <span className="text-sm font-semibold">
-                    {adminStats.activeVesselSubscriptions}
-                  </span>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                    <div className="flex items-center gap-2">
+                      <Ship className="h-4 w-4 text-blue-500" />
+                      <span className="text-sm font-medium">Vessel Accounts</span>
+                    </div>
+                    <span className="text-sm font-semibold">
+                      {adminStats.activeVesselSubscriptions}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-purple-500" />
+                      <span className="text-sm font-medium">Crew Accounts</span>
+                    </div>
+                    <span className="text-sm font-semibold">
+                      {adminStats.activeSubscriptions}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-primary/10 border border-primary/20">
+                    <span className="text-sm font-semibold">Total Active</span>
+                    <span className="text-sm font-bold text-primary">
+                      {adminStats.activeSubscriptions + adminStats.activeVesselSubscriptions}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between pt-2 border-t">
-                  <span className="text-sm text-muted-foreground">Active Crew Accounts</span>
-                  <span className="text-sm font-semibold">
-                    {adminStats.activeSubscriptions}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t">
-                  <span className="text-sm font-medium">Total Active Subscriptions</span>
-                  <span className="text-sm font-bold">
-                    {adminStats.activeSubscriptions + adminStats.activeVesselSubscriptions}
-                  </span>
-                </div>
-                <div className="pt-2 border-t">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-muted-foreground">Monthly Recurring Revenue</span>
-                    <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                <Separator />
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
+                    <span className="text-sm font-medium text-muted-foreground">Crew Revenue</span>
+                    <span className="text-sm font-semibold text-green-600 dark:text-green-400">
+                      £{adminStats.crewRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
+                    <span className="text-sm font-medium text-muted-foreground">Vessel Revenue</span>
+                    <span className="text-sm font-semibold text-green-600 dark:text-green-400">
+                      £{adminStats.vesselRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <span className="text-sm font-medium">Monthly Revenue</span>
+                    <span className="text-lg font-bold text-green-600 dark:text-green-400">
                       £{adminStats.monthlyRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">Annual Recurring Revenue</span>
-                    <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                    <span className="text-sm font-medium">Annual Revenue</span>
+                    <span className="text-lg font-bold text-green-600 dark:text-green-400">
                       £{adminStats.annualRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Recent Signups Section */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card className="rounded-xl border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <Users className="h-5 w-5 text-muted-foreground" />
+                Latest User Signups
+              </CardTitle>
+              <CardDescription>Most recent 10 crew member signups</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {adminStats.recentUserSignups.length > 0 ? (
+                <div className="space-y-3">
+                  {adminStats.recentUserSignups.map((user) => {
+                    const displayName = user.firstName || user.lastName
+                      ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
+                      : 'No name';
+                    const signupDate = user.createdAt ? format(new Date(user.createdAt), 'MMM d, yyyy') : 'Unknown';
+                    return (
+                      <div key={user.id} className="flex items-start justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                        <div className="flex-1 min-w-0 pr-4">
+                          <p className="text-sm font-medium truncate">
+                            {displayName !== 'No name' ? displayName : user.email}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">{user.email}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                          <Badge variant="outline" className="text-xs">
+                            {user.role === 'crew' ? 'Crew' : user.role === 'captain' ? 'Captain' : user.role}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">{signupDate}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">No user signups found</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <Ship className="h-5 w-5 text-muted-foreground" />
+                Latest Vessel Signups
+              </CardTitle>
+              <CardDescription>Most recent 10 vessel account signups</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {adminStats.recentVesselSignups.length > 0 ? (
+                <div className="space-y-3">
+                  {adminStats.recentVesselSignups.map((vessel) => {
+                    const displayName = vessel.firstName || vessel.lastName
+                      ? `${vessel.firstName || ''} ${vessel.lastName || ''}`.trim()
+                      : 'No name';
+                    const signupDate = vessel.createdAt ? format(new Date(vessel.createdAt), 'MMM d, yyyy') : 'Unknown';
+                    return (
+                      <div key={vessel.id} className="flex items-start justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                        <div className="flex-1 min-w-0 pr-4">
+                          <p className="text-sm font-medium truncate">
+                            {displayName !== 'No name' ? displayName : vessel.email}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">{vessel.email}</p>
+                          {vessel.vesselName && (
+                            <p className="text-xs text-blue-600 dark:text-blue-400 truncate mt-0.5 font-medium">
+                              {vessel.vesselName}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                          <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                            Vessel
+                          </Badge>
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">{signupDate}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">No vessel signups found</p>
+              )}
             </CardContent>
           </Card>
         </div>

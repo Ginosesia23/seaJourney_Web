@@ -6,10 +6,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInDays, eachDayOfInterval, isSameDay, startOfDay, endOfDay, parse, isWithinInterval, startOfMonth, endOfMonth, getDaysInMonth, getDay, isSameMonth, isToday, isAfter, isBefore, addDays, subMonths, startOfYear, endOfYear } from 'date-fns';
-import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, Check, XCircle, User, Play, Square } from 'lucide-react';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, Check, XCircle, User, Play, Square, ShieldCheck } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -376,12 +377,14 @@ export default function CurrentPage() {
   // Check if captain has approved captaincy for current vessel and find vessel account user
   const [vesselAccountUserId, setVesselAccountUserId] = useState<string | null>(null);
   const [isApprovedCaptain, setIsApprovedCaptain] = useState(false);
+  const [hasPendingCaptaincyRequest, setHasPendingCaptaincyRequest] = useState(false);
   
   useEffect(() => {
     const checkCaptaincyAndFindVesselAccount = async () => {
       if (!currentVessel || !user?.id) {
         setVesselAccountUserId(null);
         setIsApprovedCaptain(false);
+        setHasPendingCaptaincyRequest(false);
         return;
       }
 
@@ -389,6 +392,7 @@ export default function CurrentPage() {
       if (userProfile?.role !== 'captain') {
         setVesselAccountUserId(null);
         setIsApprovedCaptain(false);
+        setHasPendingCaptaincyRequest(false);
         return;
       }
 
@@ -411,11 +415,23 @@ export default function CurrentPage() {
           });
           setVesselAccountUserId(null);
           setIsApprovedCaptain(false);
+          
+          // Check for pending request
+          const { data: pendingRequest } = await supabase
+            .from('vessel_claim_requests')
+            .select('id')
+            .eq('requested_by', user.id)
+            .eq('vessel_id', currentVessel.id)
+            .eq('status', 'pending')
+            .maybeSingle();
+          
+          setHasPendingCaptaincyRequest(!!pendingRequest);
           return;
         }
         
         // User is an approved captain
         setIsApprovedCaptain(true);
+        setHasPendingCaptaincyRequest(false);
         
         console.log('[CURRENT PAGE] Approved captaincy found, searching for vessel account:', {
           vesselId: currentVessel.id,
@@ -1114,9 +1130,17 @@ export default function CurrentPage() {
     return () => clearTimeout(timeoutId);
   }, [vesselSearchTerm]);
 
-  // Handler to open captaincy request dialog
+  // Handler to open captaincy request dialog for looked up vessel
   const handleOpenCaptaincyDialog = () => {
     if (!selectedVesselForAction) return;
+    setCaptaincyDocumentUrls(['']);
+    setIsCaptaincyDialogOpen(true);
+  };
+
+  // Handler to open captaincy request dialog for current vessel
+  const handleOpenCurrentVesselCaptaincyDialog = () => {
+    if (!currentVessel) return;
+    setSelectedVesselForAction({ id: currentVessel.id, name: currentVessel.name, type: currentVessel.type });
     setCaptaincyDocumentUrls(['']);
     setIsCaptaincyDialogOpen(true);
   };
@@ -1193,6 +1217,12 @@ export default function CurrentPage() {
         setCaptaincyDocumentUrls(['']);
         setVesselSearchTerm('');
         setVesselSearchResults([]);
+        
+        // If this was for the current vessel, refresh the pending request state
+        if (currentVessel && selectedVesselForAction.id === currentVessel.id) {
+          setHasPendingCaptaincyRequest(true);
+        }
+        
         setSelectedVesselForAction(null);
       }
     } catch (error: any) {
@@ -2540,6 +2570,12 @@ export default function CurrentPage() {
                 const today = startOfDay(new Date());
                 const dayStart = startOfDay(day);
                 const isFuture = isAfter(dayStart, today);
+                
+                // Check if date is within assignment range but has no state
+                const isInAssignmentRange = assignmentStartDate && !isFuture && 
+                  isWithinInterval(dayStart, { start: assignmentStartDate, end: today });
+                const hasNoState = !stateInfo;
+                const shouldShowOutline = isInAssignmentRange && hasNoState && !isFuture;
 
                 // Determine styling for dates
                 let backgroundStyle: React.CSSProperties | undefined = undefined;
@@ -2616,6 +2652,8 @@ export default function CurrentPage() {
                             isPartOfActivePassage && !hasWatch && "border-[3px] border-blue-600",
                             // Standby outline (purple) - only if not watch or part of active passage
                             isCountedStandby && !hasOverride && !hasWatch && !isPartOfActivePassage && "border-[3px] border-purple-600",
+                            // Outline for dates in assignment range without state
+                            shouldShowOutline && !hasOverride && !isCountedStandby && !hasWatch && !isPartOfActivePassage && !isInRange && "border-2 border-dashed border-muted-foreground/40",
                             stateInfo 
                               ? "text-white" 
                               : "bg-muted/50 text-muted-foreground hover:bg-muted"
@@ -2731,8 +2769,7 @@ export default function CurrentPage() {
     }
   }
   
-  const serviceDate = mostRecentServiceDate;
-  
+  // Use assignment start date for display (when user started on vessel), fallback to most recent service date
   // Get the start date for filtering logs
   // For vessel managers: use vessel's start_date (userProfile.startDate) or vessel creation date
   // For crew members: use assignment start date (when they joined the vessel)
@@ -2812,6 +2849,9 @@ export default function CurrentPage() {
     
     return result;
   }, [currentVessel, vesselAssignments, userProfile, vessels]);
+  
+  // Use assignment start date for display (when user started on vessel), fallback to most recent service date
+  const serviceDate = assignmentStartDate || mostRecentServiceDate;
   
   const { totalDaysByState, atSeaDays, standbyDays } = useMemo(() => {
     console.log('[CURRENT PAGE] Calculating stats from stateLogs:', {
@@ -3024,21 +3064,69 @@ export default function CurrentPage() {
                 {/* Left: Vessel Info */}
                 <Card className="rounded-xl border shadow-sm bg-gradient-to-r from-primary/5 to-primary/10">
                     <CardContent className="pt-6">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <div className="h-16 w-16 rounded-xl bg-primary/20 flex items-center justify-center">
-                                    <Ship className="h-8 w-8 text-primary" />
+                        <div className="flex items-start justify-between">
+                            <div className="flex items-start gap-4 flex-1 relative">
+                                <div className="flex flex-col gap-4 flex-shrink-0 items-start">
+                                    <div className="h-16 w-16 rounded-xl bg-primary/20 flex items-center justify-center">
+                                        <Ship className="h-8 w-8 text-primary" />
+                                    </div>
                                 </div>
-                                <div>
-                                    <h2 className="text-2xl font-bold">{currentVessel.name}</h2>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <h2 className="text-2xl font-bold">{currentVessel.name}</h2>
+                                    </div>
                                     <p className="text-sm text-muted-foreground">{currentVessel.type} • Active Service</p>
                                     {serviceDate && (
                                         <p className="text-xs text-muted-foreground mt-1">Started {format(serviceDate, 'PPP')}</p>
                                     )}
+                                    
+                                    {/* Captaincy Request Section */}
+                                    {isCaptain && currentVessel && (
+                                        <div className="mt-6 pt-4 border-t border-border/50 relative">
+                                            {/* Captaincy Request Icon - positioned in left column aligned with text */}
+                                            {!isApprovedCaptain && (
+                                                <div className="absolute -left-20 h-16 w-16 rounded-xl bg-primary/10 flex items-center justify-center">
+                                                    {hasPendingCaptaincyRequest ? (
+                                                        <Clock className="h-8 w-8 text-yellow-600 dark:text-yellow-400" />
+                                                    ) : (
+                                                        <ShieldCheck className="h-8 w-8 text-primary" />
+                                                    )}
+                                                </div>
+                                            )}
+                                            {!isApprovedCaptain && !hasPendingCaptaincyRequest ? (
+                                                <div>
+                                                    <h3 className="text-sm font-semibold mb-1">Request Captaincy</h3>
+                                                    <p className="text-xs text-muted-foreground mb-3">
+                                                        Request official captaincy status for this vessel to access vessel management features.
+                                                    </p>
+                                                    <Button
+                                                        variant="default"
+                                                        size="sm"
+                                                        onClick={handleOpenCurrentVesselCaptaincyDialog}
+                                                        className="rounded-lg"
+                                                    >
+                                                        <ShieldCheck className="h-4 w-4 mr-2" />
+                                                        Request Captain
+                                                    </Button>
+                                                </div>
+                                            ) : hasPendingCaptaincyRequest ? (
+                                                <div>
+                                                    <h3 className="text-sm font-semibold mb-1">Captaincy Request Pending</h3>
+                                                    <p className="text-xs text-muted-foreground mb-2">
+                                                        Your request is being reviewed by the vessel manager and administrator.
+                                                    </p>
+                                                    <Badge variant="secondary" className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20">
+                                                        <Clock className="h-3 w-3 mr-1" />
+                                                        Request Pending
+                                                    </Badge>
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             {todayStatusValue && (
-                                <div className="text-right">
+                                <div className="text-right flex-shrink-0">
                                     <p className="text-xs text-muted-foreground mb-1">Today's Status</p>
                                     <div className="flex items-center gap-2">
                                         <div 
@@ -4641,7 +4729,9 @@ export default function CurrentPage() {
           <DialogHeader>
             <DialogTitle>Request Vessel Captaincy</DialogTitle>
             <DialogDescription>
-              Provide supporting documents (URLs to certificates, licenses, contracts, or other relevant documents) to prove you are the captain of this vessel.
+              {selectedVesselForAction 
+                ? `Provide supporting documents (URLs to certificates, licenses, contracts, or other relevant documents) to prove you are the captain of "${selectedVesselForAction.name}".`
+                : 'Provide supporting documents (URLs to certificates, licenses, contracts, or other relevant documents) to prove you are the captain of this vessel.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

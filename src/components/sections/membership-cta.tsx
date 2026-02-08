@@ -45,7 +45,7 @@ interface Plan {
   features: string[];
   cta: string;
   icon: typeof Shield;
-  color: 'blue' | 'purple' | 'orange';
+  color: 'blue' | 'purple' | 'orange' | 'green';
   highlighted?: boolean;
   priceId?: string; // Stripe price ID
   comingSoon?: boolean; // Coming soon flag
@@ -104,7 +104,7 @@ const planTemplates: Omit<Plan, 'priceId'>[] = [
     ],
     cta: 'Get Started',
     icon: TrendingUp,
-    color: 'orange',
+    color: 'green',
     comingSoon: true,
     availableDate: '2026',
   },
@@ -124,7 +124,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'Vessel state tracking',
       'Digital testimonial approvals',
       'Crew sea time verification',
-      'Basic reporting & exports',
+      'Support and feedback',
     ],
     cta: 'Get Started',
     icon: Shield,
@@ -140,8 +140,6 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'Up to 30 crew members',
       'All Lite features',
       'Advanced crew analytics',
-      'Automated testimonial workflows',
-      'Crew certification tracking',
       'Priority support',
     ],
     cta: 'Get Started',
@@ -159,13 +157,11 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'Unlimited crew members',
       'Multiple role assignments',
       'All Basic features',
-      'Fleet-wide analytics',
-      'Custom reporting & integrations',
-      'Advanced security & compliance',
+      'Generate documents and applications for crew members',
     ],
     cta: 'Get Started',
     icon: TrendingUp,
-    color: 'orange',
+    color: 'green',
     comingSoon: false,
   },
   {
@@ -631,6 +627,8 @@ export default function MembershipCTA() {
                       ? 'border-blue-500/30 ring-1 ring-blue-500/20 dark:border-blue-500/30 dark:ring-blue-500/20'
                       : plan.color === 'purple'
                       ? 'border-purple-500/30 ring-1 ring-purple-500/20 dark:border-purple-500/30 dark:ring-purple-500/20'
+                      : plan.color === 'green'
+                      ? 'border-green-600/30 ring-1 ring-green-600/20 dark:border-green-500/30 dark:ring-green-500/20'
                       : 'border-orange-600/30 ring-1 ring-orange-600/20 dark:border-orange-500/30 dark:ring-orange-500/20'
                   } ${
                     isHighlighted
@@ -643,6 +641,8 @@ export default function MembershipCTA() {
                       ? 'shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30'
                       : plan.color === 'purple'
                       ? 'shadow-lg shadow-purple-500/15 dark:shadow-purple-500/25 hover:shadow-xl hover:shadow-purple-500/25 dark:hover:shadow-purple-500/40'
+                      : plan.color === 'green'
+                      ? 'shadow-lg shadow-green-600/20 dark:shadow-green-500/25 hover:shadow-xl hover:shadow-green-600/30 dark:hover:shadow-green-500/40'
                       : plan.name === 'Vessel Fleet'
                       ? 'shadow-lg shadow-orange-600/20 dark:shadow-orange-500/25 hover:shadow-xl hover:shadow-orange-600/30 dark:hover:shadow-orange-500/40'
                       : 'shadow-lg shadow-orange-600/20 dark:shadow-orange-500/25 hover:shadow-xl hover:shadow-orange-600/30 dark:hover:shadow-orange-500/40'
@@ -677,6 +677,8 @@ export default function MembershipCTA() {
                             ? 'bg-blue-100 dark:bg-blue-500/20'
                             : plan.color === 'purple'
                             ? 'bg-purple-100 dark:bg-purple-500/20'
+                            : plan.color === 'green'
+                            ? 'bg-green-100 dark:bg-green-500/20'
                             : 'bg-orange-100 dark:bg-orange-500/20'
                         }`}
                       >
@@ -686,6 +688,8 @@ export default function MembershipCTA() {
                               ? 'text-blue-600 dark:text-blue-400'
                               : plan.color === 'purple'
                               ? 'text-purple-600 dark:text-purple-400'
+                              : plan.color === 'green'
+                              ? 'text-green-600 dark:text-green-400'
                               : 'text-orange-600 dark:text-orange-400'
                           }`}
                         />
@@ -719,6 +723,8 @@ export default function MembershipCTA() {
                                 ? 'bg-blue-100 dark:bg-blue-500/20'
                                 : plan.color === 'purple'
                                 ? 'bg-purple-100 dark:bg-purple-500/20'
+                                : plan.color === 'green'
+                                ? 'bg-green-100 dark:bg-green-500/20'
                                 : 'bg-orange-100 dark:bg-orange-500/20'
                             }`}
                           >
@@ -728,6 +734,8 @@ export default function MembershipCTA() {
                                   ? 'text-blue-600 dark:text-blue-400'
                                   : plan.color === 'purple'
                                   ? 'text-purple-600 dark:text-purple-400'
+                                  : plan.color === 'green'
+                                  ? 'text-green-600 dark:text-green-400'
                                   : 'text-orange-600 dark:text-orange-400'
                               }`}
                             />

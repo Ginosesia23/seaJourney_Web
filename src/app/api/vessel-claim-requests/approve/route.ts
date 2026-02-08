@@ -221,6 +221,51 @@ export async function POST(req: NextRequest) {
       // 2. OR if this captain is being set as primary and no other captains are onboard
       const shouldSetOnboard = !otherOnboardCaptains || otherOnboardCaptains.length === 0;
 
+      // Get the vessel's official start date (from vessel account's start_date or vessel creation date)
+      // This should be preserved, not changed to the approval date
+      let assignmentStartDate = today; // Default fallback
+      
+      // First, try to get the vessel account's start_date
+      const { data: vesselAccount } = await supabaseAdmin
+        .from('users')
+        .select('start_date')
+        .eq('role', 'vessel')
+        .eq('active_vessel_id', vesselId)
+        .limit(1)
+        .maybeSingle();
+      
+      if (vesselAccount?.start_date) {
+        assignmentStartDate = vesselAccount.start_date;
+        console.log('[APPROVE CAPTAINCY API] Using vessel account start_date:', assignmentStartDate);
+      } else {
+        // Fallback: check if captain already has an assignment for this vessel (even if ended)
+        const { data: previousAssignment } = await supabaseAdmin
+          .from('vessel_assignments')
+          .select('start_date')
+          .eq('user_id', captainUserId)
+          .eq('vessel_id', vesselId)
+          .order('start_date', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        
+        if (previousAssignment?.start_date) {
+          assignmentStartDate = previousAssignment.start_date;
+          console.log('[APPROVE CAPTAINCY API] Using previous assignment start_date:', assignmentStartDate);
+        } else {
+          // Last fallback: use vessel creation date
+          const { data: vesselInfo } = await supabaseAdmin
+            .from('vessels')
+            .select('created_at')
+            .eq('id', vesselId)
+            .single();
+          
+          if (vesselInfo?.created_at) {
+            assignmentStartDate = new Date(vesselInfo.created_at).toISOString().split('T')[0];
+            console.log('[APPROVE CAPTAINCY API] Using vessel creation date:', assignmentStartDate);
+          }
+        }
+      }
+
       // Create vessel assignment if it doesn't exist
       if (!existingAssignment) {
         const { error: assignmentError } = await supabaseAdmin
@@ -228,7 +273,7 @@ export async function POST(req: NextRequest) {
           .insert({
             user_id: captainUserId,
             vessel_id: vesselId,
-            start_date: today,
+            start_date: assignmentStartDate, // Use vessel's original start date, not approval date
             end_date: null, // Active assignment
             position: position,
             onboard: shouldSetOnboard, // Set as onboard if first captain or no other onboard captains

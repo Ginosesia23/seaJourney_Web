@@ -680,8 +680,9 @@ export default function CalendarPage() {
       return;
     }
     
-    // For approved captains viewing vessel account logs, prevent editing
-    if (vesselAccountUserId) {
+    // For approved captains viewing vessel account logs (not their own), prevent editing
+    // Only restrict editing when viewing vessel logs, not personal logs
+    if (isCaptain && captainViewMode === 'vessel' && vesselAccountUserId) {
       toast({
         title: 'View Only',
         description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
@@ -1305,6 +1306,17 @@ export default function CalendarPage() {
                 const isCurrentDay = isToday(day);
                 const isCurrentMonth = isSameMonth(day, month);
                 
+                // Check if date is in the future
+                const today = startOfDay(new Date());
+                const dayStart = startOfDay(day);
+                const isFuture = isAfter(dayStart, today);
+                
+                // Check if this date is within a vessel assignment range but has no state logged
+                const { vessel: dateVessel, assignment: dateAssignment } = findVesselForDate(day);
+                const isInAssignmentRange = !!dateAssignment && !isFuture;
+                const hasNoState = !stateInfo;
+                const isAssignableDate = isInAssignmentRange && hasNoState;
+                
                 // Check if this date is a standby date (in-port or at-anchor state)
                 const isStandbyState = standbyStateDatesSet.has(dateKey);
                 const isPartOfActivePassage = partOfActivePassageDates.has(dateKey);
@@ -1316,22 +1328,17 @@ export default function CalendarPage() {
                 let isRangeStart = false;
                 let isRangeEnd = false;
                 if (dateRange?.from && dateRange?.to) {
-                  const dayStart = startOfDay(day);
+                  const dayStartForRange = startOfDay(day);
                   const rangeStart = startOfDay(dateRange.from);
                   const rangeEnd = endOfDay(dateRange.to);
                   
-                  isInRange = isWithinInterval(dayStart, { start: rangeStart, end: rangeEnd });
-                  isRangeStart = format(dayStart, 'yyyy-MM-dd') === format(rangeStart, 'yyyy-MM-dd');
-                  isRangeEnd = format(dayStart, 'yyyy-MM-dd') === format(rangeEnd, 'yyyy-MM-dd');
+                  isInRange = isWithinInterval(dayStartForRange, { start: rangeStart, end: rangeEnd });
+                  isRangeStart = format(dayStartForRange, 'yyyy-MM-dd') === format(rangeStart, 'yyyy-MM-dd');
+                  isRangeEnd = format(dayStartForRange, 'yyyy-MM-dd') === format(rangeEnd, 'yyyy-MM-dd');
                 } else if (dateRange?.from && !dateRange?.to) {
                   // Only start is selected
                   isRangeStart = format(day, 'yyyy-MM-dd') === format(dateRange.from, 'yyyy-MM-dd');
                 }
-                
-                // Check if date is in the future
-                const today = startOfDay(new Date());
-                const dayStart = startOfDay(day);
-                const isFuture = isAfter(dayStart, today);
 
                 // Standby dates use purple border outline (same as current page)
 
@@ -1377,6 +1384,13 @@ export default function CalendarPage() {
                           </div>
                         )}
                       </>
+                    ) : isAssignableDate ? (
+                      <div className="text-muted-foreground">
+                        No state logged - within vessel assignment range
+                        {dateVessel && (
+                          <div className="text-xs mt-1">Vessel: {dateVessel.name}</div>
+                        )}
+                      </div>
                     ) : (
                       <div className="text-muted-foreground">No state logged</div>
                     )}
@@ -1398,18 +1412,22 @@ export default function CalendarPage() {
                       !isFuture && "hover:scale-105 hover:shadow-md",
                       !isCurrentMonth && "opacity-40",
                       isFuture && "opacity-30 cursor-not-allowed",
-                      isCurrentDay && !isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-2",
-                      isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary/50",
-                      (isRangeStart || isRangeEnd) && !isPartOfActivePassage && !isCountedStandby && !hasWatch && "ring-2 ring-primary ring-offset-1",
+                      isCurrentDay && !isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && "ring-2 ring-primary ring-offset-2",
+                      isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && "ring-2 ring-primary/50",
+                      (isRangeStart || isRangeEnd) && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && "ring-2 ring-primary ring-offset-1",
                       // Watch outline (yellow) - takes priority
                       hasWatch && "border-[3px] border-yellow-400",
                       // Part of active passage outline (blue)
                       isPartOfActivePassage && !hasWatch && "border-[3px] border-blue-600",
                       // Standby outline (purple) - only if not watch or part of active passage
                       isCountedStandby && !hasWatch && !isPartOfActivePassage && "border-[3px] border-purple-600",
+                      // Assignable date outline (dashed border) - dates within assignment range but no state logged
+                      isAssignableDate && !hasWatch && !isPartOfActivePassage && !isCountedStandby && "border-2 border-dashed border-muted-foreground/40",
                       stateInfo 
                         ? "text-white" 
-                        : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                        : isAssignableDate
+                          ? "bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                          : "bg-muted/50 text-muted-foreground hover:bg-muted"
                     )}
                     style={
                       // Always show the primary state color, with outlines for secondary indicators
@@ -1417,7 +1435,9 @@ export default function CalendarPage() {
                         ? { backgroundColor: stateInfo.color } 
                         : isInRange 
                           ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
-                          : undefined
+                          : isAssignableDate
+                            ? { backgroundColor: 'hsl(var(--muted) / 0.3)' }
+                            : undefined
                     }
                   >
                     <div className="flex flex-col items-center justify-center h-full relative">
