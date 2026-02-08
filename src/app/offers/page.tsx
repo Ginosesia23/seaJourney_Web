@@ -560,7 +560,9 @@ export default function OffersPage() {
     }
 
     if (!user) {
-      router.push(`/signup?redirect=/offers`);
+      // Route to vessel sign up if viewing vessel plans, otherwise crew sign up
+      const signupPath = showVesselPlans ? '/signup/vessel' : '/signup';
+      router.push(`${signupPath}?redirect=/offers`);
       return;
     }
   

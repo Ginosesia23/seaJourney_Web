@@ -4,8 +4,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug } from 'lucide-react';
-import { format, parse } from 'date-fns';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink } from 'lucide-react';
+import { format, parse, eachDayOfInterval, format as formatDate, addDays } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -30,6 +30,7 @@ import {
     verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { cn } from '@/lib/utils';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -44,11 +45,18 @@ import { AlertCircle, ArrowUpCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
+import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
-import type { UserProfile, VesselAssignment, Vessel, VesselSeaTimeAccessRequest } from '@/lib/types';
-import { getActiveVesselAssignmentsByVessel } from '@/supabase/database/queries';
+import type { UserProfile, VesselAssignment, Vessel, VesselSeaTimeAccessRequest, CrewLeavePeriod, Testimonial, VesselGeneratedTestimonial, StateLog } from '@/lib/types';
+import { getActiveVesselAssignmentsByVessel, getVesselStateLogs } from '@/supabase/database/queries';
 import { useCollection } from '@/supabase/database';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateMCAWatchRatingForm, type TestimonialPDFFormat, type MCACertificateType } from '@/lib/pdf-generator';
+import { calculateStandbyDays } from '@/lib/standby-calculation';
 
 
 const getInitials = (name: string) => name ? name.split(' ').map((n) => n[0]).join('') : '';
@@ -75,6 +83,11 @@ interface CrewMemberWithAssignment {
         onLeaveDays: number;
         inYardDays: number;
     };
+    leavePeriods?: CrewLeavePeriod[];
+    leavePeriodsFromLogs?: Array<{ startDate: string; endDate: string; notes?: string }>;
+    testimonials?: Testimonial[];
+    vesselGeneratedTestimonials?: VesselGeneratedTestimonial[];
+    hasApprovedAccess?: boolean;
 }
 
 // Sortable Row Component
@@ -90,6 +103,7 @@ interface SortableRowProps {
     onToggleOnboard: (assignmentId: string, currentStatus: boolean, userId: string) => void;
     onToggleRowExpansion: (member: CrewMemberWithAssignment) => void;
     onRequestAccess: (userId: string) => void;
+    onOpenLeavePeriodsDialog: (member: CrewMemberWithAssignment) => void;
 }
 
 function SortableRow({
@@ -104,6 +118,7 @@ function SortableRow({
     onToggleOnboard,
     onToggleRowExpansion,
     onRequestAccess,
+    onOpenLeavePeriodsDialog,
 }: SortableRowProps) {
     const { profile, assignment } = member;
     const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
@@ -156,11 +171,22 @@ function SortableRow({
         ? (allVessels?.find(v => v.id === assignment.vesselId)?.name || 'Unknown Vessel')
         : null;
 
+    const isVesselManager = currentUserProfile?.role === 'vessel';
+    const handleRowClick = () => {
+        if (isVesselManager && !isDragging) {
+            onOpenLeavePeriodsDialog(member);
+        }
+    };
+
     return (
         <TableRow
             ref={setNodeRef}
             style={style}
-            className={isDragging ? 'bg-muted/50' : ''}
+            className={cn(
+                isDragging ? 'bg-muted/50' : '',
+                isVesselManager ? 'cursor-pointer hover:bg-muted/30 transition-colors' : ''
+            )}
+            onClick={handleRowClick}
         >
             <TableCell className="font-medium">
                 <div className="flex items-center gap-3">
@@ -248,24 +274,9 @@ function SortableRow({
                 {currentUserProfile?.role === 'vessel' ? (
                     <div className="flex items-center gap-2">
                         {member.accessRequest?.status === 'approved' ? (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => onToggleRowExpansion(member)}
-                                className="h-8"
-                            >
-                                {expandedRows.has(profile.id) ? (
-                                    <>
-                                        <ChevronUp className="h-4 w-4 mr-1" />
-                                        Hide Details
-                                    </>
-                                ) : (
-                                    <>
-                                        <ChevronDown className="h-4 w-4 mr-1" />
-                                        View Sea Time
-                                    </>
-                                )}
-                            </Button>
+                            <Badge variant="secondary" className="text-xs bg-green-500/10 text-green-700 border-green-500/20">
+                                Access Approved
+                            </Badge>
                         ) : member.accessRequest?.status === 'pending' ? (
                             <Badge variant="secondary" className="text-xs">
                                 Request Pending
@@ -334,6 +345,31 @@ export default function CrewPage() {
     const [debugMode, setDebugMode] = useState(false);
     const [activeId, setActiveId] = useState<string | null>(null);
     const [dragCoordinates, setDragCoordinates] = useState<{ x: number; y: number; index: number } | null>(null);
+    const [selectedCrewMemberId, setSelectedCrewMemberId] = useState<string | null>(null);
+    const [isLeavePeriodDialogOpen, setIsLeavePeriodDialogOpen] = useState(false);
+    const [leavePeriodStartDate, setLeavePeriodStartDate] = useState<Date | undefined>(undefined);
+    const [leavePeriodEndDate, setLeavePeriodEndDate] = useState<Date | undefined>(undefined);
+    const [leavePeriodNotes, setLeavePeriodNotes] = useState('');
+    const [isSavingLeavePeriod, setIsSavingLeavePeriod] = useState(false);
+    const [isDeletingLeavePeriod, setIsDeletingLeavePeriod] = useState<string | null>(null);
+    const [isLoadingTestimonials, setIsLoadingTestimonials] = useState(false);
+    const [generatingPDF, setGeneratingPDF] = useState<string | null>(null);
+    const [showGenerateForm, setShowGenerateForm] = useState(false);
+    const [documentStartDate, setDocumentStartDate] = useState<Date | undefined>(undefined);
+    const [documentEndDate, setDocumentEndDate] = useState<Date | undefined>(undefined);
+    const [isCalculatingSeaTime, setIsCalculatingSeaTime] = useState(false);
+    const [calculatedSeaTime, setCalculatedSeaTime] = useState<{
+        totalDays: number;
+        atSeaDays: number;
+        standbyDays: number;
+        yardDays: number;
+        leaveDays: number;
+        isOfficer: boolean;
+    } | null>(null);
+    const [isSendingToCaptain, setIsSendingToCaptain] = useState(false);
+    const [isSavingTestimonial, setIsSavingTestimonial] = useState(false);
+    const [activeCaptain, setActiveCaptain] = useState<{ id: string; name: string } | null>(null);
+    const [selectedDataSource, setSelectedDataSource] = useState<'crew' | 'vessel' | null>(null);
 
     // The user's own profile is needed to check their role and active vessel.
     const { data: currentUserProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -877,11 +913,11 @@ export default function CrewPage() {
                 return;
             }
 
-            const { seaTimeData } = await response.json();
+            const { seaTimeData, leavePeriodsFromLogs } = await response.json();
 
             setCrewMembers(prev => prev.map(m => 
                 m.profile.id === crewMember.profile.id
-                    ? { ...m, seaTimeData }
+                    ? { ...m, seaTimeData, leavePeriodsFromLogs }
                     : m
             ));
         } catch (error: any) {
@@ -900,24 +936,10 @@ export default function CrewPage() {
         }
     };
 
-    // Function to toggle expanded row
+    // Function to toggle expanded row (no longer used, but kept for compatibility)
     const toggleRowExpansion = async (crewMember: CrewMemberWithAssignment) => {
-        const isExpanded = expandedRows.has(crewMember.profile.id);
-        
-        if (isExpanded) {
-            setExpandedRows(prev => {
-                const next = new Set(prev);
-                next.delete(crewMember.profile.id);
-                return next;
-            });
-        } else {
-            setExpandedRows(prev => new Set(prev).add(crewMember.profile.id));
-            
-            // Load sea time data if not already loaded and access is approved
-            if (crewMember.accessRequest?.status === 'approved' && !crewMember.seaTimeData) {
-                await loadSeaTimeData(crewMember);
-            }
-        }
+        // This function is no longer needed as sea time is shown in focused view
+        // But kept for compatibility with SortableRow component
     };
 
     // Function to toggle onboard status (vessel accounts only)
@@ -1053,6 +1075,19 @@ export default function CrewPage() {
 
     const isLoading = isLoadingProfile || isLoadingAssignments || isCheckingCaptaincy;
     
+    // Get selected crew member data
+    const selectedMemberData = useMemo(() => {
+        if (!selectedCrewMemberId) return null;
+        const member = crewMembers.find(m => m.profile.id === selectedCrewMemberId);
+        if (!member) return null;
+        
+        // Add hasApprovedAccess flag
+        return {
+            ...member,
+            hasApprovedAccess: member.accessRequest?.status === 'approved' || false,
+        };
+    }, [selectedCrewMemberId, crewMembers]);
+    
     // Form for inviting crew members
     const inviteForm = useForm<InviteCrewFormValues>({
         resolver: zodResolver(inviteCrewSchema),
@@ -1062,6 +1097,1525 @@ export default function CrewPage() {
             email: '',
         },
     });
+
+    // Handler for selecting a crew member (show focused view)
+    const handleSelectCrewMember = async (memberId: string) => {
+        setSelectedCrewMemberId(memberId);
+        
+        // Find the crew member
+        const member = crewMembers.find(m => m.profile.id === memberId);
+        if (!member) return;
+        
+        // Fetch leave periods for this crew member
+        if (currentUserProfile?.activeVesselId && user?.id) {
+            try {
+                const response = await fetch(
+                    `/api/crew-leave-periods?crewUserId=${memberId}&vesselId=${currentUserProfile.activeVesselId}`
+                );
+                if (response.ok) {
+                    const { leavePeriods } = await response.json();
+                    setCrewMembers(prev => prev.map(m => 
+                        m.profile.id === memberId
+                            ? { ...m, leavePeriods }
+                            : m
+                    ));
+                }
+            } catch (error) {
+                console.error('[CREW PAGE] Error fetching leave periods:', error);
+            }
+        }
+        
+        // Load sea time data if access is approved and not already loaded
+        // This will also fetch leave periods from logs
+        if (member.accessRequest?.status === 'approved' && !member.seaTimeData && !loadingSeaTime.has(memberId)) {
+            await loadSeaTimeData(member);
+        }
+        
+        // Fetch vessel-generated testimonials for this crew member
+        if (currentUserProfile?.activeVesselId && currentUserProfile?.role === 'vessel') {
+            setIsLoadingTestimonials(true);
+            try {
+                const { data: vesselTestimonials, error: testimonialsError } = await supabase
+                    .from('vessel_generated_testimonials')
+                    .select('*')
+                    .eq('crew_user_id', memberId)
+                    .eq('vessel_id', currentUserProfile.activeVesselId)
+                    .order('created_at', { ascending: false });
+
+                if (!testimonialsError && vesselTestimonials) {
+                    setCrewMembers(prev => prev.map(m => 
+                        m.profile.id === memberId
+                            ? { ...m, vesselGeneratedTestimonials: vesselTestimonials as VesselGeneratedTestimonial[] }
+                            : m
+                    ));
+                }
+            } catch (error) {
+                console.error('[CREW PAGE] Error fetching vessel-generated testimonials:', error);
+            } finally {
+                setIsLoadingTestimonials(false);
+            }
+        }
+    };
+
+
+    // Get vessel details helper
+    const getVesselDetails = (vesselId: string) => {
+        return allVessels?.find(v => v.id === vesselId);
+    };
+
+    // Calculate available periods between leave periods
+    const availablePeriodsBetweenLeave = useMemo(() => {
+        if (!selectedMemberData) return [];
+
+        const allLeavePeriods: Array<{ startDate: string; endDate: string }> = [];
+        
+        // Add manually logged leave periods
+        if (selectedMemberData.leavePeriods) {
+            selectedMemberData.leavePeriods.forEach(period => {
+                allLeavePeriods.push({
+                    startDate: period.startDate,
+                    endDate: period.endDate,
+                });
+            });
+        }
+        
+        // Add leave periods from logs
+        if (selectedMemberData.leavePeriodsFromLogs) {
+            selectedMemberData.leavePeriodsFromLogs.forEach(period => {
+                allLeavePeriods.push({
+                    startDate: period.startDate,
+                    endDate: period.endDate,
+                });
+            });
+        }
+
+        // If no leave periods, return empty array
+        if (allLeavePeriods.length === 0) return [];
+
+        // Sort leave periods by start date
+        const sortedLeavePeriods = [...allLeavePeriods].sort((a, b) => 
+            new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+        );
+
+        // Helper to normalize date to midnight
+        const normalizeDate = (dateStr: string | null | undefined): Date => {
+            if (!dateStr) return new Date(new Date().setHours(0, 0, 0, 0));
+            // If it's already a full ISO string, parse it; otherwise add time component
+            const date = dateStr.includes('T') 
+                ? new Date(dateStr) 
+                : new Date(dateStr + 'T00:00:00');
+            date.setHours(0, 0, 0, 0);
+            return date;
+        };
+
+        // Get assignment start date (use today if not available)
+        const assignmentStartDate = normalizeDate(selectedMemberData.assignment.startDate);
+        
+        // Get assignment end date or use today
+        const assignmentEndDate = normalizeDate(selectedMemberData.assignment.endDate);
+        
+        const today = new Date(new Date().setHours(0, 0, 0, 0));
+        const effectiveEndDate = assignmentEndDate > today ? today : assignmentEndDate;
+
+        const periods: Array<{ startDate: Date; endDate: Date; label: string }> = [];
+
+        // Helper to normalize leave period date
+        const normalizeLeaveDate = (dateStr: string): Date => {
+            const date = dateStr.includes('T') 
+                ? new Date(dateStr) 
+                : new Date(dateStr + 'T00:00:00');
+            date.setHours(0, 0, 0, 0);
+            return date;
+        };
+
+        // Period before first leave
+        const firstLeaveStart = normalizeLeaveDate(sortedLeavePeriods[0].startDate);
+        if (assignmentStartDate < firstLeaveStart) {
+            const periodEnd = new Date(firstLeaveStart);
+            periodEnd.setDate(periodEnd.getDate() - 1);
+            periodEnd.setHours(0, 0, 0, 0);
+            if (periodEnd >= assignmentStartDate) {
+                periods.push({
+                    startDate: assignmentStartDate,
+                    endDate: periodEnd,
+                    label: `Before first leave (${formatDate(assignmentStartDate, 'MMM dd')} - ${formatDate(periodEnd, 'MMM dd, yyyy')})`,
+                });
+            }
+        }
+
+        // Periods between leave periods
+        for (let i = 0; i < sortedLeavePeriods.length - 1; i++) {
+            const currentLeaveEnd = normalizeLeaveDate(sortedLeavePeriods[i].endDate);
+            const nextLeaveStart = normalizeLeaveDate(sortedLeavePeriods[i + 1].startDate);
+            
+            const periodStart = new Date(currentLeaveEnd);
+            periodStart.setDate(periodStart.getDate() + 1);
+            periodStart.setHours(0, 0, 0, 0);
+            
+            const periodEnd = new Date(nextLeaveStart);
+            periodEnd.setDate(periodEnd.getDate() - 1);
+            periodEnd.setHours(0, 0, 0, 0);
+            
+            if (periodStart <= periodEnd) {
+                periods.push({
+                    startDate: periodStart,
+                    endDate: periodEnd,
+                    label: `Between leave periods (${formatDate(periodStart, 'MMM dd')} - ${formatDate(periodEnd, 'MMM dd, yyyy')})`,
+                });
+            }
+        }
+
+        // Period after last leave
+        const lastLeaveEnd = normalizeLeaveDate(sortedLeavePeriods[sortedLeavePeriods.length - 1].endDate);
+        const periodStart = new Date(lastLeaveEnd);
+        periodStart.setDate(periodStart.getDate() + 1);
+        periodStart.setHours(0, 0, 0, 0);
+        
+        if (periodStart <= effectiveEndDate) {
+            periods.push({
+                startDate: periodStart,
+                endDate: effectiveEndDate,
+                label: `After last leave (${formatDate(periodStart, 'MMM dd')} - ${formatDate(effectiveEndDate, 'MMM dd, yyyy')})`,
+            });
+        }
+
+        return periods;
+    }, [selectedMemberData]);
+
+    // Check if selected crew member's MCA information is complete
+    const isMCAInfoComplete = useMemo(() => {
+        if (!selectedMemberData?.profile) return true;
+        
+        const profile = selectedMemberData.profile as any;
+        const hasDateOfBirth = !!(profile.date_of_birth || profile.dateOfBirth);
+        const hasAddressLine1 = !!(profile.address_line1 || profile.addressLine1);
+        const hasAddressTownCity = !!(profile.address_town_city || profile.addressTownCity);
+        const hasAddressPostCode = !!(profile.address_post_code || profile.addressPostCode);
+        const hasAddressCountry = !!(profile.address_country || profile.addressCountry);
+        const hasNationality = !!(profile.nationality);
+        
+        return hasDateOfBirth && hasAddressLine1 && hasAddressTownCity && hasAddressPostCode && hasAddressCountry && hasNationality;
+    }, [selectedMemberData]);
+
+    // Generate PDF for a vessel-generated testimonial
+    const handleGenerateVesselTestimonialPDF = async (testimonial: VesselGeneratedTestimonial, format: TestimonialPDFFormat = 'seajourney') => {
+        if (!selectedMemberData) {
+            toast({
+                title: 'Error',
+                description: 'Crew member data not available.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setGeneratingPDF(testimonial.id);
+        
+        try {
+            const vessel = getVesselDetails(testimonial.vessel_id);
+            if (!vessel) {
+                toast({
+                    title: 'Error',
+                    description: 'Vessel details not found.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+
+            // Fetch logs and calculate standby periods
+            let standbyPeriods: Array<{ passageStartDate: string; passageEndDate: string; standbyDays: number }> = [];
+            try {
+                const hasApprovedAccess = selectedMemberData.accessRequest?.status === 'approved';
+                let logs: StateLog[] = [];
+                
+                if (hasApprovedAccess && testimonial.data_source === 'crew') {
+                    logs = await getVesselStateLogs(
+                        supabase,
+                        testimonial.vessel_id,
+                        selectedMemberData.profile.id
+                    );
+                } else {
+                    // For vessel logs, fetch the vessel's own logs (vessel_manager_id)
+                    const vessel = getVesselDetails(testimonial.vessel_id);
+                    const vesselManagerId = vessel ? (vessel as any).vessel_manager_id : null;
+                    
+                    // If vessel_manager_id is not set, use current user (vessel manager)
+                    const targetUserId = vesselManagerId || currentUserProfile?.id;
+                    
+                    logs = await getVesselStateLogs(
+                        supabase,
+                        testimonial.vessel_id,
+                        targetUserId // Fetch logs for the vessel manager's account
+                    );
+                }
+                
+                const filteredLogs = logs.filter(log => {
+                    const logDate = log.date;
+                    return logDate >= testimonial.start_date && logDate <= testimonial.end_date;
+                });
+                
+                const partOfActivePassageDates = new Set<string>();
+                filteredLogs.forEach(log => {
+                    if (log.isPartOfActivePassage) {
+                        partOfActivePassageDates.add(log.date);
+                    }
+                });
+                
+                let watchDates = new Set<string>();
+                const position = (selectedMemberData.profile.position || '').toLowerCase();
+                const role = (selectedMemberData.profile.role || '').toLowerCase();
+                const officerPositions = [
+                    'captain', 'master', 'chief officer', 'first officer', 'first mate', 
+                    'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+                    'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer'
+                ];
+                const isOfficer = role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+                
+                if (hasApprovedAccess && isOfficer && selectedMemberData.profile.id) {
+                    const { data: watchLogs } = await supabase
+                        .from('watch_logs')
+                        .select('watch_start')
+                        .eq('user_id', selectedMemberData.profile.id)
+                        .eq('vessel_id', testimonial.vessel_id)
+                        .gte('watch_start', `${testimonial.start_date}T00:00:00`)
+                        .lte('watch_start', `${testimonial.end_date}T23:59:59`);
+                    
+                    if (watchLogs) {
+                        watchLogs.forEach(log => {
+                            const dateStr = formatDate(new Date(log.watch_start), 'yyyy-MM-dd');
+                            watchDates.add(dateStr);
+                        });
+                    }
+                }
+                
+                const { standbyPeriods: calculatedPeriods, voyages } = calculateStandbyDays(
+                    filteredLogs,
+                    watchDates.size > 0 ? watchDates : undefined,
+                    partOfActivePassageDates.size > 0 ? partOfActivePassageDates : undefined
+                );
+                
+                standbyPeriods = calculatedPeriods.map((period, index) => {
+                    const voyage = voyages[index];
+                    if (!voyage) {
+                        const voyageEndDate = new Date(period.startDate);
+                        voyageEndDate.setDate(voyageEndDate.getDate() - 1);
+                        const voyageStartDate = new Date(voyageEndDate);
+                        voyageStartDate.setDate(voyageStartDate.getDate() - (period.precedingVoyageDays || 0) + 1);
+                        return {
+                            passageStartDate: formatDate(voyageStartDate, 'yyyy-MM-dd'),
+                            passageEndDate: formatDate(voyageEndDate, 'yyyy-MM-dd'),
+                            standbyDays: period.countedDays,
+                        };
+                    }
+                    const voyageStart = voyage.startDate instanceof Date ? voyage.startDate : new Date(voyage.startDate);
+                    const voyageEnd = voyage.endDate instanceof Date ? voyage.endDate : new Date(voyage.endDate);
+                    return {
+                        passageStartDate: formatDate(voyageStart, 'yyyy-MM-dd'),
+                        passageEndDate: formatDate(voyageEnd, 'yyyy-MM-dd'),
+                        standbyDays: period.countedDays,
+                    };
+                });
+            } catch (error) {
+                console.error('[CREW PAGE] Error calculating standby periods:', error);
+            }
+
+            // Prepare testimonial data (simplified for vessel-generated testimonials)
+            const testimonialData = {
+                testimonial: {
+                    id: testimonial.id,
+                    start_date: testimonial.start_date,
+                    end_date: testimonial.end_date,
+                    total_days: testimonial.total_days,
+                    at_sea_days: testimonial.at_sea_days,
+                    standby_days: testimonial.standby_days,
+                    yard_days: testimonial.yard_days,
+                    leave_days: testimonial.leave_days,
+                    captain_name: testimonial.generated_by_name,
+                    captain_email: testimonial.generated_by_email,
+                    captain_position: null,
+                    captain_signature: null,
+                    captain_comment_conduct: null,
+                    captain_comment_ability: null,
+                    captain_comment_general: null,
+                    official_body: null,
+                    official_reference: null,
+                    notes: testimonial.notes,
+                    testimonial_code: null, // Vessel-generated testimonials don't have verification codes
+                    status: 'approved' as const,
+                    signoff_used_at: null,
+                    approved_at: testimonial.created_at,
+                    created_at: testimonial.created_at,
+                    updated_at: testimonial.updated_at,
+                },
+                userProfile: {
+                    firstName: selectedMemberData.profile.firstName,
+                    lastName: selectedMemberData.profile.lastName,
+                    username: selectedMemberData.profile.username,
+                    email: selectedMemberData.profile.email || '',
+                    dateOfBirth: (selectedMemberData.profile as any).date_of_birth || (selectedMemberData.profile as any).dateOfBirth || null,
+                    position: selectedMemberData.profile.position || null,
+                    dischargeBookNumber: (selectedMemberData.profile as any).discharge_book_number || (selectedMemberData.profile as any).dischargeBookNumber || null,
+                },
+                vessel: {
+                    name: vessel.name,
+                    type: vessel.type || null,
+                    officialNumber: vessel.officialNumber || vessel.imo || null,
+                    flag_state: vessel.flag || vessel.flag_state || null,
+                    length_m: vessel.length_m || null,
+                    gross_tonnage: vessel.gross_tonnage || null,
+                    call_sign: vessel.call_sign || null,
+                },
+                captainProfile: null,
+                companyDetails: {
+                    name: (vessel as any).management_company || null,
+                    address: (vessel as any).company_address || null,
+                    contactDetails: (vessel as any).company_contact || null,
+                },
+                standbyPeriods: standbyPeriods.length > 0 ? standbyPeriods : undefined,
+            };
+
+            // Generate PDF based on format
+            if (format === 'mca') {
+                const position = (selectedMemberData.profile.position || '').toLowerCase();
+                const role = (selectedMemberData.profile.role || '').toLowerCase();
+                const officerPositions = [
+                    'captain', 'master', 'chief officer', 'first officer', 'first mate', 
+                    'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+                    'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer'
+                ];
+                const isOfficerUser = role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+                
+                const testimonialDataWithReceipt = {
+                    ...testimonialData,
+                    receiptData: {
+                        documentId: testimonial.id,
+                        sjCode: null, // No verification code for vessel-generated testimonials
+                        documentType: 'testimonial' as const,
+                        generatedAt: new Date().toISOString(),
+                        generatedBy: {
+                            userId: currentUserProfile?.id,
+                            email: currentUserProfile?.email || undefined,
+                            name: testimonial.generated_by_name,
+                        },
+                    },
+                };
+                
+                if (isOfficerUser) {
+                    await generateMCAOfficerTestimonial(testimonialDataWithReceipt, 'download');
+                } else {
+                    await generateMCADeckhandTestimonial(testimonialDataWithReceipt, 'download');
+                }
+            } else {
+                await generateTestimonialPDF(testimonialData, format);
+            }
+
+            toast({
+                title: 'Success',
+                description: 'PDF generated successfully.',
+            });
+        } catch (error) {
+            console.error('[CREW PAGE] Error generating PDF:', error);
+            toast({
+                title: 'Error',
+                description: 'Failed to generate PDF. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setGeneratingPDF(null);
+        }
+    };
+
+    // Generate PDF for a testimonial
+    const handleGeneratePDF = async (testimonial: Testimonial, format: TestimonialPDFFormat = 'seajourney') => {
+        if (!selectedMemberData) {
+            toast({
+                title: 'Error',
+                description: 'Crew member data not available.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setGeneratingPDF(testimonial.id);
+        
+        try {
+            const vessel = getVesselDetails(testimonial.vessel_id);
+            if (!vessel) {
+                toast({
+                    title: 'Error',
+                    description: 'Vessel details not found.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+
+            // Fetch approved testimonial snapshot if approved
+            let captainSignature = testimonial.captain_signature || null;
+            let captainCommentConduct = (testimonial as any).captain_comment_conduct || null;
+            let captainCommentAbility = (testimonial as any).captain_comment_ability || null;
+            let captainCommentGeneral = (testimonial as any).captain_comment_general || null;
+            let approvedAt = null;
+            
+            if (testimonial.status === 'approved') {
+                try {
+                    const { data: approvedSnapshot } = await supabase
+                        .from('approved_testimonials')
+                        .select('captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general, approved_at')
+                        .eq('testimonial_id', testimonial.id)
+                        .maybeSingle();
+
+                    if (approvedSnapshot) {
+                        captainSignature = approvedSnapshot.captain_signature || captainSignature;
+                        captainCommentConduct = approvedSnapshot.captain_comment_conduct || captainCommentConduct;
+                        captainCommentAbility = approvedSnapshot.captain_comment_ability || captainCommentAbility;
+                        captainCommentGeneral = approvedSnapshot.captain_comment_general || captainCommentGeneral;
+                        approvedAt = approvedSnapshot.approved_at || null;
+                    }
+                } catch (error) {
+                    console.error('[CREW PAGE] Error fetching approved snapshot:', error);
+                }
+            }
+
+            // Fetch captain profile if available
+            let captainProfile = null;
+            if (testimonial.captain_user_id) {
+                try {
+                    const { data: captainData } = await supabase
+                        .from('users')
+                        .select('first_name, last_name, position, email, signature')
+                        .eq('id', testimonial.captain_user_id)
+                        .maybeSingle();
+
+                    if (captainData) {
+                        captainProfile = {
+                            firstName: captainData.first_name || undefined,
+                            lastName: captainData.last_name || undefined,
+                            position: captainData.position || null,
+                            email: captainData.email || undefined,
+                            signature: captainData.signature || null,
+                        };
+                    }
+                } catch (error) {
+                    console.error('[CREW PAGE] Error fetching captain profile:', error);
+                }
+            }
+
+            // Filter out vessel manager notes
+            const filteredNotes = testimonial.notes && (
+                testimonial.notes.toLowerCase().includes('generated by vessel manager') ||
+                testimonial.notes.toLowerCase().includes('awaiting captain approval')
+            ) ? null : testimonial.notes;
+
+            // Fetch logs and calculate standby periods
+            let standbyPeriods: Array<{ passageStartDate: string; passageEndDate: string; standbyDays: number }> = [];
+            try {
+                const hasApprovedAccess = selectedMemberData.accessRequest?.status === 'approved';
+                let logs: StateLog[] = [];
+                
+                if (hasApprovedAccess) {
+                    logs = await getVesselStateLogs(
+                        supabase,
+                        testimonial.vessel_id,
+                        selectedMemberData.profile.id
+                    );
+                } else {
+                    logs = await getVesselStateLogs(
+                        supabase,
+                        testimonial.vessel_id
+                    );
+                }
+                
+                const filteredLogs = logs.filter(log => {
+                    const logDate = log.date;
+                    return logDate >= testimonial.start_date && logDate <= testimonial.end_date;
+                });
+                
+                const partOfActivePassageDates = new Set<string>();
+                filteredLogs.forEach(log => {
+                    if (log.isPartOfActivePassage) {
+                        partOfActivePassageDates.add(log.date);
+                    }
+                });
+                
+                let watchDates = new Set<string>();
+                const position = (selectedMemberData.profile.position || '').toLowerCase();
+                const role = (selectedMemberData.profile.role || '').toLowerCase();
+                const officerPositions = [
+                    'captain', 'master', 'chief officer', 'first officer', 'first mate', 
+                    'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+                    'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer'
+                ];
+                const isOfficer = role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+                
+                if (hasApprovedAccess && isOfficer && selectedMemberData.profile.id) {
+                    const { data: watchLogs } = await supabase
+                        .from('watch_logs')
+                        .select('watch_start')
+                        .eq('user_id', selectedMemberData.profile.id)
+                        .eq('vessel_id', testimonial.vessel_id)
+                        .gte('watch_start', `${testimonial.start_date}T00:00:00`)
+                        .lte('watch_start', `${testimonial.end_date}T23:59:59`);
+                    
+                    if (watchLogs) {
+                        watchLogs.forEach(log => {
+                            const dateStr = formatDate(new Date(log.watch_start), 'yyyy-MM-dd');
+                            watchDates.add(dateStr);
+                        });
+                    }
+                }
+                
+                const { standbyPeriods: calculatedPeriods, voyages } = calculateStandbyDays(
+                    filteredLogs,
+                    watchDates.size > 0 ? watchDates : undefined,
+                    partOfActivePassageDates.size > 0 ? partOfActivePassageDates : undefined
+                );
+                
+                standbyPeriods = calculatedPeriods.map((period, index) => {
+                    const voyage = voyages[index];
+                    if (!voyage) {
+                        const voyageEndDate = new Date(period.startDate);
+                        voyageEndDate.setDate(voyageEndDate.getDate() - 1);
+                        const voyageStartDate = new Date(voyageEndDate);
+                        voyageStartDate.setDate(voyageStartDate.getDate() - (period.precedingVoyageDays || 0) + 1);
+                        return {
+                            passageStartDate: formatDate(voyageStartDate, 'yyyy-MM-dd'),
+                            passageEndDate: formatDate(voyageEndDate, 'yyyy-MM-dd'),
+                            standbyDays: period.countedDays,
+                        };
+                    }
+                    const voyageStart = voyage.startDate instanceof Date ? voyage.startDate : new Date(voyage.startDate);
+                    const voyageEnd = voyage.endDate instanceof Date ? voyage.endDate : new Date(voyage.endDate);
+                    return {
+                        passageStartDate: formatDate(voyageStart, 'yyyy-MM-dd'),
+                        passageEndDate: formatDate(voyageEnd, 'yyyy-MM-dd'),
+                        standbyDays: period.countedDays,
+                    };
+                });
+            } catch (error) {
+                console.error('[CREW PAGE] Error calculating standby periods:', error);
+            }
+
+            // Prepare testimonial data
+            const testimonialData = {
+                testimonial: {
+                    id: testimonial.id,
+                    start_date: testimonial.start_date,
+                    end_date: testimonial.end_date,
+                    total_days: testimonial.total_days,
+                    at_sea_days: testimonial.at_sea_days,
+                    standby_days: testimonial.standby_days,
+                    yard_days: testimonial.yard_days,
+                    leave_days: testimonial.leave_days,
+                    captain_name: testimonial.captain_name,
+                    captain_email: testimonial.captain_email,
+                    captain_position: (testimonial as any).captain_position || null,
+                    captain_signature: captainSignature,
+                    captain_comment_conduct: captainCommentConduct,
+                    captain_comment_ability: captainCommentAbility,
+                    captain_comment_general: captainCommentGeneral,
+                    official_body: testimonial.official_body,
+                    official_reference: testimonial.official_reference,
+                    notes: filteredNotes,
+                    testimonial_code: testimonial.testimonial_code,
+                    status: testimonial.status,
+                    signoff_used_at: testimonial.signoff_used_at,
+                    approved_at: approvedAt,
+                    created_at: testimonial.created_at,
+                    updated_at: testimonial.updated_at,
+                },
+                userProfile: {
+                    firstName: selectedMemberData.profile.firstName,
+                    lastName: selectedMemberData.profile.lastName,
+                    username: selectedMemberData.profile.username,
+                    email: selectedMemberData.profile.email || '',
+                    dateOfBirth: (selectedMemberData.profile as any).date_of_birth || (selectedMemberData.profile as any).dateOfBirth || null,
+                    position: selectedMemberData.profile.position || null,
+                    dischargeBookNumber: (selectedMemberData.profile as any).discharge_book_number || (selectedMemberData.profile as any).dischargeBookNumber || null,
+                },
+                vessel: {
+                    name: vessel.name,
+                    type: vessel.type || null,
+                    officialNumber: vessel.officialNumber || vessel.imo || null,
+                    flag_state: vessel.flag || vessel.flag_state || null,
+                    length_m: vessel.length_m || null,
+                    gross_tonnage: vessel.gross_tonnage || null,
+                    call_sign: vessel.call_sign || null,
+                },
+                captainProfile: captainProfile,
+                companyDetails: {
+                    name: (vessel as any).management_company || null,
+                    address: (vessel as any).company_address || null,
+                    contactDetails: (vessel as any).company_contact || null,
+                },
+                standbyPeriods: standbyPeriods.length > 0 ? standbyPeriods : undefined,
+            };
+
+            // Generate PDF based on format
+            if (format === 'mca') {
+                const position = (selectedMemberData.profile.position || '').toLowerCase();
+                const role = (selectedMemberData.profile.role || '').toLowerCase();
+                const officerPositions = [
+                    'captain', 'master', 'chief officer', 'first officer', 'first mate', 
+                    'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+                    'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer'
+                ];
+                const isOfficerUser = role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+                
+                const testimonialDataWithReceipt = {
+                    ...testimonialData,
+                    receiptData: {
+                        documentId: testimonial.id,
+                        sjCode: testimonial.testimonial_code || null,
+                        documentType: 'testimonial' as const,
+                        generatedAt: new Date().toISOString(),
+                        generatedBy: {
+                            userId: user?.id,
+                            email: currentUserProfile?.email || undefined,
+                        },
+                    },
+                };
+                
+                if (isOfficerUser) {
+                    await generateMCAOfficerTestimonial(testimonialDataWithReceipt, 'download');
+                } else {
+                    await generateMCADeckhandTestimonial(testimonialDataWithReceipt, 'download');
+                }
+            } else {
+                await generateTestimonialPDF(testimonialData, format);
+            }
+
+            toast({
+                title: 'Success',
+                description: 'PDF generated successfully.',
+            });
+        } catch (error) {
+            console.error('[CREW PAGE] Error generating PDF:', error);
+            toast({
+                title: 'Error',
+                description: 'Failed to generate PDF. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setGeneratingPDF(null);
+        }
+    };
+
+    // Calculate sea time from vessel state logs for date range
+    const handleCalculateSeaTime = async () => {
+        if (!selectedMemberData || !currentUserProfile?.activeVesselId || !documentStartDate || !documentEndDate) {
+            toast({
+                title: 'Error',
+                description: 'Please select a crew member and date range.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        if (documentStartDate > documentEndDate) {
+            toast({
+                title: 'Error',
+                description: 'Start date must be before end date.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setIsCalculatingSeaTime(true);
+        try {
+            const startDateStr = formatDate(documentStartDate, 'yyyy-MM-dd');
+            const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
+            
+            const hasApprovedAccess = selectedMemberData.accessRequest?.status === 'approved';
+            const useCrewLogs = hasApprovedAccess && (selectedDataSource === null || selectedDataSource === 'crew');
+            
+            let filteredLogs: StateLog[] = [];
+            
+            if (useCrewLogs) {
+                const crewMemberLogs = await getVesselStateLogs(
+                    supabase, 
+                    currentUserProfile.activeVesselId, 
+                    selectedMemberData.profile.id
+                );
+                filteredLogs = crewMemberLogs.filter(log => {
+                    const logDate = log.date;
+                    return logDate >= startDateStr && logDate <= endDateStr;
+                });
+            } else {
+                // For vessel logs, fetch the vessel's own logs (where user_id = vessel_manager_id)
+                // The vessel manager logs data on their own profile for the vessel
+                console.log('[CREW PAGE] Fetching vessel logs for vessel:', currentUserProfile.activeVesselId);
+                
+                // Get the vessel to find vessel_manager_id
+                const vessel = getVesselDetails(currentUserProfile.activeVesselId);
+                if (!vessel) {
+                    toast({
+                        title: 'Error',
+                        description: 'Vessel details not found.',
+                        variant: 'destructive',
+                    });
+                    setIsCalculatingSeaTime(false);
+                    return;
+                }
+                
+                // Fetch vessel's own logs (vessel_manager_id logs)
+                // If vessel_manager_id is not set, fall back to current user (vessel manager)
+                const vesselManagerId = (vessel as any).vessel_manager_id || currentUserProfile.id;
+                
+                console.log('[CREW PAGE] Fetching vessel logs with vessel_manager_id:', vesselManagerId);
+                
+                const vesselLogs = await getVesselStateLogs(
+                    supabase, 
+                    currentUserProfile.activeVesselId,
+                    vesselManagerId // Fetch logs for the vessel manager's account
+                );
+                
+                console.log('[CREW PAGE] Vessel logs fetched:', {
+                    totalLogs: vesselLogs.length,
+                    vesselManagerId,
+                    dateRange: { start: startDateStr, end: endDateStr },
+                    sampleLogs: vesselLogs.slice(0, 5).map(l => ({ date: l.date, state: l.state, userId: l.userId }))
+                });
+                
+                filteredLogs = vesselLogs.filter(log => {
+                    const logDate = log.date;
+                    return logDate >= startDateStr && logDate <= endDateStr;
+                });
+                
+                console.log('[CREW PAGE] Filtered logs for date range:', {
+                    filteredCount: filteredLogs.length,
+                    dateRange: { start: startDateStr, end: endDateStr }
+                });
+            }
+
+            if (filteredLogs.length === 0) {
+                const errorMessage = hasApprovedAccess 
+                    ? 'No sea time logs found for this crew member in the selected date range. Please check that logs exist for these dates.'
+                    : `No vessel state logs found for the selected date range (${startDateStr} to ${endDateStr}). Please ensure vessel logs exist for this period.`;
+                
+                console.error('[CREW PAGE] No logs found:', {
+                    hasApprovedAccess,
+                    useCrewLogs,
+                    dateRange: { start: startDateStr, end: endDateStr },
+                    vesselId: currentUserProfile.activeVesselId,
+                    crewUserId: selectedMemberData?.profile.id,
+                });
+                
+                toast({
+                    title: 'No Data',
+                    description: errorMessage,
+                    variant: 'destructive',
+                });
+                setIsCalculatingSeaTime(false);
+                return;
+            }
+
+            const position = (selectedMemberData.profile.position || '').toLowerCase();
+            const role = (selectedMemberData.profile.role || '').toLowerCase();
+            const officerPositions = [
+                'captain', 'master', 'chief officer', 'first officer', 'first mate', 
+                'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+                'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer'
+            ];
+            const isOfficer = role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+
+            let watchDates = new Set<string>();
+            if (isOfficer && selectedMemberData.profile.id && currentUserProfile.activeVesselId) {
+                try {
+                    const { data: watchLogs, error: watchError } = await supabase
+                        .from('watch_logs')
+                        .select('watch_start')
+                        .eq('user_id', selectedMemberData.profile.id)
+                        .eq('vessel_id', currentUserProfile.activeVesselId)
+                        .gte('watch_start', `${startDateStr}T00:00:00`)
+                        .lte('watch_start', `${endDateStr}T23:59:59`);
+
+                    if (!watchError && watchLogs) {
+                        watchLogs.forEach(log => {
+                            const dateStr = formatDate(new Date(log.watch_start), 'yyyy-MM-dd');
+                            watchDates.add(dateStr);
+                        });
+                    }
+                } catch (error) {
+                    console.error('[CREW PAGE] Error fetching watch logs:', error);
+                }
+            }
+
+            const partOfActivePassageDates = new Set<string>();
+            filteredLogs.forEach(log => {
+                if (log.isPartOfActivePassage) {
+                    partOfActivePassageDates.add(log.date);
+                }
+            });
+
+            const { totalSeaDays, totalStandbyDays, voyages, standbyPeriods } = calculateStandbyDays(
+                filteredLogs,
+                watchDates.size > 0 ? watchDates : undefined,
+                partOfActivePassageDates.size > 0 ? partOfActivePassageDates : undefined
+            );
+
+            const dateRangeSet = new Set<string>();
+            const logMap = new Map<string, StateLog>();
+            filteredLogs.forEach(log => {
+                logMap.set(log.date, log);
+            });
+            
+            const startDateObj = parse(startDateStr, 'yyyy-MM-dd', new Date());
+            const endDateObj = parse(endDateStr, 'yyyy-MM-dd', new Date());
+            let currentDate = new Date(startDateObj);
+            while (currentDate <= endDateObj) {
+                dateRangeSet.add(formatDate(currentDate, 'yyyy-MM-dd'));
+                currentDate = addDays(currentDate, 1);
+            }
+
+            const voyageDatesSet = new Set<string>();
+            voyages.forEach(voyage => {
+                let date = new Date(voyage.startDate);
+                const endDate = new Date(voyage.endDate);
+                while (date <= endDate) {
+                    voyageDatesSet.add(formatDate(date, 'yyyy-MM-dd'));
+                    date = addDays(date, 1);
+                }
+            });
+
+            const standbyDatesSet = new Set<string>();
+            standbyPeriods.forEach(period => {
+                let date = new Date(period.startDate);
+                const endDate = new Date(period.endDate);
+                let counted = 0;
+                const maxCounted = period.countedDays;
+                while (date <= endDate && counted < maxCounted) {
+                    const dateStr = formatDate(date, 'yyyy-MM-dd');
+                    const log = logMap.get(dateStr);
+                    if (log && (log.state === 'in-port' || log.state === 'at-anchor')) {
+                        const hasWatch = watchDates?.has(dateStr);
+                        const isPartOfPassage = partOfActivePassageDates?.has(dateStr);
+                        if (!hasWatch && !isPartOfPassage) {
+                            standbyDatesSet.add(dateStr);
+                            counted++;
+                        }
+                    }
+                    date = addDays(date, 1);
+                }
+            });
+
+            let finalSeaDays = 0;
+            let finalStandbyDays = 0;
+            let yardDays = 0;
+            let leaveDays = 0;
+
+            dateRangeSet.forEach(dateStr => {
+                const log = logMap.get(dateStr);
+                if (!log) return;
+
+                if (log.state === 'in-yard') {
+                    yardDays++;
+                    return;
+                }
+                if (log.state === 'on-leave') {
+                    leaveDays++;
+                    return;
+                }
+
+                if (voyageDatesSet.has(dateStr)) {
+                    finalSeaDays++;
+                    return;
+                }
+
+                if (watchDates?.has(dateStr) && (log.state === 'in-port' || log.state === 'at-anchor')) {
+                    finalSeaDays++;
+                    return;
+                }
+
+                if (partOfActivePassageDates?.has(dateStr) && log.state !== 'underway') {
+                    finalSeaDays++;
+                    return;
+                }
+
+                if (standbyDatesSet.has(dateStr)) {
+                    finalStandbyDays++;
+                    return;
+                }
+            });
+            
+            const totalDays = finalSeaDays + finalStandbyDays + yardDays + leaveDays;
+
+            setCalculatedSeaTime({
+                totalDays,
+                atSeaDays: finalSeaDays,
+                standbyDays: finalStandbyDays,
+                yardDays,
+                leaveDays,
+                isOfficer,
+            });
+        } catch (error) {
+            console.error('[CREW PAGE] Error calculating sea time:', error);
+            toast({
+                title: 'Error',
+                description: 'Failed to calculate sea time. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsCalculatingSeaTime(false);
+        }
+    };
+
+    // Save testimonial without generating PDF
+    const handleSaveTestimonial = async () => {
+        if (!selectedMemberData || !currentUserProfile?.activeVesselId || !documentStartDate || !documentEndDate || !calculatedSeaTime) {
+            toast({
+                title: 'Error',
+                description: 'Please select dates and calculate sea time first.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setIsSavingTestimonial(true);
+        try {
+            const vessel = getVesselDetails(currentUserProfile.activeVesselId);
+            if (!vessel) {
+                toast({
+                    title: 'Error',
+                    description: 'Vessel details not found.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+
+            const startDateStr = formatDate(documentStartDate, 'yyyy-MM-dd');
+            const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
+            const calculatedTotal = calculatedSeaTime.atSeaDays + calculatedSeaTime.standbyDays + calculatedSeaTime.yardDays + calculatedSeaTime.leaveDays;
+            const totalDays = calculatedTotal;
+            
+            // Verify access request exists in database (RLS policy requires it for vessel managers)
+            const isAdmin = currentUserProfile?.role === 'admin';
+            let hasApprovedAccess = false;
+
+            if (!isAdmin) {
+                const { data: accessRequest, error: accessError } = await supabase
+                    .from('vessel_sea_time_access_requests')
+                    .select('id, status')
+                    .eq('vessel_user_id', currentUserProfile.id)
+                    .eq('crew_user_id', selectedMemberData.profile.id)
+                    .eq('vessel_id', currentUserProfile.activeVesselId)
+                    .eq('status', 'approved')
+                    .maybeSingle();
+
+                if (accessError) {
+                    console.error('[CREW PAGE] Error checking access request:', accessError);
+                }
+
+                hasApprovedAccess = !!accessRequest;
+                
+                if (!hasApprovedAccess) {
+                    toast({
+                        title: 'Permission Denied',
+                        description: 'You need approved access from this crew member to save testimonials. Please request access first.',
+                        variant: 'destructive',
+                    });
+                    setIsSavingTestimonial(false);
+                    return;
+                }
+            } else {
+                hasApprovedAccess = true;
+            }
+
+            const dataSource = hasApprovedAccess
+                ? (selectedDataSource || 'crew') 
+                : 'vessel';
+
+            // Save to vessel_generated_testimonials table
+            const testimonialToSave = {
+                crew_user_id: selectedMemberData.profile.id,
+                vessel_id: currentUserProfile.activeVesselId,
+                vessel_user_id: currentUserProfile.id,
+                start_date: startDateStr,
+                end_date: endDateStr,
+                total_days: totalDays,
+                at_sea_days: calculatedSeaTime.atSeaDays,
+                standby_days: calculatedSeaTime.standbyDays,
+                yard_days: calculatedSeaTime.yardDays,
+                leave_days: calculatedSeaTime.leaveDays,
+                generated_by_name: currentUserProfile.firstName && currentUserProfile.lastName 
+                    ? `${currentUserProfile.firstName} ${currentUserProfile.lastName}`
+                    : currentUserProfile.email || 'Vessel Manager',
+                generated_by_email: currentUserProfile.email || null,
+                data_source: dataSource as 'crew' | 'vessel',
+                notes: null, // No notes for vessel-generated testimonials
+                pdf_format: 'seajourney', // Default format, can be changed when generating PDF later
+            };
+
+            const { data: savedTestimonial, error: saveError } = await supabase
+                .from('vessel_generated_testimonials')
+                .insert(testimonialToSave)
+                .select()
+                .single();
+
+            if (saveError) {
+                console.error('[CREW PAGE] Error saving testimonial:', {
+                    message: saveError.message,
+                    code: saveError.code,
+                    details: saveError.details,
+                    hint: saveError.hint,
+                });
+                
+                let errorMessage = 'Failed to save testimonial. ';
+                if (saveError.code === '42501' || saveError.message?.includes('permission') || saveError.message?.includes('policy')) {
+                    errorMessage += 'You may not have permission to create testimonials for this crew member. Please ensure you have approved access.';
+                } else if (saveError.message) {
+                    errorMessage += saveError.message;
+                } else {
+                    errorMessage += 'Please try again.';
+                }
+                
+                toast({
+                    title: 'Error',
+                    description: errorMessage,
+                    variant: 'destructive',
+                });
+                return;
+            }
+
+            // Update crew members list with the new testimonial
+            setCrewMembers(prev => prev.map(member => 
+                member.profile.id === selectedMemberData.profile.id
+                    ? { 
+                        ...member, 
+                        vesselGeneratedTestimonials: [
+                            savedTestimonial as VesselGeneratedTestimonial,
+                            ...(member.vesselGeneratedTestimonials || [])
+                        ]
+                    }
+                    : member
+            ));
+
+            toast({
+                title: 'Success',
+                description: 'Testimonial saved successfully. You can generate PDFs from the table below.',
+            });
+
+            // Reset form
+            setDocumentStartDate(undefined);
+            setDocumentEndDate(undefined);
+            setCalculatedSeaTime(null);
+            setSelectedDataSource(null);
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error saving testimonial:', error);
+            toast({
+                title: 'Error',
+                description: error?.message || 'Failed to save testimonial. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSavingTestimonial(false);
+        }
+    };
+
+    // Generate PDF from calculated sea time
+    const handleGenerateFromDateRange = async (pdfFormat: TestimonialPDFFormat = 'seajourney') => {
+        if (!selectedMemberData || !currentUserProfile?.activeVesselId || !documentStartDate || !documentEndDate || !calculatedSeaTime) {
+            toast({
+                title: 'Error',
+                description: 'Please select dates and calculate sea time first.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setGeneratingPDF('date-range');
+        try {
+            const vessel = getVesselDetails(currentUserProfile.activeVesselId);
+            if (!vessel) {
+                toast({
+                    title: 'Error',
+                    description: 'Vessel details not found.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+
+            const startDateStr = formatDate(documentStartDate, 'yyyy-MM-dd');
+            const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
+            const calculatedTotal = calculatedSeaTime.atSeaDays + calculatedSeaTime.standbyDays + calculatedSeaTime.yardDays + calculatedSeaTime.leaveDays;
+            const totalDays = calculatedTotal;
+            
+            // Verify access request exists in database (RLS policy requires it for vessel managers)
+            // Admins can bypass this check as they have permission to create any testimonial
+            const isAdmin = currentUserProfile?.role === 'admin';
+            let hasApprovedAccess = false;
+
+            if (!isAdmin) {
+                // Always check database to ensure we have the latest status
+                const { data: accessRequest, error: accessError } = await supabase
+                    .from('vessel_sea_time_access_requests')
+                    .select('id, status')
+                    .eq('vessel_user_id', currentUserProfile.id)
+                    .eq('crew_user_id', selectedMemberData.profile.id)
+                    .eq('vessel_id', currentUserProfile.activeVesselId)
+                    .eq('status', 'approved')
+                    .maybeSingle();
+
+                if (accessError) {
+                    console.error('[CREW PAGE] Error checking access request:', accessError);
+                }
+
+                hasApprovedAccess = !!accessRequest;
+                
+                if (!hasApprovedAccess) {
+                    console.error('[CREW PAGE] No approved access request found:', {
+                        accessError,
+                        accessRequest,
+                        vesselUserId: currentUserProfile.id,
+                        crewUserId: selectedMemberData.profile.id,
+                        vesselId: currentUserProfile.activeVesselId,
+                    });
+                    toast({
+                        title: 'Permission Denied',
+                        description: 'You need approved access from this crew member to generate testimonials. Please request access first.',
+                        variant: 'destructive',
+                    });
+                    setGeneratingPDF(null);
+                    return;
+                }
+            } else {
+                // Admins can use either data source
+                hasApprovedAccess = true;
+            }
+
+            const dataSource = hasApprovedAccess
+                ? (selectedDataSource || 'crew') 
+                : 'vessel';
+
+            // Save to vessel_generated_testimonials table (separate from main testimonials table)
+            const testimonialToSave = {
+                crew_user_id: selectedMemberData.profile.id,
+                vessel_id: currentUserProfile.activeVesselId,
+                vessel_user_id: currentUserProfile.id,
+                start_date: startDateStr,
+                end_date: endDateStr,
+                total_days: totalDays,
+                at_sea_days: calculatedSeaTime.atSeaDays,
+                standby_days: calculatedSeaTime.standbyDays,
+                yard_days: calculatedSeaTime.yardDays,
+                leave_days: calculatedSeaTime.leaveDays,
+                generated_by_name: currentUserProfile.firstName && currentUserProfile.lastName 
+                    ? `${currentUserProfile.firstName} ${currentUserProfile.lastName}`
+                    : currentUserProfile.email || 'Vessel Manager',
+                generated_by_email: currentUserProfile.email || null,
+                data_source: dataSource as 'crew' | 'vessel',
+                notes: null, // No notes for vessel-generated testimonials
+                pdf_format: pdfFormat,
+            };
+
+            // Insert into vessel_generated_testimonials table
+            console.log('[CREW PAGE] Inserting vessel generated testimonial with data:', {
+                crew_user_id: testimonialToSave.crew_user_id,
+                vessel_id: testimonialToSave.vessel_id,
+                vessel_user_id: testimonialToSave.vessel_user_id,
+                start_date: testimonialToSave.start_date,
+                end_date: testimonialToSave.end_date,
+                data_source: testimonialToSave.data_source,
+                pdf_format: testimonialToSave.pdf_format,
+                hasApprovedAccess,
+            });
+
+            const { data: savedTestimonial, error: saveError } = await supabase
+                .from('vessel_generated_testimonials')
+                .insert(testimonialToSave)
+                .select()
+                .single();
+
+            if (saveError) {
+                console.error('[CREW PAGE] Error saving vessel generated testimonial:', {
+                    message: saveError.message,
+                    code: saveError.code,
+                    details: saveError.details,
+                    hint: saveError.hint,
+                    fullError: JSON.stringify(saveError, Object.getOwnPropertyNames(saveError)),
+                });
+                
+                // Provide user-friendly error message
+                let errorMessage = 'Failed to save testimonial. ';
+                if (saveError.code === '42501' || saveError.message?.includes('permission') || saveError.message?.includes('policy')) {
+                    errorMessage += 'You may not have permission to create testimonials for this crew member. Please ensure you have approved access.';
+                } else if (saveError.message) {
+                    errorMessage += saveError.message;
+                } else {
+                    errorMessage += 'Please try again.';
+                }
+                
+                toast({
+                    title: 'Error',
+                    description: errorMessage,
+                    variant: 'destructive',
+                });
+                throw saveError;
+            }
+
+            // Update crew members list with the new testimonial
+            setCrewMembers(prev => prev.map(member => 
+                member.profile.id === selectedMemberData.profile.id
+                    ? { 
+                        ...member, 
+                        vesselGeneratedTestimonials: [
+                            savedTestimonial as VesselGeneratedTestimonial,
+                            ...(member.vesselGeneratedTestimonials || [])
+                        ]
+                    }
+                    : member
+            ));
+
+            // Now generate PDF from the saved testimonial
+            await handleGenerateVesselTestimonialPDF(savedTestimonial as VesselGeneratedTestimonial, pdfFormat);
+
+            toast({
+                title: 'Success',
+                description: 'PDF generated successfully and saved to testimonials.',
+            });
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error generating PDF:', error);
+            toast({
+                title: 'Error',
+                description: error?.message || 'Failed to generate PDF. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setGeneratingPDF(null);
+        }
+    };
+
+    // Send testimonial to captain for approval
+    const handleSendToCaptain = async () => {
+        if (!selectedMemberData || !currentUserProfile?.activeVesselId || !documentStartDate || !documentEndDate || !calculatedSeaTime || !activeCaptain) {
+            toast({
+                title: 'Error',
+                description: 'Please select dates, calculate sea time, and ensure a captain is available.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setIsSendingToCaptain(true);
+        try {
+            const vessel = getVesselDetails(currentUserProfile.activeVesselId);
+            if (!vessel) {
+                toast({
+                    title: 'Error',
+                    description: 'Vessel details not found.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+
+            const startDateStr = formatDate(documentStartDate, 'yyyy-MM-dd');
+            const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
+            const calculatedTotal = calculatedSeaTime.atSeaDays + calculatedSeaTime.standbyDays + calculatedSeaTime.yardDays + calculatedSeaTime.leaveDays;
+            const totalDays = calculatedTotal;
+            
+            const dataSource = selectedMemberData.accessRequest?.status === 'approved' 
+                ? (selectedDataSource || 'crew') 
+                : 'vessel';
+
+            const testimonialData = {
+                user_id: selectedMemberData.profile.id,
+                vessel_id: currentUserProfile.activeVesselId,
+                start_date: startDateStr,
+                end_date: endDateStr,
+                total_days: totalDays,
+                at_sea_days: calculatedSeaTime.atSeaDays,
+                standby_days: calculatedSeaTime.standbyDays,
+                yard_days: calculatedSeaTime.yardDays,
+                leave_days: calculatedSeaTime.leaveDays,
+                status: 'pending_captain' as const,
+                captain_user_id: activeCaptain.id,
+                captain_email: null,
+                captain_name: null,
+                captain_position: null,
+                captain_signature: null,
+                captain_comment_conduct: null,
+                captain_comment_ability: null,
+                captain_comment_general: null,
+                official_body: null,
+                official_reference: null,
+                notes: `Generated by vessel manager on ${formatDate(new Date(), 'dd MMMM yyyy')}. Awaiting captain approval.`,
+                testimonial_code: null,
+                data_source: dataSource as 'crew' | 'vessel',
+            };
+
+            const { data: createdTestimonial, error: createError } = await supabase
+                .from('testimonials')
+                .insert(testimonialData)
+                .select()
+                .single();
+
+            if (createError) {
+                throw createError;
+            }
+
+            setCrewMembers(prev => prev.map(member => 
+                member.profile.id === selectedMemberData.profile.id
+                    ? { 
+                        ...member, 
+                        testimonials: [
+                            createdTestimonial as Testimonial,
+                            ...(member.testimonials || [])
+                        ]
+                    }
+                    : member
+            ));
+
+            toast({
+                title: 'Sent to Captain',
+                description: `Testimonial request has been sent to ${activeCaptain.name}'s inbox. Once approved, it will receive a verification code (SJ-XXX) and appear in the testimonials list.`,
+            });
+
+            setDocumentStartDate(undefined);
+            setDocumentEndDate(undefined);
+            setCalculatedSeaTime(null);
+            setShowGenerateForm(false);
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error sending to captain:', error);
+            toast({
+                title: 'Error',
+                description: error?.message || 'Failed to send testimonial to captain. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSendingToCaptain(false);
+        }
+    };
+
+    // Handler for going back to crew list
+    const handleBackToCrewList = () => {
+        setSelectedCrewMemberId(null);
+        setIsLeavePeriodDialogOpen(false);
+        setLeavePeriodStartDate(undefined);
+        setLeavePeriodEndDate(undefined);
+        setLeavePeriodNotes('');
+        setShowGenerateForm(false);
+        setDocumentStartDate(undefined);
+        setDocumentEndDate(undefined);
+        setCalculatedSeaTime(null);
+        setSelectedDataSource(null);
+    };
+
+    // Handler for saving leave period
+    const handleSaveLeavePeriod = async () => {
+        if (!selectedCrewMemberId || !leavePeriodStartDate || !leavePeriodEndDate || !currentUserProfile?.activeVesselId || !user?.id) {
+            toast({
+                title: 'Error',
+                description: 'Please select both start and end dates.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        if (leavePeriodEndDate < leavePeriodStartDate) {
+            toast({
+                title: 'Error',
+                description: 'End date must be after start date.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setIsSavingLeavePeriod(true);
+        try {
+            const response = await fetch('/api/crew-leave-periods', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    crewUserId: selectedCrewMemberId,
+                    vesselId: currentUserProfile.activeVesselId,
+                    vesselUserId: user.id,
+                    startDate: format(leavePeriodStartDate, 'yyyy-MM-dd'),
+                    endDate: format(leavePeriodEndDate, 'yyyy-MM-dd'),
+                    notes: leavePeriodNotes || null,
+                }),
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to save leave period');
+            }
+
+            toast({
+                title: 'Success',
+                description: 'Leave period has been logged.',
+            });
+
+            // Refresh leave periods
+            const refreshResponse = await fetch(
+                `/api/crew-leave-periods?crewUserId=${selectedCrewMemberId}&vesselId=${currentUserProfile.activeVesselId}`
+            );
+            if (refreshResponse.ok) {
+                const { leavePeriods } = await refreshResponse.json();
+                setCrewMembers(prev => prev.map(m => 
+                    m.profile.id === selectedCrewMemberId
+                        ? { ...m, leavePeriods }
+                        : m
+                ));
+            }
+
+            // Reset form
+            setLeavePeriodStartDate(undefined);
+            setLeavePeriodEndDate(undefined);
+            setLeavePeriodNotes('');
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error saving leave period:', error);
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to save leave period. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSavingLeavePeriod(false);
+        }
+    };
+
+    // Handler for deleting leave period
+    const handleDeleteLeavePeriod = async (leavePeriodId: string) => {
+        if (!selectedCrewMemberId || !currentUserProfile?.activeVesselId) return;
+
+        setIsDeletingLeavePeriod(leavePeriodId);
+        try {
+            const response = await fetch(`/api/crew-leave-periods/${leavePeriodId}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                const result = await response.json();
+                throw new Error(result.error || 'Failed to delete leave period');
+            }
+
+            toast({
+                title: 'Success',
+                description: 'Leave period has been deleted.',
+            });
+
+            // Refresh leave periods
+            const refreshResponse = await fetch(
+                `/api/crew-leave-periods?crewUserId=${selectedCrewMemberId}&vesselId=${currentUserProfile.activeVesselId}`
+            );
+            if (refreshResponse.ok) {
+                const { leavePeriods } = await refreshResponse.json();
+                setCrewMembers(prev => prev.map(m => 
+                    m.profile.id === selectedCrewMemberId
+                        ? { ...m, leavePeriods }
+                        : m
+                ));
+            }
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error deleting leave period:', error);
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to delete leave period. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsDeletingLeavePeriod(null);
+        }
+    };
 
     // Handler for inviting crew members
     const handleInviteCrew = async (data: InviteCrewFormValues) => {
@@ -1095,6 +2649,7 @@ export default function CrewPage() {
                     email: data.email,
                     vesselId: currentUserProfile.activeVesselId,
                     vesselName: activeVessel.name,
+                    vesselUserId: currentUserProfile.id, // Pass vessel user ID for crew limit check
                 }),
             });
 
@@ -1102,7 +2657,10 @@ export default function CrewPage() {
 
             if (!response.ok) {
                 console.error('[CREW PAGE] API error response:', result);
-                const errorMessage = result.details 
+                // Use the message field if available (for crew limit errors), otherwise fall back to error/details
+                const errorMessage = result.message 
+                    ? result.message
+                    : result.details 
                     ? `${result.error}: ${result.details}`
                     : result.error || 'Failed to invite crew member';
                 throw new Error(errorMessage);
@@ -1179,6 +2737,678 @@ export default function CrewPage() {
         )
     }
 
+    // Show focused view if crew member is selected (for vessel managers only)
+    if (selectedMemberData && currentUserProfile?.role === 'vessel') {
+        const fullName = `${selectedMemberData.profile.firstName || ''} ${selectedMemberData.profile.lastName || ''}`.trim() || selectedMemberData.profile.username;
+        
+        return (
+            <div className="flex flex-col gap-6">
+                <Card className="rounded-xl border">
+                    <CardHeader>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <Avatar className="h-12 w-12">
+                                    <AvatarImage src={selectedMemberData.profile.profilePicture} alt={fullName} />
+                                    <AvatarFallback className="bg-primary/20">
+                                        {getInitials(fullName) || <UserIcon />}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                    <CardTitle>{fullName}</CardTitle>
+                                    <CardDescription>
+                                        {selectedMemberData.profile.email}
+                                        {selectedMemberData.assignment.position && ` • ${selectedMemberData.assignment.position}`}
+                                    </CardDescription>
+                                </div>
+                            </div>
+                            <Button
+                                variant="outline"
+                                onClick={handleBackToCrewList}
+                                className="flex items-center gap-2 rounded-xl"
+                            >
+                                <Users className="h-4 w-4" />
+                                Back to Crew List
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                        {/* Sea Time Summary Section - Only show if access is approved */}
+                        {selectedMemberData.accessRequest?.status === 'approved' && (
+                            <div className="space-y-4">
+                                <h3 className="text-lg font-semibold">Sea Time Summary</h3>
+                                
+                                {loadingSeaTime.has(selectedMemberData.profile.id) ? (
+                                    <div className="flex items-center justify-center py-8">
+                                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                        <span className="ml-2 text-muted-foreground">Loading sea time data...</span>
+                                    </div>
+                                ) : selectedMemberData.seaTimeData ? (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 border rounded-lg bg-muted/30">
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">Total Days</div>
+                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.totalDays}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">At Sea Days</div>
+                                            <div className="text-lg font-semibold text-blue-600">{selectedMemberData.seaTimeData.atSeaDays}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">Standby Days</div>
+                                            <div className="text-lg font-semibold text-purple-600">{selectedMemberData.seaTimeData.standbyDays}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">Underway Days</div>
+                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.underwayDays}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">At Anchor Days</div>
+                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.atAnchorDays}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">In Port Days</div>
+                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.inPortDays}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">On Leave Days</div>
+                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.onLeaveDays}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">In Yard Days</div>
+                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.inYardDays}</div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/20">
+                                        No sea time data available
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        
+                        {/* Leave Periods Section */}
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-lg font-semibold">Leave Periods</h3>
+                                <Button
+                                    onClick={() => setIsLeavePeriodDialogOpen(true)}
+                                    className="rounded-xl"
+                                >
+                                    <CalendarDays className="mr-2 h-4 w-4" />
+                                    Log Leave Period
+                                </Button>
+                            </div>
+                            
+                            {/* Leave Periods from Crew Member's Logs (if access granted) */}
+                            {selectedMemberData.accessRequest?.status === 'approved' && 
+                             selectedMemberData.leavePeriodsFromLogs && 
+                             selectedMemberData.leavePeriodsFromLogs.length > 0 && (
+                                <div className="space-y-2 mb-4">
+                                    <div className="text-xs font-medium text-muted-foreground mb-2">
+                                        From Crew Member's Logs
+                                    </div>
+                                    {selectedMemberData.leavePeriodsFromLogs.map((period, index) => {
+                                        const startDate = parse(period.startDate, 'yyyy-MM-dd', new Date());
+                                        const endDate = parse(period.endDate, 'yyyy-MM-dd', new Date());
+                                        const days = eachDayOfInterval({ start: startDate, end: endDate }).length;
+                                        
+                                        return (
+                                            <div
+                                                key={`log-${index}`}
+                                                className="flex items-center justify-between p-4 border rounded-lg bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900"
+                                            >
+                                                <div className="flex-1">
+                                                    <div className="font-medium flex items-center gap-2">
+                                                        {format(startDate, 'MMM d, yyyy')} - {format(endDate, 'MMM d, yyyy')}
+                                                        <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
+                                                            From Logs
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="text-sm text-muted-foreground mt-1">
+                                                        {days} {days === 1 ? 'day' : 'days'}
+                                                        {period.notes && ` • ${period.notes}`}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                            
+                            {/* Manually Logged Leave Periods */}
+                            {selectedMemberData.leavePeriods && selectedMemberData.leavePeriods.length > 0 ? (
+                                <div className="space-y-2">
+                                    {(selectedMemberData.accessRequest?.status === 'approved' && 
+                                      selectedMemberData.leavePeriodsFromLogs && 
+                                      selectedMemberData.leavePeriodsFromLogs.length > 0) && (
+                                        <div className="text-xs font-medium text-muted-foreground mb-2">
+                                            Manually Logged
+                                        </div>
+                                    )}
+                                    {selectedMemberData.leavePeriods.map((period) => {
+                                        const startDate = parse(period.startDate, 'yyyy-MM-dd', new Date());
+                                        const endDate = parse(period.endDate, 'yyyy-MM-dd', new Date());
+                                        const days = eachDayOfInterval({ start: startDate, end: endDate }).length;
+                                        
+                                        return (
+                                            <div
+                                                key={period.id}
+                                                className="flex items-center justify-between p-4 border rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                                            >
+                                                <div className="flex-1">
+                                                    <div className="font-medium">
+                                                        {format(startDate, 'MMM d, yyyy')} - {format(endDate, 'MMM d, yyyy')}
+                                                    </div>
+                                                    <div className="text-sm text-muted-foreground mt-1">
+                                                        {days} {days === 1 ? 'day' : 'days'}
+                                                        {period.notes && ` • ${period.notes}`}
+                                                    </div>
+                                                </div>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => handleDeleteLeavePeriod(period.id)}
+                                                    disabled={isDeletingLeavePeriod === period.id}
+                                                    className="text-destructive hover:text-destructive rounded-xl"
+                                                >
+                                                    {isDeletingLeavePeriod === period.id ? (
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                    ) : (
+                                                        <X className="h-4 w-4" />
+                                                    )}
+                                                </Button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                (!selectedMemberData.leavePeriodsFromLogs || selectedMemberData.leavePeriodsFromLogs.length === 0) && (
+                                    <div className="text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/20">
+                                        No leave periods logged yet. Click "Log Leave Period" to add one.
+                                    </div>
+                                )
+                            )}
+                        </div>
+
+                        {/* Documents Section */}
+                        <Separator className="my-6" />
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-lg font-semibold">Documents</h3>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        Generate PDF documents on behalf of this crew member.
+                                    </p>
+                                </div>
+                                <Button
+                                    variant={showGenerateForm ? "outline" : "default"}
+                                    onClick={() => {
+                                        setShowGenerateForm(!showGenerateForm);
+                                        if (showGenerateForm) {
+                                            setDocumentStartDate(undefined);
+                                            setDocumentEndDate(undefined);
+                                            setCalculatedSeaTime(null);
+                                        }
+                                    }}
+                                    className="rounded-xl"
+                                >
+                                    {showGenerateForm ? (
+                                        'Cancel'
+                                    ) : (
+                                        <>
+                                            <Plus className="h-4 w-4 mr-2" />
+                                            Generate Document
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+
+                            {/* MCA Information Warning */}
+                            {!isMCAInfoComplete && (
+                                <Alert className="border-orange-500/50 bg-orange-50 dark:bg-orange-950/20">
+                                    <AlertCircle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                                    <AlertTitle className="text-orange-900 dark:text-orange-100">MCA Information Required</AlertTitle>
+                                    <AlertDescription className="text-orange-800 dark:text-orange-200">
+                                        {selectedMemberData.profile.firstName || selectedMemberData.profile.username} needs to complete their MCA application details in their profile to generate MCA documents. 
+                                        Please ask them to fill out their MCA information on their profile page.
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+
+                            {/* Existing Vessel-Generated Testimonials */}
+                            {isLoadingTestimonials ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                </div>
+                            ) : selectedMemberData.vesselGeneratedTestimonials && selectedMemberData.vesselGeneratedTestimonials.length > 0 ? (
+                                <div className="space-y-4">
+                                    <h4 className="font-semibold text-sm">Generated Documents</h4>
+                                    <div className="border rounded-lg overflow-hidden">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>Period</TableHead>
+                                                    <TableHead>Data Source</TableHead>
+                                                    <TableHead>Format</TableHead>
+                                                    <TableHead>Total Days</TableHead>
+                                                    <TableHead>Actions</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {selectedMemberData.vesselGeneratedTestimonials.map((testimonial) => {
+                                                    const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
+                                                    const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
+                                                    
+                                                    return (
+                                                        <TableRow key={testimonial.id}>
+                                                            <TableCell>
+                                                                <div className="flex items-center gap-2">
+                                                                    <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                                                                    <span className="text-sm">
+                                                                        {startDate} - {endDate}
+                                                                    </span>
+                                                                </div>
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
+                                                                    {testimonial.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
+                                                                </Badge>
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <Badge variant="outline">
+                                                                    {testimonial.pdf_format === 'mca' ? 'MCA' : 'SeaJourney'}
+                                                                </Badge>
+                                                            </TableCell>
+                                                            <TableCell>{testimonial.total_days} days</TableCell>
+                                                            <TableCell>
+                                                                <div className="flex items-center gap-2">
+                                                                    <Select
+                                                                        onValueChange={(format) => handleGenerateVesselTestimonialPDF(testimonial, format as TestimonialPDFFormat)}
+                                                                        disabled={generatingPDF === testimonial.id}
+                                                                        defaultValue={testimonial.pdf_format}
+                                                                    >
+                                                                        <SelectTrigger className="w-[140px] rounded-xl">
+                                                                            <SelectValue placeholder="Format" />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="seajourney">SeaJourney</SelectItem>
+                                                                            <SelectItem value="mca">MCA</SelectItem>
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                    {generatingPDF === testimonial.id && (
+                                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                                    )}
+                                                                </div>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                })}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </div>
+                            ) : (
+                                <Alert>
+                                    <FileText className="h-4 w-4" />
+                                    <AlertTitle>No Documents Found</AlertTitle>
+                                    <AlertDescription>
+                                        No documents have been generated for this crew member yet.
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+
+                            {/* Generate New Document Form */}
+                            {showGenerateForm && (
+                                <Card className="mt-4">
+                                    <CardContent className="pt-6">
+                                        <div className="space-y-6">
+                                            <div>
+                                                <h4 className="font-semibold text-sm mb-2">Select Date Range</h4>
+                                                <p className="text-xs text-muted-foreground mb-4">
+                                                    {selectedMemberData.accessRequest?.status === 'approved' ? (
+                                                        <>
+                                                            Select a date range and choose a data source to generate a document. You can use either the crew member's individual logs (includes watch days for officers) or vessel logs.
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            Select a date range and generate a document using vessel state logs. 
+                                                            <span className="text-orange-600 dark:text-orange-400 font-medium"> Request access on the Crew page to use their individual logs with watch days.</span>
+                                                        </>
+                                                    )}
+                                                </p>
+                                            </div>
+
+                                            {/* Quick Select: Periods Between Leave */}
+                                            {availablePeriodsBetweenLeave.length > 0 && (
+                                                <div className="space-y-2">
+                                                    <Label className="text-sm font-medium">Quick Select: Periods Between Leave</Label>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {availablePeriodsBetweenLeave.map((period, index) => (
+                                                            <Button
+                                                                key={index}
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    setDocumentStartDate(period.startDate);
+                                                                    setDocumentEndDate(period.endDate);
+                                                                }}
+                                                                className="rounded-xl text-xs h-auto py-2 px-3 whitespace-normal"
+                                                            >
+                                                                {period.label}
+                                                            </Button>
+                                                        ))}
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Click a period above to automatically select the date range excluding leave periods.
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Start Date</Label>
+                                                    <Popover>
+                                                        <PopoverTrigger asChild>
+                                                            <Button
+                                                                variant="outline"
+                                                                className={cn(
+                                                                    "w-full justify-start text-left font-normal rounded-xl",
+                                                                    !documentStartDate && "text-muted-foreground"
+                                                                )}
+                                                            >
+                                                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                                                {documentStartDate ? formatDate(documentStartDate, 'PPP') : 'Pick a date'}
+                                                            </Button>
+                                                        </PopoverTrigger>
+                                                        <PopoverContent className="w-auto p-0" align="start">
+                                                            <CalendarComponent
+                                                                mode="single"
+                                                                selected={documentStartDate}
+                                                                onSelect={setDocumentStartDate}
+                                                                initialFocus
+                                                            />
+                                                        </PopoverContent>
+                                                    </Popover>
+                                                </div>
+                                                
+                                                <div className="space-y-2">
+                                                    <Label>End Date</Label>
+                                                    <Popover>
+                                                        <PopoverTrigger asChild>
+                                                            <Button
+                                                                variant="outline"
+                                                                className={cn(
+                                                                    "w-full justify-start text-left font-normal rounded-xl",
+                                                                    !documentEndDate && "text-muted-foreground"
+                                                                )}
+                                                            >
+                                                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                                                {documentEndDate ? formatDate(documentEndDate, 'PPP') : 'Pick a date'}
+                                                            </Button>
+                                                        </PopoverTrigger>
+                                                        <PopoverContent className="w-auto p-0" align="start">
+                                                            <CalendarComponent
+                                                                mode="single"
+                                                                selected={documentEndDate}
+                                                                onSelect={setDocumentEndDate}
+                                                                initialFocus
+                                                            />
+                                                        </PopoverContent>
+                                                    </Popover>
+                                                </div>
+                                            </div>
+
+                                            {/* Data Source Selection (only if access approved) */}
+                                            {selectedMemberData.accessRequest?.status === 'approved' && (
+                                                <div className="space-y-2">
+                                                    <Label>Data Source</Label>
+                                                    <Select
+                                                        value={selectedDataSource || 'crew'}
+                                                        onValueChange={(value) => setSelectedDataSource(value as 'crew' | 'vessel')}
+                                                    >
+                                                        <SelectTrigger className="rounded-xl">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="crew">Crew Member's Logs</SelectItem>
+                                                            <SelectItem value="vessel">Vessel Logs</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Crew member's logs include watch days for officers. Vessel logs use the vessel's general state logs.
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {/* Calculate Sea Time Button */}
+                                            <Button
+                                                onClick={handleCalculateSeaTime}
+                                                disabled={!documentStartDate || !documentEndDate || isCalculatingSeaTime}
+                                                className="w-full rounded-xl"
+                                            >
+                                                {isCalculatingSeaTime ? (
+                                                    <>
+                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        Calculating...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Clock className="mr-2 h-4 w-4" />
+                                                        Calculate Sea Time
+                                                    </>
+                                                )}
+                                            </Button>
+
+                                            {/* Calculated Sea Time Results */}
+                            {calculatedSeaTime && (
+                                <div className="border rounded-lg p-4 bg-muted/30">
+                                    <h5 className="font-semibold text-sm mb-3">Calculated Sea Time</h5>
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">Total Days</div>
+                                            <div className="text-lg font-semibold">{calculatedSeaTime.totalDays}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">At Sea Days</div>
+                                            <div className="text-lg font-semibold text-blue-600">{calculatedSeaTime.atSeaDays}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">Standby Days</div>
+                                            <div className="text-lg font-semibold text-purple-600">{calculatedSeaTime.standbyDays}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">Yard Days</div>
+                                            <div className="text-lg font-semibold">{calculatedSeaTime.yardDays}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-xs text-muted-foreground">Leave Days</div>
+                                            <div className="text-lg font-semibold">{calculatedSeaTime.leaveDays}</div>
+                                        </div>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="flex flex-wrap gap-2 mt-4">
+                                        <Button
+                                            onClick={handleSaveTestimonial}
+                                            disabled={isSavingTestimonial || generatingPDF === 'date-range'}
+                                            variant="outline"
+                                            className="rounded-xl"
+                                        >
+                                            {isSavingTestimonial ? (
+                                                <>
+                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                    Saving...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <FileText className="mr-2 h-4 w-4" />
+                                                    Save
+                                                </>
+                                            )}
+                                        </Button>
+
+                                        <Select
+                                            onValueChange={(format) => handleGenerateFromDateRange(format as TestimonialPDFFormat)}
+                                            disabled={generatingPDF === 'date-range' || isSavingTestimonial}
+                                        >
+                                            <SelectTrigger className="w-[140px] rounded-xl">
+                                                <SelectValue placeholder="Generate PDF" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="seajourney">SeaJourney PDF</SelectItem>
+                                                <SelectItem value="mca">MCA PDF</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        
+                                        {activeCaptain && (
+                                            <Button
+                                                onClick={handleSendToCaptain}
+                                                disabled={isSendingToCaptain}
+                                                className="rounded-xl"
+                                            >
+                                                {isSendingToCaptain ? (
+                                                    <>
+                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        Sending...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                                                        Send to Captain
+                                                    </>
+                                                )}
+                                            </Button>
+                                        )}
+                                        
+                                        {generatingPDF === 'date-range' && (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Leave Period Dialog */}
+                <Dialog open={isLeavePeriodDialogOpen} onOpenChange={setIsLeavePeriodDialogOpen}>
+                    <DialogContent className="rounded-xl max-w-md">
+                        <DialogHeader>
+                            <DialogTitle>Log Leave Period</DialogTitle>
+                            <DialogDescription>
+                                Select the date range for this leave period. These dates will be excluded from sea time calculations.
+                            </DialogDescription>
+                        </DialogHeader>
+                        
+                        <div className="space-y-4 py-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Start Date</Label>
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                className={cn(
+                                                    "w-full justify-start text-left font-normal rounded-xl",
+                                                    !leavePeriodStartDate && "text-muted-foreground"
+                                                )}
+                                            >
+                                                <CalendarDays className="mr-2 h-4 w-4" />
+                                                {leavePeriodStartDate ? format(leavePeriodStartDate, 'PPP') : 'Select start date'}
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                            <CalendarComponent
+                                                mode="single"
+                                                selected={leavePeriodStartDate}
+                                                onSelect={setLeavePeriodStartDate}
+                                                initialFocus
+                                            />
+                                        </PopoverContent>
+                                    </Popover>
+                                </div>
+                                
+                                <div className="space-y-2">
+                                    <Label>End Date</Label>
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                className={cn(
+                                                    "w-full justify-start text-left font-normal rounded-xl",
+                                                    !leavePeriodEndDate && "text-muted-foreground"
+                                                )}
+                                            >
+                                                <CalendarDays className="mr-2 h-4 w-4" />
+                                                {leavePeriodEndDate ? format(leavePeriodEndDate, 'PPP') : 'Select end date'}
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                            <CalendarComponent
+                                                mode="single"
+                                                selected={leavePeriodEndDate}
+                                                onSelect={setLeavePeriodEndDate}
+                                                initialFocus
+                                            />
+                                        </PopoverContent>
+                                    </Popover>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-2">
+                                <Label>Notes (Optional)</Label>
+                                <Textarea
+                                    placeholder="Add any notes about this leave period..."
+                                    value={leavePeriodNotes}
+                                    onChange={(e) => setLeavePeriodNotes(e.target.value)}
+                                    className="min-h-[80px] rounded-xl"
+                                />
+                            </div>
+                            
+                            <div className="flex justify-end gap-2 pt-2">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        setIsLeavePeriodDialogOpen(false);
+                                        setLeavePeriodStartDate(undefined);
+                                        setLeavePeriodEndDate(undefined);
+                                        setLeavePeriodNotes('');
+                                    }}
+                                    className="rounded-xl"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={async () => {
+                                        await handleSaveLeavePeriod();
+                                        setIsLeavePeriodDialogOpen(false);
+                                    }}
+                                    disabled={!leavePeriodStartDate || !leavePeriodEndDate || isSavingLeavePeriod}
+                                    className="rounded-xl"
+                                >
+                                    {isSavingLeavePeriod ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Saving...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <CalendarDays className="mr-2 h-4 w-4" />
+                                            Save Leave Period
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            </div>
+        );
+    }
+
     return (
         <div className="flex flex-col gap-6">
             {/* Header Section */}
@@ -1224,7 +3454,15 @@ export default function CrewPage() {
                         {currentUserProfile?.role === 'vessel' && currentUserProfile?.activeVesselId && (
                             <Dialog open={isInviteDialogOpen} onOpenChange={setIsInviteDialogOpen}>
                                 <DialogTrigger asChild>
-                                    <Button className="rounded-xl">
+                                    <Button 
+                                        className="rounded-xl"
+                                        disabled={crewLimit !== Infinity && crewMembers.length >= crewLimit}
+                                        title={
+                                            crewLimit !== Infinity && crewMembers.length >= crewLimit
+                                                ? `Crew limit reached. Your plan allows up to ${crewLimit} crew members.`
+                                                : undefined
+                                        }
+                                    >
                                         <UserPlus className="h-4 w-4 mr-2" />
                                         Invite Crew Member
                                     </Button>
@@ -1470,63 +3708,8 @@ export default function CrewPage() {
                                                 onToggleOnboard={handleToggleOnboard}
                                                 onToggleRowExpansion={toggleRowExpansion}
                                                 onRequestAccess={handleRequestAccess}
+                                                onOpenLeavePeriodsDialog={(member) => handleSelectCrewMember(member.profile.id)}
                                             />
-                                            {currentUserProfile?.role === 'vessel' && 
-                                             member.accessRequest?.status === 'approved' && 
-                                             expandedRows.has(member.profile.id) && (
-                                                <TableRow key={`${member.profile.id}-expanded`}>
-                                                    <TableCell colSpan={7} className="bg-muted/50">
-                                                        {loadingSeaTime.has(member.profile.id) ? (
-                                                            <div className="flex items-center justify-center py-8">
-                                                                <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                                                                <span className="ml-2 text-muted-foreground">Loading sea time data...</span>
-                                                            </div>
-                                                        ) : member.seaTimeData ? (
-                                                            <div className="py-4 space-y-4">
-                                                                <h4 className="font-semibold text-sm mb-3">Sea Time Summary</h4>
-                                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                                                    <div className="space-y-1">
-                                                                        <div className="text-xs text-muted-foreground">Total Days</div>
-                                                                        <div className="text-lg font-semibold">{member.seaTimeData.totalDays}</div>
-                                                                    </div>
-                                                                    <div className="space-y-1">
-                                                                        <div className="text-xs text-muted-foreground">At Sea Days</div>
-                                                                        <div className="text-lg font-semibold text-blue-600">{member.seaTimeData.atSeaDays}</div>
-                                                                    </div>
-                                                                    <div className="space-y-1">
-                                                                        <div className="text-xs text-muted-foreground">Standby Days</div>
-                                                                        <div className="text-lg font-semibold text-purple-600">{member.seaTimeData.standbyDays}</div>
-                                                                    </div>
-                                                                    <div className="space-y-1">
-                                                                        <div className="text-xs text-muted-foreground">Underway Days</div>
-                                                                        <div className="text-lg font-semibold">{member.seaTimeData.underwayDays}</div>
-                                                                    </div>
-                                                                    <div className="space-y-1">
-                                                                        <div className="text-xs text-muted-foreground">At Anchor Days</div>
-                                                                        <div className="text-lg font-semibold">{member.seaTimeData.atAnchorDays}</div>
-                                                                    </div>
-                                                                    <div className="space-y-1">
-                                                                        <div className="text-xs text-muted-foreground">In Port Days</div>
-                                                                        <div className="text-lg font-semibold">{member.seaTimeData.inPortDays}</div>
-                                                                    </div>
-                                                                    <div className="space-y-1">
-                                                                        <div className="text-xs text-muted-foreground">On Leave Days</div>
-                                                                        <div className="text-lg font-semibold">{member.seaTimeData.onLeaveDays}</div>
-                                                                    </div>
-                                                                    <div className="space-y-1">
-                                                                        <div className="text-xs text-muted-foreground">In Yard Days</div>
-                                                                        <div className="text-lg font-semibold">{member.seaTimeData.inYardDays}</div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="py-4 text-center text-muted-foreground text-sm">
-                                                                No sea time data available
-                                                            </div>
-                                                        )}
-                                                    </TableCell>
-                                                </TableRow>
-                                            )}
                                         </React.Fragment>
                                     ))}
                                     </SortableContext>
@@ -1547,6 +3730,7 @@ export default function CrewPage() {
                     </div>
                 </CardContent>
             </Card>
+
         </div>
     );
 }

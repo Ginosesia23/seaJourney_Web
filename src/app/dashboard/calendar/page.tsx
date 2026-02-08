@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { format, startOfYear, endOfYear, eachMonthOfInterval, startOfMonth, endOfMonth, eachDayOfInterval, getDaysInMonth, getDay, isSameMonth, isToday, isWithinInterval, startOfDay, endOfDay, isAfter, isBefore, parse, addDays } from 'date-fns';
-import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, Clock, User } from 'lucide-react';
+import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, Clock, User, XCircle } from 'lucide-react';
 import { DateRange } from 'react-day-picker';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,7 +16,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselStateLogs, updateStateLogsBatch, getVesselAssignments } from '@/supabase/database/queries';
+import { getVesselStateLogs, updateStateLogsBatch, getVesselAssignments, deleteStateLogsForDates } from '@/supabase/database/queries';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, Vessel, StateLog, DailyStatus, VesselAssignment } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
@@ -812,8 +812,14 @@ export default function CalendarPage() {
     }
   };
 
-  const handleStateChange = async (state: DailyStatus) => {
+  const handleStateChange = async (state: DailyStatus | null) => {
     if (!user?.id) return;
+
+    // If state is null, remove the state instead of setting it
+    if (state === null) {
+      await handleRemoveState();
+      return;
+    }
 
     setIsSaving(true);
 
@@ -1042,6 +1048,174 @@ export default function CalendarPage() {
       toast({
         title: 'Error',
         description: 'Failed to update state.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRemoveState = async () => {
+    if (!user?.id) return;
+
+    setIsSaving(true);
+
+    try {
+      // Group dates by vessel
+      const datesByVessel = new Map<string, string[]>();
+      
+      if (dateRange?.from && dateRange?.to) {
+        // Range removal
+        const today = startOfDay(new Date());
+        const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
+        
+        for (const day of interval) {
+          const dayStart = startOfDay(day);
+          // Filter out future dates
+          if (isAfter(dayStart, today)) continue;
+          
+          // Validate each date and find which vessel it belongs to
+          const validation = isDateValidForStateChange(day);
+          if (!validation.valid || !validation.vessel) continue;
+          
+          const dateKey = format(day, 'yyyy-MM-dd');
+          const vesselId = validation.vessel.id;
+          
+          if (!datesByVessel.has(vesselId)) {
+            datesByVessel.set(vesselId, []);
+          }
+          datesByVessel.get(vesselId)!.push(dateKey);
+        }
+        
+        if (datesByVessel.size === 0) {
+          toast({
+            title: 'Invalid Range',
+            description: 'No valid dates in the selected range. Dates may be outside your vessel assignment periods or in the future.',
+            variant: 'destructive',
+          });
+          setIsSaving(false);
+          return;
+        }
+      } else if (selectedDate) {
+        // Single date removal - validate one more time before deleting
+        const validation = isDateValidForStateChange(selectedDate);
+        if (!validation.valid || !validation.vessel) {
+          toast({
+            title: 'Invalid Date',
+            description: validation.reason || 'You cannot remove the state for this date.',
+            variant: 'destructive',
+          });
+          setIsSaving(false);
+          return;
+        }
+        const dateKey = format(selectedDate, 'yyyy-MM-dd');
+        datesByVessel.set(validation.vessel.id, [dateKey]);
+      } else {
+        setIsSaving(false);
+        return;
+      }
+
+      // For captains viewing vessel logs (vessel view mode), they should not be able to edit
+      if (isCaptain && captainViewMode === 'vessel') {
+        toast({
+          title: 'Cannot Edit',
+          description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
+          variant: 'destructive',
+        });
+        setIsSaving(false);
+        return;
+      }
+
+      // Remove watch logs for affected dates (if any)
+      const datesToCheck: string[] = [];
+      for (const dates of datesByVessel.values()) {
+        datesToCheck.push(...dates);
+      }
+      const datesWithWatch = datesToCheck.filter(date => watchDates.has(date));
+      
+      if (datesWithWatch.length > 0) {
+        try {
+          // Delete watch logs for all affected dates
+          for (const dateStr of datesWithWatch) {
+            const validation = isDateValidForStateChange(parse(dateStr, 'yyyy-MM-dd', new Date()));
+            if (!validation.vessel) continue;
+            
+            const dateStart = new Date(dateStr);
+            dateStart.setHours(0, 0, 0, 0);
+            const dateEnd = new Date(dateStr);
+            dateEnd.setHours(23, 59, 59, 999);
+            
+            const { error: watchError } = await supabase
+              .from('watch_logs')
+              .delete()
+              .eq('user_id', user.id)
+              .eq('vessel_id', validation.vessel.id)
+              .gte('watch_start', dateStart.toISOString())
+              .lte('watch_start', dateEnd.toISOString());
+
+            if (watchError) {
+              console.error(`Error removing watch log for ${dateStr}:`, watchError);
+            }
+          }
+          
+          // Update watch dates set
+          setWatchDates(prev => {
+            const newSet = new Set(prev);
+            datesWithWatch.forEach(date => newSet.delete(date));
+            return newSet;
+          });
+        } catch (watchError) {
+          console.error('Error removing watch logs:', watchError);
+        }
+      }
+      
+      // Delete state logs for each vessel
+      for (const [vesselId, dates] of datesByVessel.entries()) {
+        await deleteStateLogsForDates(supabase, user.id, vesselId, dates);
+      }
+      
+      // Refresh all state logs
+      const allLogs: StateLog[] = [];
+      for (const vesselId of datesByVessel.keys()) {
+        const logs = await getVesselStateLogs(supabase, vesselId, user.id);
+        allLogs.push(...logs);
+      }
+      
+      // Remove duplicates
+      const uniqueLogs = Array.from(
+        new Map(allLogs.map(log => [`${log.date}-${log.vesselId}`, log])).values()
+      );
+      
+      setStateLogs(uniqueLogs);
+      
+      setIsDialogOpen(false);
+      setDateRange(undefined);
+      setSelectedDate(null);
+      setIsPartOfActivePassageInDialog(false);
+      setIsWatchInDialog(false);
+      setNotesInDialog('');
+      
+      if (dateRange?.from && dateRange?.to) {
+        // Calculate total days from all vessels
+        let totalDays = 0;
+        for (const dates of datesByVessel.values()) {
+          totalDays += dates.length;
+        }
+        toast({
+          title: 'States Removed',
+          description: `${totalDays} day${totalDays > 1 ? 's' : ''} (${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}) state${totalDays > 1 ? 's' : ''} removed.`,
+        });
+      } else {
+        toast({
+          title: 'State Removed',
+          description: `${format(selectedDate!, 'MMM d, yyyy')} state has been removed.`,
+        });
+      }
+    } catch (error) {
+      console.error('Error removing state:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to remove state.',
         variant: 'destructive',
       });
     } finally {
@@ -1595,6 +1769,45 @@ export default function CalendarPage() {
                   </Button>
                 );
               })}
+              {/* No State / Remove State tile */}
+              {(() => {
+                // Check if there are states to remove
+                let hasStates = false;
+                if (dateRange?.from && dateRange?.to) {
+                  const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
+                  hasStates = interval.some(day => {
+                    const dateKey = format(day, 'yyyy-MM-dd');
+                    return stateLogMap.has(dateKey);
+                  });
+                } else if (selectedDate) {
+                  const dateKey = format(selectedDate, 'yyyy-MM-dd');
+                  hasStates = stateLogMap.has(dateKey);
+                }
+                
+                if (!hasStates) return null;
+                
+                return (
+                  <Button
+                    variant="outline"
+                    onClick={handleRemoveState}
+                    disabled={isSaving}
+                    className={cn(
+                      "h-auto py-4 px-4 flex flex-col items-center gap-3 rounded-xl transition-all relative border-2 hover:scale-[1.01]"
+                    )}
+                    style={{
+                      backgroundColor: 'hsl(var(--destructive) / 0.08)',
+                      borderColor: 'hsl(var(--destructive) / 0.3)',
+                    }}
+                  >
+                    <div
+                      className="h-12 w-12 rounded-xl flex items-center justify-center shadow-sm bg-destructive"
+                    >
+                      <XCircle className="h-6 w-6 text-white" />
+                    </div>
+                    <span className="font-semibold text-sm">Remove State</span>
+                  </Button>
+                );
+              })()}
             </div>
           </div>
           <div className="border-t pt-4 px-1">
@@ -1706,6 +1919,7 @@ export default function CalendarPage() {
                 setIsPartOfActivePassageInDialog(false);
                 setIsWatchInDialog(false);
                 setNotesInDialog('');
+                setSelectedState(null);
               }}
               className="rounded-xl"
             >

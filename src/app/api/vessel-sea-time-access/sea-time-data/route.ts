@@ -191,7 +191,67 @@ export async function GET(req: NextRequest) {
       inYardDays: allLogs.filter(log => log.state === 'in-yard').length,
     };
 
-    return NextResponse.json({ seaTimeData });
+    // Extract leave periods from state logs (consecutive 'on-leave' states)
+    const leavePeriodsFromLogs: Array<{ startDate: string; endDate: string; notes?: string }> = [];
+    const onLeaveLogs = allLogs
+      .filter(log => log.state === 'on-leave')
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    if (onLeaveLogs.length > 0) {
+      let currentPeriodStart = onLeaveLogs[0].date;
+      let currentPeriodEnd = onLeaveLogs[0].date;
+      let currentPeriodNotes: string[] = [];
+
+      // Collect notes from the first log in the period
+      if (onLeaveLogs[0].notes) {
+        currentPeriodNotes.push(onLeaveLogs[0].notes);
+      }
+
+      for (let i = 1; i < onLeaveLogs.length; i++) {
+        const currentDate = onLeaveLogs[i].date;
+        const previousDate = onLeaveLogs[i - 1].date;
+        
+        // Calculate days between dates
+        const prevDateObj = new Date(previousDate);
+        const currDateObj = new Date(currentDate);
+        const daysDiff = Math.floor((currDateObj.getTime() - prevDateObj.getTime()) / (1000 * 60 * 60 * 24));
+
+        // If dates are consecutive (within 1 day), extend the period
+        if (daysDiff <= 1) {
+          currentPeriodEnd = currentDate;
+          // Collect notes if available
+          if (onLeaveLogs[i].notes && !currentPeriodNotes.includes(onLeaveLogs[i].notes)) {
+            currentPeriodNotes.push(onLeaveLogs[i].notes);
+          }
+        } else {
+          // Save the current period and start a new one
+          leavePeriodsFromLogs.push({
+            startDate: currentPeriodStart,
+            endDate: currentPeriodEnd,
+            notes: currentPeriodNotes.length > 0 ? currentPeriodNotes.join('; ') : undefined,
+          });
+          
+          currentPeriodStart = currentDate;
+          currentPeriodEnd = currentDate;
+          currentPeriodNotes = [];
+          if (onLeaveLogs[i].notes) {
+            currentPeriodNotes.push(onLeaveLogs[i].notes);
+          }
+        }
+      }
+
+      // Don't forget the last period
+      leavePeriodsFromLogs.push({
+        startDate: currentPeriodStart,
+        endDate: currentPeriodEnd,
+        notes: currentPeriodNotes.length > 0 ? currentPeriodNotes.join('; ') : undefined,
+      });
+    }
+
+    return NextResponse.json({ 
+      seaTimeData,
+      leavePeriodsFromLogs: leavePeriodsFromLogs.length > 0 ? leavePeriodsFromLogs : undefined,
+    });
   } catch (error: any) {
     console.error('[VESSEL SEA TIME ACCESS] Exception fetching sea time data:', error);
     return NextResponse.json(

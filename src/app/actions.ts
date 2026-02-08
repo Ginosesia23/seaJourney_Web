@@ -360,6 +360,7 @@ export async function generateSeaTimeReportData(
     position: userProfileData.position || null,
     subscriptionTier: userProfileData.subscription_tier || 'free',
     subscriptionStatus: userProfileData.subscription_status || 'inactive',
+    registrationDate: userProfileData.registration_date || userProfileData.created_at || new Date().toISOString(),
   };
 
   // Build query for state logs - use admin client for server actions
@@ -384,16 +385,53 @@ export async function generateSeaTimeReportData(
     throw new Error(`Failed to fetch state logs: ${logsError.message}`);
   }
 
-  const stateLogs: StateLog[] = (logsData || []).map(log => ({
+  let stateLogs: StateLog[] = (logsData || []).map(log => ({
     id: log.id,
     userId: log.user_id,
     vesselId: log.vessel_id,
     state: log.state,
     date: log.date || log.log_date, // Handle both column names
     isPartOfActivePassage: log.is_part_of_active_passage || false,
+    notes: log.notes || undefined,
     createdAt: log.created_at,
     updatedAt: log.updated_at,
   }));
+
+  // Fetch leave periods and exclude those dates from state logs
+  let leavePeriodsQuery = supabaseAdmin
+    .from('crew_leave_periods')
+    .select('start_date, end_date')
+    .eq('crew_user_id', userId);
+
+  if (filterType === 'vessel' && vesselId) {
+    leavePeriodsQuery = leavePeriodsQuery.eq('vessel_id', vesselId);
+  }
+
+  const { data: leavePeriodsData, error: leavePeriodsError } = await leavePeriodsQuery;
+
+  if (!leavePeriodsError && leavePeriodsData && leavePeriodsData.length > 0) {
+    // Create a set of dates that are within leave periods
+    const leaveDates = new Set<string>();
+    
+    leavePeriodsData.forEach(period => {
+      const startDate = period.start_date; // Already in YYYY-MM-DD format
+      const endDate = period.end_date; // Already in YYYY-MM-DD format
+      
+      // Generate all dates in the leave period range
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      let currentDate = new Date(start);
+      
+      while (currentDate <= end) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        leaveDates.add(dateStr);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    });
+
+    // Filter out state logs that fall within leave periods
+    stateLogs = stateLogs.filter(log => !leaveDates.has(log.date));
+  }
 
   // Fetch watch logs for officers (to include watch dates in export)
   const watchDates = new Set<string>();

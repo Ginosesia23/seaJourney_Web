@@ -66,6 +66,7 @@ import { useDoc } from "@/supabase/database"
 import { LogOut, Sparkles, Sun, Moon, Laptop } from "lucide-react"
 import { useTheme } from "next-themes"
 import type { UserProfile } from "@/lib/types"
+import { signOutLocal } from "@/lib/auth-utils"
 
 type NavItem = {
   href: string;
@@ -118,7 +119,6 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] }, // Hide for vessel role
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
-      { href: "/dashboard/crew-documents", label: "Documents", icon: FileText, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/requests", label: "Requests", icon: ClipboardList, requiredRole: "captain", disabled: false }, // Captains can view their requests
     ]
   },
@@ -243,7 +243,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const { setTheme } = useTheme()
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    await signOutLocal(supabase)
     router.push("/")
   }
 

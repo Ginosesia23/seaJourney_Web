@@ -19,6 +19,7 @@ import { Cart } from '@/components/cart';
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import type { UserProfile } from '@/lib/types';
+import { signOutLocal } from '@/lib/auth-utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,8 +46,8 @@ const Header = () => {
   const { data: userProfile } = useDoc<UserProfile>('users', user?.id);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-      router.push('/');
+    await signOutLocal(supabase);
+    router.push('/');
   };
 
   const getInitials = (name: string) => {

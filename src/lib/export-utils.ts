@@ -11,9 +11,13 @@ import { calculateStandbyDays } from './standby-calculation';
 
 /**
  * Export sea time data to CSV format
+ * Includes summary section and detailed daily logs section (if state logs are available)
  */
 export function exportToCSV(data: SeaTimeReportData): void {
-  const headers = [
+  const csvSections: string[] = [];
+
+  // Summary Section
+  const summaryHeaders = [
     'Vessel Name',
     'Start Date',
     'End Date',
@@ -24,7 +28,7 @@ export function exportToCSV(data: SeaTimeReportData): void {
     'Leave Days',
   ];
 
-  const rows = data.serviceRecords.map(record => [
+  const summaryRows = data.serviceRecords.map(record => [
     record.vesselName,
     record.start_date,
     record.end_date,
@@ -36,7 +40,7 @@ export function exportToCSV(data: SeaTimeReportData): void {
   ]);
 
   // Add summary row
-  rows.push([
+  summaryRows.push([
     'TOTAL',
     '',
     '',
@@ -47,10 +51,86 @@ export function exportToCSV(data: SeaTimeReportData): void {
     '',
   ]);
 
-  const csvContent = [
-    headers.join(','),
-    ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-  ].join('\n');
+  csvSections.push('=== SUMMARY ===');
+  csvSections.push(summaryHeaders.join(','));
+  csvSections.push(...summaryRows.map(row => row.map(cell => `"${cell}"`).join(',')));
+
+  // Detailed Daily Logs Section (if state logs are available)
+  if (data.stateLogs && data.stateLogs.length > 0) {
+    csvSections.push('');
+    csvSections.push('=== DETAILED DAILY LOGS ===');
+    
+    // Create vessel name map
+    const vesselNameMap = new Map<string, string>();
+    data.serviceRecords.forEach(record => {
+      if (record.vesselId && !vesselNameMap.has(record.vesselId)) {
+        vesselNameMap.set(record.vesselId, record.vesselName);
+      }
+    });
+
+    const detailedHeaders = [
+      'Date',
+      'Day',
+      'Vessel',
+      'State',
+      'Part of Passage',
+      'On Watch',
+      'Standby',
+      'Notes',
+    ];
+
+    const watchDates = data.watchDates ? new Set(data.watchDates) : new Set<string>();
+    
+    // Calculate standby dates
+    const partOfActivePassageDates = new Set<string>();
+    data.stateLogs.forEach(log => {
+      if (log.isPartOfActivePassage) {
+        partOfActivePassageDates.add(log.date);
+      }
+    });
+    
+    const { standbyPeriods } = calculateStandbyDays(data.stateLogs, watchDates, partOfActivePassageDates);
+    const standbyDates = new Set<string>();
+    standbyPeriods.forEach(period => {
+      const periodDays = eachDayOfInterval({ start: period.startDate, end: period.endDate });
+      const daysInPeriod = periodDays.length;
+      const countedDays = Math.min(period.countedDays || period.days, daysInPeriod);
+      periodDays.slice(0, countedDays).forEach(day => {
+        const dateStr = format(day, 'yyyy-MM-dd');
+        standbyDates.add(dateStr);
+      });
+    });
+
+    // Use the formatState helper function defined later in this file
+
+    const detailedRows = data.stateLogs.map(log => {
+      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+      const dateStr = format(logDate, 'yyyy-MM-dd');
+      const dayStr = format(logDate, 'EEE');
+      const vesselName = vesselNameMap.get(log.vesselId) || 'Unknown Vessel';
+      const stateDisplay = formatState(log.state);
+      const partOfPassage = log.isPartOfActivePassage ? 'Yes' : 'No';
+      const onWatch = watchDates.has(dateStr) ? 'Yes' : 'No';
+      const isStandby = standbyDates.has(dateStr) ? 'Yes' : 'No';
+      const notes = log.notes || '';
+
+      return [
+        dateStr,
+        dayStr,
+        vesselName,
+        stateDisplay,
+        partOfPassage,
+        onWatch,
+        isStandby,
+        notes,
+      ];
+    });
+
+    csvSections.push(detailedHeaders.join(','));
+    csvSections.push(...detailedRows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')));
+  }
+
+  const csvContent = csvSections.join('\n');
 
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
@@ -170,6 +250,7 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
       { width: 10 }, // On Watch
       { width: 10 }, // Standby
       { width: 20 }, // Vessel
+      { width: 30 }, // Notes
     ];
 
     // Define header style
@@ -190,7 +271,7 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
     };
 
     // Add headers
-    const headers = ['Date', 'Day', 'State', 'Part of Passage', 'On Watch', 'Standby', 'Vessel'];
+    const headers = ['Date', 'Day', 'State', 'Part of Passage', 'On Watch', 'Standby', 'Vessel', 'Notes'];
     const headerRow = worksheet.addRow(headers);
     headerRow.eachCell((cell, colNumber) => {
       cell.style = headerStyle;
@@ -208,6 +289,7 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
         const onWatch = watchDates.has(dateStr) ? 'Yes' : 'No';
         const isStandby = standbyDates.has(dateStr) ? 'Yes' : 'No';
         const vesselName = vesselNameMap.get(log.vesselId) || 'Unknown Vessel';
+        const notes = log.notes || '';
         
         const row = worksheet.addRow([
           format(day, 'yyyy-MM-dd'),
@@ -217,6 +299,7 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
           onWatch,
           isStandby,
           vesselName,
+          notes,
         ]);
 
         // Apply styling to each cell
@@ -276,9 +359,25 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
             };
             cell.alignment = { ...cell.alignment, horizontal: 'center' as const };
           }
+
+          // Style Notes column (column 8) - enable word wrap
+          if (colNumber === 8) {
+            cell.alignment = { 
+              ...cell.alignment, 
+              wrapText: true,
+              vertical: 'top' as const,
+            };
+          }
         });
 
-        row.height = 18;
+        // Adjust row height if there are notes (to accommodate wrapped text)
+        if (log.notes && log.notes.length > 0) {
+          // Estimate height based on note length (roughly 20 characters per line)
+          const estimatedLines = Math.ceil(log.notes.length / 20);
+          row.height = Math.max(18, estimatedLines * 15);
+        } else {
+          row.height = 18;
+        }
       }
     });
 

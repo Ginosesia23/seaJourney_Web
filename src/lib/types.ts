@@ -126,6 +126,27 @@ export interface Testimonial {
     updated_at: string;           // ISO timestamp
 }
 
+export interface VesselGeneratedTestimonial {
+    id: string;                   // uuid
+    crew_user_id: string;         // uuid (references auth.users) - crew member this is for
+    vessel_id: string;            // uuid (references vessels)
+    vessel_user_id: string;       // uuid (references auth.users) - vessel manager who generated this
+    start_date: string;           // ISO date string (YYYY-MM-DD)
+    end_date: string;             // ISO date string (YYYY-MM-DD)
+    total_days: number;
+    at_sea_days: number;
+    standby_days: number;
+    yard_days: number;
+    leave_days: number;
+    generated_by_name: string;     // Name of vessel manager who generated this
+    generated_by_email: string | null;
+    data_source: 'crew' | 'vessel'; // Data source used
+    notes: string | null;
+    pdf_format: 'seajourney' | 'mca'; // PDF format used
+    created_at: string;           // ISO timestamp
+    updated_at: string;           // ISO timestamp
+}
+
 export interface PassageLog {
     id: string;                        // uuid PK
     crew_id: string;                   // uuid FK → profiles.id
@@ -198,6 +219,18 @@ export interface PositionHistory {
     notes?: string | null;             // Optional notes about the position change
     createdAt?: string;                // ISO timestamp
     updatedAt?: string;                // ISO timestamp
+}
+
+export interface CrewLeavePeriod {
+    id: string;                        // uuid PK
+    crewUserId: string;                 // uuid FK → auth.users.id (crew member)
+    vesselId: string;                   // uuid FK → vessels.id
+    vesselUserId: string;               // uuid FK → auth.users.id (vessel manager who logged this)
+    startDate: string;                  // Date in YYYY-MM-DD format
+    endDate: string;                    // Date in YYYY-MM-DD format
+    notes?: string | null;              // Optional notes about the leave period
+    createdAt?: string;                 // ISO timestamp
+    updatedAt?: string;                 // ISO timestamp
 }
 
 export interface VesselClaimRequest {

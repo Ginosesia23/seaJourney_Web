@@ -21,9 +21,11 @@ import {
   Loader2,
   XCircle,
   AlertTriangle,
+  Download,
+  FileText,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useUser } from '@/supabase';
+import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/lib/types';
@@ -40,6 +42,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 interface Plan {
   name: string;
@@ -223,8 +233,23 @@ export default function ManageSubscriptionPage() {
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [stripeSubscription, setStripeSubscription] =
     useState<StripeSubscriptionData | null>(null);
+  const [invoices, setInvoices] = useState<Array<{
+    id: string;
+    number: string | null;
+    amount: number;
+    currency: string;
+    status: string;
+    date: number;
+    periodStart: number | null;
+    periodEnd: number | null;
+    hostedInvoiceUrl: string | null;
+    invoicePdf: string | null;
+    description: string;
+  }>>([]);
+  const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
 
   const { user } = useUser();
+  const { supabase } = useSupabase();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -315,6 +340,51 @@ export default function ManageSubscriptionPage() {
       normalizedPlanName.includes(normalizedUserTier)
     );
   };
+
+  // Fetch invoices for vessel accounts
+  useEffect(() => {
+    const fetchInvoices = async () => {
+      if (!isVesselAccount || !user?.id) {
+        setInvoices([]);
+        return;
+      }
+
+      setIsLoadingInvoices(true);
+      try {
+        // Get auth token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          console.error('[SUBSCRIPTION PAGE] No session token');
+          setIsLoadingInvoices(false);
+          return;
+        }
+
+        const response = await fetch('/api/billing/invoices', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch invoices');
+        }
+
+        const { invoices: fetchedInvoices } = await response.json();
+        setInvoices(fetchedInvoices || []);
+      } catch (error) {
+        console.error('[SUBSCRIPTION PAGE] Error fetching invoices:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load invoices. Please try again later.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoadingInvoices(false);
+      }
+    };
+
+    fetchInvoices();
+  }, [isVesselAccount, user?.id, supabase, toast]);
 
   // Fetch subscription data and plans via API
   useEffect(() => {
@@ -893,6 +963,109 @@ export default function ManageSubscriptionPage() {
         </Card>
       )}
 
+      {/* Invoices/Receipts Section - Only for Vessel Accounts */}
+      {isVesselAccount && (
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Invoices & Receipts</CardTitle>
+            <CardDescription>
+              Download invoices for your subscription payments
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoadingInvoices ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : invoices.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No invoices found</p>
+                <p className="text-sm mt-2">
+                  Invoices will appear here once you have an active subscription.
+                </p>
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Invoice #</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Period</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invoices.map((invoice) => (
+                      <TableRow key={invoice.id}>
+                        <TableCell className="font-medium">
+                          {invoice.number || invoice.id.slice(-8)}
+                        </TableCell>
+                        <TableCell>
+                          {format(new Date(invoice.date), 'MMM dd, yyyy')}
+                        </TableCell>
+                        <TableCell>
+                          {invoice.periodStart && invoice.periodEnd ? (
+                            <span className="text-sm text-muted-foreground">
+                              {format(new Date(invoice.periodStart), 'MMM dd')} - {format(new Date(invoice.periodEnd), 'MMM dd, yyyy')}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {new Intl.NumberFormat('en-GB', {
+                            style: 'currency',
+                            currency: invoice.currency.toUpperCase(),
+                          }).format(invoice.amount / 100)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              invoice.status === 'paid'
+                                ? 'default'
+                                : invoice.status === 'open'
+                                ? 'secondary'
+                                : 'destructive'
+                            }
+                            className="rounded-xl capitalize"
+                          >
+                            {invoice.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {invoice.invoicePdf || invoice.hostedInvoiceUrl ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const url = invoice.invoicePdf || invoice.hostedInvoiceUrl;
+                                if (url) {
+                                  window.open(url, '_blank');
+                                }
+                              }}
+                              className="rounded-xl"
+                            >
+                              <Download className="h-4 w-4 mr-2" />
+                              Download
+                            </Button>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Available Plans */}
       <div className="mb-8">
         <h2 className="text-2xl font-bold mb-6 text-foreground">
@@ -921,7 +1094,9 @@ export default function ManageSubscriptionPage() {
                       ? 'border-purple-500/50 ring-2 ring-purple-500/30 dark:border-purple-500/50 dark:ring-purple-500/30'
                       : plan.color === 'blue'
                       ? 'border-blue-500/30 ring-1 ring-blue-500/20 dark:border-blue-500/30 dark:ring-blue-500/20'
-                      : 'border-orange-500/30 ring-1 ring-orange-500/20 dark:border-orange-500/30 dark:ring-orange-500/20'
+                      : plan.color === 'purple'
+                      ? 'border-purple-500/30 ring-1 ring-purple-500/20 dark:border-purple-500/30 dark:ring-purple-500/20'
+                      : 'border-orange-600/30 ring-1 ring-orange-600/20 dark:border-orange-500/30 dark:ring-orange-500/20'
                   } ${
                     isHighlighted
                       ? 'bg-purple-50/80 dark:bg-purple-950/20'
@@ -933,7 +1108,9 @@ export default function ManageSubscriptionPage() {
                       ? 'shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30'
                       : plan.color === 'purple'
                       ? 'shadow-lg shadow-purple-500/15 dark:shadow-purple-500/25 hover:shadow-xl hover:shadow-purple-500/25 dark:hover:shadow-purple-500/40'
-                      : 'shadow-lg shadow-orange-500/10 dark:shadow-orange-500/15 hover:shadow-xl hover:shadow-orange-500/20 dark:hover:shadow-orange-500/30'
+                      : plan.name === 'Vessel Fleet'
+                      ? 'shadow-lg shadow-orange-600/20 dark:shadow-orange-500/25 hover:shadow-xl hover:shadow-orange-600/30 dark:hover:shadow-orange-500/40'
+                      : 'shadow-lg shadow-orange-600/20 dark:shadow-orange-500/25 hover:shadow-xl hover:shadow-orange-600/30 dark:hover:shadow-orange-500/40'
                   } backdrop-blur-sm dark:backdrop-blur-[20px]`}
                 >
                   <CardHeader className="flex-grow pb-6">

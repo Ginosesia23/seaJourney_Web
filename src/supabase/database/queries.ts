@@ -369,6 +369,27 @@ export async function deleteVesselStateLogs(
 }
 
 /**
+ * Delete state logs for specific dates for a user and vessel
+ */
+export async function deleteStateLogsForDates(
+  supabase: SupabaseClient,
+  userId: string,
+  vesselId: string,
+  dates: string[] // Array of dates in YYYY-MM-DD format
+) {
+  if (dates.length === 0) return;
+
+  const { error } = await supabase
+    .from('daily_state_logs')
+    .delete()
+    .eq('user_id', userId)
+    .eq('vessel_id', vesselId)
+    .in('date', dates);
+
+  if (error) throw error;
+}
+
+/**
  * Update user profile (creates user if they don't exist)
  * Uses upsert to handle both insert and update cases gracefully
  * Automatically syncs vessel assignments when activeVesselId changes

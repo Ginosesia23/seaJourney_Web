@@ -488,7 +488,9 @@ export default function MembershipCTA() {
     }
 
     if (!user) {
-      router.push(`/signup?redirect=/`);
+      // Route to vessel sign up if viewing vessel plans, otherwise crew sign up
+      const signupPath = showVesselPlans ? '/signup/vessel' : '/signup';
+      router.push(`${signupPath}?redirect=/`);
       return;
     }
 
@@ -627,7 +629,9 @@ export default function MembershipCTA() {
                       ? 'border-purple-500/50 ring-2 ring-purple-500/30 dark:border-purple-500/50 dark:ring-purple-500/30'
                       : plan.color === 'blue'
                       ? 'border-blue-500/30 ring-1 ring-blue-500/20 dark:border-blue-500/30 dark:ring-blue-500/20'
-                      : 'border-orange-500/30 ring-1 ring-orange-500/20 dark:border-orange-500/30 dark:ring-orange-500/20'
+                      : plan.color === 'purple'
+                      ? 'border-purple-500/30 ring-1 ring-purple-500/20 dark:border-purple-500/30 dark:ring-purple-500/20'
+                      : 'border-orange-600/30 ring-1 ring-orange-600/20 dark:border-orange-500/30 dark:ring-orange-500/20'
                   } ${
                     isHighlighted
                       ? 'bg-purple-50/80 dark:bg-purple-950/20'
@@ -639,7 +643,9 @@ export default function MembershipCTA() {
                       ? 'shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30'
                       : plan.color === 'purple'
                       ? 'shadow-lg shadow-purple-500/15 dark:shadow-purple-500/25 hover:shadow-xl hover:shadow-purple-500/25 dark:hover:shadow-purple-500/40'
-                      : 'shadow-lg shadow-orange-500/10 dark:shadow-orange-500/15 hover:shadow-xl hover:shadow-orange-500/20 dark:hover:shadow-orange-500/30'
+                      : plan.name === 'Vessel Fleet'
+                      ? 'shadow-lg shadow-orange-600/20 dark:shadow-orange-500/25 hover:shadow-xl hover:shadow-orange-600/30 dark:hover:shadow-orange-500/40'
+                      : 'shadow-lg shadow-orange-600/20 dark:shadow-orange-500/25 hover:shadow-xl hover:shadow-orange-600/30 dark:hover:shadow-orange-500/40'
                   } backdrop-blur-sm dark:backdrop-blur-[20px]`}
                 >
                   <CardHeader className="flex-grow pb-6">

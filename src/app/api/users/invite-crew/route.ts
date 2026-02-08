@@ -12,7 +12,7 @@ const FROM_EMAIL = process.env.BILLING_FROM_EMAIL || 'SeaJourney <team@seajourne
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { firstName, lastName, email, vesselId, vesselName } = body;
+    const { firstName, lastName, email, vesselId, vesselName, vesselUserId } = body;
 
     // Validate required fields
     if (!firstName || !lastName || !email || !vesselId) {
@@ -20,6 +20,75 @@ export async function POST(req: NextRequest) {
         { error: 'Missing required fields: firstName, lastName, email, vesselId' },
         { status: 400 }
       );
+    }
+
+    // Check crew limit if vesselUserId is provided (vessel manager inviting)
+    if (vesselUserId) {
+      // Get vessel manager's subscription tier and status
+      const { data: vesselUser, error: vesselUserError } = await supabaseAdmin
+        .from('users')
+        .select('subscription_tier, subscription_status')
+        .eq('id', vesselUserId)
+        .single();
+
+      if (vesselUserError) {
+        console.error('[INVITE CREW] Error fetching vessel user:', vesselUserError);
+        // Continue anyway - worst case they'll hit the limit on the frontend
+      } else if (vesselUser) {
+        // Get crew limit based on subscription tier
+        const getCrewLimit = (tier: string | undefined, status: string | undefined): number => {
+          if (!tier || (status || '').toLowerCase() !== 'active') {
+            return 0; // No active subscription = no access
+          }
+          
+          const tierLower = tier.toLowerCase();
+          switch (tierLower) {
+            case 'vessel_lite':
+              return 15;
+            case 'vessel_basic':
+              return 30;
+            case 'vessel_pro':
+            case 'vessel_fleet':
+              return Infinity; // Unlimited
+            default:
+              return 0; // Unknown tier = no access
+          }
+        };
+
+        const crewLimit = getCrewLimit(vesselUser.subscription_tier, vesselUser.subscription_status);
+
+        // Only check limit if it's not unlimited
+        if (crewLimit !== Infinity) {
+          // Count current active crew assignments for this vessel
+          const { data: assignments, error: countError } = await supabaseAdmin
+            .from('vessel_assignments')
+            .select('id', { count: 'exact', head: false })
+            .eq('vessel_id', vesselId)
+            .is('end_date', null); // Active assignments only
+
+          if (countError) {
+            console.error('[INVITE CREW] Error counting crew assignments:', countError);
+            return NextResponse.json(
+              { error: 'Failed to check crew limit', details: countError.message },
+              { status: 500 }
+            );
+          }
+
+          const currentCrewCount = assignments?.length || 0;
+          
+          if (currentCrewCount >= crewLimit) {
+            return NextResponse.json(
+              { 
+                error: 'Crew limit reached', 
+                message: `Your ${vesselUser.subscription_tier?.replace('vessel_', '').replace('_', ' ').toUpperCase() || 'current'} plan allows a maximum of ${crewLimit} crew members. You currently have ${currentCrewCount} crew members. Please upgrade your plan to invite more crew members.`,
+                currentCount: currentCrewCount,
+                limit: crewLimit
+              },
+              { status: 400 }
+            );
+          }
+        }
+      }
     }
 
     // Validate email format

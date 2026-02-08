@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useSupabase, useUser } from '@/supabase';
 import { Avatar, AvatarFallback } from '../ui/avatar';
+import { signOutLocal } from '@/lib/auth-utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,8 +50,8 @@ export default function DashboardHeader({ userProfile }: { userProfile: UserProf
   const { setTheme, theme } = useTheme();
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-        router.push('/');
+    await signOutLocal(supabase);
+    router.push('/');
   };
 
   const getInitials = (name: string) => {

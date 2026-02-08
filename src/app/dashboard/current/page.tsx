@@ -27,6 +27,7 @@ import {
   createVessel, 
   createSeaServiceRecord, 
   updateStateLogsBatch, 
+  deleteStateLogsForDates,
   updateUserProfile,
   getVesselStateLogs,
   createVesselAssignment,
@@ -1723,8 +1724,14 @@ export default function CurrentPage() {
     }
   };
 
-  const handleStateChange = async (state: DailyStatus) => {
+  const handleStateChange = async (state: DailyStatus | null) => {
     if (!currentVessel || !user?.id) return;
+
+    // If state is null, remove the state instead of setting it
+    if (state === null) {
+      await handleRemoveState();
+      return;
+    }
 
     setIsSaving(true);
 
@@ -2223,7 +2230,206 @@ export default function CurrentPage() {
     }
   };
 
+  const handleRemoveState = async () => {
+    if (!currentVessel || !user?.id) return;
 
+    setIsSaving(true);
+
+    try {
+      let dates: string[] = [];
+      
+      if (dateRange?.from && dateRange?.to) {
+        // Range removal
+        const today = startOfDay(new Date());
+        const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
+        dates = interval
+          .filter(day => {
+            const dayStart = startOfDay(day);
+            // Filter out future dates
+            if (isAfter(dayStart, today)) return false;
+            // Validate each date is within valid vessel assignment period
+            const validation = isDateValidForStateChange(day);
+            return validation.valid;
+          })
+          .map(day => format(day, 'yyyy-MM-dd'));
+        
+        if (dates.length === 0) {
+          toast({
+            title: 'Invalid Range',
+            description: 'No valid dates in the selected range. Dates may be outside your vessel assignment period or in the future.',
+            variant: 'destructive',
+          });
+          setIsSaving(false);
+          return;
+        }
+      } else if (selectedDate) {
+        // Single date removal - validate one more time before deleting
+        const validation = isDateValidForStateChange(selectedDate);
+        if (!validation.valid) {
+          toast({
+            title: 'Invalid Date',
+            description: validation.reason || 'You cannot remove the state for this date.',
+            variant: 'destructive',
+          });
+          setIsSaving(false);
+          return;
+        }
+        dates = [format(selectedDate, 'yyyy-MM-dd')];
+      } else {
+        setIsSaving(false);
+        return;
+      }
+
+      // For captains viewing vessel logs (vessel view mode), they should not be able to edit
+      if (isCaptain && captainViewMode === 'vessel') {
+        toast({
+          title: 'Cannot Edit',
+          description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
+          variant: 'destructive',
+        });
+        setIsSaving(false);
+        return;
+      }
+
+      // Remove watch logs for affected dates (if any)
+      const datesWithWatch = dates.filter(date => watchDates.has(date));
+      
+      if (datesWithWatch.length > 0) {
+        try {
+          // Delete watch logs for all affected dates
+          for (const dateStr of datesWithWatch) {
+            const dateStart = new Date(dateStr);
+            dateStart.setHours(0, 0, 0, 0);
+            const dateEnd = new Date(dateStr);
+            dateEnd.setHours(23, 59, 59, 999);
+            
+            const { error: watchError } = await supabase
+              .from('watch_logs')
+              .delete()
+              .eq('user_id', user.id)
+              .eq('vessel_id', currentVessel.id)
+              .gte('watch_start', dateStart.toISOString())
+              .lte('watch_start', dateEnd.toISOString());
+
+            if (watchError) {
+              console.error(`Error removing watch log for ${dateStr}:`, watchError);
+            }
+          }
+          
+          // Update watch dates set
+          setWatchDates(prev => {
+            const newSet = new Set(prev);
+            datesWithWatch.forEach(date => newSet.delete(date));
+            return newSet;
+          });
+        } catch (watchError) {
+          console.error('Error removing watch logs:', watchError);
+        }
+      }
+      
+      // Delete state logs
+      await deleteStateLogsForDates(supabase, user.id, currentVessel.id, dates);
+      
+      // Refresh state logs
+      const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
+      setStateLogs(updatedLogs);
+      
+      setIsStatusDialogOpen(false);
+      setDateRange(undefined);
+      setSelectedDate(null);
+      setIsPartOfActivePassageInDialog(false);
+      setIsWatchInDialog(false);
+      setNotesInDialog('');
+      
+      if (dateRange?.from && dateRange?.to) {
+        toast({
+          title: 'States Removed',
+          description: `${dates.length} day${dates.length > 1 ? 's' : ''} (${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}) state${dates.length > 1 ? 's' : ''} removed.`,
+        });
+      } else {
+        toast({
+          title: 'State Removed',
+          description: `${format(selectedDate!, 'MMM d, yyyy')} state has been removed.`,
+        });
+      }
+    } catch (error) {
+      console.error('Error removing state:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to remove state.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRemoveTodayState = async () => {
+    if (!currentVessel || !user?.id) return;
+
+    // For captains viewing vessel logs (vessel view mode), they should not be able to edit
+    if (isCaptain && captainViewMode === 'vessel') {
+      toast({
+        title: 'Cannot Edit',
+        description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const todayKey = format(new Date(), 'yyyy-MM-dd');
+    const todayStart = new Date(todayKey);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayKey);
+    todayEnd.setHours(23, 59, 59, 999);
+
+    try {
+      // Remove watch log if it exists
+      if (watchDates.has(todayKey)) {
+        try {
+          const { error: watchError } = await supabase
+            .from('watch_logs')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('vessel_id', currentVessel.id)
+            .gte('watch_start', todayStart.toISOString())
+            .lte('watch_start', todayEnd.toISOString());
+
+          if (watchError) {
+            console.error('Error removing watch log:', watchError);
+          } else {
+            // Update watch dates set
+            setWatchDates(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(todayKey);
+              return newSet;
+            });
+            setIsOnWatchToday(false);
+          }
+        } catch (watchError) {
+          console.error('Error removing watch log:', watchError);
+        }
+      }
+
+      await deleteStateLogsForDates(supabase, user.id, currentVessel.id, [todayKey]);
+      
+      // Refresh state logs
+      const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
+      setStateLogs(updatedLogs);
+      
+      toast({ 
+        title: 'State Removed', 
+        description: `Today's state has been removed.` 
+      });
+    } catch (error) {
+      console.error('Error removing today state:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to remove state.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   // Render month function similar to calendar page
   const renderMonth = (month: Date) => {
@@ -2973,41 +3179,56 @@ export default function CurrentPage() {
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
                         </div>
                     ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                            {vesselStates
-                              .filter(state => !isVesselAccount || state.value !== 'on-leave')
-                              .map(state => {
-                            const isActive = todayStatusValue === state.value;
-                            return (
-                                <button
-                                    key={state.value}
-                                    onClick={() => handleTodayStateChange(state.value)}
-                                    className={cn(
-                                            "flex flex-col items-center gap-3 p-4 rounded-xl text-center transition-all border-2",
-                                        isActive 
-                                                ? 'bg-primary/10 text-primary border-primary shadow-md scale-105'
-                                                : 'hover:bg-muted/50 border-transparent hover:border-muted'
-                                        )}
-                                    >
-                                        <span 
-                                            className={cn(
-                                                "flex h-12 w-12 items-center justify-center rounded-xl transition-colors",
-                                                isActive ? 'ring-2 ring-primary ring-offset-2' : ''
-                                            )} 
-                                            style={{ backgroundColor: isActive ? state.color : 'hsl(var(--muted))' }}
+                        <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                                {vesselStates
+                                  .filter(state => !isVesselAccount || state.value !== 'on-leave')
+                                  .map(state => {
+                                const isActive = todayStatusValue === state.value;
+                                return (
+                                    <button
+                                        key={state.value}
+                                        onClick={() => handleTodayStateChange(state.value)}
+                                        className={cn(
+                                                "flex flex-col items-center gap-3 p-4 rounded-xl text-center transition-all border-2",
+                                            isActive 
+                                                    ? 'bg-primary/10 text-primary border-primary shadow-md scale-105'
+                                                    : 'hover:bg-muted/50 border-transparent hover:border-muted'
+                                            )}
                                         >
-                                            <state.icon className={cn("h-6 w-6", isActive ? 'text-primary-foreground' : 'text-muted-foreground')} />
-                                    </span>
-                                        <span className={cn("font-medium text-sm", isActive ? 'text-primary' : 'text-foreground')}>
-                                            {state.label}
-                                    </span>
-                                        {isActive && (
-                                            <span className="text-xs text-primary font-semibold">Selected</span>
-                                        )}
-                                </button>
-                            );
-                        })}
-                        </div>
+                                            <span 
+                                                className={cn(
+                                                    "flex h-12 w-12 items-center justify-center rounded-xl transition-colors",
+                                                    isActive ? 'ring-2 ring-primary ring-offset-2' : ''
+                                                )} 
+                                                style={{ backgroundColor: isActive ? state.color : 'hsl(var(--muted))' }}
+                                            >
+                                                <state.icon className={cn("h-6 w-6", isActive ? 'text-primary-foreground' : 'text-muted-foreground')} />
+                                        </span>
+                                            <span className={cn("font-medium text-sm", isActive ? 'text-primary' : 'text-foreground')}>
+                                                {state.label}
+                                        </span>
+                                            {isActive && (
+                                                <span className="text-xs text-primary font-semibold">Selected</span>
+                                            )}
+                                    </button>
+                                );
+                            })}
+                            </div>
+                            {/* Remove State Button for Today - only show if today has a state */}
+                            {todayStatusValue && (
+                                <div className="mt-4 pt-4 border-t">
+                                    <Button
+                                        variant="destructive"
+                                        onClick={handleRemoveTodayState}
+                                        className="w-full rounded-xl"
+                                    >
+                                        <XCircle className="mr-2 h-4 w-4" />
+                                        Remove Today's State
+                                    </Button>
+                                </div>
+                            )}
+                        </>
                     )}
                     </CardContent>
                 </Card>
@@ -3272,6 +3493,45 @@ export default function CurrentPage() {
                                      </Button>
                                             );
                                         })}
+                                    {/* No State / Remove State tile */}
+                                    {(() => {
+                                      // Check if there are states to remove
+                                      let hasStates = false;
+                                      if (dateRange?.from && dateRange?.to) {
+                                        const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
+                                        hasStates = interval.some(day => {
+                                          const dateKey = format(day, 'yyyy-MM-dd');
+                                          return stateLogMap.has(dateKey);
+                                        });
+                                      } else if (selectedDate) {
+                                        const dateKey = format(selectedDate, 'yyyy-MM-dd');
+                                        hasStates = stateLogMap.has(dateKey);
+                                      }
+                                      
+                                      if (!hasStates) return null;
+                                      
+                                      return (
+                                        <Button
+                                          variant="outline"
+                                          onClick={handleRemoveState}
+                                          disabled={isSaving}
+                                          className={cn(
+                                            "h-auto py-4 px-4 flex flex-col items-center gap-3 rounded-xl transition-all relative border-2 hover:scale-[1.01]"
+                                          )}
+                                          style={{
+                                            backgroundColor: 'hsl(var(--destructive) / 0.08)',
+                                            borderColor: 'hsl(var(--destructive) / 0.3)',
+                                          }}
+                                        >
+                                          <div
+                                            className="h-12 w-12 rounded-xl flex items-center justify-center shadow-sm bg-destructive"
+                                          >
+                                            <XCircle className="h-6 w-6 text-white" />
+                                          </div>
+                                          <span className="font-semibold text-sm">Remove State</span>
+                                        </Button>
+                                      );
+                                    })()}
                                 </div>
                                 <div className="border-t pt-4 px-1">
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3399,7 +3659,7 @@ export default function CurrentPage() {
                                         handleStateChange(selectedState);
                                       }
                                     }}
-                                    disabled={isSaving || !selectedState}
+                                    disabled={!selectedState || isSaving}
                                     className="rounded-xl"
                                   >
                                     {isSaving ? (

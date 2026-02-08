@@ -6,7 +6,7 @@ import { useUser, useSupabase } from '@/supabase';
 import { useDoc, useCollection } from '@/supabase/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Loader2, Ship, Map, Navigation, FileText } from 'lucide-react';
+import { Sparkles, Loader2, Ship, Map, Navigation, FileText, Users } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -65,60 +65,125 @@ export function SubscriptionCard() {
 
   const [usageData, setUsageData] = useState({
     vesselCount: 0,
+    crewCount: 0,
     passageCount: 0,
     watchCount: 0,
     seaTimeRequestCount: 0,
     isLoading: true,
   });
 
+  // Check if user is a vessel account
+  const isVesselAccount = useMemo(() => {
+    const role = (userProfileRaw as any)?.role || userProfile?.role || 'crew';
+    return role?.toLowerCase() === 'vessel';
+  }, [userProfileRaw, userProfile]);
+
   useEffect(() => {
-    if (!user?.id || !allVessels) {
-      setUsageData({ vesselCount: 0, passageCount: 0, watchCount: 0, seaTimeRequestCount: 0, isLoading: false });
+    if (!user?.id) {
+      setUsageData({ vesselCount: 0, crewCount: 0, passageCount: 0, watchCount: 0, seaTimeRequestCount: 0, isLoading: false });
       return;
     }
 
+    const subscriptionTier = userProfile?.subscriptionTier || 'free';
+    const tierLower = subscriptionTier.toLowerCase();
+
     const fetchUsageData = async () => {
       try {
-        // Count vessels user has logged time on
-        let vesselCount = 0;
-        for (const vessel of allVessels) {
-          const logs = await getVesselStateLogs(supabase, vessel.id, user.id);
-          if (logs && logs.length > 0) {
-            vesselCount++;
+        if (isVesselAccount) {
+          // For vessel accounts: count crew members and vessels (for Fleet tier)
+          const activeVesselId = (userProfileRaw as any)?.active_vessel_id || userProfile?.activeVesselId;
+          
+          let crewCount = 0;
+          let vesselCount = 0;
+          
+          // Count vessels managed by this vessel manager (for Fleet tier)
+          if (tierLower === 'vessel_fleet' && allVessels) {
+            vesselCount = allVessels.filter(v => (v as any).vessel_manager_id === user.id).length;
           }
-        }
+          
+          if (activeVesselId) {
+            // Count active crew assignments (excluding vessel accounts)
+            const { data: assignments, error: assignmentsError } = await supabase
+              .from('vessel_assignments')
+              .select('user_id')
+              .eq('vessel_id', activeVesselId)
+              .is('end_date', null);
 
-        // Count passages (only for Premium/Pro)
-        let passageCount = 0;
-        try {
-          const passages = await getPassageLogs(supabase, user.id);
-          passageCount = passages.length;
-        } catch (e) {
-          // Table might not exist yet
-        }
+            if (assignmentsError) {
+              console.error('[SUBSCRIPTION CARD] Error fetching crew assignments:', assignmentsError);
+            } else if (assignments) {
+              // Get user roles to filter out vessel accounts
+              const userIds = assignments.map(a => a.user_id);
+              if (userIds.length > 0) {
+                const { data: users, error: usersError } = await supabase
+                  .from('users')
+                  .select('id, role')
+                  .in('id', userIds);
 
-        // Count bridge watches (only for Premium/Pro)
-        let watchCount = 0;
-        try {
-          const watches = await getBridgeWatchLogs(supabase, user.id);
-          watchCount = watches.length;
-        } catch (e) {
-          // Table might not exist yet
-        }
+                if (!usersError && users) {
+                  // Count only non-vessel accounts
+                  crewCount = users.filter(u => u.role !== 'vessel').length;
+                }
+              }
+            }
+          }
+          
+          setUsageData({ 
+            vesselCount, 
+            crewCount, 
+            passageCount: 0, 
+            watchCount: 0, 
+            seaTimeRequestCount: 0, 
+            isLoading: false 
+          });
+        } else {
+          // For crew accounts: count vessels and premium features
+          if (!allVessels) {
+            setUsageData({ vesselCount: 0, crewCount: 0, passageCount: 0, watchCount: 0, seaTimeRequestCount: 0, isLoading: false });
+            return;
+          }
 
-        // Count sea time requests (only for Premium/Pro)
-        let seaTimeRequestCount = 0;
-        try {
-          const { count } = await supabase
-            .from('sea_time_requests')
-            .select('*', { count: 'exact', head: true })
-            .eq('crew_user_id', user.id);
-          seaTimeRequestCount = count || 0;
-        } catch (e) {
-          // Table might not exist yet
-        }
+          // Count vessels user has logged time on
+          let vesselCount = 0;
+          for (const vessel of allVessels) {
+            const logs = await getVesselStateLogs(supabase, vessel.id, user.id);
+            if (logs && logs.length > 0) {
+              vesselCount++;
+            }
+          }
 
-        setUsageData({ vesselCount, passageCount, watchCount, seaTimeRequestCount, isLoading: false });
+          // Count passages (only for Premium/Pro)
+          let passageCount = 0;
+          try {
+            const passages = await getPassageLogs(supabase, user.id);
+            passageCount = passages.length;
+          } catch (e) {
+            // Table might not exist yet
+          }
+
+          // Count bridge watches (only for Premium/Pro)
+          let watchCount = 0;
+          try {
+            const watches = await getBridgeWatchLogs(supabase, user.id);
+            watchCount = watches.length;
+          } catch (e) {
+            // Table might not exist yet
+          }
+
+          // Count sea time requests (only for Premium/Pro)
+          let seaTimeRequestCount = 0;
+          try {
+            const { count } = await supabase
+              .from('sea_time_requests')
+              .select('*', { count: 'exact', head: true })
+              .eq('crew_user_id', user.id);
+            seaTimeRequestCount = count || 0;
+          } catch (e) {
+            // Table might not exist yet
+          }
+
+          setUsageData({ vesselCount, crewCount: 0, passageCount, watchCount, seaTimeRequestCount, isLoading: false });
+        }
       } catch (error) {
         console.error('Error fetching usage data:', error);
         setUsageData(prev => ({ ...prev, isLoading: false }));
@@ -126,7 +191,7 @@ export function SubscriptionCard() {
     };
 
     fetchUsageData();
-  }, [user?.id, allVessels, supabase]);
+  }, [user?.id, allVessels, supabase, isVesselAccount, userProfileRaw, userProfile, userProfile?.subscriptionTier]);
 
   if (isProfileLoading) {
     return <SubscriptionSkeleton />;
@@ -150,12 +215,42 @@ export function SubscriptionCard() {
   const isActive = subscriptionStatus === 'active';
   const isPastDue = subscriptionStatus === 'past-due';
 
-  // Determine limits based on tier
+  // Determine limits based on tier and account type
   const tierLower = subscriptionTier.toLowerCase();
+  
+  // For crew accounts
   const hasUnlimitedVessels = (tierLower === 'premium' || tierLower === 'pro') && isActive;
   const hasPremiumFeatures = (tierLower === 'premium' || tierLower === 'pro') && isActive;
-  
   const vesselLimit = hasUnlimitedVessels ? null : 3;
+  
+  // For vessel accounts
+  const getCrewLimit = (): number | null => {
+    if (!isActive) return null;
+    switch (tierLower) {
+      case 'vessel_lite':
+        return 15;
+      case 'vessel_basic':
+        return 30;
+      case 'vessel_pro':
+      case 'vessel_fleet':
+        return null; // Unlimited
+      default:
+        return null;
+    }
+  };
+  
+  const crewLimit = isVesselAccount ? getCrewLimit() : null;
+  
+  // For vessel fleet: check vessel limit
+  const getVesselLimitForFleet = (): number | null => {
+    if (!isActive || !isVesselAccount) return null;
+    if (tierLower === 'vessel_fleet') {
+      return 3; // Fleet includes 3 vessels
+    }
+    return null;
+  };
+  
+  const vesselLimitForFleet = getVesselLimitForFleet();
   
   return (
     <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
@@ -215,38 +310,95 @@ export function SubscriptionCard() {
             <div className="space-y-3 pt-2 border-t">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Usage</p>
               <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <Ship className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-muted-foreground">Vessels</span>
-                  </div>
-                  <span className="font-medium">
-                    {vesselLimit ? `${usageData.vesselCount} of ${vesselLimit}` : `${usageData.vesselCount} (Unlimited)`}
-                  </span>
-                </div>
-                {hasPremiumFeatures && (
+                {isVesselAccount ? (
                   <>
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <Map className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-muted-foreground">Passages</span>
+                    {/* Vessel Account: Show Crew Count */}
+                    {crewLimit !== null && (
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-muted-foreground">Crew Members</span>
+                        </div>
+                        <span className="font-medium">
+                          {usageData.crewCount} of {crewLimit}
+                        </span>
                       </div>
-                      <span className="font-medium">{usageData.passageCount}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <Navigation className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-muted-foreground">Bridge Watches</span>
+                    )}
+                    {crewLimit === null && usageData.crewCount > 0 && (
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-muted-foreground">Crew Members</span>
+                        </div>
+                        <span className="font-medium">
+                          {usageData.crewCount} (Unlimited)
+                        </span>
                       </div>
-                      <span className="font-medium">{usageData.watchCount}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-muted-foreground">Request Past Sea Time</span>
+                    )}
+                    {/* Vessel Fleet: Show Vessel Count */}
+                    {vesselLimitForFleet !== null && (
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <Ship className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-muted-foreground">Vessels</span>
+                        </div>
+                        <span className="font-medium">
+                          {usageData.vesselCount} of {vesselLimitForFleet} included
+                        </span>
                       </div>
-                      <span className="font-medium">{usageData.seaTimeRequestCount}</span>
-                    </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {/* Crew Account: Show Vessel Count */}
+                    {vesselLimit !== null && (
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <Ship className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-muted-foreground">Vessels</span>
+                        </div>
+                        <span className="font-medium">
+                          {usageData.vesselCount} of {vesselLimit}
+                        </span>
+                      </div>
+                    )}
+                    {vesselLimit === null && usageData.vesselCount > 0 && (
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <Ship className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-muted-foreground">Vessels</span>
+                        </div>
+                        <span className="font-medium">
+                          {usageData.vesselCount} (Unlimited)
+                        </span>
+                      </div>
+                    )}
+                    {/* Premium Features for Crew Accounts */}
+                    {hasPremiumFeatures && (
+                      <>
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <Map className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-muted-foreground">Passages</span>
+                          </div>
+                          <span className="font-medium">{usageData.passageCount}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <Navigation className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-muted-foreground">Bridge Watches</span>
+                          </div>
+                          <span className="font-medium">{usageData.watchCount}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-muted-foreground">Request Past Sea Time</span>
+                          </div>
+                          <span className="font-medium">{usageData.seaTimeRequestCount}</span>
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
               </div>
