@@ -1327,6 +1327,7 @@ export default function CalendarPage() {
                 let isInRange = false;
                 let isRangeStart = false;
                 let isRangeEnd = false;
+                let isRangeStartOnly = false; // When only start date is selected (no end date yet)
                 if (dateRange?.from && dateRange?.to) {
                   const dayStartForRange = startOfDay(day);
                   const rangeStart = startOfDay(dateRange.from);
@@ -1336,8 +1337,9 @@ export default function CalendarPage() {
                   isRangeStart = format(dayStartForRange, 'yyyy-MM-dd') === format(rangeStart, 'yyyy-MM-dd');
                   isRangeEnd = format(dayStartForRange, 'yyyy-MM-dd') === format(rangeEnd, 'yyyy-MM-dd');
                 } else if (dateRange?.from && !dateRange?.to) {
-                  // Only start is selected
-                  isRangeStart = format(day, 'yyyy-MM-dd') === format(dateRange.from, 'yyyy-MM-dd');
+                  // Only start is selected - show visual indication
+                  isRangeStartOnly = format(day, 'yyyy-MM-dd') === format(dateRange.from, 'yyyy-MM-dd');
+                  isRangeStart = isRangeStartOnly;
                 }
 
                 // Standby dates use purple border outline (same as current page)
@@ -1412,17 +1414,22 @@ export default function CalendarPage() {
                       !isFuture && "hover:scale-105 hover:shadow-md",
                       !isCurrentMonth && "opacity-40",
                       isFuture && "opacity-30 cursor-not-allowed",
-                      isCurrentDay && !isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && "ring-2 ring-primary ring-offset-2",
-                      isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && "ring-2 ring-primary/50",
-                      (isRangeStart || isRangeEnd) && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && "ring-2 ring-primary ring-offset-1",
-                      // Watch outline (yellow) - takes priority
-                      hasWatch && "border-[3px] border-yellow-400",
-                      // Part of active passage outline (blue)
-                      isPartOfActivePassage && !hasWatch && "border-[3px] border-blue-600",
+                      // When only start date is selected (no end date yet) - show prominent blue border (highest priority for selection)
+                      isRangeStartOnly && "!border-2 !border-blue-600 !border-solid ring-2 ring-blue-500/50 ring-offset-1",
+                      // Selected range styling - use a distinct color (blue) and solid border to differentiate from assignment outline
+                      isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && !isRangeStartOnly && "border-2 border-blue-500 border-solid",
+                      // Range start/end dates when both are selected
+                      (isRangeStart || isRangeEnd) && !isRangeStartOnly && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && "border-2 border-blue-600 border-solid ring-2 ring-blue-500/30 ring-offset-1",
+                      isCurrentDay && !isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && !isRangeStartOnly && "ring-2 ring-primary ring-offset-2",
+                      // Watch outline (yellow) - takes priority unless range start only
+                      hasWatch && !isRangeStartOnly && "border-[3px] border-yellow-400",
+                      // Part of active passage outline (blue) - unless range start only
+                      isPartOfActivePassage && !hasWatch && !isRangeStartOnly && "border-[3px] border-blue-600",
                       // Standby outline (purple) - only if not watch or part of active passage
-                      isCountedStandby && !hasWatch && !isPartOfActivePassage && "border-[3px] border-purple-600",
+                      isCountedStandby && !hasWatch && !isPartOfActivePassage && !isRangeStartOnly && "border-[3px] border-purple-600",
                       // Assignable date outline (dashed border) - dates within assignment range but no state logged
-                      isAssignableDate && !hasWatch && !isPartOfActivePassage && !isCountedStandby && "border-2 border-dashed border-muted-foreground/40",
+                      // Only show if not in selected range or start
+                      isAssignableDate && !hasWatch && !isPartOfActivePassage && !isCountedStandby && !isInRange && !isRangeStartOnly && "border-2 border-dashed border-muted-foreground/40",
                       stateInfo 
                         ? "text-white" 
                         : isAssignableDate
@@ -1432,12 +1439,18 @@ export default function CalendarPage() {
                     style={
                       // Always show the primary state color, with outlines for secondary indicators
                       stateInfo 
-                        ? { backgroundColor: stateInfo.color } 
+                        ? { 
+                            backgroundColor: stateInfo.color,
+                            // Ensure blue border shows even when date has a state
+                            ...(isRangeStartOnly ? { border: '2px solid hsl(217 91% 50%)', borderColor: 'hsl(217 91% 50%)' } : {})
+                          } 
                         : isInRange 
                           ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
-                          : isAssignableDate
-                            ? { backgroundColor: 'hsl(var(--muted) / 0.3)' }
-                            : undefined
+                          : isRangeStartOnly
+                            ? { backgroundColor: 'hsl(217 91% 60% / 0.2)', border: '2px solid hsl(217 91% 50%)', borderColor: 'hsl(217 91% 50%)' } // Blue tint and border for start date only
+                            : isAssignableDate
+                              ? { backgroundColor: 'hsl(var(--muted) / 0.3)' }
+                              : undefined
                     }
                   >
                     <div className="flex flex-col items-center justify-center h-full relative">

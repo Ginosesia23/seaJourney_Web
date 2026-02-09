@@ -675,7 +675,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     return null
                   }
 
-                  // For crew_limited tier, only show: Home, Recent Activity, Current, Calendar, Profile, Feedback, Inbox, Vessel History
+                  // For crew_limited tier, only show: Home, Recent Activity, Current, Calendar, Profile, Feedback, Inbox
                   if (isCrewLimited) {
                     const allowedHrefs = [
                       '/dashboard', 
@@ -684,8 +684,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                       '/dashboard/calendar', 
                       '/dashboard/profile',
                       '/dashboard/feedback',
-                      '/dashboard/inbox',
-                      '/dashboard/vessel-history'
+                      '/dashboard/inbox'
                     ];
                     if (!allowedHrefs.includes(item.href)) {
                       return null;
