@@ -1574,43 +1574,44 @@ export default function CalendarPage() {
       </div>
 
       {/* Year Navigation and Mode Toggle */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="rounded-xl border">
-          <CardContent className="flex items-center justify-between py-4">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setSelectedYear(selectedYear - 1)}
-              className="rounded-xl"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <div className="text-center">
-              <h2 className="text-2xl font-bold">{selectedYear}</h2>
-              <p className="text-sm text-muted-foreground">
-                {currentVessel 
-                  ? currentVessel.name 
-                  : vesselsWithLogs.length > 0 
-                    ? `${vesselsWithLogs.length} vessel${vesselsWithLogs.length > 1 ? 's' : ''}`
-                    : 'All Vessels'}
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setSelectedYear(selectedYear + 1)}
-              disabled={isCurrentYear}
-              className="rounded-xl"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </CardContent>
-        </Card>
-        
-        <Card className="rounded-xl border">
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">Selection Mode</CardTitle>
-          </CardHeader>
+      <div className="sticky top-0 z-10 bg-background pb-4 pt-2 -mx-6 px-6 border-b shadow-md">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card className="rounded-xl border">
+            <CardContent className="flex items-center justify-between py-4">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setSelectedYear(selectedYear - 1)}
+                className="rounded-xl"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <div className="text-center">
+                <h2 className="text-2xl font-bold">{selectedYear}</h2>
+                <p className="text-sm text-muted-foreground">
+                  {currentVessel 
+                    ? currentVessel.name 
+                    : vesselsWithLogs.length > 0 
+                      ? `${vesselsWithLogs.length} vessel${vesselsWithLogs.length > 1 ? 's' : ''}`
+                      : 'All Vessels'}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setSelectedYear(selectedYear + 1)}
+                disabled={isCurrentYear}
+                className="rounded-xl"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </CardContent>
+          </Card>
+          
+          <Card className="rounded-xl border">
+            <CardHeader>
+              <CardTitle className="text-sm font-medium">Selection Mode</CardTitle>
+            </CardHeader>
           <CardContent>
             <div className="flex gap-2">
               <Button
@@ -1652,6 +1653,7 @@ export default function CalendarPage() {
             )}
           </CardContent>
         </Card>
+        </div>
       </div>
 
       {/* Legend */}
@@ -1770,6 +1772,10 @@ export default function CalendarPage() {
                       if (state.value !== 'at-anchor' && isWatchInDialog) {
                         setIsWatchInDialog(false);
                       }
+                      // Reset part of active passage if state is underway or in-yard
+                      if ((state.value === 'underway' || state.value === 'in-yard') && isPartOfActivePassageInDialog) {
+                        setIsPartOfActivePassageInDialog(false);
+                      }
                     }}
                     disabled={isSaving}
                     className={cn(
@@ -1845,25 +1851,27 @@ export default function CalendarPage() {
           </div>
           <div className="border-t pt-4 px-1">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-start space-x-3 p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors">
-                <Checkbox
-                  id="part-of-active-passage-calendar"
-                  checked={isPartOfActivePassageInDialog}
-                  onCheckedChange={(checked) => setIsPartOfActivePassageInDialog(checked === true)}
-                  disabled={isSaving}
-                  className="mt-0.5"
-                />
-                <Label
-                  htmlFor="part-of-active-passage-calendar"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex flex-col gap-1.5 flex-1"
-                >
-                  <div className="flex items-center gap-2">
-                    <Ship className="h-4 w-4 text-blue-600" />
-                    <span>Part of Active Passage</span>
-                  </div>
-                  <span className="text-xs text-muted-foreground">Counts as At Sea</span>
-                </Label>
-              </div>
+              {selectedState !== 'underway' && selectedState !== 'in-yard' && (
+                <div className="flex items-start space-x-3 p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors">
+                  <Checkbox
+                    id="part-of-active-passage-calendar"
+                    checked={isPartOfActivePassageInDialog}
+                    onCheckedChange={(checked) => setIsPartOfActivePassageInDialog(checked === true)}
+                    disabled={isSaving}
+                    className="mt-0.5"
+                  />
+                  <Label
+                    htmlFor="part-of-active-passage-calendar"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex flex-col gap-1.5 flex-1"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Ship className="h-4 w-4 text-blue-600" />
+                      <span>Part of Active Passage</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Counts as At Sea</span>
+                  </Label>
+                </div>
+              )}
               {isOfficer && selectedDate && !dateRange && (
                 <div className={cn(
                   "flex items-start space-x-3 p-3 rounded-lg border transition-colors",

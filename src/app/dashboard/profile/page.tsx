@@ -1356,10 +1356,40 @@ const vesselDetailsSchema = z.object({
   description: z.string().optional().or(z.literal('')),
   management_company: z.string().optional().or(z.literal('')),
   company_address: z.string().optional().or(z.literal('')),
-  company_contact: z.string().optional().or(z.literal('')),
+  company_email: z.string().optional().or(z.literal('')),
+  company_phone: z.string().optional().or(z.literal('')),
 });
 
 type VesselDetailsFormValues = z.infer<typeof vesselDetailsSchema>;
+
+// Helper function to parse company_contact into email and phone
+function parseCompanyContact(contact: string | null | undefined): { email: string; phone: string } {
+  if (!contact) return { email: '', phone: '' };
+  
+  // Try to extract email and phone using common patterns
+  const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
+  const phoneRegex = /(\+?[\d\s\-\(\)]{10,})/g;
+  
+  const emailMatch = contact.match(emailRegex);
+  const phoneMatch = contact.match(phoneRegex);
+  
+  // If we find structured patterns like "Tel: xxx Email: yyy" or "Phone: xxx, Email: yyy"
+  const telMatch = contact.match(/Tel[:\s]+([^\s,]+)/i) || contact.match(/Phone[:\s]+([^\s,]+)/i);
+  const emailMatchStructured = contact.match(/Email[:\s]+([^\s,]+)/i);
+  
+  return {
+    email: emailMatchStructured ? emailMatchStructured[1] : (emailMatch ? emailMatch[0] : ''),
+    phone: telMatch ? telMatch[1] : (phoneMatch ? phoneMatch[0] : ''),
+  };
+}
+
+// Helper function to combine email and phone into company_contact
+function combineCompanyContact(email: string, phone: string): string | null {
+  const parts: string[] = [];
+  if (phone.trim()) parts.push(`Tel: ${phone.trim()}`);
+  if (email.trim()) parts.push(`Email: ${email.trim()}`);
+  return parts.length > 0 ? parts.join(', ') : null;
+}
 
 function VesselStartDateCard({ userProfile }: { userProfile: UserProfile | null }) {
   const { user } = useUser();
@@ -1552,6 +1582,11 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
+  // Parse company_contact into email and phone
+  const parsedContact = useMemo(() => {
+    return parseCompanyContact(vesselData?.company_contact);
+  }, [vesselData?.company_contact]);
+
   const form = useForm<VesselDetailsFormValues>({
     resolver: zodResolver(vesselDetailsSchema),
     defaultValues: {
@@ -1570,7 +1605,8 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
       description: vesselData?.description || '',
       management_company: vesselData?.management_company || '',
       company_address: vesselData?.company_address || '',
-      company_contact: vesselData?.company_contact || '',
+      company_email: parsedContact.email,
+      company_phone: parsedContact.phone,
     },
   });
 
@@ -1580,6 +1616,7 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
   // Reset form when vessel data changes
   useEffect(() => {
     if (vesselData) {
+      const parsedContact = parseCompanyContact(vesselData.company_contact);
       form.reset({
         name: vesselData.name || '',
         type: vesselData.type || '',
@@ -1596,7 +1633,8 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
         description: vesselData.description || '',
         management_company: vesselData.management_company || '',
         company_address: vesselData.company_address || '',
-        company_contact: vesselData.company_contact || '',
+        company_email: parsedContact.email,
+        company_phone: parsedContact.phone,
       }, { keepDefaultValues: false });
     }
   }, [vesselData, form]);
@@ -1606,6 +1644,9 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
 
     setIsSaving(true);
     try {
+      // Combine email and phone into company_contact for backward compatibility
+      const company_contact = combineCompanyContact(data.company_email || '', data.company_phone || '');
+
       // Transform empty strings to null for optional numeric fields
       const updates = {
         ...data,
@@ -1622,7 +1663,10 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
         description: data.description === '' ? null : data.description,
         management_company: data.management_company === '' ? null : data.management_company,
         company_address: data.company_address === '' ? null : data.company_address,
-        company_contact: data.company_contact === '' ? null : data.company_contact,
+        company_contact: company_contact,
+        // Remove company_email and company_phone from updates (not in database schema yet)
+        company_email: undefined,
+        company_phone: undefined,
       };
 
       console.log('[VESSEL PROFILE] Sending update request:', {
@@ -1631,7 +1675,7 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
           ...updates,
           management_company: updates.management_company,
           company_address: updates.company_address,
-          company_contact: updates.company_contact,
+          company_contact: company_contact,
         },
       });
 
@@ -1654,7 +1698,7 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
       console.log('[VESSEL PROFILE] Update successful:', responseData);
 
       // Verify company fields were saved (check if columns exist in database)
-      if (updates.management_company !== null || updates.company_address !== null || updates.company_contact !== null) {
+      if (updates.management_company !== null || updates.company_address !== null || company_contact !== null) {
         const savedVessel = responseData.vessel;
         if (savedVessel) {
           const missingFields: string[] = [];
@@ -1664,7 +1708,7 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
           if (updates.company_address !== null && savedVessel.company_address !== updates.company_address) {
             missingFields.push('company_address');
           }
-          if (updates.company_contact !== null && savedVessel.company_contact !== updates.company_contact) {
+          if (company_contact !== null && savedVessel.company_contact !== company_contact) {
             missingFields.push('company_contact');
           }
           
@@ -2005,19 +2049,44 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="company_contact"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Contact Details</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="Phone, email, or other contact information" disabled={!isEditing} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="company_email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input 
+                          {...field} 
+                          type="email"
+                          placeholder="company@example.com" 
+                          disabled={!isEditing} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="company_phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Phone Number</FormLabel>
+                      <FormControl>
+                        <Input 
+                          {...field} 
+                          type="tel"
+                          placeholder="+1 (555) 123-4567" 
+                          disabled={!isEditing} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </CardContent>
           </Card>
 

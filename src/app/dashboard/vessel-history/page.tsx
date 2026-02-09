@@ -28,7 +28,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselAssignments, createVesselAssignment, updateVesselAssignment, updateUserProfile } from '@/supabase/database/queries';
+import { getVesselAssignments, createVesselAssignment, updateVesselAssignment, updateUserProfile, deleteVesselStateLogs, getVesselStateLogs } from '@/supabase/database/queries';
 import type { Vessel, VesselAssignment, UserProfile } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -371,6 +371,16 @@ export default function VesselHistoryPage() {
 
     setIsDeleting(true);
     try {
+      // Delete all state logs associated with this assignment first
+      // This ensures no orphaned state logs remain that could cause overlap conflicts
+      try {
+        await deleteVesselStateLogs(supabase, user.id, deletingAssignment.vesselId);
+        console.log('[VESSEL HISTORY] Deleted state logs for vessel:', deletingAssignment.vesselId);
+      } catch (stateLogError: any) {
+        console.warn('[VESSEL HISTORY] Error deleting state logs (continuing with assignment deletion):', stateLogError);
+        // Continue with assignment deletion even if state log deletion fails
+      }
+
       // Delete the assignment from the database
       const { error } = await supabase
         .from('vessel_assignments')
@@ -383,7 +393,7 @@ export default function VesselHistoryPage() {
       const vessel = vesselMap.get(deletingAssignment.vesselId);
       toast({
         title: 'Assignment Deleted',
-        description: `Vessel assignment for "${vessel?.name || 'Unknown Vessel'}" has been successfully removed.`,
+        description: `Vessel assignment and all associated state logs for "${vessel?.name || 'Unknown Vessel'}" have been successfully removed.`,
       });
 
       // Refresh assignments
@@ -402,15 +412,16 @@ export default function VesselHistoryPage() {
     }
   };
 
-  // Validate date ranges don't overlap with existing assignments
+  // Validate date ranges don't overlap with existing assignments or state logs
   // Database uses '[)' range (start inclusive, end exclusive), allowing same-day changeovers
   // Two ranges [a, b) and [c, d) overlap if: a < d AND c < b
-  const checkDateOverlap = (startDate: Date, endDate: Date | null, excludeAssignmentId?: string): { overlaps: boolean; vesselName?: string; startDate?: string; endDate?: string } => {
+  const checkDateOverlap = async (startDate: Date, endDate: Date | null, excludeAssignmentId?: string, excludeVesselId?: string): Promise<{ overlaps: boolean; vesselName?: string; startDate?: string; endDate?: string }> => {
     // Normalize dates to start of day for comparison
     const newStart = startOfDay(startDate);
     // Use far future date if no end date (ongoing assignment)
     const newEnd = endDate ? startOfDay(endDate) : new Date('2099-12-31');
     
+    // Check assignments first
     for (const assignment of assignments) {
       // Skip the assignment being edited
       if (excludeAssignmentId && assignment.id === excludeAssignmentId) continue;
@@ -435,6 +446,48 @@ export default function VesselHistoryPage() {
           startDate: format(assignmentStart, 'MMM d, yyyy'),
           endDate: assignmentEndDisplay
         };
+      }
+    }
+    
+    // Also check state logs from other vessels to prevent conflicts
+    // This ensures we catch cases where an assignment was deleted but state logs remain
+    // Note: We can't skip the vessel being added here because we don't know which vessel it is
+    // The caller should handle skipping the current vessel if needed
+    if (vessels && user?.id) {
+      const newDateRange = eachDayOfInterval({ start: newStart, end: newEnd });
+      const newDatesSet = new Set(newDateRange.map(d => format(d, 'yyyy-MM-dd')));
+      
+      for (const vessel of vessels) {
+        // Skip the vessel being added/edited (allows updating same vessel)
+        if (excludeVesselId && vessel.id === excludeVesselId) continue;
+        
+        const existingLogs = await getVesselStateLogs(supabase, vessel.id, user.id);
+        
+        // Check for overlaps with state logs
+        const overlappingDates = existingLogs
+          .filter(log => {
+            // Handle both 'date' and 'logDate' field names for compatibility
+            const logDate = (log as any).date || (log as any).logDate;
+            return logDate && newDatesSet.has(logDate);
+          })
+          .map(log => {
+            const logDate = (log as any).date || (log as any).logDate;
+            return parse(logDate, 'yyyy-MM-dd', new Date());
+          });
+        
+        if (overlappingDates.length > 0) {
+          const vesselName = vessel.name;
+          overlappingDates.sort((a, b) => a.getTime() - b.getTime());
+          const firstOverlap = format(overlappingDates[0], 'MMM d, yyyy');
+          const lastOverlap = format(overlappingDates[overlappingDates.length - 1], 'MMM d, yyyy');
+          
+          return {
+            overlaps: true,
+            vesselName: vesselName,
+            startDate: firstOverlap,
+            endDate: lastOverlap
+          };
+        }
       }
     }
     
@@ -503,8 +556,9 @@ export default function VesselHistoryPage() {
         return;
       }
 
-      // Check for overlaps with other vessel assignments
-      const overlapCheck = checkDateOverlap(startDate, endDate);
+      // Check for overlaps with other vessel assignments and state logs
+      // Exclude the vessel being added to allow updating the same vessel
+      const overlapCheck = await checkDateOverlap(startDate, endDate, undefined, newAssignmentVesselId);
       if (overlapCheck.overlaps) {
         const dateRangeText = endDate 
           ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`
@@ -615,7 +669,8 @@ export default function VesselHistoryPage() {
       }
 
       // Check for overlaps with other vessel assignments (excluding current assignment)
-      const overlapCheck = checkDateOverlap(startDate, endDate, editingAssignment.id);
+      // Also exclude the vessel being edited to allow updating dates for the same vessel
+      const overlapCheck = await checkDateOverlap(startDate, endDate, editingAssignment.id, editingAssignment.vesselId);
       if (overlapCheck.overlaps) {
         const dateRangeText = endDate 
           ? `${format(startDate, 'MMM d, yyyy')} - ${format(endDate, 'MMM d, yyyy')}`

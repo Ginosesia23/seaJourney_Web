@@ -882,6 +882,11 @@ export default function CurrentPage() {
         return;
       }
 
+      // Skip auto-fill for approved captains viewing vessel account logs (view-only)
+      if (vesselAccountUserId) {
+        return;
+      }
+
       // Create a unique key for this check (vessel + today's date)
       const todayKey = format(new Date(), 'yyyy-MM-dd');
       const checkKey = `${currentVessel.id}-${todayKey}`;
@@ -891,16 +896,24 @@ export default function CurrentPage() {
         return;
       }
 
-      // Find missing days
-      const { lastLoggedDate, lastLoggedState, missingDays } = findMissingDays(stateLogs);
+      // Filter state logs to only include logs for the current vessel
+      const currentVesselLogs = stateLogs.filter(log => log.vesselId === currentVessel.id);
+
+      // If no logs exist for this vessel, skip gap filling
+      if (currentVesselLogs.length === 0) {
+        gapFilledRef.current = checkKey;
+        return;
+      }
+
+      // Find missing days for the current vessel only
+      const { lastLoggedDate, lastLoggedState, missingDays } = findMissingDays(currentVesselLogs);
 
       // If there are missing days and we have a last logged state, fill them
-      // Skip auto-fill for approved captains viewing vessel account logs (view-only)
-      if (missingDays.length > 0 && lastLoggedState && !vesselAccountUserId) {
+      if (missingDays.length > 0 && lastLoggedState) {
         setIsFillingGaps(true);
         
         try {
-          console.log(`[FILL MISSING DAYS] Found ${missingDays.length} missing days from ${lastLoggedDate ? format(lastLoggedDate, 'yyyy-MM-dd') : 'unknown'} to today. Filling with state: ${lastLoggedState}`);
+          console.log(`[FILL MISSING DAYS] Found ${missingDays.length} missing days for vessel ${currentVessel.name} from ${lastLoggedDate ? format(lastLoggedDate, 'yyyy-MM-dd') : 'unknown'} to today. Filling with state: ${lastLoggedState}`);
           
           // Create logs for all missing days with the same state as the last logged entry
           const logsToCreate = missingDays.map(date => ({
@@ -910,29 +923,34 @@ export default function CurrentPage() {
 
           await updateStateLogsBatch(supabase, user.id, currentVessel.id, logsToCreate);
 
-          console.log(`[FILL MISSING DAYS] Successfully filled ${missingDays.length} missing days`);
+          console.log(`[FILL MISSING DAYS] Successfully filled ${missingDays.length} missing days for vessel ${currentVessel.name}`);
 
           // Mark that we've filled gaps for this vessel today
           gapFilledRef.current = checkKey;
 
           // Refresh state logs to show the newly created entries
-          // Always refresh personal logs after filling gaps
-          const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
-          setStateLogs(updatedLogs);
+          // Fetch logs from all vessels again to update the full list
+          const updatedCurrentVesselLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
+          
+          // Update stateLogs by replacing logs for this vessel with the updated ones
+          setStateLogs(prevLogs => {
+            const otherVesselLogs = prevLogs.filter(log => log.vesselId !== currentVessel.id);
+            return [...otherVesselLogs, ...updatedCurrentVesselLogs];
+          });
         } catch (error: any) {
           console.error('Error filling missing days:', error);
           // Don't show toast error - this is automatic background operation
         } finally {
           setIsFillingGaps(false);
         }
-      } else if (missingDays.length === 0) {
+      } else {
         // No gaps to fill, mark as checked
         gapFilledRef.current = checkKey;
       }
     };
 
     fillGaps();
-  }, [stateLogs, currentVessel?.id, user?.id, supabase, isFillingGaps, isLoadingLogs]);
+  }, [stateLogs, currentVessel?.id, currentVessel?.name, user?.id, supabase, isFillingGaps, isLoadingLogs, vesselAccountUserId]);
   
   const startServiceForm = useForm<StartServiceFormValues>({
     resolver: zodResolver(startServiceSchema),
@@ -1780,11 +1798,13 @@ export default function CurrentPage() {
       
       if (dateRange?.from && dateRange?.to) {
         // Range update
-        // Prevent marking as "part of active passage" if state is "underway"
-        if (isPartOfActivePassageInDialog && state === 'underway') {
+        // Prevent marking as "part of active passage" if state is "underway" or "in-yard"
+        if (isPartOfActivePassageInDialog && (state === 'underway' || state === 'in-yard')) {
           toast({
             title: 'Cannot Mark as Part of Passage',
-            description: 'Days marked as "underway" are already counted as at sea. You cannot also mark them as part of active passage.',
+            description: state === 'underway' 
+              ? 'Days marked as "underway" are already counted as at sea. You cannot also mark them as part of active passage.'
+              : 'Days marked as "in yard" cannot be marked as part of active passage.',
             variant: 'destructive',
           });
           setIsSaving(false);
@@ -1793,9 +1813,8 @@ export default function CurrentPage() {
         
         const today = startOfDay(new Date());
         const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
-        // If state is 'underway', automatically set is_part_of_active_passage to false
-        // (even if user had it checked, underway already means at sea)
-        const isPartOfPassage = state === 'underway' ? false : isPartOfActivePassageInDialog;
+        // If state is 'underway' or 'in-yard', automatically set is_part_of_active_passage to false
+        const isPartOfPassage = (state === 'underway' || state === 'in-yard') ? false : isPartOfActivePassageInDialog;
         logs = interval
           .filter(day => {
             const dayStart = startOfDay(day);
@@ -1834,12 +1853,13 @@ export default function CurrentPage() {
           return;
         }
         
-        // Prevent marking as "part of active passage" if state is "underway"
-        // Underway already means the vessel is at sea, so marking as part of passage is redundant
-        if (isPartOfActivePassageInDialog && state === 'underway') {
+        // Prevent marking as "part of active passage" if state is "underway" or "in-yard"
+        if (isPartOfActivePassageInDialog && (state === 'underway' || state === 'in-yard')) {
           toast({
             title: 'Cannot Mark as Part of Passage',
-            description: 'Days marked as "underway" are already counted as at sea. You cannot also mark them as part of active passage.',
+            description: state === 'underway'
+              ? 'Days marked as "underway" are already counted as at sea. You cannot also mark them as part of active passage.'
+              : 'Days marked as "in yard" cannot be marked as part of active passage.',
             variant: 'destructive',
           });
           setIsSaving(false);
@@ -1847,9 +1867,8 @@ export default function CurrentPage() {
         }
         
         const dateKey = format(selectedDate, 'yyyy-MM-dd');
-        // If state is 'underway', automatically set is_part_of_active_passage to false
-        // (even if user had it checked, underway already means at sea)
-        const isPartOfPassage = state === 'underway' ? false : isPartOfActivePassageInDialog;
+        // If state is 'underway' or 'in-yard', automatically set is_part_of_active_passage to false
+        const isPartOfPassage = (state === 'underway' || state === 'in-yard') ? false : isPartOfActivePassageInDialog;
         logs = [{ date: dateKey, state, is_part_of_active_passage: isPartOfPassage, notes: notesInDialog.trim() || undefined }];
       } else {
         setIsSaving(false);
@@ -3578,8 +3597,8 @@ export default function CurrentPage() {
                                                     }}
                         onClick={() => {
                           setSelectedState(state.value);
-                          // Reset "part of active passage" if state is changed to "underway"
-                          if (state.value === 'underway') {
+                          // Reset "part of active passage" if state is changed to "underway" or "in-yard"
+                          if (state.value === 'underway' || state.value === 'in-yard') {
                             setIsPartOfActivePassageInDialog(false);
                           }
                           // Disable watch checkbox if state is not at-anchor
@@ -3646,47 +3665,31 @@ export default function CurrentPage() {
                                 </div>
                                 <div className="border-t pt-4 px-1">
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className={cn(
-                                      "flex items-start space-x-3 p-3 rounded-lg border transition-colors",
-                                      selectedState === 'underway'
-                                        ? "border-border/50 bg-muted/30 opacity-60"
-                                        : "border-border hover:bg-accent/50"
-                                    )}>
-                                      <Checkbox
-                                        id="part-of-active-passage"
-                                        checked={isPartOfActivePassageInDialog}
-                                        onCheckedChange={(checked) => {
-                                          if (selectedState === 'underway') {
-                                            toast({
-                                              title: 'Cannot Mark as Part of Passage',
-                                              description: 'Days marked as "underway" are already counted as at sea. You cannot also mark them as part of active passage.',
-                                              variant: 'destructive',
-                                            });
-                                            return;
-                                          }
-                                          setIsPartOfActivePassageInDialog(checked === true);
-                                        }}
-                                        disabled={isSaving || selectedState === 'underway'}
-                                        className="mt-0.5"
-                                      />
-                                      <Label
-                                        htmlFor="part-of-active-passage"
-                                        className={cn(
-                                          "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex flex-col gap-1.5 flex-1",
-                                          selectedState === 'underway' && "cursor-not-allowed opacity-60"
-                                        )}
-                                      >
-                                        <div className="flex items-center gap-2">
-                                          <Ship className="h-4 w-4 text-blue-600" />
-                                          <span>Part of Active Passage</span>
-                                        </div>
-                                        <span className="text-xs text-muted-foreground">
-                                          {selectedState === 'underway' 
-                                            ? 'Not available for "underway" days (already at sea)'
-                                            : 'Counts as At Sea'}
-                                        </span>
-                                      </Label>
-                                    </div>
+                                    {selectedState !== 'underway' && selectedState !== 'in-yard' && (
+                                      <div className="flex items-start space-x-3 p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors">
+                                        <Checkbox
+                                          id="part-of-active-passage"
+                                          checked={isPartOfActivePassageInDialog}
+                                          onCheckedChange={(checked) => {
+                                            setIsPartOfActivePassageInDialog(checked === true);
+                                          }}
+                                          disabled={isSaving}
+                                          className="mt-0.5"
+                                        />
+                                        <Label
+                                          htmlFor="part-of-active-passage"
+                                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex flex-col gap-1.5 flex-1"
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <Ship className="h-4 w-4 text-blue-600" />
+                                            <span>Part of Active Passage</span>
+                                          </div>
+                                          <span className="text-xs text-muted-foreground">
+                                            Counts as At Sea
+                                          </span>
+                                        </Label>
+                                      </div>
+                                    )}
                                     {isOfficer && !isVesselAccount && selectedDate && !dateRange && (
                                       <div className={cn(
                                         "flex items-start space-x-3 p-3 rounded-lg border transition-colors",

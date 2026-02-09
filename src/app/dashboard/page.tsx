@@ -369,9 +369,19 @@ export default function DashboardPage() {
         const vesselId = userProfile.activeVesselId;
 
         // Fetch crew count (active assignments)
+        // First, get the vessel to find the vessel manager ID
+        const { data: vesselData } = await supabase
+          .from('vessels')
+          .select('vessel_manager_id')
+          .eq('id', vesselId)
+          .single();
+
+        const vesselManagerId = vesselData?.vessel_manager_id;
+
+        // Fetch active assignments, excluding the vessel account (vessel manager)
         const { data: assignments, error: assignmentsError } = await supabase
           .from('vessel_assignments')
-          .select('id')
+          .select('id, user_id')
           .eq('vessel_id', vesselId)
           .is('end_date', null);
 
@@ -379,11 +389,40 @@ export default function DashboardPage() {
           console.error('[VESSEL DASHBOARD] Error fetching crew:', assignmentsError);
         }
 
-        // Fetch all state logs for this vessel
+        // Filter out the vessel account from crew count
+        // Exclude users who are the vessel manager or have role 'vessel'
+        let crewAssignments = assignments || [];
+        if (vesselManagerId || crewAssignments.length > 0) {
+          // Get user roles for all assignment users to filter out vessel accounts
+          const assignmentUserIds = crewAssignments.map(a => a.user_id);
+          const { data: userRoles } = await supabase
+            .from('users')
+            .select('id, role')
+            .in('id', assignmentUserIds);
+
+          // Create a set of vessel account user IDs (vessel manager + users with role 'vessel')
+          const vesselAccountIds = new Set<string>();
+          if (vesselManagerId) {
+            vesselAccountIds.add(vesselManagerId);
+          }
+          (userRoles || []).forEach((user: any) => {
+            if (user.role === 'vessel') {
+              vesselAccountIds.add(user.id);
+            }
+          });
+
+          // Filter out vessel accounts from crew count
+          crewAssignments = crewAssignments.filter(a => !vesselAccountIds.has(a.user_id));
+        }
+
+        // Fetch state logs for this vessel - ONLY the vessel manager's logs
+        // Do not include crew member logs, even if access has been granted
+        // The vessel dashboard should only show the vessel's own operational data
         const { data: allLogs, error: logsError } = await supabase
           .from('daily_state_logs')
           .select('*')
-          .eq('vessel_id', vesselId);
+          .eq('vessel_id', vesselId)
+          .eq('user_id', vesselManagerId || user.id); // Only vessel manager's logs
 
         if (logsError) {
           console.error('[VESSEL DASHBOARD] Error fetching logs:', logsError);
@@ -501,7 +540,7 @@ export default function DashboardPage() {
           .slice(0, 5); // Top 5 most active
 
         setVesselStats({
-          crewCount: assignments?.length || 0,
+          crewCount: crewAssignments.length,
           totalSeaDays,
           totalStandbyDays,
           totalDays: stateLogs.length,
@@ -1633,37 +1672,39 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {vesselStates.map(state => {
-                  const count = vesselStats.stateBreakdown[state.value] || 0;
-                  const percentage = vesselStats.totalDays > 0 
-                    ? Math.round((count / vesselStats.totalDays) * 100) 
-                    : 0;
-                  const StateIcon = state.icon;
-                  
-                  return (
-                    <div key={state.value} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <StateIcon className="h-4 w-4" style={{ color: state.color }} />
-                          <span className="text-sm font-medium">{state.label}</span>
+                {vesselStates
+                  .filter(state => state.value !== 'on-leave') // Exclude "on leave" for vessel managers
+                  .map(state => {
+                    const count = vesselStats.stateBreakdown[state.value] || 0;
+                    const percentage = vesselStats.totalDays > 0 
+                      ? Math.round((count / vesselStats.totalDays) * 100) 
+                      : 0;
+                    const StateIcon = state.icon;
+                    
+                    return (
+                      <div key={state.value} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <StateIcon className="h-4 w-4" style={{ color: state.color }} />
+                            <span className="text-sm font-medium">{state.label}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold">{count}</span>
+                            <span className="text-xs text-muted-foreground">({percentage}%)</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold">{count}</span>
-                          <span className="text-xs text-muted-foreground">({percentage}%)</span>
+                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                          <div 
+                            className="h-full rounded-full transition-all"
+                            style={{ 
+                              width: `${percentage}%`,
+                              backgroundColor: state.color 
+                            }}
+                          />
                         </div>
                       </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div 
-                          className="h-full rounded-full transition-all"
-                          style={{ 
-                            width: `${percentage}%`,
-                            backgroundColor: state.color 
-                          }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
             </CardContent>
           </Card>
@@ -2937,18 +2978,6 @@ export default function DashboardPage() {
                 </CardContent>
             </Card>
 
-              <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">On Leave</CardTitle>
-                  <div className="h-8 w-8 rounded-xl bg-gray-500/10 flex items-center justify-center">
-                    <LifeBuoy className="h-4 w-4 text-gray-500" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold">{thisMonthStats.onLeaveDays}</div>
-                  <p className="text-xs text-muted-foreground mt-1">Days off</p>
-                </CardContent>
-            </Card>
             </div>
           </div>
         </>

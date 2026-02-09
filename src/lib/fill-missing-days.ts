@@ -3,15 +3,17 @@
  * with the same state as the last logged entry
  */
 
-import { format, addDays, differenceInDays, parse, startOfDay } from 'date-fns';
+import { format, addDays, differenceInDays, parse, startOfDay, subDays } from 'date-fns';
 import type { StateLog } from './types';
 
 /**
  * Find gaps between the most recent logged date and today, and return the missing days
+ * Only fills gaps within a reasonable period (e.g., last 90 days) to avoid filling years of historical data
  * @param stateLogs - Array of state logs for the vessel
+ * @param maxDaysToFill - Maximum number of days back from today to fill gaps (default: 90 days)
  * @returns Array of dates (as strings in YYYY-MM-DD format) that need to be filled in, or null if no gap
  */
-export function findMissingDays(stateLogs: StateLog[]): {
+export function findMissingDays(stateLogs: StateLog[], maxDaysToFill: number = 90): {
   lastLoggedDate: Date | null;
   lastLoggedState: string | null;
   missingDays: string[];
@@ -37,13 +39,21 @@ export function findMissingDays(stateLogs: StateLog[]): {
   const lastLoggedDateStart = startOfDay(lastLoggedDate);
   const daysDiff = differenceInDays(today, lastLoggedDateStart);
 
-  // If there's a gap (more than 0 days difference) and last logged date is not in the future
-  if (daysDiff > 0 && lastLoggedDateStart <= today) {
+  // Calculate the cutoff date (maxDaysToFill days ago from today)
+  const cutoffDate = subDays(today, maxDaysToFill);
+
+  // Only fill gaps if:
+  // 1. There's a gap (more than 0 days difference)
+  // 2. Last logged date is not in the future
+  // 3. Last logged date is within the maxDaysToFill period (not too far in the past)
+  if (daysDiff > 0 && lastLoggedDateStart <= today && lastLoggedDateStart >= cutoffDate) {
     const missingDays: string[] = [];
     
     // Generate all dates from the day after last logged date to today (inclusive)
-    // If last logged date was 3 days ago, we fill: 2 days ago, 1 day ago, and today
-    for (let i = 1; i <= daysDiff; i++) {
+    // But only up to maxDaysToFill days from today
+    const maxDaysFromToday = Math.min(daysDiff, maxDaysToFill);
+    
+    for (let i = 1; i <= maxDaysFromToday; i++) {
       const missingDate = addDays(lastLoggedDateStart, i);
       // Only include dates up to and including today
       if (missingDate <= today) {

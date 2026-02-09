@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight } from 'lucide-react';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, ArrowUpCircle } from 'lucide-react';
 import { format, parse, eachDayOfInterval, format as formatDate, addDays } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -41,7 +41,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertCircle, ArrowUpCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
@@ -55,6 +54,7 @@ import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateMCAWatchRatingForm, type TestimonialPDFFormat, type MCACertificateType } from '@/lib/pdf-generator';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 
@@ -125,6 +125,14 @@ function SortableRow({
     const { profile, assignment } = member;
     const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
     const displayName = fullName || profile.username;
+    
+    // Check if user has a paid subscription (not free tier) - required for requesting sea time access
+    const hasPaidTier = useMemo(() => {
+        if (!currentUserProfile) return false;
+        const tier = (currentUserProfile.subscriptionTier || '').toLowerCase();
+        const status = (currentUserProfile.subscriptionStatus || '').toLowerCase();
+        return tier !== 'free' && status === 'active';
+    }, [currentUserProfile?.subscriptionTier, currentUserProfile?.subscriptionStatus]);
     
     const {
         attributes,
@@ -282,7 +290,7 @@ function SortableRow({
                     <div className="flex items-center gap-2">
                         {member.accessRequest?.status === 'approved' ? (
                             <Badge variant="secondary" className="text-xs bg-green-500/10 text-green-700 border-green-500/20">
-                                Access Approved
+                                Approved
                             </Badge>
                         ) : member.accessRequest?.status === 'pending' ? (
                             <Badge variant="secondary" className="text-xs">
@@ -292,7 +300,7 @@ function SortableRow({
                             <Badge variant="destructive" className="text-xs">
                                 Request Rejected
                             </Badge>
-                        ) : (
+                        ) : hasPaidTier ? (
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -312,7 +320,7 @@ function SortableRow({
                                     'Request Sea Time Access'
                                 )}
                             </Button>
-                        )}
+                        ) : null}
                     </div>
                 ) : (
                     <DropdownMenu>
@@ -383,6 +391,7 @@ export default function CrewPage() {
     const [isLoadingTestimonials, setIsLoadingTestimonials] = useState(false);
     const [generatingPDF, setGeneratingPDF] = useState<string | null>(null);
     const [showGenerateForm, setShowGenerateForm] = useState(false);
+    const [deletingTestimonial, setDeletingTestimonial] = useState<string | null>(null);
     const [documentStartDate, setDocumentStartDate] = useState<Date | undefined>(undefined);
     const [documentEndDate, setDocumentEndDate] = useState<Date | undefined>(undefined);
     const [isCalculatingSeaTime, setIsCalculatingSeaTime] = useState(false);
@@ -1444,6 +1453,64 @@ export default function CrewPage() {
         
         return hasDateOfBirth && hasAddressLine1 && hasAddressTownCity && hasAddressPostCode && hasAddressCountry && hasNationality;
     }, [selectedMemberData]);
+
+    // Delete a vessel-generated testimonial
+    const handleDeleteVesselTestimonial = async (testimonialId: string) => {
+        if (!user?.id || !selectedCrewMemberId || !currentUserProfile?.activeVesselId) {
+            return;
+        }
+
+        setDeletingTestimonial(testimonialId);
+        try {
+            const { error } = await supabase
+                .from('vessel_generated_testimonials')
+                .delete()
+                .eq('id', testimonialId)
+                .eq('vessel_id', currentUserProfile.activeVesselId)
+                .eq('vessel_user_id', user.id); // Ensure only the vessel manager who created it can delete
+
+            if (error) throw error;
+
+            toast({
+                title: 'Document Deleted',
+                description: 'The vessel-generated document has been successfully deleted.',
+            });
+
+            // Refresh vessel-generated testimonials
+            if (selectedCrewMemberId && currentUserProfile?.activeVesselId && currentUserProfile?.role === 'vessel') {
+                setIsLoadingTestimonials(true);
+                try {
+                    const { data: vesselTestimonials, error: testimonialsError } = await supabase
+                        .from('vessel_generated_testimonials')
+                        .select('*')
+                        .eq('crew_user_id', selectedCrewMemberId)
+                        .eq('vessel_id', currentUserProfile.activeVesselId)
+                        .order('created_at', { ascending: false });
+
+                    if (!testimonialsError && vesselTestimonials) {
+                        setCrewMembers(prev => prev.map(m => 
+                            m.profile.id === selectedCrewMemberId
+                                ? { ...m, vesselGeneratedTestimonials: vesselTestimonials as VesselGeneratedTestimonial[] }
+                                : m
+                        ));
+                    }
+                } catch (error) {
+                    console.error('[CREW PAGE] Error refreshing vessel-generated testimonials:', error);
+                } finally {
+                    setIsLoadingTestimonials(false);
+                }
+            }
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error deleting vessel-generated testimonial:', error);
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to delete document. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setDeletingTestimonial(null);
+        }
+    };
 
     // Generate PDF for a vessel-generated testimonial
     const handleGenerateVesselTestimonialPDF = async (testimonial: VesselGeneratedTestimonial, format: TestimonialPDFFormat = 'seajourney') => {
@@ -2919,11 +2986,11 @@ export default function CrewPage() {
                             </Button>
                         </div>
                     </CardHeader>
-                    <CardContent className="space-y-6">
+                    <CardContent>
                         {/* Sea Time Summary Section - Only show if access is approved */}
                         {selectedMemberData.accessRequest?.status === 'approved' && (
-                            <div className="space-y-4">
-                                <h3 className="text-lg font-semibold">Sea Time Summary</h3>
+                            <div className="mb-6 pb-6 border-b">
+                                <h3 className="text-sm font-medium text-muted-foreground mb-3">Sea Time Summary</h3>
                                 
                                 {loadingSeaTime.has(selectedMemberData.profile.id) ? (
                                     <div className="flex items-center justify-center py-8">
@@ -2931,39 +2998,39 @@ export default function CrewPage() {
                                         <span className="ml-2 text-muted-foreground">Loading sea time data...</span>
                                     </div>
                                 ) : selectedMemberData.seaTimeData ? (
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 border rounded-lg bg-muted/30">
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">Total Days</div>
-                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.totalDays}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">At Sea Days</div>
-                                            <div className="text-lg font-semibold text-blue-600">{selectedMemberData.seaTimeData.atSeaDays}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">Standby Days</div>
-                                            <div className="text-lg font-semibold text-purple-600">{selectedMemberData.seaTimeData.standbyDays}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">Underway Days</div>
-                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.underwayDays}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">At Anchor Days</div>
-                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.atAnchorDays}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">In Port Days</div>
-                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.inPortDays}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">On Leave Days</div>
-                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.onLeaveDays}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-xs text-muted-foreground">In Yard Days</div>
-                                            <div className="text-lg font-semibold">{selectedMemberData.seaTimeData.inYardDays}</div>
-                                        </div>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">Total Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.totalDays}</div>
+                                        </Card>
+                                        <Card className="p-3 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+                                            <div className="text-xs text-muted-foreground mb-1">At Sea Days</div>
+                                            <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{selectedMemberData.seaTimeData.atSeaDays}</div>
+                                        </Card>
+                                        <Card className="p-3 border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20">
+                                            <div className="text-xs text-muted-foreground mb-1">Standby Days</div>
+                                            <div className="text-xl font-bold text-purple-600 dark:text-purple-400">{selectedMemberData.seaTimeData.standbyDays}</div>
+                                        </Card>
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">Underway Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.underwayDays}</div>
+                                        </Card>
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">At Anchor Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.atAnchorDays}</div>
+                                        </Card>
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">In Port Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.inPortDays}</div>
+                                        </Card>
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">On Leave Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.onLeaveDays}</div>
+                                        </Card>
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">In Yard Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.inYardDays}</div>
+                                        </Card>
                                     </div>
                                 ) : (
                                     <div className="text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/20">
@@ -2973,475 +3040,546 @@ export default function CrewPage() {
                             </div>
                         )}
                         
-                        {/* Leave Periods Section */}
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-semibold">Leave Periods</h3>
-                                <Button
-                                    onClick={() => setIsLeavePeriodDialogOpen(true)}
-                                    className="rounded-xl"
-                                >
+                        {/* Tabs for Leave Periods and Documents */}
+                        <Tabs defaultValue="documents" className="w-full">
+                            <TabsList className="grid w-full grid-cols-2 rounded-xl mb-6">
+                                <TabsTrigger value="documents" className="rounded-lg" disabled={!hasProTier}>
+                                    <FileText className="mr-2 h-4 w-4" />
+                                    Documents
+                                </TabsTrigger>
+                                <TabsTrigger value="leave" className="rounded-lg">
                                     <CalendarDays className="mr-2 h-4 w-4" />
-                                    Log Leave Period
-                                </Button>
-                            </div>
+                                    Leave Periods
+                                </TabsTrigger>
+                            </TabsList>
                             
-                            {/* Leave Periods from Crew Member's Logs (if access granted) */}
-                            {selectedMemberData.accessRequest?.status === 'approved' && 
-                             selectedMemberData.leavePeriodsFromLogs && 
-                             selectedMemberData.leavePeriodsFromLogs.length > 0 && (
-                                <div className="space-y-2 mb-4">
-                                    <div className="text-xs font-medium text-muted-foreground mb-2">
-                                        From Crew Member's Logs
+                            {/* Leave Periods Tab */}
+                            <TabsContent value="leave" className="space-y-4 mt-0">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold">Leave Periods</h3>
+                                        <p className="text-sm text-muted-foreground mt-1">
+                                            Track leave periods to exclude them from sea time calculations.
+                                        </p>
                                     </div>
-                                    {selectedMemberData.leavePeriodsFromLogs.map((period, index) => {
-                                        const startDate = parse(period.startDate, 'yyyy-MM-dd', new Date());
-                                        const endDate = parse(period.endDate, 'yyyy-MM-dd', new Date());
-                                        const days = eachDayOfInterval({ start: startDate, end: endDate }).length;
-                                        
-                                        return (
-                                            <div
-                                                key={`log-${index}`}
-                                                className="flex items-center justify-between p-4 border rounded-lg bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900"
-                                            >
-                                                <div className="flex-1">
-                                                    <div className="font-medium flex items-center gap-2">
-                                                        {format(startDate, 'MMM d, yyyy')} - {format(endDate, 'MMM d, yyyy')}
-                                                        <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
-                                                            From Logs
-                                                        </Badge>
-                                                    </div>
-                                                    <div className="text-sm text-muted-foreground mt-1">
-                                                        {days} {days === 1 ? 'day' : 'days'}
-                                                        {period.notes && ` • ${period.notes}`}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
+                                    <Button
+                                        onClick={() => setIsLeavePeriodDialogOpen(true)}
+                                        className="rounded-xl"
+                                    >
+                                        <Plus className="mr-2 h-4 w-4" />
+                                        Add Leave Period
+                                    </Button>
                                 </div>
-                            )}
-                            
-                            {/* Manually Logged Leave Periods */}
-                            {selectedMemberData.leavePeriods && selectedMemberData.leavePeriods.length > 0 ? (
-                                <div className="space-y-2">
-                                    {(selectedMemberData.accessRequest?.status === 'approved' && 
-                                      selectedMemberData.leavePeriodsFromLogs && 
-                                      selectedMemberData.leavePeriodsFromLogs.length > 0) && (
-                                        <div className="text-xs font-medium text-muted-foreground mb-2">
-                                            Manually Logged
+                                
+                                {/* Leave Periods from Crew Member's Logs (if access granted) */}
+                                {selectedMemberData.accessRequest?.status === 'approved' && 
+                                 selectedMemberData.leavePeriodsFromLogs && 
+                                 selectedMemberData.leavePeriodsFromLogs.length > 0 && (
+                                    <div className="space-y-3 mb-6">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <Badge variant="outline" className="text-xs">
+                                                <CalendarDays className="mr-1 h-3 w-3" />
+                                                From Crew Member's Logs
+                                            </Badge>
                                         </div>
-                                    )}
-                                    {selectedMemberData.leavePeriods.map((period) => {
-                                        const startDate = parse(period.startDate, 'yyyy-MM-dd', new Date());
-                                        const endDate = parse(period.endDate, 'yyyy-MM-dd', new Date());
-                                        const days = eachDayOfInterval({ start: startDate, end: endDate }).length;
-                                        
-                                        return (
-                                            <div
-                                                key={period.id}
-                                                className="flex items-center justify-between p-4 border rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                                            >
-                                                <div className="flex-1">
-                                                    <div className="font-medium">
-                                                        {format(startDate, 'MMM d, yyyy')} - {format(endDate, 'MMM d, yyyy')}
-                                                    </div>
-                                                    <div className="text-sm text-muted-foreground mt-1">
-                                                        {days} {days === 1 ? 'day' : 'days'}
-                                                        {period.notes && ` • ${period.notes}`}
-                                                    </div>
-                                                </div>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => handleDeleteLeavePeriod(period.id)}
-                                                    disabled={isDeletingLeavePeriod === period.id}
-                                                    className="text-destructive hover:text-destructive rounded-xl"
-                                                >
-                                                    {isDeletingLeavePeriod === period.id ? (
-                                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                                    ) : (
-                                                        <X className="h-4 w-4" />
-                                                    )}
-                                                </Button>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                (!selectedMemberData.leavePeriodsFromLogs || selectedMemberData.leavePeriodsFromLogs.length === 0) && (
-                                    <div className="text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/20">
-                                        No leave periods logged yet. Click "Log Leave Period" to add one.
-                                    </div>
-                                )
-                            )}
-                        </div>
-
-                        {/* Documents Section - Only for Pro Tier */}
-                        {hasProTier && (
-                            <>
-                                <Separator className="my-6" />
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <h3 className="text-lg font-semibold">Documents</h3>
-                                            <p className="text-sm text-muted-foreground mt-1">
-                                                Generate PDF documents on behalf of this crew member.
-                                            </p>
-                                        </div>
-                                        <Button
-                                            variant={showGenerateForm ? "outline" : "default"}
-                                            onClick={() => {
-                                                setShowGenerateForm(!showGenerateForm);
-                                                if (showGenerateForm) {
-                                                    setDocumentStartDate(undefined);
-                                                    setDocumentEndDate(undefined);
-                                                    setCalculatedSeaTime(null);
-                                                }
-                                            }}
-                                            className="rounded-xl"
-                                        >
-                                            {showGenerateForm ? (
-                                                'Cancel'
-                                            ) : (
-                                                <>
-                                                    <Plus className="h-4 w-4 mr-2" />
-                                                    Generate Document
-                                                </>
-                                            )}
-                                        </Button>
-                                    </div>
-
-                            {/* MCA Information Warning */}
-                            {!isMCAInfoComplete && (
-                                <Alert className="border-orange-500/50 bg-orange-50 dark:bg-orange-950/20">
-                                    <AlertCircle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                                    <AlertTitle className="text-orange-900 dark:text-orange-100">MCA Information Required</AlertTitle>
-                                    <AlertDescription className="text-orange-800 dark:text-orange-200">
-                                        {selectedMemberData.profile.firstName || selectedMemberData.profile.username} needs to complete their MCA application details in their profile to generate MCA documents. 
-                                        Please ask them to fill out their MCA information on their profile page.
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-
-                            {/* Existing Vessel-Generated Testimonials */}
-                            {isLoadingTestimonials ? (
-                                <div className="flex items-center justify-center py-8">
-                                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                                </div>
-                            ) : selectedMemberData.vesselGeneratedTestimonials && selectedMemberData.vesselGeneratedTestimonials.length > 0 ? (
-                                <div className="space-y-4">
-                                    <h4 className="font-semibold text-sm">Generated Documents</h4>
-                                    <div className="border rounded-lg overflow-hidden">
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead>Period</TableHead>
-                                                    <TableHead>Data Source</TableHead>
-                                                    <TableHead>Format</TableHead>
-                                                    <TableHead>Total Days</TableHead>
-                                                    <TableHead>Actions</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {selectedMemberData.vesselGeneratedTestimonials.map((testimonial) => {
-                                                    const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
-                                                    const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
-                                                    
-                                                    return (
-                                                        <TableRow key={testimonial.id}>
-                                                            <TableCell>
-                                                                <div className="flex items-center gap-2">
-                                                                    <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                                                                    <span className="text-sm">
-                                                                        {startDate} - {endDate}
-                                                                    </span>
+                                        <div className="grid gap-3">
+                                            {selectedMemberData.leavePeriodsFromLogs.map((period, index) => {
+                                                const startDate = parse(period.startDate, 'yyyy-MM-dd', new Date());
+                                                const endDate = parse(period.endDate, 'yyyy-MM-dd', new Date());
+                                                const days = eachDayOfInterval({ start: startDate, end: endDate }).length;
+                                                
+                                                return (
+                                                    <Card key={`log-${index}`} className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+                                                        <CardContent className="p-4">
+                                                            <div className="flex items-start justify-between">
+                                                                <div className="flex-1">
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <CalendarDays className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                                                                        <span className="font-semibold">
+                                                                            {format(startDate, 'MMM d, yyyy')} - {format(endDate, 'MMM d, yyyy')}
+                                                                        </span>
+                                                                        <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
+                                                                            Auto-detected
+                                                                        </Badge>
+                                                                    </div>
+                                                                    <div className="text-sm text-muted-foreground ml-6">
+                                                                        {days} {days === 1 ? 'day' : 'days'}
+                                                                        {period.notes && ` • ${period.notes}`}
+                                                                    </div>
                                                                 </div>
-                                                            </TableCell>
-                                                            <TableCell>
-                                                                <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
-                                                                    {testimonial.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
-                                                                </Badge>
-                                                            </TableCell>
-                                                            <TableCell>
-                                                                <Badge variant="outline">
-                                                                    {testimonial.pdf_format === 'mca' ? 'MCA' : 'SeaJourney'}
-                                                                </Badge>
-                                                            </TableCell>
-                                                            <TableCell>{testimonial.total_days} days</TableCell>
-                                                            <TableCell>
-                                                                <div className="flex items-center gap-2">
-                                                                    <Select
-                                                                        onValueChange={(format) => handleGenerateVesselTestimonialPDF(testimonial, format as TestimonialPDFFormat)}
-                                                                        disabled={generatingPDF === testimonial.id}
-                                                                        defaultValue={testimonial.pdf_format}
-                                                                    >
-                                                                        <SelectTrigger className="w-[140px] rounded-xl">
-                                                                            <SelectValue placeholder="Format" />
-                                                                        </SelectTrigger>
-                                                                        <SelectContent>
-                                                                            <SelectItem value="seajourney">SeaJourney</SelectItem>
-                                                                            <SelectItem value="mca">MCA</SelectItem>
-                                                                        </SelectContent>
-                                                                    </Select>
-                                                                    {generatingPDF === testimonial.id && (
+                                                            </div>
+                                                        </CardContent>
+                                                    </Card>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* Manually Logged Leave Periods */}
+                                {selectedMemberData.leavePeriods && selectedMemberData.leavePeriods.length > 0 ? (
+                                    <div className="space-y-3">
+                                        {(selectedMemberData.accessRequest?.status === 'approved' && 
+                                          selectedMemberData.leavePeriodsFromLogs && 
+                                          selectedMemberData.leavePeriodsFromLogs.length > 0) && (
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <Badge variant="outline" className="text-xs">
+                                                    Manually Logged
+                                                </Badge>
+                                            </div>
+                                        )}
+                                        <div className="grid gap-3">
+                                            {selectedMemberData.leavePeriods.map((period) => {
+                                                const startDate = parse(period.startDate, 'yyyy-MM-dd', new Date());
+                                                const endDate = parse(period.endDate, 'yyyy-MM-dd', new Date());
+                                                const days = eachDayOfInterval({ start: startDate, end: endDate }).length;
+                                                
+                                                return (
+                                                    <Card key={period.id} className="hover:shadow-md transition-shadow">
+                                                        <CardContent className="p-4">
+                                                            <div className="flex items-start justify-between">
+                                                                <div className="flex-1">
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                                                                        <span className="font-semibold">
+                                                                            {format(startDate, 'MMM d, yyyy')} - {format(endDate, 'MMM d, yyyy')}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="text-sm text-muted-foreground ml-6">
+                                                                        {days} {days === 1 ? 'day' : 'days'}
+                                                                        {period.notes && ` • ${period.notes}`}
+                                                                    </div>
+                                                                </div>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => handleDeleteLeavePeriod(period.id)}
+                                                                    disabled={isDeletingLeavePeriod === period.id}
+                                                                    className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg"
+                                                                >
+                                                                    {isDeletingLeavePeriod === period.id ? (
                                                                         <Loader2 className="h-4 w-4 animate-spin" />
+                                                                    ) : (
+                                                                        <X className="h-4 w-4" />
                                                                     )}
-                                                                </div>
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    );
-                                                })}
-                                            </TableBody>
-                                        </Table>
+                                                                </Button>
+                                                            </div>
+                                                        </CardContent>
+                                                    </Card>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
-                                </div>
-                            ) : (
-                                <Alert>
-                                    <FileText className="h-4 w-4" />
-                                    <AlertTitle>No Documents Found</AlertTitle>
-                                    <AlertDescription>
-                                        No documents have been generated for this crew member yet.
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-
-                            {/* Generate New Document Form */}
-                            {showGenerateForm && (
-                                <Card className="mt-4">
-                                    <CardContent className="pt-6">
-                                        <div className="space-y-6">
+                                ) : (
+                                    (!selectedMemberData.leavePeriodsFromLogs || selectedMemberData.leavePeriodsFromLogs.length === 0) && (
+                                        <Card className="border-dashed">
+                                            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                                                <CalendarDays className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+                                                <h4 className="font-semibold mb-2">No Leave Periods</h4>
+                                                <p className="text-sm text-muted-foreground mb-4">
+                                                    No leave periods have been logged yet.
+                                                </p>
+                                                <Button
+                                                    onClick={() => setIsLeavePeriodDialogOpen(true)}
+                                                    className="rounded-xl"
+                                                >
+                                                    <Plus className="mr-2 h-4 w-4" />
+                                                    Add Leave Period
+                                                </Button>
+                                            </CardContent>
+                                        </Card>
+                                    )
+                                )}
+                            </TabsContent>
+                            
+                            {/* Documents Tab */}
+                            <TabsContent value="documents" className="space-y-4 mt-0">
+                                {hasProTier ? (
+                                    <>
+                                        <div className="flex items-center justify-between mb-4">
                                             <div>
-                                                <h4 className="font-semibold text-sm mb-2">Select Date Range</h4>
-                                                <p className="text-xs text-muted-foreground mb-4">
-                                                    {selectedMemberData.accessRequest?.status === 'approved' ? (
-                                                        <>
-                                                            Select a date range and choose a data source to generate a document. You can use either the crew member's individual logs (includes watch days for officers) or vessel logs.
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            Select a date range and generate a document using vessel state logs. 
-                                                            <span className="text-orange-600 dark:text-orange-400 font-medium"> Request access on the Crew page to use their individual logs with watch days.</span>
-                                                        </>
-                                                    )}
+                                                <h3 className="text-lg font-semibold">Document Generation</h3>
+                                                <p className="text-sm text-muted-foreground mt-1">
+                                                    Generate PDF documents on behalf of this crew member.
                                                 </p>
                                             </div>
-
-                                            {/* Quick Select: Periods Between Leave */}
-                                            {availablePeriodsBetweenLeave.length > 0 && (
-                                                <div className="space-y-2">
-                                                    <Label className="text-sm font-medium">Quick Select: Periods Between Leave</Label>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {availablePeriodsBetweenLeave.map((period, index) => (
-                                                            <Button
-                                                                key={index}
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={() => {
-                                                                    setDocumentStartDate(period.startDate);
-                                                                    setDocumentEndDate(period.endDate);
-                                                                }}
-                                                                className="rounded-xl text-xs h-auto py-2 px-3 whitespace-normal"
-                                                            >
-                                                                {period.label}
-                                                            </Button>
-                                                        ))}
-                                                    </div>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Click a period above to automatically select the date range excluding leave periods.
-                                                    </p>
-                                                </div>
-                                            )}
-
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <Label>Start Date</Label>
-                                                    <Popover>
-                                                        <PopoverTrigger asChild>
-                                                            <Button
-                                                                variant="outline"
-                                                                className={cn(
-                                                                    "w-full justify-start text-left font-normal rounded-xl",
-                                                                    !documentStartDate && "text-muted-foreground"
-                                                                )}
-                                                            >
-                                                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                                                {documentStartDate ? formatDate(documentStartDate, 'PPP') : 'Pick a date'}
-                                                            </Button>
-                                                        </PopoverTrigger>
-                                                        <PopoverContent className="w-auto p-0" align="start">
-                                                            <CalendarComponent
-                                                                mode="single"
-                                                                selected={documentStartDate}
-                                                                onSelect={setDocumentStartDate}
-                                                                initialFocus
-                                                            />
-                                                        </PopoverContent>
-                                                    </Popover>
-                                                </div>
-                                                
-                                                <div className="space-y-2">
-                                                    <Label>End Date</Label>
-                                                    <Popover>
-                                                        <PopoverTrigger asChild>
-                                                            <Button
-                                                                variant="outline"
-                                                                className={cn(
-                                                                    "w-full justify-start text-left font-normal rounded-xl",
-                                                                    !documentEndDate && "text-muted-foreground"
-                                                                )}
-                                                            >
-                                                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                                                {documentEndDate ? formatDate(documentEndDate, 'PPP') : 'Pick a date'}
-                                                            </Button>
-                                                        </PopoverTrigger>
-                                                        <PopoverContent className="w-auto p-0" align="start">
-                                                            <CalendarComponent
-                                                                mode="single"
-                                                                selected={documentEndDate}
-                                                                onSelect={setDocumentEndDate}
-                                                                initialFocus
-                                                            />
-                                                        </PopoverContent>
-                                                    </Popover>
-                                                </div>
-                                            </div>
-
-                                            {/* Data Source Selection (only if access approved) */}
-                                            {selectedMemberData.accessRequest?.status === 'approved' && (
-                                                <div className="space-y-2">
-                                                    <Label>Data Source</Label>
-                                                    <Select
-                                                        value={selectedDataSource || 'crew'}
-                                                        onValueChange={(value) => setSelectedDataSource(value as 'crew' | 'vessel')}
-                                                    >
-                                                        <SelectTrigger className="rounded-xl">
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="crew">Crew Member's Logs</SelectItem>
-                                                            <SelectItem value="vessel">Vessel Logs</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Crew member's logs include watch days for officers. Vessel logs use the vessel's general state logs.
-                                                    </p>
-                                                </div>
-                                            )}
-
-                                            {/* Calculate Sea Time Button */}
                                             <Button
-                                                onClick={handleCalculateSeaTime}
-                                                disabled={!documentStartDate || !documentEndDate || isCalculatingSeaTime}
-                                                className="w-full rounded-xl"
+                                                variant={showGenerateForm ? "outline" : "default"}
+                                                onClick={() => {
+                                                    setShowGenerateForm(!showGenerateForm);
+                                                    if (showGenerateForm) {
+                                                        setDocumentStartDate(undefined);
+                                                        setDocumentEndDate(undefined);
+                                                        setCalculatedSeaTime(null);
+                                                    }
+                                                }}
+                                                className="rounded-xl"
                                             >
-                                                {isCalculatingSeaTime ? (
+                                                {showGenerateForm ? (
                                                     <>
-                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                        Calculating...
+                                                        <X className="mr-2 h-4 w-4" />
+                                                        Cancel
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <Clock className="mr-2 h-4 w-4" />
-                                                        Calculate Sea Time
+                                                        <Plus className="mr-2 h-4 w-4" />
+                                                        New Document
                                                     </>
                                                 )}
                                             </Button>
-
-                                            {/* Calculated Sea Time Results */}
-                                            {calculatedSeaTime && (
-                                                <div className="border rounded-lg p-4 bg-muted/30">
-                                                    <h5 className="font-semibold text-sm mb-3">Calculated Sea Time</h5>
-                                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                                                        <div className="space-y-1">
-                                                            <div className="text-xs text-muted-foreground">Total Days</div>
-                                                            <div className="text-lg font-semibold">{calculatedSeaTime.totalDays}</div>
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <div className="text-xs text-muted-foreground">At Sea Days</div>
-                                                            <div className="text-lg font-semibold text-blue-600">{calculatedSeaTime.atSeaDays}</div>
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <div className="text-xs text-muted-foreground">Standby Days</div>
-                                                            <div className="text-lg font-semibold text-purple-600">{calculatedSeaTime.standbyDays}</div>
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <div className="text-xs text-muted-foreground">Yard Days</div>
-                                                            <div className="text-lg font-semibold">{calculatedSeaTime.yardDays}</div>
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <div className="text-xs text-muted-foreground">Leave Days</div>
-                                                            <div className="text-lg font-semibold">{calculatedSeaTime.leaveDays}</div>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Action Buttons */}
-                                                    <div className="flex flex-wrap gap-2 mt-4">
-                                                        <Button
-                                                            onClick={handleSaveTestimonial}
-                                                            disabled={isSavingTestimonial || generatingPDF === 'date-range'}
-                                                            variant="outline"
-                                                            className="rounded-xl"
-                                                        >
-                                                            {isSavingTestimonial ? (
-                                                                <>
-                                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                                    Saving...
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <FileText className="mr-2 h-4 w-4" />
-                                                                    Save
-                                                                </>
-                                                            )}
-                                                        </Button>
-
-                                                        <Select
-                                                            onValueChange={(format) => handleGenerateFromDateRange(format as TestimonialPDFFormat)}
-                                                            disabled={generatingPDF === 'date-range' || isSavingTestimonial}
-                                                        >
-                                                            <SelectTrigger className="w-[140px] rounded-xl">
-                                                                <SelectValue placeholder="Generate PDF" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="seajourney">SeaJourney PDF</SelectItem>
-                                                                <SelectItem value="mca">MCA PDF</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                        
-                                                        {activeCaptain && (
-                                                            <Button
-                                                                onClick={handleSendToCaptain}
-                                                                disabled={isSendingToCaptain}
-                                                                className="rounded-xl"
-                                                            >
-                                                                {isSendingToCaptain ? (
-                                                                    <>
-                                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                                        Sending...
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                                                                        Send to Captain
-                                                                    </>
-                                                                )}
-                                                            </Button>
-                                                        )}
-                                                        
-                                                        {generatingPDF === 'date-range' && (
-                                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            )}
                                         </div>
-                                    </CardContent>
-                                </Card>
-                            )}
-                        </div>
-                            </>
-                        )}
+
+                                        {/* MCA Information Warning */}
+                                        {!isMCAInfoComplete && (
+                                            <Alert className="border-orange-500/50 bg-orange-50 dark:bg-orange-950/20">
+                                                <AlertCircle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                                                <AlertTitle className="text-orange-900 dark:text-orange-100">MCA Information Required</AlertTitle>
+                                                <AlertDescription className="text-orange-800 dark:text-orange-200">
+                                                    {selectedMemberData.profile.firstName || selectedMemberData.profile.username} needs to complete their MCA application details in their profile to generate MCA documents. 
+                                                    Please ask them to fill out their MCA information on their profile page.
+                                                </AlertDescription>
+                                            </Alert>
+                                        )}
+
+                                        {/* Existing Vessel-Generated Testimonials */}
+                                        {isLoadingTestimonials ? (
+                                            <div className="flex items-center justify-center py-12">
+                                                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                            </div>
+                                        ) : selectedMemberData.vesselGeneratedTestimonials && selectedMemberData.vesselGeneratedTestimonials.length > 0 ? (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center justify-between">
+                                                    <h4 className="font-semibold">Generated Documents</h4>
+                                                    <Badge variant="outline" className="text-xs">
+                                                        {selectedMemberData.vesselGeneratedTestimonials.length} document{selectedMemberData.vesselGeneratedTestimonials.length !== 1 ? 's' : ''}
+                                                    </Badge>
+                                                </div>
+                                                <div className="grid gap-3">
+                                                    {selectedMemberData.vesselGeneratedTestimonials.map((testimonial) => {
+                                                        const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
+                                                        const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
+                                                        
+                                                        return (
+                                                            <Card key={testimonial.id} className="hover:shadow-md transition-shadow">
+                                                                <CardContent className="p-4">
+                                                                    <div className="flex items-start justify-between">
+                                                                        <div className="flex-1 space-y-2">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                                                                                <span className="font-semibold text-sm">
+                                                                                    {startDate} - {endDate}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                                <Badge variant="outline" className="text-xs border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
+                                                                                    {testimonial.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
+                                                                                </Badge>
+                                                                                <Badge variant="outline" className="text-xs">
+                                                                                    {testimonial.pdf_format === 'mca' ? 'MCA' : 'SeaJourney'}
+                                                                                </Badge>
+                                                                                <span className="text-sm text-muted-foreground">
+                                                                                    {testimonial.total_days} days
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <Select
+                                                                                onValueChange={(format) => handleGenerateVesselTestimonialPDF(testimonial, format as TestimonialPDFFormat)}
+                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                defaultValue={testimonial.pdf_format}
+                                                                            >
+                                                                                <SelectTrigger className="w-[140px] rounded-xl">
+                                                                                    <SelectValue placeholder="Format" />
+                                                                                </SelectTrigger>
+                                                                                <SelectContent>
+                                                                                    <SelectItem value="seajourney">SeaJourney</SelectItem>
+                                                                                    <SelectItem value="mca">MCA</SelectItem>
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                            {generatingPDF === testimonial.id && (
+                                                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                                            )}
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                onClick={() => handleDeleteVesselTestimonial(testimonial.id)}
+                                                                                disabled={deletingTestimonial === testimonial.id || generatingPDF === testimonial.id}
+                                                                                className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg"
+                                                                            >
+                                                                                {deletingTestimonial === testimonial.id ? (
+                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                ) : (
+                                                                                    <Trash2 className="h-4 w-4" />
+                                                                                )}
+                                                                            </Button>
+                                                                        </div>
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <Card className="border-dashed">
+                                                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                                                    <FileText className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+                                                    <h4 className="font-semibold mb-2">No Documents Generated</h4>
+                                                    <p className="text-sm text-muted-foreground mb-4">
+                                                        No documents have been generated for this crew member yet.
+                                                    </p>
+                                                </CardContent>
+                                            </Card>
+                                        )}
+
+                                        {/* Generate New Document Form */}
+                                        {showGenerateForm && (
+                                            <Card className="mt-6 border-2 border-dashed">
+                                                <CardHeader>
+                                                    <CardTitle className="text-lg">Create New Document</CardTitle>
+                                                    <CardDescription>
+                                                        {selectedMemberData.accessRequest?.status === 'approved' ? (
+                                                            <>Select a date range and choose a data source to generate a document. You can use either the crew member's individual logs (includes watch days for officers) or vessel logs.</>
+                                                        ) : (
+                                                            <>Select a date range and generate a document using vessel state logs. <span className="text-orange-600 dark:text-orange-400 font-medium">Request access to use their individual logs with watch days.</span></>
+                                                        )}
+                                                    </CardDescription>
+                                                </CardHeader>
+                                                <CardContent className="space-y-6">
+                                                    {/* Quick Select: Periods Between Leave */}
+                                                    {availablePeriodsBetweenLeave.length > 0 && (
+                                                        <div className="space-y-3">
+                                                            <Label className="text-sm font-medium">Quick Select: Periods Between Leave</Label>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {availablePeriodsBetweenLeave.map((period, index) => (
+                                                                    <Button
+                                                                        key={index}
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => {
+                                                                            setDocumentStartDate(period.startDate);
+                                                                            setDocumentEndDate(period.endDate);
+                                                                        }}
+                                                                        className="rounded-xl text-xs h-auto py-2 px-3 whitespace-normal hover:bg-primary hover:text-primary-foreground"
+                                                                    >
+                                                                        {period.label}
+                                                                    </Button>
+                                                                ))}
+                                                            </div>
+                                                            <p className="text-xs text-muted-foreground">
+                                                                Click a period above to automatically select the date range excluding leave periods.
+                                                            </p>
+                                                        </div>
+                                                    )}
+
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                        <div className="space-y-2">
+                                                            <Label className="text-sm font-medium">Start Date</Label>
+                                                            <Popover>
+                                                                <PopoverTrigger asChild>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        className={cn(
+                                                                            "w-full justify-start text-left font-normal rounded-xl h-11",
+                                                                            !documentStartDate && "text-muted-foreground"
+                                                                        )}
+                                                                    >
+                                                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                                                        {documentStartDate ? formatDate(documentStartDate, 'PPP') : 'Select start date'}
+                                                                    </Button>
+                                                                </PopoverTrigger>
+                                                                <PopoverContent className="w-auto p-0" align="start">
+                                                                    <CalendarComponent
+                                                                        mode="single"
+                                                                        selected={documentStartDate}
+                                                                        onSelect={setDocumentStartDate}
+                                                                        initialFocus
+                                                                    />
+                                                                </PopoverContent>
+                                                            </Popover>
+                                                        </div>
+                                                        
+                                                        <div className="space-y-2">
+                                                            <Label className="text-sm font-medium">End Date</Label>
+                                                            <Popover>
+                                                                <PopoverTrigger asChild>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        className={cn(
+                                                                            "w-full justify-start text-left font-normal rounded-xl h-11",
+                                                                            !documentEndDate && "text-muted-foreground"
+                                                                        )}
+                                                                    >
+                                                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                                                        {documentEndDate ? formatDate(documentEndDate, 'PPP') : 'Select end date'}
+                                                                    </Button>
+                                                                </PopoverTrigger>
+                                                                <PopoverContent className="w-auto p-0" align="start">
+                                                                    <CalendarComponent
+                                                                        mode="single"
+                                                                        selected={documentEndDate}
+                                                                        onSelect={setDocumentEndDate}
+                                                                        initialFocus
+                                                                    />
+                                                                </PopoverContent>
+                                                            </Popover>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Data Source Selection (only if access approved) */}
+                                                    {selectedMemberData.accessRequest?.status === 'approved' && (
+                                                        <div className="space-y-2">
+                                                            <Label className="text-sm font-medium">Data Source</Label>
+                                                            <Select
+                                                                value={selectedDataSource || 'crew'}
+                                                                onValueChange={(value) => setSelectedDataSource(value as 'crew' | 'vessel')}
+                                                            >
+                                                                <SelectTrigger className="rounded-xl h-11">
+                                                                    <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="crew">Crew Member's Logs</SelectItem>
+                                                                    <SelectItem value="vessel">Vessel Logs</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                            <p className="text-xs text-muted-foreground">
+                                                                Crew member's logs include watch days for officers. Vessel logs use the vessel's general state logs.
+                                                            </p>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Calculate Sea Time Button */}
+                                                    <Button
+                                                        onClick={handleCalculateSeaTime}
+                                                        disabled={!documentStartDate || !documentEndDate || isCalculatingSeaTime}
+                                                        className="w-full rounded-xl h-11"
+                                                        size="lg"
+                                                    >
+                                                        {isCalculatingSeaTime ? (
+                                                            <>
+                                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                Calculating...
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Clock className="mr-2 h-4 w-4" />
+                                                                Calculate Sea Time
+                                                            </>
+                                                        )}
+                                                    </Button>
+
+                                                    {/* Calculated Sea Time Results */}
+                                                    {calculatedSeaTime && (
+                                                        <Card className="bg-muted/50 border-2">
+                                                            <CardHeader>
+                                                                <CardTitle className="text-base">Calculated Sea Time</CardTitle>
+                                                            </CardHeader>
+                                                            <CardContent className="space-y-4">
+                                                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">Total Days</div>
+                                                                        <div className="text-2xl font-bold">{calculatedSeaTime.totalDays}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">At Sea Days</div>
+                                                                        <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{calculatedSeaTime.atSeaDays}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">Standby Days</div>
+                                                                        <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{calculatedSeaTime.standbyDays}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">Yard Days</div>
+                                                                        <div className="text-2xl font-bold">{calculatedSeaTime.yardDays}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-xs text-muted-foreground">Leave Days</div>
+                                                                        <div className="text-2xl font-bold">{calculatedSeaTime.leaveDays}</div>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Action Buttons */}
+                                                                <Separator />
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    <Button
+                                                                        onClick={handleSaveTestimonial}
+                                                                        disabled={isSavingTestimonial || generatingPDF === 'date-range'}
+                                                                        variant="outline"
+                                                                        className="rounded-xl"
+                                                                    >
+                                                                        {isSavingTestimonial ? (
+                                                                            <>
+                                                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                                Saving...
+                                                                            </>
+                                                                        ) : (
+                                                                            <>
+                                                                                <FileText className="mr-2 h-4 w-4" />
+                                                                                Save Document
+                                                                            </>
+                                                                        )}
+                                                                    </Button>
+
+                                                                    <Select
+                                                                        onValueChange={(format) => handleGenerateFromDateRange(format as TestimonialPDFFormat)}
+                                                                        disabled={generatingPDF === 'date-range' || isSavingTestimonial}
+                                                                    >
+                                                                        <SelectTrigger className="w-[160px] rounded-xl">
+                                                                            <SelectValue placeholder="Generate PDF" />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="seajourney">SeaJourney PDF</SelectItem>
+                                                                            <SelectItem value="mca">MCA PDF</SelectItem>
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                    
+                                                                    {activeCaptain && (
+                                                                        <Button
+                                                                            onClick={handleSendToCaptain}
+                                                                            disabled={isSendingToCaptain}
+                                                                            className="rounded-xl"
+                                                                        >
+                                                                            {isSendingToCaptain ? (
+                                                                                <>
+                                                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                                    Sending...
+                                                                                </>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                                                                                    Send to Captain
+                                                                                </>
+                                                                            )}
+                                                                        </Button>
+                                                                    )}
+                                                                    
+                                                                    {generatingPDF === 'date-range' && (
+                                                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                                            Generating PDF...
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </CardContent>
+                                                        </Card>
+                                                    )}
+                                                </CardContent>
+                                            </Card>
+                                        )}
+                                    </>
+                                ) : (
+                                    <Card className="border-dashed">
+                                        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                                            <FileText className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+                                            <h4 className="font-semibold mb-2">Pro Tier Required</h4>
+                                            <p className="text-sm text-muted-foreground">
+                                                Document generation is available for Pro tier subscribers.
+                                            </p>
+                                        </CardContent>
+                                    </Card>
+                                )}
+                            </TabsContent>
+                        </Tabs>
                     </CardContent>
                 </Card>
 
@@ -3825,6 +3963,7 @@ export default function CrewPage() {
                                     <TableHead>Joined Vessel</TableHead>
                                 )}
                                 {currentUserProfile?.role === 'vessel' && <TableHead>Onboard</TableHead>}
+                                {currentUserProfile?.role === 'vessel' && <TableHead>Access Status</TableHead>}
                                 {currentUserProfile?.role === 'vessel' && <TableHead className="w-[50px]"></TableHead>}
                                 {currentUserProfile?.role !== 'vessel' && <TableHead className="w-[50px]"></TableHead>}
                             </TableRow>
