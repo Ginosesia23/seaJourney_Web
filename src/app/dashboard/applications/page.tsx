@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, startOfDay, isAfter, parse, eachDayOfInterval, isWithinInterval, subMonths, addDays, differenceInDays } from 'date-fns';
-import { LifeBuoy, Loader2, PlusCircle, Mail, Calendar, CalendarIcon, Ship, Clock, CheckCircle2, XCircle, FileText, Download, Trash2, AlertCircle, ChevronDown, ChevronUp, Lock, Navigation, Award, FileCheck, Info, Sparkles, ExternalLink } from 'lucide-react';
+import { LifeBuoy, Loader2, PlusCircle, Mail, Calendar, CalendarIcon, Ship, Clock, CheckCircle2, XCircle, FileText, Download, Trash2, AlertCircle, ChevronDown, ChevronUp, Lock, Navigation, Award, FileCheck, Info, Sparkles, ExternalLink, Eye } from 'lucide-react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
@@ -437,6 +437,7 @@ export default function ApplicationsPage() {
   const [activeTab, setActiveTab] = useState<'all' | 'draft' | 'pending' | 'approved' | 'rejected'>('all');
   const [selectedVesselLogs, setSelectedVesselLogs] = useState<StateLog[]>([]);
   const [testimonialToDelete, setTestimonialToDelete] = useState<Testimonial | null>(null);
+  const [viewTestimonialBreakdown, setViewTestimonialBreakdown] = useState<Testimonial | null>(null);
   const [deletePassword, setDeletePassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [isVerifyingPassword, setIsVerifyingPassword] = useState(false);
@@ -3317,7 +3318,7 @@ export default function ApplicationsPage() {
                                   {format(new Date(testimonial.start_date), 'MMM d, yyyy')} - {format(new Date(testimonial.end_date), 'MMM d, yyyy')}
                                 </div>
                               </TableCell>
-                              <TableCell>
+                              <TableCell className="cursor-pointer" onClick={() => setViewTestimonialBreakdown(testimonial)}>
                                 <div className="text-sm">
                                   <div className="font-medium">{testimonial.total_days} total</div>
                                   <div className="text-muted-foreground text-xs">
@@ -3426,14 +3427,25 @@ export default function ApplicationsPage() {
                                 )}
                               </TableCell>
                               <TableCell>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setTestimonialToDelete(testimonial)}
-                                  className="rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setViewTestimonialBreakdown(testimonial)}
+                                    className="rounded-xl"
+                                    title="View breakdown"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setTestimonialToDelete(testimonial)}
+                                    className="rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
                               </TableCell>
                             </TableRow>
                             {isExpanded && hasRejectionMessage && (
@@ -4723,7 +4735,75 @@ export default function ApplicationsPage() {
       )}
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog 
+      {/* Testimonial breakdown view (no download needed) */}
+        <Dialog open={!!viewTestimonialBreakdown} onOpenChange={(open) => !open && setViewTestimonialBreakdown(null)}>
+          <DialogContent className="rounded-xl max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Document breakdown</DialogTitle>
+            </DialogHeader>
+            {viewTestimonialBreakdown && (
+              <div className="space-y-4 py-4">
+                <p className="text-sm text-muted-foreground">
+                  Sea time breakdown for this period.
+                </p>
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Ship className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  {getVesselName(viewTestimonialBreakdown.vessel_id)}
+                </div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Calendar className="h-4 w-4 shrink-0" />
+                  <span>
+                    {format(new Date(viewTestimonialBreakdown.start_date), 'MMM d, yyyy')} – {format(new Date(viewTestimonialBreakdown.end_date), 'MMM d, yyyy')}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total days</div>
+                    <div className="text-lg font-semibold">{viewTestimonialBreakdown.total_days}</div>
+                  </div>
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">At sea</div>
+                    <div className="text-lg font-semibold">{viewTestimonialBreakdown.at_sea_days}</div>
+                  </div>
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Standby</div>
+                    <div className="text-lg font-semibold">{viewTestimonialBreakdown.standby_days}</div>
+                  </div>
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">In yard</div>
+                    <div className="text-lg font-semibold">{viewTestimonialBreakdown.yard_days}</div>
+                  </div>
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">On leave</div>
+                    <div className="text-lg font-semibold">{viewTestimonialBreakdown.leave_days}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {getStatusBadge(viewTestimonialBreakdown.status)}
+                  {viewTestimonialBreakdown.data_source && (
+                    <Badge variant="outline" className="text-xs">
+                      {viewTestimonialBreakdown.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
+                    </Badge>
+                  )}
+                </div>
+                {(viewTestimonialBreakdown.captain_name || viewTestimonialBreakdown.captain_email) && (
+                  <div className="text-sm text-muted-foreground">
+                    Captain: {viewTestimonialBreakdown.captain_name || viewTestimonialBreakdown.captain_email}
+                    {viewTestimonialBreakdown.captain_email && viewTestimonialBreakdown.captain_name ? ` (${viewTestimonialBreakdown.captain_email})` : ''}
+                  </div>
+                )}
+                {viewTestimonialBreakdown.notes && (
+                  <div className="rounded-lg border p-3">
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Notes</div>
+                    <p className="text-sm whitespace-pre-wrap">{viewTestimonialBreakdown.notes}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        <AlertDialog 
         open={!!testimonialToDelete} 
         onOpenChange={(open) => {
           // Prevent closing during password verification or deletion

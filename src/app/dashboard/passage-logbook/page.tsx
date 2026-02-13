@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -31,6 +31,7 @@ import {
   deletePassageLog,
   getVesselStateLogs,
   updateStateLogsBatch,
+  getVesselAssignments,
 } from '@/supabase/database/queries';
 import type { Vessel, UserProfile, PassageLog, StateLog } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -38,9 +39,9 @@ import { generatePassageLogPDF, type PassageLogExportData } from '@/lib/pdf-gene
 
 const passageSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
-  departurePort: z.string().min(1, 'Departure port is required.'),
+  departurePort: z.string().optional(),
   departureCountry: z.string().optional(),
-  arrivalPort: z.string().min(1, 'Arrival port is required.'),
+  arrivalPort: z.string().optional(),
   arrivalCountry: z.string().optional(),
   startTime: z.date({ required_error: 'Departure date/time is required.' }),
   endTime: z.date({ required_error: 'Arrival date/time is required.' }),
@@ -92,6 +93,7 @@ export default function PassageLogbookPage() {
   const [exportEndDate, setExportEndDate] = useState<Date | undefined>(undefined);
   const [stateLogsByVessel, setStateLogsByVessel] = useState<Record<string, StateLog[]>>({});
   const [syncingPassageId, setSyncingPassageId] = useState<string | null>(null);
+  const [vesselAssignments, setVesselAssignments] = useState<{ vesselId: string }[]>([]);
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -106,12 +108,14 @@ export default function PassageLogbookPage() {
     const role = (userProfileRaw as any).role || userProfileRaw.role || 'crew';
     const subscriptionTier = (userProfileRaw as any).subscription_tier || userProfileRaw.subscriptionTier || 'free';
     const subscriptionStatus = (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive';
+    const activeVesselId = (userProfileRaw as any).active_vessel_id ?? (userProfileRaw as any).activeVesselId ?? null;
     return {
       ...userProfileRaw,
       role: role,
       subscriptionTier: subscriptionTier,
       subscriptionStatus: subscriptionStatus,
-    } as UserProfile;
+      activeVesselId: activeVesselId ?? undefined,
+    } as UserProfile & { activeVesselId?: string | null };
   }, [userProfileRaw]);
 
   // Query vessels
@@ -119,6 +123,39 @@ export default function PassageLogbookPage() {
     user?.id ? 'vessels' : null,
     user?.id ? { orderBy: 'created_at', ascending: false } : undefined
   );
+
+  // Fetch vessel assignments for crew (to limit vessel dropdown to past/current vessels)
+  useEffect(() => {
+    if (!user?.id || (userProfile?.role as string) === 'vessel') {
+      setVesselAssignments([]);
+      return;
+    }
+    getVesselAssignments(supabase, user.id)
+      .then((assignments) => setVesselAssignments(assignments.map((a) => ({ vesselId: a.vesselId }))))
+      .catch(() => setVesselAssignments([]));
+  }, [user?.id, userProfile?.role, supabase]);
+
+  // Vessel options for passage form: vessel account = single active vessel (no dropdown); crew = only assigned vessels
+  const vesselsForPassageForm = useMemo(() => {
+    if (!vessels?.length) return [];
+    const role = (userProfile?.role as string) || 'crew';
+    if (role === 'vessel') {
+      const activeId = (userProfile as any).activeVesselId;
+      if (!activeId) return [];
+      const v = vessels.find((x) => x.id === activeId);
+      return v ? [v] : [];
+    }
+    const assignedIds = new Set(vesselAssignments.map((a) => a.vesselId));
+    return vessels.filter((v) => assignedIds.has(v.id));
+  }, [vessels, userProfile, vesselAssignments]);
+
+  // When export dialog opens, default vessel filter for vessel accounts to their active vessel
+  useEffect(() => {
+    if (!isExportDialogOpen) return;
+    if ((userProfile?.role as string) === 'vessel' && (userProfile as any).activeVesselId) {
+      setExportVesselId((userProfile as any).activeVesselId);
+    }
+  }, [isExportDialogOpen, userProfile]);
 
   // Fetch passages from database
   useEffect(() => {
@@ -176,9 +213,9 @@ export default function PassageLogbookPage() {
     resolver: zodResolver(passageSchema),
     defaultValues: {
       vesselId: '',
-      departurePort: '',
+      departurePort: undefined,
       departureCountry: '',
-      arrivalPort: '',
+      arrivalPort: undefined,
       arrivalCountry: '',
       startTime: new Date(),
       endTime: new Date(),
@@ -222,17 +259,30 @@ export default function PassageLogbookPage() {
       return;
     }
 
+    const vesselId =
+      (userProfile?.role as string) === 'vessel' && (userProfile as any).activeVesselId
+        ? (userProfile as any).activeVesselId
+        : data.vesselId;
+    if (!vesselId) {
+      toast({
+        title: 'Error',
+        description: (userProfile?.role as string) === 'vessel' ? 'No active vessel set. Set your vessel in Profile.' : 'Please select a vessel.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSaving(true);
 
     try {
       if (editingPassage) {
         await updatePassageLog(supabase, editingPassage.id, {
-          vesselId: data.vesselId,
+          vesselId,
           startTime: data.startTime,
           endTime: data.endTime,
-          departurePort: data.departurePort,
-          departureCountry: data.departureCountry || undefined,
-          arrivalPort: data.arrivalPort,
+          departurePort: data.departurePort?.trim() || undefined,
+          departureCountry: data.departureCountry?.trim() || undefined,
+          arrivalPort: data.arrivalPort?.trim() || undefined,
           arrivalCountry: data.arrivalCountry || undefined,
           distanceNm: data.distanceNm,
           engineHours: data.engineHours,
@@ -250,12 +300,12 @@ export default function PassageLogbookPage() {
       } else {
         await createPassageLog(supabase, {
           crewId: user.id,
-          vesselId: data.vesselId,
+          vesselId,
           startTime: data.startTime,
           endTime: data.endTime,
-          departurePort: data.departurePort,
-          departureCountry: data.departureCountry || undefined,
-          arrivalPort: data.arrivalPort,
+          departurePort: data.departurePort?.trim() || undefined,
+          departureCountry: data.departureCountry?.trim() || undefined,
+          arrivalPort: data.arrivalPort?.trim() || undefined,
           arrivalCountry: data.arrivalCountry || undefined,
           distanceNm: data.distanceNm,
           engineHours: data.engineHours,
@@ -284,9 +334,9 @@ export default function PassageLogbookPage() {
         date: format(d, 'yyyy-MM-dd'),
         state: 'underway' as const,
       }));
-      await updateStateLogsBatch(supabase, user.id, data.vesselId, logs);
-      const updatedLogs = await getVesselStateLogs(supabase, data.vesselId, user.id);
-      setStateLogsByVessel((prev) => ({ ...prev, [data.vesselId]: updatedLogs }));
+      await updateStateLogsBatch(supabase, user.id, vesselId, logs);
+      const updatedLogs = await getVesselStateLogs(supabase, vesselId, user.id);
+      setStateLogsByVessel((prev) => ({ ...prev, [vesselId]: updatedLogs }));
 
       setIsFormOpen(false);
       setEditingPassage(null);
@@ -307,9 +357,9 @@ export default function PassageLogbookPage() {
     setEditingPassage(passage);
     form.reset({
       vesselId: passage.vessel_id,
-      departurePort: passage.departure_port,
+      departurePort: passage.departure_port ?? '',
       departureCountry: passage.departure_country || '',
-      arrivalPort: passage.arrival_port,
+      arrivalPort: passage.arrival_port ?? '',
       arrivalCountry: passage.arrival_country || '',
       startTime: new Date(passage.start_time),
       endTime: new Date(passage.end_time),
@@ -411,14 +461,15 @@ export default function PassageLogbookPage() {
     setIsExporting(true);
 
     try {
-      // Filter passages based on selected criteria
-      let filteredPassages = [...passages];
+      // Restrict to allowed vessels only (crew: assigned vessels; vessel account: active vessel only)
+      const allowedVesselIds = new Set(vesselsForPassageForm.map((v) => v.id));
+      let filteredPassages = passages.filter((p) => allowedVesselIds.has(p.vessel_id));
 
       const filterInfo: PassageLogExportData['filterInfo'] = {};
 
       if (exportFilter === 'vessel' && exportVesselId) {
         filteredPassages = filteredPassages.filter(p => p.vessel_id === exportVesselId);
-        const vessel = vessels?.find(v => v.id === exportVesselId);
+        const vessel = vesselsForPassageForm.find(v => v.id === exportVesselId);
         filterInfo.vesselName = vessel?.name;
       } else if (exportFilter === 'date') {
         if (exportStartDate) {
@@ -445,9 +496,9 @@ export default function PassageLogbookPage() {
           id: passage.id,
           vessel_id: passage.vessel_id,
           vessel_name: getVesselName(passage.vessel_id),
-          departure_port: passage.departure_port,
+          departure_port: passage.departure_port ?? '',
           departure_country: passage.departure_country,
-          arrival_port: passage.arrival_port,
+          arrival_port: passage.arrival_port ?? '',
           arrival_country: passage.arrival_country,
           start_time: passage.start_time,
           end_time: passage.end_time,
@@ -554,6 +605,27 @@ export default function PassageLogbookPage() {
     return conflicts;
   }, [passages, stateLogsByVessel]);
 
+  // Underway dates in the calendar not covered by any passage (vice versa)
+  const underwayDaysWithoutPassage = useMemo(() => {
+    const out: { vesselId: string; date: string }[] = [];
+    for (const [vesselId, logs] of Object.entries(stateLogsByVessel)) {
+      const underwayDates = new Set(
+        logs.filter((l) => (l.state as string) === 'underway').map((l) => l.date)
+      );
+      for (const dateStr of underwayDates) {
+        const inPassage = passages.some((p) => {
+          if (p.vessel_id !== vesselId) return false;
+          const start = startOfDay(new Date(p.start_time));
+          const end = endOfDay(new Date(p.end_time));
+          const d = parse(dateStr, 'yyyy-MM-dd', new Date());
+          return !isBefore(d, start) && !isAfter(d, end);
+        });
+        if (!inPassage) out.push({ vesselId, date: dateStr });
+      }
+    }
+    return out;
+  }, [passages, stateLogsByVessel]);
+
   const isLoading = isLoadingProfile || isLoadingVessels;
 
   if (isLoading || isLoadingPassages) {
@@ -617,6 +689,16 @@ export default function PassageLogbookPage() {
           </AlertDescription>
         </Alert>
       )}
+      {/* Underway days with no passage (vice versa) */}
+      {underwayDaysWithoutPassage.length > 0 && (
+        <Alert className="rounded-xl border-blue-500/30 bg-blue-500/5">
+          <Waves className="h-4 w-4" />
+          <AlertTitle>Underway with no passage</AlertTitle>
+          <AlertDescription>
+            {underwayDaysWithoutPassage.length} day{underwayDaysWithoutPassage.length !== 1 ? 's' : ''} in the calendar are set to Underway but not covered by a passage. Consider logging a passage for these dates or updating the calendar on the Calendar page.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Summary Cards */}
       {passages.length > 0 && (
@@ -652,7 +734,7 @@ export default function PassageLogbookPage() {
               <div className="text-2xl font-bold">{summaryStats.longestDistance.toFixed(1)}</div>
               <p className="text-xs text-muted-foreground">
                 {summaryStats.longestPassage 
-                  ? `${summaryStats.longestPassage.departure_port} → ${summaryStats.longestPassage.arrival_port}`
+                  ? `${summaryStats.longestPassage.departure_port || '—'} → ${summaryStats.longestPassage.arrival_port || '—'}`
                   : 'N/A'}
               </p>
             </CardContent>
@@ -706,10 +788,10 @@ export default function PassageLogbookPage() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Select Vessel</label>
                     <SearchableSelect
-                      options={vessels?.map(v => ({ value: v.id, label: v.name })) || []}
+                      options={vesselsForPassageForm.map(v => ({ value: v.id, label: v.name }))}
                       value={exportVesselId}
                       onValueChange={setExportVesselId}
-                      placeholder="Select a vessel"
+                      placeholder={vesselsForPassageForm.length === 0 ? 'No vessels' : 'Select a vessel'}
                     />
                   </div>
                 )}
@@ -824,6 +906,8 @@ export default function PassageLogbookPage() {
           if (!open) {
             setEditingPassage(null);
             form.reset();
+          } else if (open && !editingPassage && (userProfile?.role as string) === 'vessel' && (userProfile as any).activeVesselId) {
+            form.setValue('vesselId', (userProfile as any).activeVesselId);
           }
         }}>
           <DialogTrigger asChild className="rounded-xl">
@@ -835,27 +919,53 @@ export default function PassageLogbookPage() {
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingPassage ? 'Edit Passage' : 'Log New Passage'}</DialogTitle>
+              <DialogDescription>
+                Saving will set all dates in this passage range to Underway on your calendar so passage log and vessel state stay in sync.
+              </DialogDescription>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="vesselId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Vessel</FormLabel>
-                      <FormControl>
-                        <SearchableSelect
-                          options={vessels?.map(v => ({ value: v.id, label: v.name })) || []}
-                          value={field.value}
-                          onValueChange={field.onChange}
-                          placeholder="Select a vessel"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {(userProfile?.role as string) === 'vessel' ? (
+                  (userProfile as any).activeVesselId && (
+                    <FormField
+                      control={form.control}
+                      name="vesselId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Vessel</FormLabel>
+                          <FormControl>
+                            <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                              <Ship className="h-4 w-4 text-muted-foreground" />
+                              {getVesselName((userProfile as any).activeVesselId)}
+                            </div>
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  )
+                ) : (
+                  <FormField
+                    control={form.control}
+                    name="vesselId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vessel</FormLabel>
+                        <FormControl>
+                          <SearchableSelect
+                            options={vesselsForPassageForm.map(v => ({ value: v.id, label: v.name }))}
+                            value={field.value}
+                            onValueChange={field.onChange}
+                            placeholder={vesselsForPassageForm.length === 0 ? 'No vessels from your assignments' : 'Select a vessel'}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Only vessels you have logged (past or current) are shown.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
@@ -863,9 +973,9 @@ export default function PassageLogbookPage() {
                     name="departurePort"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Departure Port</FormLabel>
+                        <FormLabel>Departure Port (Optional)</FormLabel>
                         <FormControl>
-                          <Input placeholder="Monaco" {...field} />
+                          <Input placeholder="Monaco" value={field.value ?? ''} onChange={field.onChange} onBlur={field.onBlur} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -893,9 +1003,9 @@ export default function PassageLogbookPage() {
                     name="arrivalPort"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Arrival Port</FormLabel>
+                        <FormLabel>Arrival Port (Optional)</FormLabel>
                         <FormControl>
-                          <Input placeholder="Ibiza" {...field} />
+                          <Input placeholder="Ibiza" value={field.value ?? ''} onChange={field.onChange} onBlur={field.onBlur} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1242,14 +1352,14 @@ export default function PassageLogbookPage() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <div>
-                            <span className="font-medium">{passage.departure_port}</span>
+                            <span className="font-medium">{passage.departure_port || '—'}</span>
                             {passage.departure_country && (
                               <span className="text-xs text-muted-foreground ml-1">({passage.departure_country})</span>
                             )}
                           </div>
                           <ArrowRight className="h-3 w-3 text-muted-foreground" />
                           <div>
-                            <span className="font-medium">{passage.arrival_port}</span>
+                            <span className="font-medium">{passage.arrival_port || '—'}</span>
                             {passage.arrival_country && (
                               <span className="text-xs text-muted-foreground ml-1">({passage.arrival_country})</span>
                             )}
@@ -1324,6 +1434,34 @@ export default function PassageLogbookPage() {
                             </>
                           )}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {conflict ? (
+                          <div className="flex flex-col gap-1">
+                            <Badge variant="outline" className="w-fit text-amber-600 border-amber-500/50 bg-amber-500/10">
+                              {conflict.datesNotUnderway.length} day{conflict.datesNotUnderway.length !== 1 ? 's' : ''} not Underway
+                            </Badge>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-lg h-8 text-xs"
+                              onClick={() => handleSetPassageToUnderway(passage)}
+                              disabled={isSyncing}
+                            >
+                              {isSyncing ? (
+                                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                              ) : (
+                                <Waves className="h-3 w-3 mr-1" />
+                              )}
+                              Set to Underway
+                            </Button>
+                          </div>
+                        ) : (
+                          <Badge variant="secondary" className="w-fit text-green-700 border-green-500/30 bg-green-500/10">
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Synced
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">

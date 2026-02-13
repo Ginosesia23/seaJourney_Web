@@ -158,10 +158,10 @@ export interface PassageLog {
     vessel_id: string;                 // uuid FK → vessels.id
     start_time: string;                // timestamptz - departure date/time
     end_time: string;                  // timestamptz - arrival date/time
-    departure_port: string;            // text - e.g. "Monaco"
+    departure_port?: string | null;    // text - optional (some vessels don't log locations)
     departure_country?: string | null; // text - optional
-    arrival_port: string;              // text - e.g. "Porto Cervo"
-    arrival_country?: string | null;   // text - optional
+    arrival_port?: string | null;     // text - optional
+    arrival_country?: string | null;  // text - optional
     departure_lat?: number | null;     // numeric - nullable
     departure_lon?: number | null;     // numeric - nullable
     arrival_lat?: number | null;       // numeric - nullable

@@ -89,7 +89,7 @@ export function exportToCSV(data: SeaTimeReportData): void {
       }
     });
     
-    const { standbyPeriods } = calculateStandbyDays(data.stateLogs, watchDates, partOfActivePassageDates);
+    const { standbyPeriods } = calculateStandbyDays(data.stateLogs.filter(log => !!log.state), watchDates, partOfActivePassageDates);
     const standbyDates = new Set<string>();
     standbyPeriods.forEach(period => {
       const periodDays = eachDayOfInterval({ start: period.startDate, end: period.endDate });
@@ -107,7 +107,7 @@ export function exportToCSV(data: SeaTimeReportData): void {
       const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
       const dateStr = format(logDate, 'yyyy-MM-dd');
       const dayStr = format(logDate, 'EEE');
-      const vesselName = vesselNameMap.get(log.vesselId) || 'Unknown Vessel';
+      const vesselName = log.vesselId ? (vesselNameMap.get(log.vesselId) || 'Unknown Vessel') : '—';
       const stateDisplay = formatState(log.state);
       const partOfPassage = log.isPartOfActivePassage ? 'Yes' : 'No';
       const onWatch = watchDates.has(dateStr) ? 'Yes' : 'No';
@@ -199,7 +199,7 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
     }
   });
   
-  const { standbyPeriods } = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates);
+  const { standbyPeriods } = calculateStandbyDays(stateLogs.filter(log => !!log.state), watchDates, partOfActivePassageDates);
   const standbyDates = new Set<string>();
   
   // Create a map of which dates are actually counted as standby
@@ -214,13 +214,13 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
     });
   });
 
-  // Define color scheme for states
+  // Define color scheme for states (standby = in-port & at-anchor = purple)
   const stateColors: Record<string, string> = {
     'underway': 'FF4A90E2',      // Blue
-    'in-port': 'FF90EE90',       // Light Green
-    'at-anchor': 'FFFFD700',     // Gold
-    'on-leave': 'FFFF69B4',      // Hot Pink
-    'in-yard': 'FFFFA500',       // Orange
+    'in-port': 'FF9370DB',      // Purple (standby)
+    'at-anchor': 'FF9370DB',    // Purple (standby)
+    'on-leave': 'FFFF69B4',     // Hot Pink
+    'in-yard': 'FFFFA500',      // Orange
   };
 
   // Define colors for Yes/No indicators
@@ -288,7 +288,7 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
         const partOfPassage = log.isPartOfActivePassage ? 'Yes' : 'No';
         const onWatch = watchDates.has(dateStr) ? 'Yes' : 'No';
         const isStandby = standbyDates.has(dateStr) ? 'Yes' : 'No';
-        const vesselName = vesselNameMap.get(log.vesselId) || 'Unknown Vessel';
+        const vesselName = log.vesselId ? (vesselNameMap.get(log.vesselId) || 'Unknown Vessel') : '—';
         const notes = log.notes || '';
         
         const row = worksheet.addRow([
@@ -406,6 +406,7 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
  * Helper function to format state for display
  */
 function formatState(state: string): string {
+  if (!state) return '—';
   const stateMap: Record<string, string> = {
     'underway': 'Underway',
     'in-port': 'In Port',

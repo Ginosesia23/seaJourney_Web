@@ -919,9 +919,9 @@ export async function createPassageLog(
     vesselId: string;
     startTime: Date | string;
     endTime: Date | string;
-    departurePort: string;
+    departurePort?: string | null;
     departureCountry?: string;
-    arrivalPort: string;
+    arrivalPort?: string | null;
     arrivalCountry?: string;
     departureLat?: number;
     departureLon?: number;
@@ -953,10 +953,10 @@ export async function createPassageLog(
       vessel_id: passageData.vesselId,
       start_time: startTime,
       end_time: endTime,
-      departure_port: passageData.departurePort,
-      departure_country: passageData.departureCountry || null,
-      arrival_port: passageData.arrivalPort,
-      arrival_country: passageData.arrivalCountry || null,
+      departure_port: passageData.departurePort?.trim() || null,
+      departure_country: passageData.departureCountry?.trim() || null,
+      arrival_port: passageData.arrivalPort?.trim() || null,
+      arrival_country: passageData.arrivalCountry?.trim() || null,
       departure_lat: passageData.departureLat || null,
       departure_lon: passageData.departureLon || null,
       arrival_lat: passageData.arrivalLat || null,
@@ -989,9 +989,9 @@ export async function updatePassageLog(
     vesselId: string;
     startTime: Date | string;
     endTime: Date | string;
-    departurePort: string;
+    departurePort?: string | null;
     departureCountry?: string;
-    arrivalPort: string;
+    arrivalPort?: string | null;
     arrivalCountry?: string;
     departureLat?: number;
     departureLon?: number;
@@ -1021,10 +1021,10 @@ export async function updatePassageLog(
       ? updates.endTime 
       : updates.endTime.toISOString();
   }
-  if (updates.departurePort !== undefined) updateData.departure_port = updates.departurePort;
-  if (updates.departureCountry !== undefined) updateData.departure_country = updates.departureCountry || null;
-  if (updates.arrivalPort !== undefined) updateData.arrival_port = updates.arrivalPort;
-  if (updates.arrivalCountry !== undefined) updateData.arrival_country = updates.arrivalCountry || null;
+  if (updates.departurePort !== undefined) updateData.departure_port = updates.departurePort?.trim() || null;
+  if (updates.departureCountry !== undefined) updateData.departure_country = updates.departureCountry?.trim() || null;
+  if (updates.arrivalPort !== undefined) updateData.arrival_port = updates.arrivalPort?.trim() || null;
+  if (updates.arrivalCountry !== undefined) updateData.arrival_country = updates.arrivalCountry?.trim() || null;
   if (updates.departureLat !== undefined) updateData.departure_lat = updates.departureLat || null;
   if (updates.departureLon !== undefined) updateData.departure_lon = updates.departureLon || null;
   if (updates.arrivalLat !== undefined) updateData.arrival_lat = updates.arrivalLat || null;

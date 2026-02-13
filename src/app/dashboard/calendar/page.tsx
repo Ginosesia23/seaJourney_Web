@@ -16,7 +16,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselStateLogs, updateStateLogsBatch, getVesselAssignments, deleteStateLogsForDates } from '@/supabase/database/queries';
+import { getVesselStateLogs, updateStateLogsBatch, getVesselAssignments, deleteStateLogsForDates, getPassageLogs, createPassageLog } from '@/supabase/database/queries';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, Vessel, StateLog, DailyStatus, VesselAssignment } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
@@ -1004,6 +1004,40 @@ export default function CalendarPage() {
       for (const [vesselId, logs] of logsByVessel.entries()) {
         await updateStateLogsBatch(supabase, user.id, vesselId, logs);
       }
+
+      // When setting to Underway: ensure a passage exists for this range so it shows in Passage Logbook
+      let passageCreated = false;
+      if (state === 'underway' && user.id) {
+        try {
+          const existingPassages = await getPassageLogs(supabase, user.id);
+          for (const [vesselId, logs] of logsByVessel.entries()) {
+            if (logs.length === 0) continue;
+            const dates = logs.map((l) => l.date).sort();
+            const rangeStart = startOfDay(parse(dates[0], 'yyyy-MM-dd', new Date()));
+            const rangeEnd = endOfDay(parse(dates[dates.length - 1], 'yyyy-MM-dd', new Date()));
+            const overlaps = existingPassages.some((p) => {
+              if (p.vessel_id !== vesselId) return false;
+              const pStart = new Date(p.start_time);
+              const pEnd = new Date(p.end_time);
+              return pStart <= rangeEnd && pEnd >= rangeStart;
+            });
+            if (!overlaps) {
+              await createPassageLog(supabase, {
+                crewId: user.id,
+                vesselId,
+                startTime: rangeStart,
+                endTime: rangeEnd,
+                departurePort: 'To be confirmed',
+                arrivalPort: 'To be confirmed',
+                source: 'calendar',
+              });
+              passageCreated = true;
+            }
+          }
+        } catch (passageErr) {
+          console.error('Error creating passage from calendar:', passageErr);
+        }
+      }
       
       // Refresh all state logs
       const allLogs: StateLog[] = [];
@@ -1036,12 +1070,16 @@ export default function CalendarPage() {
         }
         toast({
           title: 'States Updated',
-          description: `${totalDays} day${totalDays > 1 ? 's' : ''} (${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}) updated to ${stateLabel}.`,
+          description: passageCreated
+            ? `${totalDays} day${totalDays > 1 ? 's' : ''} updated to ${stateLabel}. A passage was added to the Passage Log Book—you can add ports and details there.`
+            : `${totalDays} day${totalDays > 1 ? 's' : ''} (${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}) updated to ${stateLabel}.`,
         });
       } else {
         toast({
           title: 'State Updated',
-          description: `${format(selectedDate!, 'MMM d, yyyy')} has been updated to ${stateLabel}.`,
+          description: passageCreated
+            ? `${format(selectedDate!, 'MMM d, yyyy')} updated to ${stateLabel}. A passage was added to the Passage Log Book—you can add ports and details there.`
+            : `${format(selectedDate!, 'MMM d, yyyy')} has been updated to ${stateLabel}.`,
         });
       }
     } catch (error) {

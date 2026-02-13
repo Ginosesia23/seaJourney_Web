@@ -5,7 +5,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Download, Calendar as CalendarIcon, Ship, Loader2, FileText, FileSpreadsheet, FileJson, FileDown, Sparkles, Settings2, Database, Clock, TrendingUp } from 'lucide-react';
-import { format, differenceInDays, startOfYear, endOfYear, getYear, parse } from 'date-fns';
+import { format, differenceInDays, startOfYear, endOfYear, getYear, parse, startOfDay } from 'date-fns';
 import { DateRange } from 'react-day-picker';
 import { useRouter } from 'next/navigation';
 import { generateSeaTimeTestimonial } from '@/lib/pdf-generator';
@@ -120,12 +120,14 @@ export default function ExportPage() {
         const subscriptionTier = (userProfileRaw as any).subscription_tier || userProfileRaw.subscriptionTier || 'free';
         const subscriptionStatus = (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive';
         const activeVesselId = (userProfileRaw as any).active_vessel_id || (userProfileRaw as any).activeVesselId;
+        const startDate = (userProfileRaw as any).start_date ?? userProfileRaw.startDate ?? null;
         return {
             ...userProfileRaw,
             role: role,
             subscriptionTier: subscriptionTier,
             subscriptionStatus: subscriptionStatus,
             activeVesselId: activeVesselId || undefined,
+            startDate: startDate ?? undefined,
         } as UserProfile;
     }, [userProfileRaw]);
 
@@ -255,22 +257,19 @@ export default function ExportPage() {
         let startYear = currentYear;
         
         if (isVesselManager && currentVessel) {
-            // Get vessel start date
+            // Get vessel start date (never depend on state logs — use profile or vessel record only)
             let vesselStartDate: Date | null = null;
-            
-            if (userProfile?.startDate) {
+            const startDateStr = userProfile?.startDate || (currentVessel as any).start_date;
+            if (startDateStr) {
                 try {
-                    vesselStartDate = parse(userProfile.startDate, 'yyyy-MM-dd', new Date());
+                    vesselStartDate = parse(startDateStr, 'yyyy-MM-dd', new Date());
                 } catch (e) {
                     console.error('Error parsing vessel start date:', e);
                 }
             }
-            
-            // Fallback to vessel creation date
             if (!vesselStartDate && (currentVessel as any).created_at) {
                 vesselStartDate = new Date((currentVessel as any).created_at);
             }
-            
             if (vesselStartDate) {
                 startYear = getYear(vesselStartDate);
             }
@@ -307,21 +306,20 @@ export default function ExportPage() {
         form.setValue('dateRange', { from: yearStart, to: yearEnd });
     };
 
-    // Helper function to set "All" date range (from start date to today)
+    // Helper function to set "All" date range (from vessel start date to today; does not depend on state logs)
     const setAllDateRange = () => {
         let startDate: Date | null = null;
         
         if (isVesselManager && currentVessel) {
-            // Get vessel start date
-            if (userProfile?.startDate) {
+            // Vessel start date: profile start_date or vessel.start_date, then vessel created_at (even if no state logged)
+            const startDateStr = userProfile?.startDate || (currentVessel as any).start_date;
+            if (startDateStr) {
                 try {
-                    startDate = parse(userProfile.startDate, 'yyyy-MM-dd', new Date());
+                    startDate = parse(startDateStr, 'yyyy-MM-dd', new Date());
                 } catch (e) {
                     console.error('Error parsing vessel start date:', e);
                 }
             }
-            
-            // Fallback to vessel creation date
             if (!startDate && (currentVessel as any).created_at) {
                 startDate = new Date((currentVessel as any).created_at);
             }
@@ -793,12 +791,14 @@ export default function ExportPage() {
                                             {/* "All" button */}
                                             {(() => {
                                                 // Check if current selection is "All" (not matching any specific year)
-                                                const isAllSelected = watchedDateRange?.from && watchedDateRange?.to && 
+                                                const from = watchedDateRange?.from;
+                                                const to = watchedDateRange?.to;
+                                                const isAllSelected = from && to &&
                                                     availableYears.every(year => {
                                                         const yearStart = format(startOfYear(new Date(year, 0, 1)), 'yyyy-MM-dd');
                                                         const yearEnd = format(endOfYear(new Date(year, 0, 1)), 'yyyy-MM-dd');
-                                                        const rangeStart = format(watchedDateRange.from, 'yyyy-MM-dd');
-                                                        const rangeEnd = format(watchedDateRange.to, 'yyyy-MM-dd');
+                                                        const rangeStart = format(from, 'yyyy-MM-dd');
+                                                        const rangeEnd = format(to, 'yyyy-MM-dd');
                                                         return !(rangeStart === yearStart && rangeEnd === yearEnd);
                                                     });
                                                 
@@ -958,24 +958,34 @@ export default function ExportPage() {
 
                                     {(filterType === 'date_range' || isVesselManager) && watchedDateRange?.from && watchedDateRange?.to && (
                                         <>
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                                    <CalendarIcon className="h-4 w-4" />
-                                                    Date Range:
-                                                </span>
-                                                <span className="text-sm font-medium">
-                                                    {format(watchedDateRange.from, "MMM dd, yyyy")} - {format(watchedDateRange.to, "MMM dd, yyyy")}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                                    <Clock className="h-4 w-4" />
-                                                    Duration:
-                                                </span>
-                                                <span className="text-sm font-medium">
-                                                    {differenceInDays(watchedDateRange.to, watchedDateRange.from) + 1} days
-                                                </span>
-                                            </div>
+                                            {(() => {
+                                                const today = startOfDay(new Date());
+                                                const effectiveTo = watchedDateRange.to > today ? today : watchedDateRange.to;
+                                                const effectiveFrom = watchedDateRange.from;
+                                                const daysInRange = differenceInDays(effectiveTo, effectiveFrom) + 1;
+                                                return (
+                                                    <>
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-sm text-muted-foreground flex items-center gap-2">
+                                                                <CalendarIcon className="h-4 w-4" />
+                                                                Date Range:
+                                                            </span>
+                                                            <span className="text-sm font-medium">
+                                                                {format(effectiveFrom, "MMM dd, yyyy")} - {format(effectiveTo, "MMM dd, yyyy")}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-sm text-muted-foreground flex items-center gap-2">
+                                                                <Clock className="h-4 w-4" />
+                                                                Duration:
+                                                            </span>
+                                                            <span className="text-sm font-medium">
+                                                                {daysInRange} days
+                                                            </span>
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
                                             {previewStats.recordCount > 0 && (
                                                 <div className="flex items-center justify-between">
                                                     <span className="text-sm text-muted-foreground flex items-center gap-2">
@@ -996,18 +1006,6 @@ export default function ExportPage() {
                                             </span>
                                             <span className="text-sm font-medium">
                                                 {vessels.find(v => v.id === userProfile.activeVesselId)?.name || 'Your Vessel'}
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    {previewStats.dateRange.earliest && previewStats.dateRange.latest && (
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                                <CalendarIcon className="h-4 w-4" />
-                                                Actual Range:
-                                            </span>
-                                            <span className="text-sm font-medium">
-                                                {format(new Date(previewStats.dateRange.earliest), "MMM dd, yyyy")} - {format(new Date(previewStats.dateRange.latest), "MMM dd, yyyy")}
                                             </span>
                                         </div>
                                     )}

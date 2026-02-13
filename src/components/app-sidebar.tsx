@@ -116,7 +116,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     ]
   },
   {
-    title: "Vessel Management",
+    title: "Crew Management",
     hideForRoles: ['crew'], // Hide entire section for crew members
     items: [
       { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] }, // Hide for vessel role
@@ -127,7 +127,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
   },
   {
     title: "Messages",
-    hideForRoles: ['admin'], // Hide for admin since Inbox is already in Vessel Management section
+    hideForRoles: ['admin'], // Hide for admin since Inbox is already in Crew Management section
     items: [
       { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, disabled: false }, // Available to all users
     ]
@@ -137,7 +137,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false, hideForRoles: ['vessel'] }, // Hide Profile for vessel role
       { href: "/dashboard/profile", label: "Vessel", icon: Ship, disabled: false, requiredRole: "vessel", hideForRoles: ['captain'] }, // Show Vessel page for vessel role only (not captain)
-      { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false }, // Captain signature management
+      { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false, hideForRoles: ['vessel'] }, // Captain only; hidden for vessel accounts
     ]
   },
   {
@@ -176,12 +176,12 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   // Create admin-specific navGroups with updated Vessel Management and Account sections
   const isAdmin = userProfile?.role === 'admin'
   const adminNavGroups: typeof navGroups = navGroups.map(group => {
-    if (group.title === "Vessel Management") {
+    if (group.title === "Crew Management") {
       return {
         ...group,
         items: [
           { href: "/dashboard/vessels", label: "Vessels", icon: Ship, disabled: false },
-          { href: "/dashboard/crew", label: "Users", icon: Users, disabled: false },
+          { href: "/dashboard/crew", label: "Crew", icon: Users, disabled: false },
           { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, disabled: false },
         ]
       }
@@ -629,9 +629,11 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
             }
           }
 
+          // For vessel accounts, show "Vessel Management" as the Account section heading (where the Vessel link lives)
+          const groupLabel = (group.title === "Account" && userProfile?.role === "vessel") ? "Vessel Management" : group.title;
           return (
           <SidebarGroup key={group.title}>
-            <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
+            <SidebarGroupLabel>{groupLabel}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => {

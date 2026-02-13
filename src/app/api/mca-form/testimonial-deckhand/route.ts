@@ -9,7 +9,7 @@ import path from 'path';
  * First tries to load from local file, then falls back to UK government URL
  */
 export async function GET() {
-  const localPdfPath = path.join(process.cwd(), 'public', 'forms', 'MCA_Deckhand_Testimonial.pdf');
+  const localPdfPath = path.join(process.cwd(), 'public', 'forms', 'MSN_1858-Deckhand-Testimonial.pdf');
 
   try {
     if (fs.existsSync(localPdfPath)) {
@@ -18,7 +18,7 @@ export async function GET() {
         status: 200,
         headers: {
           'Content-Type': 'application/pdf',
-          'Content-Disposition': 'inline; filename="MCA_Deckhand_Testimonial.pdf"',
+          'Content-Disposition': 'inline; filename="MSN_1858-Deckhand-Testimonial.pdf"',
           'Cache-Control': 'public, max-age=3600',
         },
       });
@@ -28,7 +28,7 @@ export async function GET() {
     return NextResponse.json(
       {
         error: 'MCA Deckhand Testimonial template could not be read',
-        hint: 'Ensure MCA_Deckhand_Testimonial.pdf exists in public/forms/',
+        hint: 'Ensure MSN_1858-Deckhand-Testimonial.pdf exists in public/forms/',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined,
       },
       { status: 500 }
@@ -39,7 +39,7 @@ export async function GET() {
   return NextResponse.json(
     {
       error: 'MCA Deckhand Testimonial template not found',
-      hint: 'Place MCA_Deckhand_Testimonial.pdf in the public/forms/ directory and restart the server.',
+      hint: 'Place MSN_1858-Deckhand-Testimonial.pdf in the public/forms/ directory and restart the server.',
     },
     { status: 404 }
   );

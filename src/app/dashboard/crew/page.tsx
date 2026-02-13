@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, ArrowUpCircle, Send } from 'lucide-react';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, ArrowUpCircle, Send, Eye } from 'lucide-react';
 import { format, parse, eachDayOfInterval, format as formatDate, addDays } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -396,6 +396,7 @@ export default function CrewPage() {
     const [sendToCaptainEmail, setSendToCaptainEmail] = useState('');
     const [isSendingToCaptainDoc, setIsSendingToCaptainDoc] = useState(false);
     const [sendToCaptainDialogOpen, setSendToCaptainDialogOpen] = useState(false);
+    const [viewDocumentBreakdown, setViewDocumentBreakdown] = useState<VesselGeneratedTestimonial | null>(null);
     const [documentStartDate, setDocumentStartDate] = useState<Date | undefined>(undefined);
     const [documentEndDate, setDocumentEndDate] = useState<Date | undefined>(undefined);
     const [isCalculatingSeaTime, setIsCalculatingSeaTime] = useState(false);
@@ -3336,9 +3337,9 @@ export default function CrewPage() {
                                                             <Card key={testimonial.id} className="hover:shadow-md transition-shadow">
                                                                 <CardContent className="p-4">
                                                                     <div className="flex items-start justify-between">
-                                                                        <div className="flex-1 space-y-2">
+                                                                        <div className="flex-1 space-y-2 min-w-0 cursor-pointer" onClick={() => setViewDocumentBreakdown(testimonial)}>
                                                                             <div className="flex items-center gap-2">
-                                                                                <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                                                                                <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
                                                                                 <span className="font-semibold text-sm">
                                                                                     {startDate} - {endDate}
                                                                                 </span>
@@ -3355,7 +3356,16 @@ export default function CrewPage() {
                                                                                 </span>
                                                                             </div>
                                                                         </div>
-                                                                        <div className="flex items-center gap-2">
+                                                                        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                onClick={() => setViewDocumentBreakdown(testimonial)}
+                                                                                className="rounded-lg"
+                                                                                title="View breakdown"
+                                                                            >
+                                                                                <Eye className="h-4 w-4" />
+                                                                            </Button>
                                                                             <Select
                                                                                 onValueChange={(format) => handleGenerateVesselTestimonialPDF(testimonial, format as TestimonialPDFFormat)}
                                                                                 disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
@@ -3707,6 +3717,68 @@ export default function CrewPage() {
                                 </Button>
                             </div>
                         </div>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Document breakdown view (no download needed) */}
+                <Dialog open={!!viewDocumentBreakdown} onOpenChange={(open) => !open && setViewDocumentBreakdown(null)}>
+                    <DialogContent className="rounded-xl max-w-lg">
+                        <DialogHeader>
+                            <DialogTitle>Document breakdown</DialogTitle>
+                            <DialogDescription>
+                                Sea time breakdown for this period.
+                            </DialogDescription>
+                        </DialogHeader>
+                        {viewDocumentBreakdown && (
+                            <div className="space-y-4 py-4">
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <CalendarIcon className="h-4 w-4 shrink-0" />
+                                    <span>
+                                        {formatDate(new Date(viewDocumentBreakdown.start_date), 'MMM d, yyyy')} – {formatDate(new Date(viewDocumentBreakdown.end_date), 'MMM d, yyyy')}
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="rounded-lg border bg-muted/40 p-3">
+                                        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total days</div>
+                                        <div className="text-lg font-semibold">{viewDocumentBreakdown.total_days}</div>
+                                    </div>
+                                    <div className="rounded-lg border bg-muted/40 p-3">
+                                        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">At sea</div>
+                                        <div className="text-lg font-semibold">{viewDocumentBreakdown.at_sea_days}</div>
+                                    </div>
+                                    <div className="rounded-lg border bg-muted/40 p-3">
+                                        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Standby</div>
+                                        <div className="text-lg font-semibold">{viewDocumentBreakdown.standby_days}</div>
+                                    </div>
+                                    <div className="rounded-lg border bg-muted/40 p-3">
+                                        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">In yard</div>
+                                        <div className="text-lg font-semibold">{viewDocumentBreakdown.yard_days}</div>
+                                    </div>
+                                    <div className="rounded-lg border bg-muted/40 p-3">
+                                        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">On leave</div>
+                                        <div className="text-lg font-semibold">{viewDocumentBreakdown.leave_days}</div>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
+                                        {viewDocumentBreakdown.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
+                                    </Badge>
+                                    <Badge variant="outline">{viewDocumentBreakdown.pdf_format === 'mca' ? 'MCA' : 'SeaJourney'}</Badge>
+                                </div>
+                                {viewDocumentBreakdown.generated_by_name && (
+                                    <div className="text-sm text-muted-foreground">
+                                        Generated by {viewDocumentBreakdown.generated_by_name}
+                                        {viewDocumentBreakdown.generated_by_email ? ` (${viewDocumentBreakdown.generated_by_email})` : ''}
+                                    </div>
+                                )}
+                                {viewDocumentBreakdown.notes && (
+                                    <div className="rounded-lg border p-3">
+                                        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Notes</div>
+                                        <p className="text-sm whitespace-pre-wrap">{viewDocumentBreakdown.notes}</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </DialogContent>
                 </Dialog>
 

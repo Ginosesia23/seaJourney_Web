@@ -4112,6 +4112,15 @@ export async function generateMCAWatchRatingFormLegacy(
 /* ========================================================================== */
 /*                    MCA TESTIMONIAL PDF GENERATORS                          */
 /* ========================================================================== */
+/*
+ * Debug is ON by default: generating an MCA testimonial draws red crosshairs + labels
+ * at each field position so you can reposition data on the template.
+ *
+ * To edit coordinates:
+ *   - Deckhand: search for "EDIT COORDINATES HERE: MCA Deckhand" in this file → COORDS object.
+ *   - Officer:  search for "EDIT COORDINATES HERE: MCA Officer"  in this file → COORDS object.
+ * Units: PDF points (x = from left, top = from top of page). To turn debug off, pass { debug: false }.
+ */
 
 /**
  * Generate MCA Deckhand Testimonial PDF
@@ -4122,6 +4131,10 @@ export async function generateMCADeckhandTestimonial(
   output: TestimonialPDFOutput = 'download',
   opts?: { debug?: boolean }
 ) {
+  // Debug: set to true to draw red crosshairs at each field position (default on for repositioning)
+  const debug = opts?.debug !== false;
+  opts = { ...opts, debug };
+
   const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
 
   const API_BASE_URL =
@@ -4150,7 +4163,7 @@ export async function generateMCADeckhandTestimonial(
       throw new Error(body?.error || body?.hint || 'MCA form template returned an error.');
     } catch (e: any) {
       if (e?.message?.startsWith('MCA ')) throw e;
-      throw new Error('MCA form template is not available. Please add MCA_Deckhand_Testimonial.pdf to public/forms/.');
+      throw new Error('MCA form template is not available. Please add MSN_1858-Deckhand-Testimonial.pdf to public/forms/.');
     }
   }
 
@@ -4158,7 +4171,7 @@ export async function generateMCADeckhandTestimonial(
   try {
     pdfDoc = await PDFDocument.load(templateBytes);
   } catch (e) {
-    throw new Error('The MCA Deckhand Testimonial template PDF could not be loaded. Ensure the file in public/forms/ is a valid PDF.');
+    throw new Error('The MCA Deckhand Testimonial template PDF could not be loaded. Ensure MSN_1858-Deckhand-Testimonial.pdf in public/forms/ is a valid PDF.');
   }
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -4277,15 +4290,15 @@ export async function generateMCADeckhandTestimonial(
     }
   };
 
-  // Coordinate mappings for MCA Deckhand Testimonial
-  // TODO: These coordinates need to be adjusted based on the actual PDF template
-  // Enable debug mode to visualize field positions
+  // ─── EDIT COORDINATES HERE: MCA Deckhand Testimonial (MSN_1858-Deckhand-Testimonial.pdf) ───
+  // Coordinates are in PDF points (1/72 inch). x = distance from left edge; top = distance from TOP of page.
+  // With debug on, red crosshairs + labels show each position. Adjust values below to match your template.
   const COORDS = {
     // Page 1 - Company and Personal Details
     companyName: { x: 200, top: 190 },
     companyAddress: { x: 200, top: 210 },
-    contactTel: { x: 250, top: 270 },
-    contactEmail: { x: 250, top: 290 },
+    contactTel: { x: 250, top: 267 },
+    contactEmail: { x: 250, top: 287 },
     
     // Personal Details
     fullName: { x: 275, top: 340 },
@@ -4293,44 +4306,41 @@ export async function generateMCADeckhandTestimonial(
     dischargeBook: { x: 275, top: 380 },
     
     // Vessel Details
-    vesselName: { x: 195, top: 425 },
-    vesselType: { x: 195, top: 445 },
-    imoNumber: { x: 450, top: 425 },
-    grossTonnage: { x: 450, top: 445 },
-    loadLineLength: { x: 450, top: 465 },
-    dateJoining: { x: 235, top: 485 },
-    dateDischarge: { x: 450, top: 485 },
-    areasCruised: { x: 320, top: 520 },
+    vesselName: { x: 190, top: 415 },
+    vesselType: { x: 190, top: 435 },
+    imoNumber: { x: 455, top: 415 },
+    grossTonnage: { x: 455, top: 435 },
+    dateJoining: { x: 235, top: 453 },
+    dateDischarge: { x: 455, top: 453 },
     
     // Service Days
-    actualSeagoingDays: { x: 240, top: 595 },
-    standbyDays: { x: 240, top: 608 },
-    yardDays: { x: 240, top: 622 },
+    actualSeagoingDays: { x: 240, top: 505 },
+    standbyDays: { x: 240, top: 517 },
+    yardDays: { x: 240, top: 531 },
     
     // Comments (Page 2)
-    conduct: { x: 160, top: 320, page: 2 },
-    ability: { x: 160, top: 360, page: 2 },
-    generalComments: { x: 160, top: 405, page: 2 },
-    watchDays: { x: 240, top: 622, page: 2 }, // Watch days count on page 2
+    conduct: { x: 140, top: 80, page: 2 },
+    ability: { x: 140, top: 120, page: 2 },
+    generalComments: { x: 140, top: 160, page: 2 },
+    watchDays: { x: 240, top: 700, page: 1 }, // Watch days count on page 2
     
     // Standby Service Table A (Page 2)
-    standbyTableTitle: { x: 25, top: 693, page: 2 },
-    standbyTableStartY: { top: 740, page: 2 },
+    standbyTableTitle: { x: 25, top: 393, page: 2 },
+    standbyTableStartY: { top: 370, page: 2 },
     standbyTableRowHeight: 14.5,
     standbyTableCol1: { x: 60 }, // Passage start date
     standbyTableCol2: { x: 170 }, // Passage end date
     standbyTableCol3: { x: 320 }, // Standby days
     standbyTableCol4: { x: 390 }, // Master signature
-    standbyTableTotal: { x: 280, top: 755, page: 2 }, // Total row position
+    standbyTableTotal: { x: 280, top: 525, page: 2 }, // Total row position
     
     // Master Details (Page 3)
-    masterName: { x: 230, top: 100, page: 3 },
-    masterPosition: { x: 230, top: 130, page: 3 },
-    masterCoC: { x: 230, top: 160, page: 3 },
-    masterIssuingAdmin: { x: 230, top: 195, page: 3 },
-    masterEmail: { x: 230, top: 225, page: 3 },
-    masterSignature: { x: 230, top: 240, w: 150, h: 50, page: 3 },
-    masterDate: { x: 230, top: 285, page: 3 },
+    masterName: { x: 165, top: 575, page: 2 },
+    masterPosition: { x: 165, top: 605, page: 2 },
+    masterCoC: { x: 165, top: 632, page: 2 },
+    masterIssuingAdmin: { x: 165, top: 658, page: 2 },
+    masterSignature: { x: 165, top: 695, w: 150, h: 50, page: 2 },
+    masterDate: { x: 165, top: 720, page: 2 },
   };
 
   const page1 = pages[0];
@@ -4357,7 +4367,11 @@ export async function generateMCADeckhandTestimonial(
 
   // Company Details
   drawText(page1, base, safe(companyDetails?.name), COORDS.companyName.x, COORDS.companyName.top);
-  drawText(page1, base, safe(companyDetails?.address), COORDS.companyAddress.x, COORDS.companyAddress.top, { maxW: 400 });
+  const addressLines = (companyDetails?.address ?? '').split(/\r\n|\r|\n/).map((l: string) => l.trim()).filter(Boolean);
+  const addressLineHeight = 12;
+  addressLines.forEach((line: string, i: number) => {
+    drawText(page1, base, line, COORDS.companyAddress.x, COORDS.companyAddress.top + i * addressLineHeight, { size: 10 });
+  });
   // Contact details parsing (assuming format like "Tel: xxx Email: yyy")
   const contactDetails = safe(companyDetails?.contactDetails);
   const telMatch = contactDetails.match(/Tel[:\s]+([^\s]+)/i);
@@ -4375,10 +4389,8 @@ export async function generateMCADeckhandTestimonial(
   drawText(page1, base, safe(vessel.type), COORDS.vesselType.x, COORDS.vesselType.top);
   drawText(page1, base, safe(vessel.officialNumber), COORDS.imoNumber.x, COORDS.imoNumber.top);
   drawText(page1, base, vessel.gross_tonnage?.toString() || '', COORDS.grossTonnage.x, COORDS.grossTonnage.top);
-  drawText(page1, base, vessel.length_m?.toString() || '', COORDS.loadLineLength.x, COORDS.loadLineLength.top);
   drawText(page1, base, dateJoining, COORDS.dateJoining.x, COORDS.dateJoining.top);
   drawText(page1, base, dateDischarge, COORDS.dateDischarge.x, COORDS.dateDischarge.top);
-  drawText(page1, base, safe(testimonial.notes), COORDS.areasCruised.x, COORDS.areasCruised.top, { maxW: 400 });
 
   // Service Days
   drawText(page1, base, testimonial.at_sea_days.toString(), COORDS.actualSeagoingDays.x, COORDS.actualSeagoingDays.top);
@@ -4413,10 +4425,11 @@ export async function generateMCADeckhandTestimonial(
         ? `${months} ${months === 1 ? 'month' : 'months'} and ${days} ${days === 1 ? 'day' : 'days'}`
         : `${days} ${days === 1 ? 'day' : 'days'}`;
       
-      // Table rows (no title or headers - they're already in the PDF template)
+      // Table rows: oldest first (most recent at bottom) — reverse so first drawn = oldest
       const signatureDataUrl = testimonial.captain_signature || captainProfile?.signature;
-      for (let index = 0; index < data.standbyPeriods.length; index++) {
-        const period = data.standbyPeriods[index];
+      const periodsOldestFirst = [...data.standbyPeriods].reverse();
+      for (let index = 0; index < periodsOldestFirst.length; index++) {
+        const period = periodsOldestFirst[index];
         if (currentY < 100) break; // Don't draw if too low on page
         
         const passageStart = formatDateLocal(period.passageStartDate, 'DD/MM/YYYY');
@@ -4458,7 +4471,6 @@ export async function generateMCADeckhandTestimonial(
     // CoC number and issuing admin would need to be added to captainProfile or testimonial
     drawText(page3, base, '', COORDS.masterCoC.x, COORDS.masterCoC.top);
     drawText(page3, base, '', COORDS.masterIssuingAdmin.x, COORDS.masterIssuingAdmin.top);
-    drawText(page3, base, safe(testimonial.captain_email || captainProfile?.email), COORDS.masterEmail.x, COORDS.masterEmail.top);
     
     // Signature
     const signatureDataUrl = testimonial.captain_signature || captainProfile?.signature;
@@ -4723,6 +4735,10 @@ export async function generateMCAOfficerTestimonial(
   output: TestimonialPDFOutput = 'download',
   opts?: { debug?: boolean }
 ) {
+  // Debug: set to true to draw red crosshairs at each field position (default on for repositioning)
+  const debug = opts?.debug !== false;
+  opts = { ...opts, debug };
+
   const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
 
   const API_BASE_URL =
@@ -4751,7 +4767,7 @@ export async function generateMCAOfficerTestimonial(
       throw new Error(body?.error || body?.hint || 'MCA form template returned an error.');
     } catch (e: any) {
       if (e?.message?.startsWith('MCA ')) throw e;
-      throw new Error('MCA form template is not available. Please add MCA_Officer_Testimonial.pdf to public/forms/.');
+      throw new Error('MCA form template is not available. Please add MSN_1858-Officer-Testimonial.pdf to public/forms/.');
     }
   }
 
@@ -4759,7 +4775,7 @@ export async function generateMCAOfficerTestimonial(
   try {
     pdfDoc = await PDFDocument.load(templateBytes);
   } catch (e) {
-    throw new Error('The MCA Officer Testimonial template PDF could not be loaded. Ensure the file in public/forms/ is a valid PDF.');
+    throw new Error('The MCA Officer Testimonial template PDF could not be loaded. Ensure MSN_1858-Officer-Testimonial.pdf in public/forms/ is a valid PDF.');
   }
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -4878,63 +4894,57 @@ export async function generateMCAOfficerTestimonial(
     }
   };
 
-  // Coordinate mappings for MCA Officer Testimonial
-  // TODO: These coordinates need to be adjusted based on the actual PDF template
-  // Enable debug mode to visualize field positions
+  // ─── EDIT COORDINATES HERE: MCA Officer Testimonial (MSN_1858-Officer-Testimonial.pdf) ───
+  // Copied from deckhand coordinates; officer has extra "capacity" field.
   const COORDS = {
     // Page 1 - Company and Personal Details
-    companyName: { x: 150, top: 145 },
-    companyAddress: { x: 150, top: 165 },
-    contactTel: { x: 200, top: 220 },
-    contactEmail: { x: 200, top: 240 },
+    companyName: { x: 200, top: 170 },
+    companyAddress: { x: 200, top: 190 },
+    contactTel: { x: 250, top: 243 },
+    contactEmail: { x: 250, top: 263 },
     
     // Personal Details
-    fullName: { x: 235, top: 285 },
-    dateOfBirth: { x: 235, top: 305 },
-    capacity: { x: 235, top: 325 }, // Master/Chief Mate/OOW - positioned after dischargeBook
-    dischargeBook: { x: 235, top: 345 },
+    fullName: { x: 275, top: 305 },
+    dateOfBirth: { x: 275, top: 325 },
+    capacity: { x: 275, top: 345 }, // Officer only: Master/Chief Mate/OOW
+    dischargeBook: { x: 275, top: 365 },
     
     // Vessel Details
-    vesselName: { x: 150, top: 395 },
-    vesselType: { x: 150, top: 412 },
-    imoNumber: { x: 405, top: 395 },
-    grossTonnage: { x: 405, top: 412 },
-    loadLineLength: { x: 405, top: 433 },
-    dateJoining: { x: 180, top: 450 },
-    dateDischarge: { x: 405, top: 450 },
-    areasCruised: { x: 300, top: 485 },
+    vesselName: { x: 190, top: 403 },
+    vesselType: { x: 190, top: 422 },
+    imoNumber: { x: 455, top: 403 },
+    grossTonnage: { x: 455, top: 422 },
+    dateJoining: { x: 230, top: 440 },
+    dateDischarge: { x: 455, top: 440 },
     
     // Service Days
-    actualSeagoingDays: { x: 195, top: 562 },
-    standbyDays: { x: 195, top: 575 },
-    yardDays: { x: 195, top: 588 },
+    actualSeagoingDays: { x: 240, top: 494 },
+    standbyDays: { x: 240, top: 506 },
+    yardDays: { x: 240, top: 519 },
     
     // Comments (Page 2)
-    conduct: { x: 200, top: 305, page: 2 },
-    ability: { x: 200, top: 340, page: 2 },
-    generalComments: { x: 200, top: 380, page: 2 },
-    watchDays: { x: 270, top: 250, page: 2 }, // Watch days count on page 2 
+    conduct: { x: 140, top: 80, page: 2 },
+    ability: { x: 140, top: 120, page: 2 },
+    generalComments: { x: 140, top: 160, page: 2 },
+    watchDays: { x: 240, top: 690, page: 1 },
     
     // Standby Service Table A (Page 2)
-
-    standbyTableTitle: { x: 25, top: 693, page: 2 },
-    standbyTableStartY: { top: 740, page: 2 },
+    standbyTableTitle: { x: 25, top: 393, page: 2 },
+    standbyTableStartY: { top: 395, page: 2 },
     standbyTableRowHeight: 14.5,
-    standbyTableCol1: { x: 60 }, // Passage start date
-    standbyTableCol2: { x: 170 }, // Passage end date
-    standbyTableCol3: { x: 320 }, // Standby days
-    standbyTableCol4: { x: 390 }, // Master signature
-    standbyTableTotal: { x: 320, top: 755, page: 2 }, // Total row position
-
+    standbyTableCol1: { x: 60 },
+    standbyTableCol2: { x: 170 },
+    standbyTableCol3: { x: 320 },
+    standbyTableCol4: { x: 390 },
+    standbyTableTotal: { x: 280, top: 535, page: 2 },
     
     // Master Details (Page 3)
-    masterName: { x: 180, top: 100, page: 3 },
-    masterPosition: { x: 180, top: 125, page: 3 },
-    masterCoC: { x: 180, top: 150, page: 3 },
-    masterIssuingAdmin: { x: 180, top: 195, page: 3 },
-    masterEmail: { x: 180, top: 220, page: 3 },
-    masterSignature: { x: 180, top: 230, w: 150, h: 50, page: 3 },
-    masterDate: { x: 180, top: 280, page: 3 },
+    masterName: { x: 165, top: 575, page: 2 },
+    masterPosition: { x: 165, top: 605, page: 2 },
+    masterCoC: { x: 165, top: 632, page: 2 },
+    masterIssuingAdmin: { x: 165, top: 658, page: 2 },
+    masterSignature: { x: 165, top: 695, w: 150, h: 50, page: 2 },
+    masterDate: { x: 165, top: 720, page: 2 },
   };
 
   const page1 = pages[0];
@@ -4969,7 +4979,11 @@ export async function generateMCAOfficerTestimonial(
 
   // Company Details
   drawText(page1, base, safe(companyDetails?.name), COORDS.companyName.x, COORDS.companyName.top);
-  drawText(page1, base, safe(companyDetails?.address), COORDS.companyAddress.x, COORDS.companyAddress.top, { maxW: 400 });
+  const addressLines = (companyDetails?.address ?? '').split(/\r\n|\r|\n/).map((l: string) => l.trim()).filter(Boolean);
+  const addressLineHeight = 12;
+  addressLines.forEach((line: string, i: number) => {
+    drawText(page1, base, line, COORDS.companyAddress.x, COORDS.companyAddress.top + i * addressLineHeight, { size: 10 });
+  });
   const contactDetails = safe(companyDetails?.contactDetails);
   const telMatch = contactDetails.match(/Tel[:\s]+([^\s]+)/i);
   const emailMatch = contactDetails.match(/Email[:\s]+([^\s]+)/i);
@@ -4987,10 +5001,8 @@ export async function generateMCAOfficerTestimonial(
   drawText(page1, base, safe(vessel.type), COORDS.vesselType.x, COORDS.vesselType.top);
   drawText(page1, base, safe(vessel.officialNumber), COORDS.imoNumber.x, COORDS.imoNumber.top);
   drawText(page1, base, vessel.gross_tonnage?.toString() || '', COORDS.grossTonnage.x, COORDS.grossTonnage.top);
-  drawText(page1, base, vessel.length_m?.toString() || '', COORDS.loadLineLength.x, COORDS.loadLineLength.top);
   drawText(page1, base, dateJoining, COORDS.dateJoining.x, COORDS.dateJoining.top);
   drawText(page1, base, dateDischarge, COORDS.dateDischarge.x, COORDS.dateDischarge.top);
-  drawText(page1, base, safe(testimonial.notes), COORDS.areasCruised.x, COORDS.areasCruised.top, { maxW: 400 });
 
   // Service Days
   drawText(page1, base, testimonial.at_sea_days.toString(), COORDS.actualSeagoingDays.x, COORDS.actualSeagoingDays.top);
@@ -5025,10 +5037,11 @@ export async function generateMCAOfficerTestimonial(
         ? `${months} ${months === 1 ? 'month' : 'months'} and ${days} ${days === 1 ? 'day' : 'days'}`
         : `${days} ${days === 1 ? 'day' : 'days'}`;
       
-      // Table rows (no title or headers - they're already in the PDF template)
+      // Table rows: oldest first (most recent at bottom) — reverse so first drawn = oldest
       const signatureDataUrl = testimonial.captain_signature || captainProfile?.signature;
-      for (let index = 0; index < data.standbyPeriods.length; index++) {
-        const period = data.standbyPeriods[index];
+      const periodsOldestFirst = [...data.standbyPeriods].reverse();
+      for (let index = 0; index < periodsOldestFirst.length; index++) {
+        const period = periodsOldestFirst[index];
         if (currentY < 100) break; // Don't draw if too low on page
         
         const passageStart = formatDateLocal(period.passageStartDate, 'DD/MM/YYYY');
@@ -5057,7 +5070,6 @@ export async function generateMCAOfficerTestimonial(
       
       // Add total row at fixed coordinates - display as months and days
       drawText(page2, base, totalText, COORDS.standbyTableTotal.x, COORDS.standbyTableTotal.top, { size: 9, bold: true });
-      drawText(page2, base, `(${totalText})`, COORDS.standbyTableCol4.x, currentY, { size: 9, bold: true });
     }
   }
 
@@ -5071,7 +5083,6 @@ export async function generateMCAOfficerTestimonial(
     // CoC number and issuing admin would need to be added to captainProfile or testimonial
     drawText(page3, base, '', COORDS.masterCoC.x, COORDS.masterCoC.top);
     drawText(page3, base, '', COORDS.masterIssuingAdmin.x, COORDS.masterIssuingAdmin.top);
-    drawText(page3, base, safe(testimonial.captain_email || captainProfile?.email), COORDS.masterEmail.x, COORDS.masterEmail.top);
     
     // Signature
     const signatureDataUrl = testimonial.captain_signature || captainProfile?.signature;

@@ -33,7 +33,9 @@ import {
   getVesselStateLogs,
   createVesselAssignment,
   endVesselAssignment,
-  getVesselAssignments
+  getVesselAssignments,
+  getPassageLogs,
+  createPassageLog,
 } from '@/supabase/database/queries';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
@@ -2007,6 +2009,37 @@ export default function CurrentPage() {
       
       await updateStateLogsBatch(supabase, user.id, currentVessel.id, logs);
       
+      // When setting to Underway: ensure a passage exists so it shows in Passage Log Book
+      let passageCreated = false;
+      if (state === 'underway' && logs.length > 0) {
+        try {
+          const existingPassages = await getPassageLogs(supabase, user.id);
+          const dates = logs.map((l) => l.date).sort();
+          const rangeStart = startOfDay(parse(dates[0], 'yyyy-MM-dd', new Date()));
+          const rangeEnd = endOfDay(parse(dates[dates.length - 1], 'yyyy-MM-dd', new Date()));
+          const overlaps = existingPassages.some((p) => {
+            if (p.vessel_id !== currentVessel.id) return false;
+            const pStart = new Date(p.start_time);
+            const pEnd = new Date(p.end_time);
+            return pStart <= rangeEnd && pEnd >= rangeStart;
+          });
+          if (!overlaps) {
+            await createPassageLog(supabase, {
+              crewId: user.id,
+              vesselId: currentVessel.id,
+              startTime: rangeStart,
+              endTime: rangeEnd,
+              departurePort: 'To be confirmed',
+              arrivalPort: 'To be confirmed',
+              source: 'calendar',
+            });
+            passageCreated = true;
+          }
+        } catch (passageErr) {
+          console.error('Error creating passage from current page:', passageErr);
+        }
+      }
+      
       // Refresh state logs - use personal logs for refresh
       const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
       setStateLogs(updatedLogs);
@@ -2023,12 +2056,16 @@ export default function CurrentPage() {
         const daysCount = logs.length;
         toast({
           title: 'States Updated',
-          description: `${daysCount} day${daysCount > 1 ? 's' : ''} (${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}) updated to ${stateLabel}.`,
+          description: passageCreated
+            ? `${daysCount} day${daysCount > 1 ? 's' : ''} updated to ${stateLabel}. A passage was added to the Passage Log Book—you can add ports and details there.`
+            : `${daysCount} day${daysCount > 1 ? 's' : ''} (${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}) updated to ${stateLabel}.`,
         });
       } else {
         toast({
           title: 'State Updated',
-          description: `${format(selectedDate!, 'MMM d, yyyy')} has been updated to ${stateLabel}.`,
+          description: passageCreated
+            ? `${format(selectedDate!, 'MMM d, yyyy')} updated to ${stateLabel}. A passage was added to the Passage Log Book—you can add ports and details there.`
+            : `${format(selectedDate!, 'MMM d, yyyy')} has been updated to ${stateLabel}.`,
         });
       }
     } catch (error) {
@@ -2207,11 +2244,47 @@ export default function CurrentPage() {
     
     try {
       await updateStateLogsBatch(supabase, user.id, currentVessel.id, logs);
+      // When setting to Underway: ensure a passage exists so it shows in Passage Log Book
+      let passageCreated = false;
+      if (state === 'underway' && logs.length > 0) {
+        try {
+          const existingPassages = await getPassageLogs(supabase, user.id);
+          const dates = logs.map((l) => l.date).sort();
+          const rangeStart = startOfDay(parse(dates[0], 'yyyy-MM-dd', new Date()));
+          const rangeEnd = endOfDay(parse(dates[dates.length - 1], 'yyyy-MM-dd', new Date()));
+          const overlaps = existingPassages.some((p) => {
+            if (p.vessel_id !== currentVessel.id) return false;
+            const pStart = new Date(p.start_time);
+            const pEnd = new Date(p.end_time);
+            return pStart <= rangeEnd && pEnd >= rangeStart;
+          });
+          if (!overlaps) {
+            await createPassageLog(supabase, {
+              crewId: user.id,
+              vesselId: currentVessel.id,
+              startTime: rangeStart,
+              endTime: rangeEnd,
+              departurePort: 'To be confirmed',
+              arrivalPort: 'To be confirmed',
+              source: 'calendar',
+            });
+            passageCreated = true;
+          }
+        } catch (passageErr) {
+          console.error('Error creating passage from current page:', passageErr);
+        }
+      }
       // Refresh logs after update - always refresh personal logs
       const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
       setStateLogs(updatedLogs);
     setIsStatusDialogOpen(false);
     setDateRange(undefined);
+      if (passageCreated) {
+        toast({
+          title: 'States Updated',
+          description: `Range updated to Underway. A passage was added to the Passage Log Book—you can add ports and details there.`,
+        });
+      }
     } catch (error) {
       console.error('Error updating state logs:', error);
       toast({
@@ -2271,13 +2344,45 @@ export default function CurrentPage() {
 
       await updateStateLogsBatch(supabase, user.id, currentVessel.id, [{ date: todayKey, state }]);
       
+      // When setting to Underway: ensure a passage exists for today so it shows in Passage Log Book
+      let passageCreated = false;
+      if (state === 'underway') {
+        try {
+          const existingPassages = await getPassageLogs(supabase, user.id);
+          const rangeStart = todayStart;
+          const rangeEnd = todayEnd;
+          const overlaps = existingPassages.some((p) => {
+            if (p.vessel_id !== currentVessel.id) return false;
+            const pStart = new Date(p.start_time);
+            const pEnd = new Date(p.end_time);
+            return pStart <= rangeEnd && pEnd >= rangeStart;
+          });
+          if (!overlaps) {
+            await createPassageLog(supabase, {
+              crewId: user.id,
+              vesselId: currentVessel.id,
+              startTime: rangeStart,
+              endTime: rangeEnd,
+              departurePort: 'To be confirmed',
+              arrivalPort: 'To be confirmed',
+              source: 'calendar',
+            });
+            passageCreated = true;
+          }
+        } catch (passageErr) {
+          console.error('Error creating passage from current page:', passageErr);
+        }
+      }
+      
       // Refresh state logs to show the updated value - always refresh personal logs
       const updatedLogs = await getVesselStateLogs(supabase, currentVessel.id, user.id);
       setStateLogs(updatedLogs);
       
       toast({ 
         title: 'State Updated', 
-        description: `Today's state has been updated to ${vesselStates.find(s => s.value === state)?.label || state}.` 
+        description: passageCreated
+          ? `Today's state updated to Underway. A passage was added to the Passage Log Book—you can add ports and details there.`
+          : `Today's state has been updated to ${vesselStates.find(s => s.value === state)?.label || state}.` 
       });
     } catch (error) {
       console.error('Error updating today state:', error);

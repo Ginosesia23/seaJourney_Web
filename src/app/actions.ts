@@ -2,7 +2,7 @@
 
 import { createSupabaseServerClient } from '@/supabase/server';
 import type { SeaServiceRecord, UserProfile, Vessel, StateLog } from '@/lib/types';
-import { isWithinInterval, startOfDay, endOfDay, parse, differenceInDays, format } from 'date-fns';
+import { isWithinInterval, startOfDay, endOfDay, parse, differenceInDays, format, eachDayOfInterval } from 'date-fns';
 import { stripe } from '@/lib/stripe';
 import type { Stripe } from 'stripe';
 import { createClient } from '@supabase/supabase-js';
@@ -463,6 +463,43 @@ export async function generateSeaTimeReportData(
     }
   }
 
+  // For date_range exports: include every date in the range (cap at today), with placeholder when no state logged
+  let stateLogsForExport: StateLog[] = stateLogs;
+  if (filterType === 'date_range' && dateRange) {
+    const today = startOfDay(new Date());
+    const rangeEnd = dateRange.to > today ? today : dateRange.to;
+    const allDates = eachDayOfInterval({
+      start: startOfDay(dateRange.from),
+      end: startOfDay(rangeEnd),
+    });
+    const logsByDate = new Map<string, StateLog[]>();
+    stateLogs.forEach(log => {
+      if (!logsByDate.has(log.date)) logsByDate.set(log.date, []);
+      logsByDate.get(log.date)!.push(log);
+    });
+    const filled: StateLog[] = [];
+    for (const day of allDates) {
+      const dateStr = format(day, 'yyyy-MM-dd');
+      const existing = logsByDate.get(dateStr);
+      if (existing && existing.length > 0) {
+        filled.push(...existing);
+      } else {
+        filled.push({
+          id: `fill-${dateStr}`,
+          userId,
+          vesselId: '',
+          state: '' as StateLog['state'],
+          date: dateStr,
+          isPartOfActivePassage: false,
+          notes: undefined,
+          createdAt: '',
+          updatedAt: '',
+        });
+      }
+    }
+    stateLogsForExport = filled;
+  }
+
   if (stateLogs.length === 0) {
     return {
       userProfile,
@@ -471,7 +508,7 @@ export async function generateSeaTimeReportData(
       totalDays: 0,
       totalSeaDays: 0,
       totalStandbyDays: 0,
-      stateLogs: [],
+      stateLogs: stateLogsForExport,
       watchDates: Array.from(watchDates),
     };
   }
@@ -620,7 +657,7 @@ export async function generateSeaTimeReportData(
     totalDays,
     totalSeaDays,
     totalStandbyDays,
-    stateLogs, // Include individual state logs for detailed export
+    stateLogs: stateLogsForExport, // All dates in range when date_range filter; placeholders for days with no state
     watchDates: Array.from(watchDates), // Convert Set to Array for serialization
   };
 }
