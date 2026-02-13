@@ -7,6 +7,7 @@ export const vesselTypes: Array<{ value: string; label: string }> = [
   { value: 'catamaran', label: 'Catamaran' },
   { value: 'superyacht', label: 'Superyacht' },
   { value: 'megayacht', label: 'Megayacht' },
+  { value: 'passenger-yacht', label: 'Passenger Yacht' },
   { value: 'trawler', label: 'Trawler' },
   { value: 'fishing-vessel', label: 'Fishing Vessel' },
   { value: 'cargo-ship', label: 'Cargo Ship' },

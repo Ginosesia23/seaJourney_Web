@@ -28,6 +28,7 @@ import {
   MessageSquare,
   ClipboardList,
   Database,
+  UserCog,
 } from "lucide-react"
 
 import {
@@ -120,6 +121,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] }, // Hide for vessel role
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/crew-roles", label: "Assign Roles", icon: UserCog, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'] }, // Disabled for now – re-enable when ready
       { href: "/dashboard/requests", label: "Requests", icon: ClipboardList, requiredRole: "captain", disabled: false }, // Captains can view their requests
     ]
   },

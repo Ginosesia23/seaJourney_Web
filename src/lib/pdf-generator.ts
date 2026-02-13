@@ -4132,10 +4132,34 @@ export async function generateMCADeckhandTestimonial(
   const MCA_FORM_API_URL = `${API_BASE_URL}/api/mca-form/testimonial-deckhand`;
 
   const res = await fetch(MCA_FORM_API_URL);
-  if (!res.ok) throw new Error(`Failed to fetch MCA Deckhand Testimonial form: ${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    let msg = `MCA Deckhand Testimonial form: ${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body?.hint) msg = body.hint;
+      else if (body?.error) msg = body.error;
+    } catch (_) {}
+    throw new Error(msg);
+  }
 
   const templateBytes = await res.arrayBuffer();
-  const pdfDoc = await PDFDocument.load(templateBytes);
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.toLowerCase().includes('application/json')) {
+    try {
+      const body = JSON.parse(new TextDecoder().decode(templateBytes));
+      throw new Error(body?.error || body?.hint || 'MCA form template returned an error.');
+    } catch (e: any) {
+      if (e?.message?.startsWith('MCA ')) throw e;
+      throw new Error('MCA form template is not available. Please add MCA_Deckhand_Testimonial.pdf to public/forms/.');
+    }
+  }
+
+  let pdfDoc;
+  try {
+    pdfDoc = await PDFDocument.load(templateBytes);
+  } catch (e) {
+    throw new Error('The MCA Deckhand Testimonial template PDF could not be loaded. Ensure the file in public/forms/ is a valid PDF.');
+  }
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -4161,6 +4185,9 @@ export async function generateMCADeckhandTestimonial(
   // A4 portrait
   const A4_PORTRAIT = { w: 595.28, h: 841.89 };
 
+  // WinAnsi cannot encode newlines/tabs (0x000a etc); replace with space before drawing
+  const winAnsiSafe = (s: string) => String(s ?? '').replace(/\r\n|\r|\n|\t/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
   // Helper functions (similar to Nav Watch generator)
   const X = (page: any, base: { w: number; h: number }, x: number) => x;
   const Y = (page: any, base: { w: number; h: number }, top: number) => base.h - top;
@@ -4174,7 +4201,8 @@ export async function generateMCADeckhandTestimonial(
     top: number,
     opts?: { maxW?: number; size?: number; font?: PDFFont; bold?: boolean }
   ) => {
-    if (!text) return;
+    const sanitized = winAnsiSafe(text);
+    if (!sanitized) return;
     const px = X(page, base, x);
     const py = Y(page, base, top);
     const size = opts?.size || 10;
@@ -4182,7 +4210,7 @@ export async function generateMCADeckhandTestimonial(
     const maxW = opts?.maxW;
 
     if (maxW) {
-      const words = text.split(' ');
+      const words = sanitized.split(' ');
       let line = '';
       let y = py;
       words.forEach((word) => {
@@ -4202,7 +4230,7 @@ export async function generateMCADeckhandTestimonial(
       return;
     }
 
-    page.drawText(text, { x: px, y: py, size, font: useFont, color: black });
+    page.drawText(sanitized, { x: px, y: py, size, font: useFont, color: black });
   };
 
   const debugMark = (page: any, base: { w: number; h: number }, label: string, x: number, top: number) => {
@@ -4705,10 +4733,34 @@ export async function generateMCAOfficerTestimonial(
   const MCA_FORM_API_URL = `${API_BASE_URL}/api/mca-form/testimonial-officer`;
 
   const res = await fetch(MCA_FORM_API_URL);
-  if (!res.ok) throw new Error(`Failed to fetch MCA Officer Testimonial form: ${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    let msg = `MCA Officer Testimonial form: ${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body?.hint) msg = body.hint;
+      else if (body?.error) msg = body.error;
+    } catch (_) {}
+    throw new Error(msg);
+  }
 
   const templateBytes = await res.arrayBuffer();
-  const pdfDoc = await PDFDocument.load(templateBytes);
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.toLowerCase().includes('application/json')) {
+    try {
+      const body = JSON.parse(new TextDecoder().decode(templateBytes));
+      throw new Error(body?.error || body?.hint || 'MCA form template returned an error.');
+    } catch (e: any) {
+      if (e?.message?.startsWith('MCA ')) throw e;
+      throw new Error('MCA form template is not available. Please add MCA_Officer_Testimonial.pdf to public/forms/.');
+    }
+  }
+
+  let pdfDoc;
+  try {
+    pdfDoc = await PDFDocument.load(templateBytes);
+  } catch (e) {
+    throw new Error('The MCA Officer Testimonial template PDF could not be loaded. Ensure the file in public/forms/ is a valid PDF.');
+  }
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -4734,6 +4786,9 @@ export async function generateMCAOfficerTestimonial(
   // A4 portrait
   const A4_PORTRAIT = { w: 595.28, h: 841.89 };
 
+  // WinAnsi cannot encode newlines/tabs; replace with space before drawing
+  const winAnsiSafe = (s: string) => String(s ?? '').replace(/\r\n|\r|\n|\t/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
   // Helper functions (same as deckhand)
   const X = (page: any, base: { w: number; h: number }, x: number) => x;
   const Y = (page: any, base: { w: number; h: number }, top: number) => base.h - top;
@@ -4747,7 +4802,8 @@ export async function generateMCAOfficerTestimonial(
     top: number,
     opts?: { maxW?: number; size?: number; font?: PDFFont; bold?: boolean }
   ) => {
-    if (!text) return;
+    const sanitized = winAnsiSafe(text);
+    if (!sanitized) return;
     const px = X(page, base, x);
     const py = Y(page, base, top);
     const size = opts?.size || 10;
@@ -4755,7 +4811,7 @@ export async function generateMCAOfficerTestimonial(
     const maxW = opts?.maxW;
 
     if (maxW) {
-      const words = text.split(' ');
+      const words = sanitized.split(' ');
       let line = '';
       let y = py;
       words.forEach((word) => {
@@ -4775,7 +4831,7 @@ export async function generateMCAOfficerTestimonial(
       return;
     }
 
-    page.drawText(text, { x: px, y: py, size, font: useFont, color: black });
+    page.drawText(sanitized, { x: px, y: py, size, font: useFont, color: black });
   };
 
   const debugMark = (page: any, base: { w: number; h: number }, label: string, x: number, top: number) => {

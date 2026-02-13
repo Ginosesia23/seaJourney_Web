@@ -2455,7 +2455,7 @@ export default function ApplicationsPage() {
       console.error('Error generating PDF:', error);
       toast({
         title: 'Error',
-        description: 'Failed to generate PDF. Please try again.',
+        description: error instanceof Error ? error.message : 'Failed to generate PDF. Please try again.',
         variant: 'destructive',
       });
     }

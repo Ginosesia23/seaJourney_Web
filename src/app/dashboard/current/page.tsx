@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInDays, eachDayOfInterval, isSameDay, startOfDay, endOfDay, parse, isWithinInterval, startOfMonth, endOfMonth, getDaysInMonth, getDay, isSameMonth, isToday, isAfter, isBefore, addDays, subMonths, startOfYear, endOfYear } from 'date-fns';
-import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, Check, XCircle, User, Play, Square, ShieldCheck } from 'lucide-react';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, Wrench, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, Check, XCircle, User, Play, Square, ShieldCheck } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -135,7 +135,7 @@ const vesselStates: { value: DailyStatus; label: string; color: string; icon: Re
   { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
   { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
   { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
-  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
+  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Wrench },
 ];
 
 // Helper function to get CSS variable name for a state

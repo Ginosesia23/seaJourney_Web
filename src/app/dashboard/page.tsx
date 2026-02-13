@@ -1,7 +1,7 @@
 
 'use client';
 
-import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, CalendarDays, TrendingDown, Activity, Target, Trophy, CheckCircle2, XCircle, FileText, Users, CreditCard, BarChart3, Globe, LogIn, DollarSign } from 'lucide-react';
+import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Wrench, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, CalendarDays, TrendingDown, Activity, Target, Trophy, CheckCircle2, XCircle, FileText, Users, CreditCard, BarChart3, Globe, LogIn, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -26,7 +26,7 @@ const vesselStates: { value: DailyStatus; label: string; color: string, icon: Re
   { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
   { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
   { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: LifeBuoy },
-  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
+  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Wrench },
 ];
 
 export default function DashboardPage() {

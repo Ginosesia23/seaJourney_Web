@@ -552,6 +552,7 @@ export async function getVesselAssignments(
     startDate: assignment.start_date,
     endDate: assignment.end_date || null,
     position: assignment.position || null,
+    assignmentRole: assignment.assignment_role || null,
     createdAt: timestampToISO(assignment.created_at),
     updatedAt: timestampToISO(assignment.updated_at),
   }));
@@ -597,6 +598,7 @@ export async function getVesselAssignment(
     startDate: data.start_date,
     endDate: data.end_date || null,
     position: data.position || null,
+    assignmentRole: data.assignment_role || null,
     createdAt: timestampToISO(data.created_at),
     updatedAt: timestampToISO(data.updated_at),
   };
@@ -632,6 +634,7 @@ export async function getActiveVesselAssignmentsByVessel(
     startDate: assignment.start_date,
     endDate: assignment.end_date || null,
     position: assignment.position || null,
+    assignmentRole: assignment.assignment_role || null,
     onboard: assignment.onboard || false,
     createdAt: timestampToISO(assignment.created_at),
     updatedAt: timestampToISO(assignment.updated_at),
@@ -691,6 +694,7 @@ export async function updateVesselAssignment(
     startDate?: string; // YYYY-MM-DD format
     endDate?: string | null; // YYYY-MM-DD format
     position?: string | null;
+    assignmentRole?: string | null; // crew, officer, captain, admin
   }
 ): Promise<VesselAssignment> {
   const updateData: any = {
@@ -705,6 +709,9 @@ export async function updateVesselAssignment(
   }
   if (updates.position !== undefined) {
     updateData.position = updates.position;
+  }
+  if (updates.assignmentRole !== undefined) {
+    updateData.assignment_role = updates.assignmentRole;
   }
 
   const { data, error } = await supabase
@@ -723,6 +730,7 @@ export async function updateVesselAssignment(
     startDate: data.start_date,
     endDate: data.end_date || null,
     position: data.position || null,
+    assignmentRole: data.assignment_role || null,
     createdAt: timestampToISO(data.created_at),
     updatedAt: timestampToISO(data.updated_at),
   };

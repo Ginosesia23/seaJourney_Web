@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, ArrowUpCircle } from 'lucide-react';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, ArrowUpCircle, Send } from 'lucide-react';
 import { format, parse, eachDayOfInterval, format as formatDate, addDays } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -365,7 +365,7 @@ function SortableRow({
 export default function CrewPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const { user } = useUser();
-    const { supabase } = useSupabase();
+    const { supabase, session } = useSupabase();
     
     const [crewMembers, setCrewMembers] = useState<CrewMemberWithAssignment[]>([]);
     const [orderedCrewMembers, setOrderedCrewMembers] = useState<CrewMemberWithAssignment[]>([]);
@@ -392,6 +392,10 @@ export default function CrewPage() {
     const [generatingPDF, setGeneratingPDF] = useState<string | null>(null);
     const [showGenerateForm, setShowGenerateForm] = useState(false);
     const [deletingTestimonial, setDeletingTestimonial] = useState<string | null>(null);
+    const [sendToCaptainDocId, setSendToCaptainDocId] = useState<string | null>(null);
+    const [sendToCaptainEmail, setSendToCaptainEmail] = useState('');
+    const [isSendingToCaptainDoc, setIsSendingToCaptainDoc] = useState(false);
+    const [sendToCaptainDialogOpen, setSendToCaptainDialogOpen] = useState(false);
     const [documentStartDate, setDocumentStartDate] = useState<Date | undefined>(undefined);
     const [documentEndDate, setDocumentEndDate] = useState<Date | undefined>(undefined);
     const [isCalculatingSeaTime, setIsCalculatingSeaTime] = useState(false);
@@ -1512,6 +1516,75 @@ export default function CrewPage() {
         }
     };
 
+    // Send saved document to captain via one-time link
+    const handleSendDocumentToCaptain = async () => {
+        if (!sendToCaptainDocId || !sendToCaptainEmail.trim()) {
+            toast({
+                title: 'Error',
+                description: 'Please enter the captain’s email address.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        if (!session?.access_token) {
+            toast({
+                title: 'Error',
+                description: 'Your session has expired. Please refresh the page and try again.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        setIsSendingToCaptainDoc(true);
+        try {
+            const res = await fetch('/api/vessel-document/send-to-captain', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({
+                    documentId: sendToCaptainDocId,
+                    captainEmail: sendToCaptainEmail.trim(),
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to send');
+            }
+            toast({
+                title: 'Sent',
+                description: data.message || 'Captain will receive an email with a one-time link to view or download the document.',
+            });
+            setSendToCaptainDocId(null);
+            setSendToCaptainEmail('');
+            setSendToCaptainDialogOpen(false);
+            // Refresh testimonials so we can show "Sent to X" if we display it later
+            if (selectedMemberData?.profile?.id && currentUserProfile?.activeVesselId) {
+                const { data: vesselTestimonials } = await supabase
+                    .from('vessel_generated_testimonials')
+                    .select('*')
+                    .eq('crew_user_id', selectedMemberData.profile.id)
+                    .eq('vessel_id', currentUserProfile.activeVesselId)
+                    .order('created_at', { ascending: false });
+                setCrewMembers(prev =>
+                    prev.map((m) =>
+                        m.profile.id === selectedMemberData.profile.id
+                            ? { ...m, vesselGeneratedTestimonials: (vesselTestimonials as VesselGeneratedTestimonial[]) || m.vesselGeneratedTestimonials }
+                            : m
+                    )
+                );
+            }
+        } catch (e) {
+            toast({
+                title: 'Error',
+                description: e instanceof Error ? e.message : 'Failed to send link to captain.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSendingToCaptainDoc(false);
+        }
+    };
+
     // Generate PDF for a vessel-generated testimonial
     const handleGenerateVesselTestimonialPDF = async (testimonial: VesselGeneratedTestimonial, format: TestimonialPDFFormat = 'seajourney') => {
         if (!selectedMemberData) {
@@ -1731,7 +1804,7 @@ export default function CrewPage() {
             console.error('[CREW PAGE] Error generating PDF:', error);
             toast({
                 title: 'Error',
-                description: 'Failed to generate PDF. Please try again.',
+                description: error instanceof Error ? error.message : 'Failed to generate PDF. Please try again.',
                 variant: 'destructive',
             });
         } finally {
@@ -2006,7 +2079,7 @@ export default function CrewPage() {
             console.error('[CREW PAGE] Error generating PDF:', error);
             toast({
                 title: 'Error',
-                description: 'Failed to generate PDF. Please try again.',
+                description: error instanceof Error ? error.message : 'Failed to generate PDF. Please try again.',
                 variant: 'destructive',
             });
         } finally {
@@ -3302,6 +3375,20 @@ export default function CrewPage() {
                                                                             <Button
                                                                                 variant="ghost"
                                                                                 size="sm"
+                                                                                onClick={() => {
+                                                                                    setSendToCaptainDocId(testimonial.id);
+                                                                                    setSendToCaptainEmail('');
+                                                                                    setSendToCaptainDialogOpen(true);
+                                                                                }}
+                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                className="rounded-lg"
+                                                                                title="Send to captain (one-time link)"
+                                                                            >
+                                                                                <Send className="h-4 w-4" />
+                                                                            </Button>
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
                                                                                 onClick={() => handleDeleteVesselTestimonial(testimonial.id)}
                                                                                 disabled={deletingTestimonial === testimonial.id || generatingPDF === testimonial.id}
                                                                                 className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg"
@@ -3582,6 +3669,46 @@ export default function CrewPage() {
                         </Tabs>
                     </CardContent>
                 </Card>
+
+                {/* Send document to captain (one-time link) */}
+                <Dialog open={sendToCaptainDialogOpen} onOpenChange={(open) => { setSendToCaptainDialogOpen(open); if (!open) setSendToCaptainDocId(null); }}>
+                    <DialogContent className="rounded-xl max-w-md">
+                        <DialogHeader>
+                            <DialogTitle>Send to Captain</DialogTitle>
+                            <DialogDescription>
+                                Enter the captain’s email. They will receive a one-time link to view or download this document. The link expires in 7 days.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="captain-email">Captain email</Label>
+                                <Input
+                                    id="captain-email"
+                                    type="email"
+                                    placeholder="captain@example.com"
+                                    value={sendToCaptainEmail}
+                                    onChange={(e) => setSendToCaptainEmail(e.target.value)}
+                                    className="rounded-xl"
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <Button variant="outline" onClick={() => setSendToCaptainDialogOpen(false)} disabled={isSendingToCaptainDoc}>
+                                    Cancel
+                                </Button>
+                                <Button onClick={handleSendDocumentToCaptain} disabled={isSendingToCaptainDoc}>
+                                    {isSendingToCaptainDoc ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <>
+                                            <Send className="h-4 w-4 mr-2" />
+                                            Send link
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
+                    </DialogContent>
+                </Dialog>
 
                 {/* Leave Period Dialog */}
                 <Dialog open={isLeavePeriodDialogOpen} onOpenChange={setIsLeavePeriodDialogOpen}>

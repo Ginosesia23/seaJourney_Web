@@ -4,8 +4,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, differenceInHours, parse, startOfDay, endOfDay, isAfter, isBefore } from 'date-fns';
-import { PlusCircle, Loader2, Ship, MapPin, Calendar, Clock, ArrowRight, Edit, Trash2, CheckCircle2, CalendarDays, Navigation, Wind, Waves, Route, TrendingUp, Download } from 'lucide-react';
+import { format, differenceInHours, parse, startOfDay, endOfDay, isAfter, isBefore, eachDayOfInterval } from 'date-fns';
+import { PlusCircle, Loader2, Ship, MapPin, Calendar, Clock, ArrowRight, Edit, Trash2, CheckCircle2, CalendarDays, Navigation, Wind, Waves, Route, TrendingUp, Download, AlertTriangle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
@@ -27,9 +28,11 @@ import {
   getPassageLogs, 
   createPassageLog, 
   updatePassageLog, 
-  deletePassageLog 
+  deletePassageLog,
+  getVesselStateLogs,
+  updateStateLogsBatch,
 } from '@/supabase/database/queries';
-import type { Vessel, UserProfile, PassageLog } from '@/lib/types';
+import type { Vessel, UserProfile, PassageLog, StateLog } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { generatePassageLogPDF, type PassageLogExportData } from '@/lib/pdf-generator';
 
@@ -87,6 +90,8 @@ export default function PassageLogbookPage() {
   const [exportVesselId, setExportVesselId] = useState<string>('');
   const [exportStartDate, setExportStartDate] = useState<Date | undefined>(undefined);
   const [exportEndDate, setExportEndDate] = useState<Date | undefined>(undefined);
+  const [stateLogsByVessel, setStateLogsByVessel] = useState<Record<string, StateLog[]>>({});
+  const [syncingPassageId, setSyncingPassageId] = useState<string | null>(null);
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -141,6 +146,31 @@ export default function PassageLogbookPage() {
 
     loadPassages();
   }, [user?.id, supabase, toast]);
+
+  // Load state logs for all vessels that have passages (to detect calendar conflicts)
+  useEffect(() => {
+    if (!user?.id || passages.length === 0) {
+      setStateLogsByVessel({});
+      return;
+    }
+    const vesselIds = [...new Set(passages.map((p) => p.vessel_id))];
+    let cancelled = false;
+    (async () => {
+      const map: Record<string, StateLog[]> = {};
+      for (const vesselId of vesselIds) {
+        if (cancelled) return;
+        try {
+          const logs = await getVesselStateLogs(supabase, vesselId, user.id);
+          map[vesselId] = logs;
+        } catch (e) {
+          console.error('Error loading state logs for vessel', vesselId, e);
+          map[vesselId] = [];
+        }
+      }
+      if (!cancelled) setStateLogsByVessel(map);
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, passages.length, supabase]);
 
   const form = useForm<PassageFormValues>({
     resolver: zodResolver(passageSchema),
@@ -246,6 +276,18 @@ export default function PassageLogbookPage() {
       const updatedPassages = await getPassageLogs(supabase, user.id);
       setPassages(updatedPassages);
 
+      // Sync passage date range to Underway in the calendar
+      const start = startOfDay(data.startTime);
+      const end = endOfDay(data.endTime);
+      const days = eachDayOfInterval({ start, end });
+      const logs = days.map((d) => ({
+        date: format(d, 'yyyy-MM-dd'),
+        state: 'underway' as const,
+      }));
+      await updateStateLogsBatch(supabase, user.id, data.vesselId, logs);
+      const updatedLogs = await getVesselStateLogs(supabase, data.vesselId, user.id);
+      setStateLogsByVessel((prev) => ({ ...prev, [data.vesselId]: updatedLogs }));
+
       setIsFormOpen(false);
       setEditingPassage(null);
       form.reset();
@@ -297,6 +339,35 @@ export default function PassageLogbookPage() {
         description: 'Failed to delete passage. Please try again.',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleSetPassageToUnderway = async (passage: PassageLog) => {
+    if (!user?.id) return;
+    setSyncingPassageId(passage.id);
+    try {
+      const start = startOfDay(new Date(passage.start_time));
+      const end = endOfDay(new Date(passage.end_time));
+      const days = eachDayOfInterval({ start, end });
+      const logs = days.map((d) => ({
+        date: format(d, 'yyyy-MM-dd'),
+        state: 'underway' as const,
+      }));
+      await updateStateLogsBatch(supabase, user.id, passage.vessel_id, logs);
+      const updatedLogs = await getVesselStateLogs(supabase, passage.vessel_id, user.id);
+      setStateLogsByVessel((prev) => ({ ...prev, [passage.vessel_id]: updatedLogs }));
+      toast({
+        title: 'Calendar updated',
+        description: `${logs.length} day(s) set to Underway for this passage.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error?.message || 'Failed to update calendar.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncingPassageId(null);
     }
   };
 
@@ -463,6 +534,26 @@ export default function PassageLogbookPage() {
     };
   }, [passages]);
 
+  // Passage dates that are not set to Underway in the calendar (conflicts)
+  const passageConflicts = useMemo(() => {
+    const conflicts: { passage: PassageLog; datesNotUnderway: string[] }[] = [];
+    for (const passage of passages) {
+      const start = startOfDay(new Date(passage.start_time));
+      const end = endOfDay(new Date(passage.end_time));
+      const days = eachDayOfInterval({ start, end });
+      const dateStrings = days.map((d) => format(d, 'yyyy-MM-dd'));
+      const logs = stateLogsByVessel[passage.vessel_id] || [];
+      const logByDate = new Map(logs.map((l) => [l.date, l]));
+      const datesNotUnderway = dateStrings.filter(
+        (dateStr) => !logByDate.get(dateStr) || (logByDate.get(dateStr)!.state as string) !== 'underway'
+      );
+      if (datesNotUnderway.length > 0) {
+        conflicts.push({ passage, datesNotUnderway });
+      }
+    }
+    return conflicts;
+  }, [passages, stateLogsByVessel]);
+
   const isLoading = isLoadingProfile || isLoadingVessels;
 
   if (isLoading || isLoadingPassages) {
@@ -515,6 +606,17 @@ export default function PassageLogbookPage() {
           </div>
         </div>
       </div>
+
+      {/* Calendar sync conflicts */}
+      {passageConflicts.length > 0 && (
+        <Alert variant="destructive" className="rounded-xl border-amber-500/50 bg-amber-500/5">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Calendar conflict</AlertTitle>
+          <AlertDescription>
+            {passageConflicts.length} passage{passageConflicts.length !== 1 ? 's' : ''} have dates that are not set to Underway in the calendar. Passages and vessel state should match: passage dates should be Underway. Use &quot;Set to Underway&quot; below to fix.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Summary Cards */}
       {passages.length > 0 && (
@@ -1118,6 +1220,7 @@ export default function PassageLogbookPage() {
                   <TableHead>Duration</TableHead>
                   <TableHead>Distance</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Calendar</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1126,7 +1229,8 @@ export default function PassageLogbookPage() {
                   const status = getPassageStatus(passage);
                   const duration = calculateDuration(passage.start_time, passage.end_time);
                   const avgSpeed = calculateAvgSpeed(passage);
-                  
+                  const conflict = passageConflicts.find((c) => c.passage.id === passage.id);
+                  const isSyncing = syncingPassageId === passage.id;
                   return (
                     <TableRow key={passage.id}>
                       <TableCell className="font-medium">

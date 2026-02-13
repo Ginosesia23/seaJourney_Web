@@ -9,10 +9,9 @@ import path from 'path';
  * First tries to load from local file, then falls back to UK government URL
  */
 export async function GET() {
+  const localPdfPath = path.join(process.cwd(), 'public', 'forms', 'MCA_Deckhand_Testimonial.pdf');
+
   try {
-    // Try to load from local file first (if placed in public/forms/)
-    const localPdfPath = path.join(process.cwd(), 'public', 'forms', 'MCA_Deckhand_Testimonial.pdf');
-    
     if (fs.existsSync(localPdfPath)) {
       const pdfBuffer = fs.readFileSync(localPdfPath);
       return new NextResponse(pdfBuffer as any, {
@@ -20,44 +19,28 @@ export async function GET() {
         headers: {
           'Content-Type': 'application/pdf',
           'Content-Disposition': 'inline; filename="MCA_Deckhand_Testimonial.pdf"',
-          'Cache-Control': 'public, max-age=3600', // Cache for 1 hour
+          'Cache-Control': 'public, max-age=3600',
         },
       });
     }
-
-    // Fallback to UK government URL (if available)
-    // TODO: Update this URL once the PDF URL is known
-    const MCA_FORM_URL = 'https://assets.publishing.service.gov.uk/media/[PATH_TO_DECKHAND_TESTIMONIAL].pdf';
-
-    const response = await fetch(MCA_FORM_URL, {
-      headers: {
-        'User-Agent': 'SeaJourney/1.0',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch MCA form: ${response.status} ${response.statusText}`);
-    }
-
-    const pdfBuffer = await response.arrayBuffer();
-    
-    return new NextResponse(pdfBuffer, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': 'inline; filename="MCA_Deckhand_Testimonial.pdf"',
-        'Cache-Control': 'public, max-age=3600', // Cache for 1 hour
-      },
-    });
   } catch (error: any) {
-    console.error('[API /api/mca-form/testimonial-deckhand] Error fetching MCA form:', error);
+    console.error('[API /api/mca-form/testimonial-deckhand] Error reading local form:', error);
     return NextResponse.json(
-      { 
-        error: 'Failed to fetch MCA Deckhand Testimonial PDF',
+      {
+        error: 'MCA Deckhand Testimonial template could not be read',
+        hint: 'Ensure MCA_Deckhand_Testimonial.pdf exists in public/forms/',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined,
-        hint: 'Please place MCA_Deckhand_Testimonial.pdf in public/forms/ directory'
       },
       { status: 500 }
     );
   }
+
+  // File missing: return 404 with clear message (no broken fallback URL)
+  return NextResponse.json(
+    {
+      error: 'MCA Deckhand Testimonial template not found',
+      hint: 'Place MCA_Deckhand_Testimonial.pdf in the public/forms/ directory and restart the server.',
+    },
+    { status: 404 }
+  );
 }

@@ -145,6 +145,11 @@ export interface VesselGeneratedTestimonial {
     pdf_format: 'seajourney' | 'mca'; // PDF format used
     created_at: string;           // ISO timestamp
     updated_at: string;           // ISO timestamp
+    /** One-time share link (send to captain) */
+    share_token?: string | null;
+    share_token_expires_at?: string | null;
+    share_sent_to_email?: string | null;
+    share_used_at?: string | null;
 }
 
 export interface PassageLog {
@@ -197,13 +202,17 @@ export interface BridgeWatchLog {
     updated_at: string;                // timestamptz
 }
 
+/** Permission level on this vessel: crew, officer, captain, admin (set by vessel manager). Distinct from position (job title). */
+export type AssignmentRole = 'crew' | 'officer' | 'captain' | 'admin';
+
 export interface VesselAssignment {
     id: string;                        // uuid PK
     userId: string;                    // uuid FK → auth.users.id
     vesselId: string;                  // uuid FK → vessels.id
     startDate: string;                 // Date in YYYY-MM-DD format
     endDate?: string | null;           // Date in YYYY-MM-DD format, NULL if still active
-    position?: string | null;          // User's position/role on this vessel
+    position?: string | null;         // User's position (job title) on this vessel, e.g. Deckhand, Chief Officer
+    assignmentRole?: AssignmentRole | string | null;  // Permission level on this vessel: crew, officer, captain, admin
     onboard?: boolean;                 // Whether the crew member is currently onboard
     createdAt?: string;                // ISO timestamp
     updatedAt?: string;                // ISO timestamp

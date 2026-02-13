@@ -4,7 +4,7 @@
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Ship, Anchor, Calendar, Waves, Building, Briefcase, PlayCircle, Loader2, Trash2, ShieldCheck } from 'lucide-react';
+import { Ship, Anchor, Calendar, Waves, Building, Briefcase, Wrench, PlayCircle, Loader2, Trash2, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
@@ -14,7 +14,7 @@ const vesselStates: { value: string; label: string, color: string, icon: React.F
     { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
     { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
     { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
-    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
+    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Wrench },
 ];
 
 type VesselSummary = {

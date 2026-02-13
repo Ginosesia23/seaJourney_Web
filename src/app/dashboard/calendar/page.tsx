@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { format, startOfYear, endOfYear, eachMonthOfInterval, startOfMonth, endOfMonth, eachDayOfInterval, getDaysInMonth, getDay, isSameMonth, isToday, isWithinInterval, startOfDay, endOfDay, isAfter, isBefore, parse, addDays } from 'date-fns';
-import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, Clock, User, XCircle } from 'lucide-react';
+import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, Wrench, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, Clock, User, XCircle } from 'lucide-react';
 import { DateRange } from 'react-day-picker';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,7 +26,7 @@ const vesselStates: { value: DailyStatus; label: string; color: string; icon: Re
   { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
   { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
   { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
-  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
+  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Wrench },
 ];
 
 // Helper function to get CSS variable name for a state
@@ -1259,6 +1259,12 @@ export default function CalendarPage() {
         monthStateCounts.standby++;
       }
     });
+
+    // Count part-of-passage days in this month (for vessel account summary)
+    let monthPartOfPassageCount = 0;
+    partOfActivePassageDates.forEach(dateStr => {
+      if (dateStr >= monthStartStr && dateStr <= monthEndStr) monthPartOfPassageCount++;
+    });
     
     // Generate calendar grid - start from Sunday
     const days: (Date | null)[] = [];
@@ -1472,10 +1478,10 @@ export default function CalendarPage() {
             </div>
           </div>
           
-          {/* Month Summary Section */}
+          {/* Month Summary Section — vessel: no On Leave, show Part of passage instead */}
           <Separator className="mt-6 mb-4" />
           <div className="grid grid-cols-3 gap-3 text-sm">
-            {vesselStates.map((state) => {
+            {(isVesselAccount ? vesselStates.filter(s => s.value !== 'on-leave') : vesselStates).map((state) => {
               const count = monthStateCounts[state.value] || 0;
               const StateIcon = state.icon;
               return (
@@ -1491,6 +1497,17 @@ export default function CalendarPage() {
                 </div>
               );
             })}
+            {isVesselAccount && (
+              <div 
+                className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"
+              >
+                <Ship className="h-4 w-4" style={{ color: 'hsl(var(--chart-blue))' }} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-muted-foreground truncate">Part of passage</div>
+                </div>
+                <span className="font-medium">{monthPartOfPassageCount}</span>
+              </div>
+            )}
             <div 
               className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"
             >
@@ -1573,86 +1590,83 @@ export default function CalendarPage() {
         <Separator />
       </div>
 
-      {/* Year Navigation and Mode Toggle */}
-      <div className="sticky top-0 z-10 bg-background pb-4 pt-2 -mx-6 px-6 border-b shadow-md">
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card className="rounded-xl border">
-            <CardContent className="flex items-center justify-between py-4">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setSelectedYear(selectedYear - 1)}
-                className="rounded-xl"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold">{selectedYear}</h2>
-                <p className="text-sm text-muted-foreground">
-                  {currentVessel 
-                    ? currentVessel.name 
-                    : vesselsWithLogs.length > 0 
-                      ? `${vesselsWithLogs.length} vessel${vesselsWithLogs.length > 1 ? 's' : ''}`
-                      : 'All Vessels'}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setSelectedYear(selectedYear + 1)}
-                disabled={isCurrentYear}
-                className="rounded-xl"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </CardContent>
-          </Card>
-          
-          <Card className="rounded-xl border">
-            <CardHeader>
-              <CardTitle className="text-sm font-medium">Selection Mode</CardTitle>
-            </CardHeader>
-          <CardContent>
+      {/* Sticky toolbar: year nav + selection mode — full-width bar so content doesn’t show behind */}
+      <div
+        className="sticky -top-4 z-20 -mx-8 px-8 pt-4 pb-4 border-b border-border bg-content-background shadow-[0_1px_3px_0_hsl(var(--border))]"
+        style={{ marginBottom: '-1px' }}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          {/* Year navigation */}
+          <div className="flex items-center justify-between sm:justify-start gap-6 min-w-0">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setSelectedYear(selectedYear - 1)}
+              className="rounded-xl shrink-0 h-10 w-10"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 text-center sm:text-left min-w-0 flex-1 sm:flex-initial justify-center">
+              <h2 className="text-2xl font-bold tabular-nums tracking-tight">{selectedYear}</h2>
+              <span className="text-muted-foreground hidden sm:inline sm:text-base">·</span>
+              <p className="text-sm sm:text-base text-muted-foreground truncate">
+                {currentVessel
+                  ? currentVessel.name
+                  : vesselsWithLogs.length > 0
+                    ? `${vesselsWithLogs.length} vessel${vesselsWithLogs.length > 1 ? 's' : ''}`
+                    : 'All Vessels'}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setSelectedYear(selectedYear + 1)}
+              disabled={isCurrentYear}
+              className="rounded-xl shrink-0 h-10 w-10"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* Selection mode */}
+          <div className="flex flex-col gap-2 shrink-0">
+            <p className="text-sm font-medium text-foreground">Selection mode</p>
             <div className="flex gap-2">
               <Button
                 variant={selectionMode === 'single' ? 'default' : 'outline'}
+                size="sm"
                 onClick={() => {
                   setSelectionMode('single');
                   setDateRange(undefined);
                   setSelectedDate(null);
                 }}
-                className="rounded-xl flex-1"
+                className="rounded-xl"
               >
                 <MousePointer2 className="mr-2 h-4 w-4" />
-                Single Date
+                Single date
               </Button>
               <Button
                 variant={selectionMode === 'range' ? 'default' : 'outline'}
+                size="sm"
                 onClick={() => {
                   setSelectionMode('range');
                   setSelectedDate(null);
                   setDateRange(undefined);
                 }}
-                className="rounded-xl flex-1"
+                className="rounded-xl"
               >
                 <BoxSelect className="mr-2 h-4 w-4" />
-                Date Range
+                Date range
               </Button>
             </div>
             {selectionMode === 'range' && (
-              <div className="mt-3 space-y-1">
-                <p className="text-xs text-muted-foreground">
-                  Click a date to start the range, then click another date to complete it.
-                </p>
-                {dateRange?.from && !dateRange?.to && (
-                  <p className="text-xs text-primary font-medium">
-                    Range started: {format(dateRange.from, 'MMM d, yyyy')}. Click another date to complete.
-                  </p>
-                )}
-              </div>
+              <p className="text-xs text-muted-foreground">
+                {dateRange?.from && !dateRange?.to
+                  ? `Range started: ${format(dateRange.from, 'MMM d, yyyy')}. Click another date to complete.`
+                  : 'Click a date to start the range, then click another to complete it.'}
+              </p>
             )}
-          </CardContent>
-        </Card>
+          </div>
         </div>
       </div>
 
