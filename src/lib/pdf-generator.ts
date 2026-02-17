@@ -4119,7 +4119,7 @@ export async function generateMCAWatchRatingFormLegacy(
  * To edit coordinates:
  *   - Deckhand: search for "EDIT COORDINATES HERE: MCA Deckhand" in this file → COORDS object.
  *   - Officer:  search for "EDIT COORDINATES HERE: MCA Officer"  in this file → COORDS object.
- * Units: PDF points (x = from left, top = from top of page). To turn debug off, pass { debug: false }.
+ * Units: PDF points (x = from left, top = from top of page). To show position crosshairs, pass { debug: true }.
  */
 
 /**
@@ -4131,8 +4131,8 @@ export async function generateMCADeckhandTestimonial(
   output: TestimonialPDFOutput = 'download',
   opts?: { debug?: boolean }
 ) {
-  // Debug: set to true to draw red crosshairs at each field position (default on for repositioning)
-  const debug = opts?.debug !== false;
+  // Debug: pass { debug: true } to draw red crosshairs at each field position (default off)
+  const debug = opts?.debug === true;
   opts = { ...opts, debug };
 
   const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
@@ -4735,8 +4735,8 @@ export async function generateMCAOfficerTestimonial(
   output: TestimonialPDFOutput = 'download',
   opts?: { debug?: boolean }
 ) {
-  // Debug: set to true to draw red crosshairs at each field position (default on for repositioning)
-  const debug = opts?.debug !== false;
+  // Debug: pass { debug: true } to draw red crosshairs at each field position (default off)
+  const debug = opts?.debug === true;
   opts = { ...opts, debug };
 
   const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
