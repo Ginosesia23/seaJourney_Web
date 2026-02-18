@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     // Explicitly select only the columns we need to avoid issues with non-existent columns
     const { data: testimonial, error: testimonialError } = await supabaseAdmin
       .from('testimonials')
-      .select('id, user_id, vessel_id, start_date, end_date, total_days, at_sea_days, standby_days, yard_days, leave_days, status, testimonial_code, captain_name, captain_email, captain_position, captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general, captain_user_id, updated_at')
+      .select('id, user_id, vessel_id, start_date, end_date, total_days, at_sea_days, standby_days, yard_days, leave_days, status, testimonial_code, captain_name, captain_email, captain_position, captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general, captain_user_id, updated_at, generated_by_user_id, data_source')
       .eq('id', testimonialId)
       .maybeSingle();
 
@@ -176,6 +176,8 @@ export async function POST(req: NextRequest) {
       document_id: testimonial.id, // The UUID used as Document ID
       testimonial_code: currentTestimonialCode || testimonial.testimonial_code || null, // Use the fetched code
       approved_at: testimonial.updated_at || new Date().toISOString(),
+      generated_by_user_id: (testimonial as any).generated_by_user_id ?? null,
+      data_source: (testimonial as any).data_source ?? null,
     };
 
     console.log('[SNAPSHOT API] Creating snapshot with code:', {

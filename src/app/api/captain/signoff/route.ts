@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('testimonials')
-    .select('id, user_id, vessel_id, start_date, end_date, total_days, at_sea_days, standby_days, testimonial_code, status, signoff_token_expires_at, signoff_used_at, notes, captain_user_id, captain_name, captain_email, captain_position, captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general')
+    .select('id, user_id, vessel_id, start_date, end_date, total_days, at_sea_days, standby_days, testimonial_code, status, signoff_token_expires_at, signoff_used_at, notes, captain_user_id, captain_name, captain_email, captain_position, captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general, generated_by_user_id, data_source')
     .eq('signoff_token', token)
     .eq('signoff_target_email', email)
     .maybeSingle();
@@ -330,6 +330,8 @@ export async function POST(req: NextRequest) {
         document_id: data.id, // The UUID used as Document ID
         testimonial_code: data.testimonial_code || null,
         approved_at: now.toISOString(),
+        generated_by_user_id: (data as any).generated_by_user_id ?? null,
+        data_source: (data as any).data_source ?? null,
       };
 
       console.log('[SNAPSHOT] Attempting to insert snapshot via email signoff:', {

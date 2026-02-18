@@ -57,6 +57,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateMCAWatchRatingForm, type TestimonialPDFFormat, type MCACertificateType } from '@/lib/pdf-generator';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
+import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
 
 
 const getInitials = (name: string) => name ? name.split(' ').map((n) => n[0]).join('') : '';
@@ -396,7 +397,8 @@ export default function CrewPage() {
     const [sendToCaptainEmail, setSendToCaptainEmail] = useState('');
     const [isSendingToCaptainDoc, setIsSendingToCaptainDoc] = useState(false);
     const [sendToCaptainDialogOpen, setSendToCaptainDialogOpen] = useState(false);
-    const [viewDocumentBreakdown, setViewDocumentBreakdown] = useState<VesselGeneratedTestimonial | null>(null);
+    type DocumentBreakdownItem = Pick<VesselGeneratedTestimonial, 'id' | 'start_date' | 'end_date' | 'total_days' | 'at_sea_days' | 'standby_days' | 'yard_days' | 'leave_days' | 'data_source' | 'notes'> & { pdf_format?: string; generated_by_name?: string | null; generated_by_email?: string | null };
+    const [viewDocumentBreakdown, setViewDocumentBreakdown] = useState<DocumentBreakdownItem | null>(null);
     const [documentStartDate, setDocumentStartDate] = useState<Date | undefined>(undefined);
     const [documentEndDate, setDocumentEndDate] = useState<Date | undefined>(undefined);
     const [isCalculatingSeaTime, setIsCalculatingSeaTime] = useState(false);
@@ -406,11 +408,15 @@ export default function CrewPage() {
         standbyDays: number;
         yardDays: number;
         leaveDays: number;
+        otherDays?: number;
         isOfficer: boolean;
     } | null>(null);
     const [isSendingToCaptain, setIsSendingToCaptain] = useState(false);
     const [isSavingTestimonial, setIsSavingTestimonial] = useState(false);
     const [activeCaptain, setActiveCaptain] = useState<{ id: string; name: string } | null>(null);
+    const [sendTestimonialByEmailOpen, setSendTestimonialByEmailOpen] = useState(false);
+    const [sendTestimonialByEmailValue, setSendTestimonialByEmailValue] = useState('');
+    const [isSendingTestimonialByEmail, setIsSendingTestimonialByEmail] = useState(false);
     const [selectedDataSource, setSelectedDataSource] = useState<'crew' | 'vessel' | null>(null);
 
     // The user's own profile is needed to check their role and active vessel.
@@ -531,6 +537,46 @@ export default function CrewPage() {
 
         checkPendingCaptaincy();
     }, [currentUserProfile?.role, currentUserProfile?.activeVesselId, user?.id, supabase]);
+
+    // For vessel managers: load active captain (primary signing authority) for the active vessel
+    useEffect(() => {
+        const loadActiveCaptain = async () => {
+            if (currentUserProfile?.role !== 'vessel' || !currentUserProfile?.activeVesselId || !supabase) {
+                setActiveCaptain(null);
+                return;
+            }
+            try {
+                const { data: signingAuthorities, error } = await supabase
+                    .from('vessel_signing_authorities')
+                    .select('captain_user_id, is_primary')
+                    .eq('vessel_id', currentUserProfile.activeVesselId)
+                    .is('end_date', null)
+                    .order('is_primary', { ascending: false })
+                    .limit(1);
+                if (error || !signingAuthorities?.length) {
+                    setActiveCaptain(null);
+                    return;
+                }
+                const captainId = signingAuthorities[0].captain_user_id;
+                if (!captainId) {
+                    setActiveCaptain(null);
+                    return;
+                }
+                const { data: captainUser } = await supabase
+                    .from('users')
+                    .select('first_name, last_name')
+                    .eq('id', captainId)
+                    .maybeSingle();
+                const name = captainUser
+                    ? [captainUser.first_name, captainUser.last_name].filter(Boolean).join(' ').trim() || 'Captain'
+                    : 'Captain';
+                setActiveCaptain({ id: captainId, name });
+            } catch {
+                setActiveCaptain(null);
+            }
+        };
+        loadActiveCaptain();
+    }, [currentUserProfile?.role, currentUserProfile?.activeVesselId, supabase]);
 
     // Captains with pending requests cannot access crew page
     // Only admins, vessel managers, and captains with approved/no requests can access
@@ -1293,26 +1339,49 @@ export default function CrewPage() {
             await loadSeaTimeData(member);
         }
         
-        // Fetch vessel-generated testimonials for this crew member
-        if (currentUserProfile?.activeVesselId && currentUserProfile?.role === 'vessel') {
+        // Fetch vessel-generated testimonials for this crew member (always, for vessel managers)
+        if (currentUserProfile?.activeVesselId && (currentUserProfile?.role === 'vessel' || currentUserProfile?.role === 'admin')) {
             setIsLoadingTestimonials(true);
             try {
+                const vesselId = currentUserProfile.role === 'vessel' ? currentUserProfile.activeVesselId : (member.assignment?.vesselId ?? currentUserProfile.activeVesselId);
+                if (!vesselId) {
+                    setIsLoadingTestimonials(false);
+                    return;
+                }
+
                 const { data: vesselTestimonials, error: testimonialsError } = await supabase
                     .from('vessel_generated_testimonials')
                     .select('*')
                     .eq('crew_user_id', memberId)
-                    .eq('vessel_id', currentUserProfile.activeVesselId)
+                    .eq('vessel_id', vesselId)
                     .order('created_at', { ascending: false });
 
+                const updates: { vesselGeneratedTestimonials?: VesselGeneratedTestimonial[]; testimonials?: Testimonial[] } = {};
                 if (!testimonialsError && vesselTestimonials) {
-                    setCrewMembers(prev => prev.map(m => 
-                        m.profile.id === memberId
-                            ? { ...m, vesselGeneratedTestimonials: vesselTestimonials as VesselGeneratedTestimonial[] }
-                            : m
+                    updates.vesselGeneratedTestimonials = vesselTestimonials as VesselGeneratedTestimonial[];
+                }
+
+                // When crew has given permission (approved access), also fetch all testimonials for this member/vessel so vessel can view and print
+                if (member.accessRequest?.status === 'approved') {
+                    const { data: allTestimonials, error: allError } = await supabase
+                        .from('testimonials')
+                        .select('*')
+                        .eq('user_id', memberId)
+                        .eq('vessel_id', vesselId)
+                        .order('created_at', { ascending: false });
+
+                    if (!allError && allTestimonials) {
+                        updates.testimonials = allTestimonials as Testimonial[];
+                    }
+                }
+
+                if (Object.keys(updates).length > 0) {
+                    setCrewMembers(prev => prev.map(m =>
+                        m.profile.id === memberId ? { ...m, ...updates } : m
                     ));
                 }
             } catch (error) {
-                console.error('[CREW PAGE] Error fetching vessel-generated testimonials:', error);
+                console.error('[CREW PAGE] Error fetching testimonials:', error);
             } finally {
                 setIsLoadingTestimonials(false);
             }
@@ -2241,18 +2310,36 @@ export default function CrewPage() {
                 partOfActivePassageDates.size > 0 ? partOfActivePassageDates : undefined
             );
 
-            const dateRangeSet = new Set<string>();
             const logMap = new Map<string, StateLog>();
             filteredLogs.forEach(log => {
                 logMap.set(log.date, log);
             });
-            
+
             const startDateObj = parse(startDateStr, 'yyyy-MM-dd', new Date());
             const endDateObj = parse(endDateStr, 'yyyy-MM-dd', new Date());
+            const dateRangeSet = new Set<string>();
             let currentDate = new Date(startDateObj);
             while (currentDate <= endDateObj) {
                 dateRangeSet.add(formatDate(currentDate, 'yyyy-MM-dd'));
                 currentDate = addDays(currentDate, 1);
+            }
+
+            // Assign a state to every date in range: use log when present, else carry forward/backward so total days = calendar days
+            const sortedDates = Array.from(dateRangeSet).sort();
+            const firstDateWithLog = sortedDates.find(d => logMap.has(d));
+            const firstState = firstDateWithLog ? (logMap.get(firstDateWithLog)!.state as string) : 'in-port';
+            const effectiveState = new Map<string, string>();
+            let lastState: string | null = null;
+            for (const dateStr of sortedDates) {
+                const log = logMap.get(dateStr);
+                if (log) {
+                    lastState = log.state as string;
+                    effectiveState.set(dateStr, lastState);
+                } else if (lastState !== null) {
+                    effectiveState.set(dateStr, lastState);
+                } else {
+                    effectiveState.set(dateStr, firstState);
+                }
             }
 
             const voyageDatesSet = new Set<string>();
@@ -2273,8 +2360,8 @@ export default function CrewPage() {
                 const maxCounted = period.countedDays;
                 while (date <= endDate && counted < maxCounted) {
                     const dateStr = formatDate(date, 'yyyy-MM-dd');
-                    const log = logMap.get(dateStr);
-                    if (log && (log.state === 'in-port' || log.state === 'at-anchor')) {
+                    const state = effectiveState.get(dateStr) || logMap.get(dateStr)?.state;
+                    if (state === 'in-port' || state === 'at-anchor') {
                         const hasWatch = watchDates?.has(dateStr);
                         const isPartOfPassage = partOfActivePassageDates?.has(dateStr);
                         if (!hasWatch && !isPartOfPassage) {
@@ -2290,16 +2377,17 @@ export default function CrewPage() {
             let finalStandbyDays = 0;
             let yardDays = 0;
             let leaveDays = 0;
+            let otherDays = 0;
 
             dateRangeSet.forEach(dateStr => {
-                const log = logMap.get(dateStr);
-                if (!log) return;
+                const state = effectiveState.get(dateStr);
+                if (!state) return;
 
-                if (log.state === 'in-yard') {
+                if (state === 'in-yard') {
                     yardDays++;
                     return;
                 }
-                if (log.state === 'on-leave') {
+                if (state === 'on-leave') {
                     leaveDays++;
                     return;
                 }
@@ -2309,12 +2397,12 @@ export default function CrewPage() {
                     return;
                 }
 
-                if (watchDates?.has(dateStr) && (log.state === 'in-port' || log.state === 'at-anchor')) {
+                if (watchDates?.has(dateStr) && (state === 'in-port' || state === 'at-anchor')) {
                     finalSeaDays++;
                     return;
                 }
 
-                if (partOfActivePassageDates?.has(dateStr) && log.state !== 'underway') {
+                if (partOfActivePassageDates?.has(dateStr) && state !== 'underway') {
                     finalSeaDays++;
                     return;
                 }
@@ -2323,16 +2411,29 @@ export default function CrewPage() {
                     finalStandbyDays++;
                     return;
                 }
+
+                // In-port/at-anchor not in voyage, watch, or standby (e.g. before first voyage or after standby cap) — do not count as standby (MCA: standby can never exceed at-sea days). Count as "other" so total = calendar days.
+                if (state === 'in-port' || state === 'at-anchor') {
+                    otherDays++;
+                    return;
+                }
+                if (state === 'underway') {
+                    finalSeaDays++;
+                }
             });
-            
-            const totalDays = finalSeaDays + finalStandbyDays + yardDays + leaveDays;
+
+            // MCA rule: standby days can never exceed at-sea days
+            const cappedStandbyDays = Math.min(finalStandbyDays, finalSeaDays);
+
+            const totalDays = dateRangeSet.size;
 
             setCalculatedSeaTime({
                 totalDays,
                 atSeaDays: finalSeaDays,
-                standbyDays: finalStandbyDays,
+                standbyDays: cappedStandbyDays,
                 yardDays,
                 leaveDays,
+                otherDays,
                 isOfficer,
             });
         } catch (error) {
@@ -2727,7 +2828,7 @@ export default function CrewPage() {
                 official_reference: null,
                 notes: `Generated by vessel manager on ${formatDate(new Date(), 'dd MMMM yyyy')}. Awaiting captain approval.`,
                 testimonial_code: null,
-                data_source: dataSource as 'crew' | 'vessel',
+                generated_by_user_id: user?.id ?? null,
             };
 
             const { data: createdTestimonial, error: createError } = await supabase
@@ -2740,12 +2841,15 @@ export default function CrewPage() {
                 throw createError;
             }
 
+            // Attach data_source locally for UI (column may not exist in DB yet)
+            const testimonialWithSource = { ...createdTestimonial, data_source: dataSource } as Testimonial;
+
             setCrewMembers(prev => prev.map(member => 
                 member.profile.id === selectedMemberData.profile.id
                     ? { 
                         ...member, 
                         testimonials: [
-                            createdTestimonial as Testimonial,
+                            testimonialWithSource,
                             ...(member.testimonials || [])
                         ]
                     }
@@ -2770,6 +2874,142 @@ export default function CrewPage() {
             });
         } finally {
             setIsSendingToCaptain(false);
+        }
+    };
+
+    // Send testimonial to captain by email (when vessel has no active SeaJourney captain)
+    const handleSendTestimonialToCaptainByEmail = async () => {
+        const captainEmail = sendTestimonialByEmailValue?.trim();
+        if (!captainEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(captainEmail)) {
+            toast({
+                title: 'Invalid email',
+                description: 'Please enter a valid captain email address.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        if (!selectedMemberData || !currentUserProfile?.activeVesselId || !documentStartDate || !documentEndDate || !calculatedSeaTime) {
+            toast({
+                title: 'Error',
+                description: 'Please select dates and calculate sea time first.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setIsSendingTestimonialByEmail(true);
+        try {
+            const vessel = getVesselDetails(currentUserProfile.activeVesselId);
+            if (!vessel) {
+                toast({
+                    title: 'Error',
+                    description: 'Vessel details not found.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+
+            const startDateStr = formatDate(documentStartDate, 'yyyy-MM-dd');
+            const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
+            const calculatedTotal = calculatedSeaTime.atSeaDays + calculatedSeaTime.standbyDays + calculatedSeaTime.yardDays + calculatedSeaTime.leaveDays;
+            const dataSource = selectedMemberData.accessRequest?.status === 'approved'
+                ? (selectedDataSource || 'crew')
+                : 'vessel';
+
+            const testimonialData = {
+                user_id: selectedMemberData.profile.id,
+                vessel_id: currentUserProfile.activeVesselId,
+                start_date: startDateStr,
+                end_date: endDateStr,
+                total_days: calculatedTotal,
+                at_sea_days: calculatedSeaTime.atSeaDays,
+                standby_days: calculatedSeaTime.standbyDays,
+                yard_days: calculatedSeaTime.yardDays,
+                leave_days: calculatedSeaTime.leaveDays,
+                status: 'pending_captain' as const,
+                captain_user_id: null,
+                captain_email: captainEmail,
+                captain_name: null,
+                captain_position: null,
+                captain_signature: null,
+                captain_comment_conduct: null,
+                captain_comment_ability: null,
+                captain_comment_general: null,
+                official_body: null,
+                official_reference: null,
+                notes: `Generated by vessel manager on ${formatDate(new Date(), 'dd MMMM yyyy')}. Awaiting captain approval.`,
+                testimonial_code: null,
+                generated_by_user_id: user?.id ?? null,
+            };
+
+            const { data: createdTestimonial, error: createError } = await supabase
+                .from('testimonials')
+                .insert(testimonialData)
+                .select()
+                .single();
+
+            if (createError) {
+                throw createError;
+            }
+
+            if (!session?.access_token) {
+                throw new Error('Your session has expired. Please refresh and try again.');
+            }
+
+            const tokenRes = await fetch('/api/testimonials/create-signoff-token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({
+                    testimonialId: createdTestimonial.id,
+                    captainEmail: captainEmail,
+                }),
+            });
+            const tokenData = await tokenRes.json().catch(() => ({}));
+            if (!tokenRes.ok || !tokenData.token) {
+                throw new Error(tokenData.error || 'Failed to create sign-off link');
+            }
+
+            await requestCaptainSignoff(
+                supabase,
+                {
+                    ...(createdTestimonial as Testimonial),
+                    vessel_name: vessel.name,
+                    signoffToken: tokenData.token,
+                },
+                toast
+            );
+
+            const testimonialWithSource = { ...createdTestimonial, data_source: dataSource } as Testimonial;
+            setCrewMembers(prev => prev.map(member =>
+                member.profile.id === selectedMemberData.profile.id
+                    ? {
+                        ...member,
+                        testimonials: [
+                            testimonialWithSource,
+                            ...(member.testimonials || []),
+                        ],
+                    }
+                    : member
+            ));
+
+            setSendTestimonialByEmailOpen(false);
+            setSendTestimonialByEmailValue('');
+            setDocumentStartDate(undefined);
+            setDocumentEndDate(undefined);
+            setCalculatedSeaTime(null);
+            setShowGenerateForm(false);
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error sending testimonial to captain by email:', error);
+            toast({
+                title: 'Error',
+                description: error?.message || 'Failed to send. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSendingTestimonialByEmail(false);
         }
     };
 
@@ -3315,7 +3555,84 @@ export default function CrewPage() {
                                             </Alert>
                                         )}
 
-                                        {/* Existing Vessel-Generated Testimonials */}
+                                        {/* Testimonials (all) - only when crew has given permission */}
+                                        {selectedMemberData.accessRequest?.status === 'approved' && selectedMemberData.testimonials && selectedMemberData.testimonials.length > 0 && (
+                                            <div className="space-y-4 mb-6">
+                                                <div className="flex items-center justify-between">
+                                                    <h4 className="font-semibold">Testimonials</h4>
+                                                    <Badge variant="outline" className="text-xs">
+                                                        {selectedMemberData.testimonials.length} testimonial{selectedMemberData.testimonials.length !== 1 ? 's' : ''}
+                                                    </Badge>
+                                                </div>
+                                                <div className="grid gap-3">
+                                                    {selectedMemberData.testimonials.map((testimonial) => {
+                                                        const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
+                                                        const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
+                                                        const statusLabel = testimonial.status === 'approved' ? 'Approved' : testimonial.status === 'pending_captain' ? 'Pending captain' : testimonial.status === 'rejected' ? 'Rejected' : testimonial.status === 'draft' ? 'Draft' : testimonial.status;
+                                                        return (
+                                                            <Card key={testimonial.id} className="hover:shadow-md transition-shadow">
+                                                                <CardContent className="p-4">
+                                                                    <div className="flex items-start justify-between">
+                                                                        <div className="flex-1 space-y-2 min-w-0 cursor-pointer" onClick={() => setViewDocumentBreakdown(testimonial as any)}>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                                                                                <span className="font-semibold text-sm">
+                                                                                    {startDate} - {endDate}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                                <Badge variant={testimonial.status === 'approved' ? 'default' : 'outline'} className="text-xs">
+                                                                                    {statusLabel}
+                                                                                </Badge>
+                                                                                {(testimonial as any).data_source && (
+                                                                                    <Badge variant="outline" className="text-xs border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
+                                                                                        {(testimonial as any).data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
+                                                                                    </Badge>
+                                                                                )}
+                                                                                {testimonial.testimonial_code && (
+                                                                                    <Badge variant="secondary" className="text-xs">{testimonial.testimonial_code}</Badge>
+                                                                                )}
+                                                                                <span className="text-sm text-muted-foreground">
+                                                                                    {testimonial.total_days} days
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                onClick={() => setViewDocumentBreakdown({ ...testimonial, data_source: (testimonial as any).data_source, pdf_format: 'seajourney' })}
+                                                                                className="rounded-lg"
+                                                                                title="View breakdown"
+                                                                            >
+                                                                                <Eye className="h-4 w-4" />
+                                                                            </Button>
+                                                                            <Select
+                                                                                onValueChange={(format) => handleGeneratePDF(testimonial, format as TestimonialPDFFormat)}
+                                                                                disabled={generatingPDF === testimonial.id}
+                                                                            >
+                                                                                <SelectTrigger className="w-[140px] rounded-xl">
+                                                                                    <SelectValue placeholder="Print" />
+                                                                                </SelectTrigger>
+                                                                                <SelectContent>
+                                                                                    <SelectItem value="seajourney">SeaJourney PDF</SelectItem>
+                                                                                    <SelectItem value="mca">MCA PDF</SelectItem>
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                            {generatingPDF === testimonial.id && (
+                                                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Generated Documents (vessel-generated; when no approved access this is the only doc section) */}
                                         {isLoadingTestimonials ? (
                                             <div className="flex items-center justify-center py-12">
                                                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -3593,6 +3910,12 @@ export default function CrewPage() {
                                                                         <div className="text-xs text-muted-foreground">Leave Days</div>
                                                                         <div className="text-2xl font-bold">{calculatedSeaTime.leaveDays}</div>
                                                                     </div>
+                                                                    {(calculatedSeaTime.otherDays ?? 0) > 0 && (
+                                                                        <div className="space-y-1 col-span-2 md:col-span-5">
+                                                                            <div className="text-xs text-muted-foreground">Other (in port/at anchor, not counted as standby — standby cannot exceed at-sea days)</div>
+                                                                            <div className="text-lg font-semibold">{calculatedSeaTime.otherDays}</div>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
 
                                                                 {/* Action Buttons */}
@@ -3645,6 +3968,26 @@ export default function CrewPage() {
                                                                                 <>
                                                                                     <CheckCircle2 className="mr-2 h-4 w-4" />
                                                                                     Send to Captain
+                                                                                </>
+                                                                            )}
+                                                                        </Button>
+                                                                    )}
+                                                                    {!activeCaptain && (
+                                                                        <Button
+                                                                            onClick={() => setSendTestimonialByEmailOpen(true)}
+                                                                            disabled={isSendingTestimonialByEmail}
+                                                                            variant="outline"
+                                                                            className="rounded-xl"
+                                                                        >
+                                                                            {isSendingTestimonialByEmail ? (
+                                                                                <>
+                                                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                                    Sending...
+                                                                                </>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <Send className="mr-2 h-4 w-4" />
+                                                                                    Send to captain by email
                                                                                 </>
                                                                             )}
                                                                         </Button>
@@ -3712,6 +4055,46 @@ export default function CrewPage() {
                                         <>
                                             <Send className="h-4 w-4 mr-2" />
                                             Send link
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Send testimonial to captain by email (when no active captain) */}
+                <Dialog open={sendTestimonialByEmailOpen} onOpenChange={(open) => { setSendTestimonialByEmailOpen(open); if (!open) setSendTestimonialByEmailValue(''); }}>
+                    <DialogContent className="rounded-xl max-w-md">
+                        <DialogHeader>
+                            <DialogTitle>Send testimonial to captain</DialogTitle>
+                            <DialogDescription>
+                                No active captain is assigned to this vessel. Enter the captain’s email to send this testimonial for approval. They will receive a secure link to view, add comments, and approve or reject—same as the crew-to-captain flow.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="testimonial-captain-email">Captain email</Label>
+                                <Input
+                                    id="testimonial-captain-email"
+                                    type="email"
+                                    placeholder="captain@example.com"
+                                    value={sendTestimonialByEmailValue}
+                                    onChange={(e) => setSendTestimonialByEmailValue(e.target.value)}
+                                    className="rounded-xl"
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <Button variant="outline" onClick={() => setSendTestimonialByEmailOpen(false)} disabled={isSendingTestimonialByEmail}>
+                                    Cancel
+                                </Button>
+                                <Button onClick={handleSendTestimonialToCaptainByEmail} disabled={isSendingTestimonialByEmail}>
+                                    {isSendingTestimonialByEmail ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <>
+                                            <Send className="h-4 w-4 mr-2" />
+                                            Send for approval
                                         </>
                                     )}
                                 </Button>

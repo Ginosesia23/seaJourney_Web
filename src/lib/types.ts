@@ -122,6 +122,7 @@ export interface Testimonial {
     signoff_target_email: string | null;       // Email address the token was generated for
     signoff_used_at: string | null;            // ISO timestamp
     data_source?: 'crew' | 'vessel' | null;    // Data source used: 'crew' for crew member logs, 'vessel' for vessel logs
+    generated_by_user_id?: string | null;      // User who created this: vessel manager or crew (for tracking)
     created_at: string;           // ISO timestamp
     updated_at: string;           // ISO timestamp
 }
