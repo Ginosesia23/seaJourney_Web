@@ -3637,16 +3637,16 @@ export default function CrewPage() {
                                             <div className="flex items-center justify-center py-12">
                                                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
                                             </div>
-                                        ) : selectedMemberData.vesselGeneratedTestimonials && selectedMemberData.vesselGeneratedTestimonials.length > 0 ? (
+                                        ) : (selectedMemberData.vesselGeneratedTestimonials?.length ?? 0) > 0 ? (
                                             <div className="space-y-4">
                                                 <div className="flex items-center justify-between">
                                                     <h4 className="font-semibold">Generated Documents</h4>
                                                     <Badge variant="outline" className="text-xs">
-                                                        {selectedMemberData.vesselGeneratedTestimonials.length} document{selectedMemberData.vesselGeneratedTestimonials.length !== 1 ? 's' : ''}
+                                                        {selectedMemberData.vesselGeneratedTestimonials!.length} document{selectedMemberData.vesselGeneratedTestimonials!.length !== 1 ? 's' : ''}
                                                     </Badge>
                                                 </div>
                                                 <div className="grid gap-3">
-                                                    {selectedMemberData.vesselGeneratedTestimonials.map((testimonial) => {
+                                                    {selectedMemberData.vesselGeneratedTestimonials!.map((testimonial) => {
                                                         const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
                                                         const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
                                                         
@@ -3734,17 +3734,22 @@ export default function CrewPage() {
                                                     })}
                                                 </div>
                                             </div>
-                                        ) : (
-                                            <Card className="border-dashed">
-                                                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                                                    <FileText className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                                                    <h4 className="font-semibold mb-2">No Documents Generated</h4>
-                                                    <p className="text-sm text-muted-foreground mb-4">
-                                                        No documents have been generated for this crew member yet.
-                                                    </p>
-                                                </CardContent>
-                                            </Card>
-                                        )}
+                                        ) : (() => {
+                                            const hasVesselGenerated = (selectedMemberData.vesselGeneratedTestimonials?.length ?? 0) > 0;
+                                            const hasTestimonials = selectedMemberData.accessRequest?.status === 'approved' && (selectedMemberData.testimonials?.length ?? 0) > 0;
+                                            const hasAnyDocuments = hasVesselGenerated || hasTestimonials;
+                                            return !hasAnyDocuments ? (
+                                                <Card className="border-dashed">
+                                                    <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                                                        <FileText className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+                                                        <h4 className="font-semibold mb-2">No Documents Generated</h4>
+                                                        <p className="text-sm text-muted-foreground mb-4">
+                                                            No documents have been generated for this crew member yet.
+                                                        </p>
+                                                    </CardContent>
+                                                </Card>
+                                            ) : null;
+                                        })()}
 
                                         {/* Generate New Document Form */}
                                         {showGenerateForm && (
