@@ -4,8 +4,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, ArrowUpCircle, Send, Eye } from 'lucide-react';
-import { format, parse, eachDayOfInterval, format as formatDate, addDays } from 'date-fns';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, ArrowUpCircle, Send, Eye, Pencil } from 'lucide-react';
+import { format, parse, eachDayOfInterval, format as formatDate, addDays, isWithinInterval } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -48,7 +48,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import type { UserProfile, VesselAssignment, Vessel, VesselSeaTimeAccessRequest, CrewLeavePeriod, Testimonial, VesselGeneratedTestimonial, StateLog } from '@/lib/types';
-import { getActiveVesselAssignmentsByVessel, getVesselStateLogs } from '@/supabase/database/queries';
+import { getActiveVesselAssignmentsByVessel, getVesselStateLogs, updateVesselAssignment } from '@/supabase/database/queries';
 import { useCollection } from '@/supabase/database';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -89,6 +89,8 @@ interface CrewMemberWithAssignment {
     testimonials?: Testimonial[];
     vesselGeneratedTestimonials?: VesselGeneratedTestimonial[];
     hasApprovedAccess?: boolean;
+    /** True when seaTimeData was computed from vessel logs (no crew permission) */
+    seaTimeDataFromVessel?: boolean;
 }
 
 // Sortable Row Component
@@ -106,6 +108,7 @@ interface SortableRowProps {
     onToggleRowExpansion: (member: CrewMemberWithAssignment) => void;
     onRequestAccess: (userId: string) => void;
     onOpenLeavePeriodsDialog: (member: CrewMemberWithAssignment) => void;
+    onEditStartDate?: (member: CrewMemberWithAssignment) => void;
 }
 
 function SortableRow({
@@ -122,6 +125,7 @@ function SortableRow({
     onToggleRowExpansion,
     onRequestAccess,
     onOpenLeavePeriodsDialog,
+    onEditStartDate,
 }: SortableRowProps) {
     const { profile, assignment } = member;
     const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
@@ -255,9 +259,25 @@ function SortableRow({
                 </TableCell>
             ) : (
                 <TableCell>
+                    <div className="flex items-center gap-1.5">
                         {assignment.startDate 
                             ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
                             : 'N/A'}
+                        {currentUserProfile?.role === 'vessel' && onEditStartDate && assignment.id && !assignment.id.startsWith('placeholder-') && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEditStartDate(member);
+                                }}
+                                title="Change start date"
+                            >
+                                <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                        )}
+                    </div>
                 </TableCell>
             )}
             {currentUserProfile?.role === 'vessel' && (
@@ -417,7 +437,13 @@ export default function CrewPage() {
     const [sendTestimonialByEmailOpen, setSendTestimonialByEmailOpen] = useState(false);
     const [sendTestimonialByEmailValue, setSendTestimonialByEmailValue] = useState('');
     const [isSendingTestimonialByEmail, setIsSendingTestimonialByEmail] = useState(false);
+    const [editStartDateMember, setEditStartDateMember] = useState<CrewMemberWithAssignment | null>(null);
+    const [editStartDateValue, setEditStartDateValue] = useState('');
+    const [isSavingStartDate, setIsSavingStartDate] = useState(false);
     const [selectedDataSource, setSelectedDataSource] = useState<'crew' | 'vessel' | null>(null);
+    const [selectedTestimonialFormat, setSelectedTestimonialFormat] = useState<Record<string, TestimonialPDFFormat>>({});
+    const [selectedVesselDocFormat, setSelectedVesselDocFormat] = useState<Record<string, TestimonialPDFFormat>>({});
+    const [selectedNewDocFormat, setSelectedNewDocFormat] = useState<TestimonialPDFFormat>('seajourney');
 
     // The user's own profile is needed to check their role and active vessel.
     const { data: currentUserProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -1144,6 +1170,93 @@ export default function CrewPage() {
         }
     };
 
+    // Load sea time breakdown from vessel data when crew has not granted permission (uses vessel state logs + vessel-added leave periods)
+    const loadVesselBasedSeaTimeData = async (member: CrewMemberWithAssignment) => {
+        if (!currentUserProfile?.activeVesselId || !user?.id || currentUserProfile?.role !== 'vessel') return;
+        const vesselId = currentUserProfile.activeVesselId;
+        const vessel = getVesselDetails(vesselId);
+        const vesselManagerId = (vessel as any)?.vessel_manager_id || currentUserProfile.id;
+        const startStr = member.assignment.startDate;
+        if (!startStr) return;
+        const startDate = parse(startStr, 'yyyy-MM-dd', new Date());
+        const endDate = member.assignment.endDate
+            ? parse(member.assignment.endDate, 'yyyy-MM-dd', new Date())
+            : new Date();
+        const today = new Date();
+        const effectiveEnd = endDate > today ? today : endDate;
+        if (startDate > effectiveEnd) return;
+
+        setLoadingSeaTime(prev => new Set(prev).add(member.profile.id));
+        try {
+            const vesselLogs = await getVesselStateLogs(supabase, vesselId, vesselManagerId);
+            const vesselLogByDate = new Map<string, StateLog>();
+            vesselLogs.forEach(log => vesselLogByDate.set(log.date, log));
+
+            const leavePeriods = member.leavePeriods || [];
+            const isDateOnLeave = (dateStr: string) => {
+                const d = parse(dateStr, 'yyyy-MM-dd', new Date());
+                return leavePeriods.some(lp => {
+                    const start = parse(lp.startDate, 'yyyy-MM-dd', new Date());
+                    const end = parse(lp.endDate, 'yyyy-MM-dd', new Date());
+                    return isWithinInterval(d, { start, end });
+                });
+            };
+
+            const days = eachDayOfInterval({ start: startDate, end: effectiveEnd });
+            const effectiveLogs: StateLog[] = days.map(day => {
+                const dateStr = format(day, 'yyyy-MM-dd');
+                const onLeave = isDateOnLeave(dateStr);
+                const vesselLog = vesselLogByDate.get(dateStr);
+                const state = onLeave ? 'on-leave' : (vesselLog?.state ?? 'in-port');
+                return {
+                    id: vesselLog?.id ?? `vessel-${dateStr}`,
+                    userId: vesselLog?.userId ?? member.profile.id,
+                    vesselId,
+                    date: dateStr,
+                    state: state as StateLog['state'],
+                    isPartOfActivePassage: vesselLog?.isPartOfActivePassage ?? false,
+                    notes: vesselLog?.notes,
+                } as StateLog;
+            });
+
+            const partOfActivePassageDates = new Set<string>();
+            effectiveLogs.forEach(log => {
+                if (log.isPartOfActivePassage) partOfActivePassageDates.add(log.date);
+            });
+            const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(effectiveLogs, new Set(), partOfActivePassageDates);
+
+            const seaTimeData = {
+                totalDays: effectiveLogs.length,
+                atSeaDays: totalSeaDays,
+                standbyDays: totalStandbyDays,
+                underwayDays: effectiveLogs.filter(l => l.state === 'underway').length,
+                atAnchorDays: effectiveLogs.filter(l => l.state === 'at-anchor').length,
+                inPortDays: effectiveLogs.filter(l => l.state === 'in-port').length,
+                onLeaveDays: effectiveLogs.filter(l => l.state === 'on-leave').length,
+                inYardDays: effectiveLogs.filter(l => l.state === 'in-yard').length,
+            };
+
+            setCrewMembers(prev => prev.map(m =>
+                m.profile.id === member.profile.id
+                    ? { ...m, seaTimeData, seaTimeDataFromVessel: true }
+                    : m
+            ));
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error loading vessel-based sea time:', error);
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to load vessel data breakdown.',
+                variant: 'destructive',
+            });
+        } finally {
+            setLoadingSeaTime(prev => {
+                const next = new Set(prev);
+                next.delete(member.profile.id);
+                return next;
+            });
+        }
+    };
+
     // Function to toggle expanded row (no longer used, but kept for compatibility)
     const toggleRowExpansion = async (crewMember: CrewMemberWithAssignment) => {
         // This function is no longer needed as sea time is shown in focused view
@@ -1194,6 +1307,38 @@ export default function CrewPage() {
             });
         } finally {
             setUpdatingOnboardStatus(null);
+        }
+    };
+
+    const openEditStartDate = (member: CrewMemberWithAssignment) => {
+        setEditStartDateMember(member);
+        setEditStartDateValue(member.assignment.startDate || new Date().toISOString().split('T')[0]);
+    };
+
+    const saveStartDate = async () => {
+        if (!editStartDateMember || !editStartDateMember.assignment.id || editStartDateMember.assignment.id.startsWith('placeholder-')) return;
+        setIsSavingStartDate(true);
+        try {
+            await updateVesselAssignment(supabase, editStartDateMember.assignment.id, {
+                startDate: editStartDateValue,
+            });
+            setCrewMembers(prev => prev.map(m => {
+                if (m.profile.id === editStartDateMember.profile.id && m.assignment.id === editStartDateMember.assignment.id) {
+                    return { ...m, assignment: { ...m.assignment, startDate: editStartDateValue } };
+                }
+                return m;
+            }));
+            toast({ title: 'Start date updated', description: 'The crew member\'s start date has been updated.' });
+            setEditStartDateMember(null);
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error updating start date:', error);
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to update start date. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSavingStartDate(false);
         }
     };
     
@@ -1295,7 +1440,14 @@ export default function CrewPage() {
             hasApprovedAccess: member.accessRequest?.status === 'approved' || false,
         };
     }, [selectedCrewMemberId, crewMembers]);
-    
+
+    // When a crew member is selected without approved access, load breakdown from vessel data (vessel logs + vessel-added leave periods)
+    useEffect(() => {
+        if (!selectedMemberData || currentUserProfile?.role !== 'vessel' || selectedMemberData.accessRequest?.status === 'approved') return;
+        if (!currentUserProfile?.activeVesselId || !supabase) return;
+        loadVesselBasedSeaTimeData(selectedMemberData);
+    }, [selectedMemberData?.profile.id, selectedMemberData?.assignment?.startDate, selectedMemberData?.assignment?.endDate, selectedMemberData?.leavePeriods?.length, currentUserProfile?.role, currentUserProfile?.activeVesselId]);
+
     // Form for inviting crew members
     const inviteForm = useForm<InviteCrewFormValues>({
         resolver: zodResolver(inviteCrewSchema),
@@ -2495,16 +2647,7 @@ export default function CrewPage() {
                 }
 
                 hasApprovedAccess = !!accessRequest;
-                
-                if (!hasApprovedAccess) {
-                    toast({
-                        title: 'Permission Denied',
-                        description: 'You need approved access from this crew member to save testimonials. Please request access first.',
-                        variant: 'destructive',
-                    });
-                    setIsSavingTestimonial(false);
-                    return;
-                }
+                // When no approved access we still allow saving: use vessel data (data_source: 'vessel')
             } else {
                 hasApprovedAccess = true;
             }
@@ -2649,23 +2792,7 @@ export default function CrewPage() {
                 }
 
                 hasApprovedAccess = !!accessRequest;
-                
-                if (!hasApprovedAccess) {
-                    console.error('[CREW PAGE] No approved access request found:', {
-                        accessError,
-                        accessRequest,
-                        vesselUserId: currentUserProfile.id,
-                        crewUserId: selectedMemberData.profile.id,
-                        vesselId: currentUserProfile.activeVesselId,
-                    });
-                    toast({
-                        title: 'Permission Denied',
-                        description: 'You need approved access from this crew member to generate testimonials. Please request access first.',
-                        variant: 'destructive',
-                    });
-                    setGeneratingPDF(null);
-                    return;
-                }
+                // When no approved access we still allow generation: use vessel data (data_source: 'vessel')
             } else {
                 // Admins can use either data source
                 hasApprovedAccess = true;
@@ -3301,58 +3428,65 @@ export default function CrewPage() {
                         </div>
                     </CardHeader>
                     <CardContent>
-                        {/* Sea Time Summary Section - Only show if access is approved */}
-                        {selectedMemberData.accessRequest?.status === 'approved' && (
-                            <div className="mb-6 pb-6 border-b">
-                                <h3 className="text-sm font-medium text-muted-foreground mb-3">Sea Time Summary</h3>
-                                
-                                {loadingSeaTime.has(selectedMemberData.profile.id) ? (
-                                    <div className="flex items-center justify-center py-8">
-                                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                                        <span className="ml-2 text-muted-foreground">Loading sea time data...</span>
-                                    </div>
-                                ) : selectedMemberData.seaTimeData ? (
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                        <Card className="p-3">
-                                            <div className="text-xs text-muted-foreground mb-1">Total Days</div>
-                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.totalDays}</div>
-                                        </Card>
-                                        <Card className="p-3 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
-                                            <div className="text-xs text-muted-foreground mb-1">At Sea Days</div>
-                                            <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{selectedMemberData.seaTimeData.atSeaDays}</div>
-                                        </Card>
-                                        <Card className="p-3 border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20">
-                                            <div className="text-xs text-muted-foreground mb-1">Standby Days</div>
-                                            <div className="text-xl font-bold text-purple-600 dark:text-purple-400">{selectedMemberData.seaTimeData.standbyDays}</div>
-                                        </Card>
-                                        <Card className="p-3">
-                                            <div className="text-xs text-muted-foreground mb-1">Underway Days</div>
-                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.underwayDays}</div>
-                                        </Card>
-                                        <Card className="p-3">
-                                            <div className="text-xs text-muted-foreground mb-1">At Anchor Days</div>
-                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.atAnchorDays}</div>
-                                        </Card>
-                                        <Card className="p-3">
-                                            <div className="text-xs text-muted-foreground mb-1">In Port Days</div>
-                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.inPortDays}</div>
-                                        </Card>
-                                        <Card className="p-3">
-                                            <div className="text-xs text-muted-foreground mb-1">On Leave Days</div>
-                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.onLeaveDays}</div>
-                                        </Card>
-                                        <Card className="p-3">
-                                            <div className="text-xs text-muted-foreground mb-1">In Yard Days</div>
-                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.inYardDays}</div>
-                                        </Card>
-                                    </div>
-                                ) : (
-                                    <div className="text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/20">
-                                        No sea time data available
-                                    </div>
+                        {/* Days breakdown - always shown; from crew logs when access approved, otherwise from vessel data + vessel leave periods */}
+                        <div className="mb-6 pb-6 border-b">
+                            <div className="flex items-center gap-2 mb-3">
+                                <h3 className="text-sm font-medium text-muted-foreground">Days breakdown</h3>
+                                {selectedMemberData.seaTimeDataFromVessel && (
+                                    <Badge variant="outline" className="text-xs">
+                                        From vessel data (crew has not shared access)
+                                    </Badge>
                                 )}
                             </div>
-                        )}
+                            
+                            {loadingSeaTime.has(selectedMemberData.profile.id) ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                    <span className="ml-2 text-muted-foreground">Loading breakdown...</span>
+                                </div>
+                            ) : selectedMemberData.seaTimeData ? (
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    <Card className="p-3">
+                                        <div className="text-xs text-muted-foreground mb-1">Total Days</div>
+                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.totalDays}</div>
+                                    </Card>
+                                    <Card className="p-3 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+                                        <div className="text-xs text-muted-foreground mb-1">At Sea Days</div>
+                                        <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{selectedMemberData.seaTimeData.atSeaDays}</div>
+                                    </Card>
+                                    <Card className="p-3 border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20">
+                                        <div className="text-xs text-muted-foreground mb-1">Standby Days</div>
+                                        <div className="text-xl font-bold text-purple-600 dark:text-purple-400">{selectedMemberData.seaTimeData.standbyDays}</div>
+                                    </Card>
+                                    <Card className="p-3">
+                                        <div className="text-xs text-muted-foreground mb-1">Underway Days</div>
+                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.underwayDays}</div>
+                                    </Card>
+                                    <Card className="p-3">
+                                        <div className="text-xs text-muted-foreground mb-1">At Anchor Days</div>
+                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.atAnchorDays}</div>
+                                    </Card>
+                                    <Card className="p-3">
+                                        <div className="text-xs text-muted-foreground mb-1">In Port Days</div>
+                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.inPortDays}</div>
+                                    </Card>
+                                    <Card className="p-3">
+                                        <div className="text-xs text-muted-foreground mb-1">On Leave Days</div>
+                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.onLeaveDays}</div>
+                                    </Card>
+                                    <Card className="p-3">
+                                        <div className="text-xs text-muted-foreground mb-1">In Yard Days</div>
+                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.inYardDays}</div>
+                                    </Card>
+                                </div>
+                            ) : (
+                                <div className="text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/20">
+                                    {selectedMemberData.accessRequest?.status === 'approved'
+                                        ? 'No sea time data available'
+                                        : 'No vessel logs in this period. Add vessel state logs or request sea time access from the crew member.'}
+                                </div>
+                            )}
+                        </div>
                         
                         {/* Tabs for Leave Periods and Documents */}
                         <Tabs defaultValue="documents" className="w-full">
@@ -3608,20 +3742,32 @@ export default function CrewPage() {
                                                                                 <Eye className="h-4 w-4" />
                                                                             </Button>
                                                                             <Select
-                                                                                onValueChange={(format) => handleGeneratePDF(testimonial, format as TestimonialPDFFormat)}
+                                                                                value={selectedTestimonialFormat[testimonial.id] ?? 'seajourney'}
+                                                                                onValueChange={(format) => setSelectedTestimonialFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
                                                                                 disabled={generatingPDF === testimonial.id}
                                                                             >
                                                                                 <SelectTrigger className="w-[140px] rounded-xl">
-                                                                                    <SelectValue placeholder="Print" />
+                                                                                    <SelectValue placeholder="Version" />
                                                                                 </SelectTrigger>
                                                                                 <SelectContent>
                                                                                     <SelectItem value="seajourney">SeaJourney PDF</SelectItem>
                                                                                     <SelectItem value="mca">MCA PDF</SelectItem>
                                                                                 </SelectContent>
                                                                             </Select>
-                                                                            {generatingPDF === testimonial.id && (
-                                                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                                            )}
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                onClick={() => handleGeneratePDF(testimonial, selectedTestimonialFormat[testimonial.id] ?? 'seajourney')}
+                                                                                disabled={generatingPDF === testimonial.id}
+                                                                                className="rounded-xl"
+                                                                                title="Download"
+                                                                            >
+                                                                                {generatingPDF === testimonial.id ? (
+                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                ) : (
+                                                                                    <Download className="h-4 w-4" />
+                                                                                )}
+                                                                            </Button>
                                                                         </div>
                                                                     </div>
                                                                 </CardContent>
@@ -3684,21 +3830,32 @@ export default function CrewPage() {
                                                                                 <Eye className="h-4 w-4" />
                                                                             </Button>
                                                                             <Select
-                                                                                onValueChange={(format) => handleGenerateVesselTestimonialPDF(testimonial, format as TestimonialPDFFormat)}
+                                                                                value={selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'seajourney'}
+                                                                                onValueChange={(format) => setSelectedVesselDocFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
                                                                                 disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
-                                                                                defaultValue={testimonial.pdf_format}
                                                                             >
                                                                                 <SelectTrigger className="w-[140px] rounded-xl">
-                                                                                    <SelectValue placeholder="Format" />
+                                                                                    <SelectValue placeholder="Version" />
                                                                                 </SelectTrigger>
                                                                                 <SelectContent>
                                                                                     <SelectItem value="seajourney">SeaJourney</SelectItem>
                                                                                     <SelectItem value="mca">MCA</SelectItem>
                                                                                 </SelectContent>
                                                                             </Select>
-                                                                            {generatingPDF === testimonial.id && (
-                                                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                                            )}
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'seajourney')}
+                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                className="rounded-xl"
+                                                                                title="Download"
+                                                                            >
+                                                                                {generatingPDF === testimonial.id ? (
+                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                ) : (
+                                                                                    <Download className="h-4 w-4" />
+                                                                                )}
+                                                                            </Button>
                                                                             <Button
                                                                                 variant="ghost"
                                                                                 size="sm"
@@ -3946,17 +4103,36 @@ export default function CrewPage() {
                                                                     </Button>
 
                                                                     <Select
-                                                                        onValueChange={(format) => handleGenerateFromDateRange(format as TestimonialPDFFormat)}
+                                                                        value={selectedNewDocFormat}
+                                                                        onValueChange={(format) => setSelectedNewDocFormat(format as TestimonialPDFFormat)}
                                                                         disabled={generatingPDF === 'date-range' || isSavingTestimonial}
                                                                     >
                                                                         <SelectTrigger className="w-[160px] rounded-xl">
-                                                                            <SelectValue placeholder="Generate PDF" />
+                                                                            <SelectValue placeholder="Version" />
                                                                         </SelectTrigger>
                                                                         <SelectContent>
                                                                             <SelectItem value="seajourney">SeaJourney PDF</SelectItem>
                                                                             <SelectItem value="mca">MCA PDF</SelectItem>
                                                                         </SelectContent>
                                                                     </Select>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        onClick={() => handleGenerateFromDateRange(selectedNewDocFormat)}
+                                                                        disabled={generatingPDF === 'date-range' || isSavingTestimonial}
+                                                                        className="rounded-xl"
+                                                                    >
+                                                                        {generatingPDF === 'date-range' ? (
+                                                                            <>
+                                                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                                Generating...
+                                                                            </>
+                                                                        ) : (
+                                                                            <>
+                                                                                <Download className="mr-2 h-4 w-4" />
+                                                                                Download PDF
+                                                                            </>
+                                                                        )}
+                                                                    </Button>
                                                                     
                                                                     {activeCaptain && (
                                                                         <Button
@@ -4447,6 +4623,58 @@ export default function CrewPage() {
                                 </DialogContent>
                             </Dialog>
                         )}
+
+                        {/* Edit start date dialog (vessel only) */}
+                        {currentUserProfile?.role === 'vessel' && (
+                            <Dialog open={!!editStartDateMember} onOpenChange={(open) => !open && setEditStartDateMember(null)}>
+                                <DialogContent className="rounded-xl sm:max-w-[400px]">
+                                    <DialogHeader>
+                                        <DialogTitle>Change start date</DialogTitle>
+                                        <DialogDescription>
+                                            {editStartDateMember && (
+                                                <>Set the official start date for {[editStartDateMember.profile.firstName, editStartDateMember.profile.lastName].filter(Boolean).join(' ').trim() || editStartDateMember.profile.username || 'this crew member'}.</>
+                                            )}
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4 py-2">
+                                        <div className="space-y-2">
+                                            <Label htmlFor="edit-start-date">Start date</Label>
+                                            <Input
+                                                id="edit-start-date"
+                                                type="date"
+                                                value={editStartDateValue}
+                                                onChange={(e) => setEditStartDateValue(e.target.value)}
+                                                max={format(new Date(), 'yyyy-MM-dd')}
+                                            />
+                                        </div>
+                                        <div className="flex justify-end gap-2">
+                                            <Button
+                                                variant="outline"
+                                                className="rounded-xl"
+                                                onClick={() => setEditStartDateMember(null)}
+                                                disabled={isSavingStartDate}
+                                            >
+                                                Cancel
+                                            </Button>
+                                            <Button
+                                                className="rounded-xl"
+                                                onClick={saveStartDate}
+                                                disabled={isSavingStartDate}
+                                            >
+                                                {isSavingStartDate ? (
+                                                    <>
+                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        Saving...
+                                                    </>
+                                                ) : (
+                                                    'Save'
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </DialogContent>
+                            </Dialog>
+                        )}
                     </div>
                 </div>
                 <Separator />
@@ -4589,6 +4817,7 @@ export default function CrewPage() {
                                                 onToggleRowExpansion={toggleRowExpansion}
                                                 onRequestAccess={handleRequestAccess}
                                                 onOpenLeavePeriodsDialog={(member) => handleSelectCrewMember(member.profile.id)}
+                                                onEditStartDate={currentUserProfile?.role === 'vessel' ? openEditStartDate : undefined}
                                             />
                                         </React.Fragment>
                                     ))}

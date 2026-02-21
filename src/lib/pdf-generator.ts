@@ -4131,8 +4131,8 @@ export async function generateMCADeckhandTestimonial(
   output: TestimonialPDFOutput = 'download',
   opts?: { debug?: boolean }
 ) {
-  // Debug: pass { debug: true } to draw red crosshairs at each field position (default off)
-  const debug = opts?.debug === true;
+  // Debug: ON by default — red crosshairs + labels at each field. Pass { debug: false } to turn off.
+  const debug = opts?.debug !== false;
   opts = { ...opts, debug };
 
   const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
@@ -4326,7 +4326,7 @@ export async function generateMCADeckhandTestimonial(
     
     // Standby Service Table A (Page 2)
     standbyTableTitle: { x: 25, top: 393, page: 2 },
-    standbyTableStartY: { top: 370, page: 2 },
+    standbyTableStartY: { top: 340, page: 2 },
     standbyTableRowHeight: 14.5,
     standbyTableCol1: { x: 60 }, // Passage start date
     standbyTableCol2: { x: 170 }, // Passage end date
@@ -4411,9 +4411,11 @@ export async function generateMCADeckhandTestimonial(
     }
     
     // Table A: Standby Service (if standby periods are available)
+    // Rows are filled top-to-bottom: first row at tableStartY, next at tableStartY + rowHeight, etc.
     if (data.standbyPeriods && data.standbyPeriods.length > 0) {
       const tableStartY = COORDS.standbyTableStartY.top;
-      let currentY = tableStartY;
+      const rowHeight = COORDS.standbyTableRowHeight;
+      const totalRowTop = COORDS.standbyTableTotal.top;
       
       // Calculate total standby days
       const totalStandbyDays = data.standbyPeriods.reduce((sum, period) => sum + period.standbyDays, 0);
@@ -4425,12 +4427,17 @@ export async function generateMCADeckhandTestimonial(
         ? `${months} ${months === 1 ? 'month' : 'months'} and ${days} ${days === 1 ? 'day' : 'days'}`
         : `${days} ${days === 1 ? 'day' : 'days'}`;
       
-      // Table rows: oldest first (most recent at bottom) — reverse so first drawn = oldest
+      // Table rows: oldest at top, most recent at bottom (sorted by passage start date ascending).
       const signatureDataUrl = testimonial.captain_signature || captainProfile?.signature;
-      const periodsOldestFirst = [...data.standbyPeriods].reverse();
+      const periodsOldestFirst = [...data.standbyPeriods].sort((a, b) => {
+        const dateA = new Date(a.passageStartDate).getTime();
+        const dateB = new Date(b.passageStartDate).getTime();
+        return dateA - dateB;
+      });
       for (let index = 0; index < periodsOldestFirst.length; index++) {
         const period = periodsOldestFirst[index];
-        if (currentY < 100) break; // Don't draw if too low on page
+        const currentY = tableStartY + index * rowHeight;
+        if (currentY >= totalRowTop - 5) break; // Stop before overlapping the total row
         
         const passageStart = formatDateLocal(period.passageStartDate, 'DD/MM/YYYY');
         const passageEnd = formatDateLocal(period.passageEndDate, 'DD/MM/YYYY');
@@ -4440,20 +4447,13 @@ export async function generateMCADeckhandTestimonial(
         drawText(page2, base, passageEnd, COORDS.standbyTableCol2.x, currentY, { size: 9 });
         drawText(page2, base, standbyDays, COORDS.standbyTableCol3.x, currentY, { size: 9 });
         
-        // Draw master signature (small version) - on every row if signature exists
-        // Adjust Y coordinate: signature function positions from top of box and centers vertically
-        // The function draws at pyTop - bh + (bh - h)/2, so we need to account for the box height
-        // To align with text baseline, we need to position the top of the box higher
-        // Since it's appearing one row below, we need to subtract the row height to move it up
         if (signatureDataUrl) {
           try {
-            await drawSignatureDataUrl(page2, base, signatureDataUrl, COORDS.standbyTableCol4.x, currentY - COORDS.standbyTableRowHeight + 3, 60, 15);
+            await drawSignatureDataUrl(page2, base, signatureDataUrl, COORDS.standbyTableCol4.x, currentY, 60, 15);
           } catch (e) {
             console.warn('Could not draw signature in standby table:', e);
           }
         }
-        
-        currentY -= COORDS.standbyTableRowHeight;
       }
       
       // Add total row at fixed coordinates - display as months and days
@@ -4735,8 +4735,8 @@ export async function generateMCAOfficerTestimonial(
   output: TestimonialPDFOutput = 'download',
   opts?: { debug?: boolean }
 ) {
-  // Debug: pass { debug: true } to draw red crosshairs at each field position (default off)
-  const debug = opts?.debug === true;
+  // Debug: ON by default — red crosshairs + labels at each field. Pass { debug: false } to turn off.
+  const debug = opts?.debug !== false;
   opts = { ...opts, debug };
 
   const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
@@ -5023,9 +5023,11 @@ export async function generateMCAOfficerTestimonial(
     }
     
     // Table A: Standby Service (if standby periods are available)
+    // Rows are filled top-to-bottom: first row at tableStartY, next at tableStartY + rowHeight, etc.
     if (data.standbyPeriods && data.standbyPeriods.length > 0) {
       const tableStartY = COORDS.standbyTableStartY.top;
-      let currentY = tableStartY;
+      const rowHeight = COORDS.standbyTableRowHeight;
+      const totalRowTop = COORDS.standbyTableTotal.top;
       
       // Calculate total standby days
       const totalStandbyDays = data.standbyPeriods.reduce((sum, period) => sum + period.standbyDays, 0);
@@ -5037,12 +5039,17 @@ export async function generateMCAOfficerTestimonial(
         ? `${months} ${months === 1 ? 'month' : 'months'} and ${days} ${days === 1 ? 'day' : 'days'}`
         : `${days} ${days === 1 ? 'day' : 'days'}`;
       
-      // Table rows: oldest first (most recent at bottom) — reverse so first drawn = oldest
+      // Table rows: oldest at top, most recent at bottom (sorted by passage start date ascending).
       const signatureDataUrl = testimonial.captain_signature || captainProfile?.signature;
-      const periodsOldestFirst = [...data.standbyPeriods].reverse();
+      const periodsOldestFirst = [...data.standbyPeriods].sort((a, b) => {
+        const dateA = new Date(a.passageStartDate).getTime();
+        const dateB = new Date(b.passageStartDate).getTime();
+        return dateA - dateB;
+      });
       for (let index = 0; index < periodsOldestFirst.length; index++) {
         const period = periodsOldestFirst[index];
-        if (currentY < 100) break; // Don't draw if too low on page
+        const currentY = tableStartY + index * rowHeight;
+        if (currentY >= totalRowTop - 5) break; // Stop before overlapping the total row
         
         const passageStart = formatDateLocal(period.passageStartDate, 'DD/MM/YYYY');
         const passageEnd = formatDateLocal(period.passageEndDate, 'DD/MM/YYYY');
@@ -5052,20 +5059,13 @@ export async function generateMCAOfficerTestimonial(
         drawText(page2, base, passageEnd, COORDS.standbyTableCol2.x, currentY, { size: 9 });
         drawText(page2, base, standbyDays, COORDS.standbyTableCol3.x, currentY, { size: 9 });
         
-        // Draw master signature (small version) - on every row if signature exists
-        // Adjust Y coordinate: signature function positions from top of box and centers vertically
-        // The function draws at pyTop - bh + (bh - h)/2, so we need to account for the box height
-        // To align with text baseline, we need to position the top of the box higher
-        // Since it's appearing one row below, we need to subtract the row height to move it up
         if (signatureDataUrl) {
           try {
-            await drawSignatureDataUrl(page2, base, signatureDataUrl, COORDS.standbyTableCol4.x, currentY - COORDS.standbyTableRowHeight + 15, 60, 15);
+            await drawSignatureDataUrl(page2, base, signatureDataUrl, COORDS.standbyTableCol4.x, currentY, 60, 15);
           } catch (e) {
             console.warn('Could not draw signature in standby table:', e);
           }
         }
-        
-        currentY -= COORDS.standbyTableRowHeight;
       }
       
       // Add total row at fixed coordinates - display as months and days

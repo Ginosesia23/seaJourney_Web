@@ -1280,6 +1280,14 @@ export async function deleteBridgeWatchLog(
 export type FeedbackType = 'bug' | 'feature' | 'other';
 export type FeedbackStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 
+/** Submitter profile (from users) for admin feedback list */
+export interface FeedbackSubmitter {
+  email: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  username?: string | null;
+}
+
 export interface Feedback {
   id: string;
   userId: string;
@@ -1293,6 +1301,8 @@ export interface Feedback {
   respondedBy: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Populated by getAllFeedback for admin view */
+  submitter?: FeedbackSubmitter | null;
 }
 
 /**
@@ -1369,7 +1379,7 @@ export async function getUserFeedback(
 }
 
 /**
- * Get all feedback (admin only)
+ * Get all feedback (admin only), with submitter profile joined from users
  */
 export async function getAllFeedback(
   supabase: SupabaseClient,
@@ -1379,9 +1389,13 @@ export async function getAllFeedback(
     limit?: number;
   }
 ): Promise<Feedback[]> {
+  // Join users so admins can see who submitted (user_id → users)
   let query = supabase
     .from('feedback')
-    .select('*')
+    .select(`
+      *,
+      users(first_name, last_name, email, username)
+    `)
     .order('created_at', { ascending: false });
 
   if (options?.status) {
@@ -1400,7 +1414,7 @@ export async function getAllFeedback(
 
   if (error) throw error;
 
-  return (data || []).map((item) => ({
+  return (data || []).map((item: any) => ({
     id: item.id,
     userId: item.user_id,
     type: item.type,
@@ -1413,6 +1427,14 @@ export async function getAllFeedback(
     respondedBy: item.responded_by || null,
     createdAt: item.created_at,
     updatedAt: item.updated_at,
+    submitter: item.users
+      ? {
+          email: item.users.email ?? '',
+          first_name: item.users.first_name ?? null,
+          last_name: item.users.last_name ?? null,
+          username: item.users.username ?? null,
+        }
+      : null,
   }));
 }
 
