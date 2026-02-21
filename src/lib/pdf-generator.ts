@@ -301,6 +301,17 @@ function truncate(value: any, max = 160, fallback = '—'): string {
   return str.length > max ? `${str.slice(0, max - 1)}…` : str;
 }
 
+/** Format vessel type for display: "passenger-yacht" → "Passenger Yacht", "motor-yacht" → "Motor Yacht", etc. */
+function formatVesselTypeForDisplay(type: string | null | undefined, fallback = '—'): string {
+  if (type === null || type === undefined) return fallback;
+  const trimmed = String(type).trim();
+  if (!trimmed) return fallback;
+  return trimmed
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 /**
  * Parse a yyyy-MM-dd date safely as a "date-only".
  * Using noon avoids DST edge cases where midnight can shift the date.
@@ -597,13 +608,7 @@ export async function generateTestimonialPDF(
   if (vessel.officialNumber) vesselRows.push(['Official No.', safeText(vessel.officialNumber)]);
 
   if (vessel.type) {
-    const vesselTypeLabel =
-      vessel.type === 'motor-yacht'
-        ? 'M/Y'
-        : vessel.type === 'sailing-yacht'
-          ? 'S/Y'
-          : vessel.type;
-    vesselRows.push(['Type (M/Y, S/Y, other)', safeText(vesselTypeLabel)]);
+    vesselRows.push(['Type (M/Y, S/Y, other)', safeText(formatVesselTypeForDisplay(vessel.type))]);
   }
 
   if (vessel.length_m) vesselRows.push(['Length-metres', `${vessel.length_m.toFixed(2)} m`]);
@@ -1285,7 +1290,7 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
 
     const vesselRows: string[][] = [
       ['Vessel Name:', safeText(vesselDetails.name, 'Not specified')],
-      ['Vessel Type:', safeText(vesselDetails.type, 'Not specified')],
+      ['Vessel Type:', safeText(formatVesselTypeForDisplay(vesselDetails.type), 'Not specified')],
     ];
 
     if (vesselDetails.officialNumber) {
@@ -1850,7 +1855,7 @@ export async function generateNavWatchApplicationPDF(
 
   const vesselInfo = [
     ['Vessel Name:', vessel.name],
-    ['Vessel Type:', vessel.type || '—'],
+    ['Vessel Type:', formatVesselTypeForDisplay(vessel.type)],
     ['Official Number:', vessel.officialNumber || '—'],
     ['Flag State:', vessel.flag || vessel.flag_state || '—'],
     ['Gross Tonnage:', vessel.gross_tonnage ? `${vessel.gross_tonnage} GT` : '—'],
@@ -4386,7 +4391,7 @@ export async function generateMCADeckhandTestimonial(
 
   // Vessel Details
   drawText(page1, base, safe(vessel.name), COORDS.vesselName.x, COORDS.vesselName.top);
-  drawText(page1, base, safe(vessel.type), COORDS.vesselType.x, COORDS.vesselType.top);
+  drawText(page1, base, safe(formatVesselTypeForDisplay(vessel.type, '')), COORDS.vesselType.x, COORDS.vesselType.top);
   drawText(page1, base, safe(vessel.officialNumber), COORDS.imoNumber.x, COORDS.imoNumber.top);
   drawText(page1, base, vessel.gross_tonnage?.toString() || '', COORDS.grossTonnage.x, COORDS.grossTonnage.top);
   drawText(page1, base, dateJoining, COORDS.dateJoining.x, COORDS.dateJoining.top);
@@ -4658,7 +4663,7 @@ export async function generateMCADeckhandTestimonial(
     // Vessel Information (left column)
     addSection('Vessel Information');
     addRow('Vessel Name', safe(vessel.name) || 'N/A', 'left');
-    addRow('Vessel Type', safe(vessel.type) || 'N/A', 'left');
+    addRow('Vessel Type', formatVesselTypeForDisplay(vessel.type, 'N/A') || 'N/A', 'left');
     addRow('Flag State', safe(vessel.flag || vessel.flag_state) || 'N/A', 'left');
     addRow('IMO / Official Number', safe(vessel.imo) || safe(vessel.officialNumber) || 'N/A', 'left');
     addRow('Gross Tonnage', vessel.gross_tonnage?.toString() || 'N/A', 'left');
@@ -4998,7 +5003,7 @@ export async function generateMCAOfficerTestimonial(
 
   // Vessel Details
   drawText(page1, base, safe(vessel.name), COORDS.vesselName.x, COORDS.vesselName.top);
-  drawText(page1, base, safe(vessel.type), COORDS.vesselType.x, COORDS.vesselType.top);
+  drawText(page1, base, safe(formatVesselTypeForDisplay(vessel.type, '')), COORDS.vesselType.x, COORDS.vesselType.top);
   drawText(page1, base, safe(vessel.officialNumber), COORDS.imoNumber.x, COORDS.imoNumber.top);
   drawText(page1, base, vessel.gross_tonnage?.toString() || '', COORDS.grossTonnage.x, COORDS.grossTonnage.top);
   drawText(page1, base, dateJoining, COORDS.dateJoining.x, COORDS.dateJoining.top);
@@ -5271,7 +5276,7 @@ export async function generateMCAOfficerTestimonial(
     // Vessel Information (left column)
     addSection('Vessel Information');
     addRow('Vessel Name', safe(vessel.name) || 'N/A', 'left');
-    addRow('Vessel Type', safe(vessel.type) || 'N/A', 'left');
+    addRow('Vessel Type', formatVesselTypeForDisplay(vessel.type, 'N/A') || 'N/A', 'left');
     addRow('Flag State', safe(vessel.flag || vessel.flag_state) || 'N/A', 'left');
     addRow('IMO / Official Number', safe(vessel.imo) || safe(vessel.officialNumber) || 'N/A', 'left');
     addRow('Gross Tonnage', vessel.gross_tonnage?.toString() || 'N/A', 'left');

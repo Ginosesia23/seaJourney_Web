@@ -83,7 +83,7 @@ export default function FeedbackPage() {
     },
   });
 
-  // Fetch feedback
+  // Fetch feedback (admin: fetch all once for counts + client-side filter; non-admin: fetch own only)
   useEffect(() => {
     if (!user?.id) return;
 
@@ -91,10 +91,7 @@ export default function FeedbackPage() {
       setIsLoadingFeedback(true);
       try {
         if (isAdmin) {
-          const feedback = await getAllFeedback(supabase, {
-            status: statusFilter !== 'all' ? statusFilter : undefined,
-            type: typeFilter !== 'all' ? typeFilter : undefined,
-          });
+          const feedback = await getAllFeedback(supabase);
           setAllFeedback(feedback);
         } else {
           const feedback = await getUserFeedback(supabase, user.id);
@@ -113,7 +110,48 @@ export default function FeedbackPage() {
     };
 
     fetchFeedback();
-  }, [user?.id, supabase, isAdmin, statusFilter, typeFilter, toast]);
+  }, [user?.id, supabase, isAdmin, toast]);
+
+  // Admin: status counts filtered by current type (so type row selection updates status numbers)
+  const statusCounts = useMemo(() => {
+    if (!isAdmin) return { all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 };
+    const list = typeFilter === 'all' ? allFeedback : allFeedback.filter((f) => f.type === typeFilter);
+    const open = list.filter((f) => f.status === 'open').length;
+    const in_progress = list.filter((f) => f.status === 'in_progress').length;
+    const resolved = list.filter((f) => f.status === 'resolved').length;
+    const closed = list.filter((f) => f.status === 'closed').length;
+    return {
+      all: list.length,
+      open,
+      in_progress,
+      resolved,
+      closed,
+    };
+  }, [isAdmin, allFeedback, typeFilter]);
+
+  // Admin: type counts filtered by current status (so status selection updates type numbers)
+  const typeCounts = useMemo(() => {
+    if (!isAdmin) return { all: 0, bug: 0, feature: 0, other: 0 };
+    const list = statusFilter === 'all' ? allFeedback : allFeedback.filter((f) => f.status === statusFilter);
+    const bug = list.filter((f) => f.type === 'bug').length;
+    const feature = list.filter((f) => f.type === 'feature').length;
+    const other = list.filter((f) => f.type === 'other').length;
+    return {
+      all: list.length,
+      bug,
+      feature,
+      other,
+    };
+  }, [isAdmin, allFeedback, statusFilter]);
+
+  // Admin: filter full list by selected status and type (client-side)
+  const displayFeedback = useMemo(() => {
+    if (!isAdmin) return userFeedback;
+    let list = allFeedback;
+    if (statusFilter !== 'all') list = list.filter((f) => f.status === statusFilter);
+    if (typeFilter !== 'all') list = list.filter((f) => f.type === typeFilter);
+    return list;
+  }, [isAdmin, allFeedback, userFeedback, statusFilter, typeFilter]);
 
   const onSubmit = async (values: FeedbackFormValues) => {
     if (!user?.id) {
@@ -180,11 +218,8 @@ export default function FeedbackPage() {
       setSelectedFeedback(null);
       setAdminResponse('');
 
-      // Refresh feedback list
-      const feedback = await getAllFeedback(supabase, {
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        type: typeFilter !== 'all' ? typeFilter : undefined,
-      });
+      // Refresh full list so counts stay correct
+      const feedback = await getAllFeedback(supabase);
       setAllFeedback(feedback);
     } catch (error) {
       console.error('[FEEDBACK] Error updating feedback:', error);
@@ -242,8 +277,6 @@ export default function FeedbackPage() {
     }
   };
 
-  const displayFeedback = isAdmin ? allFeedback : userFeedback;
-
   return (
     <div className="flex flex-col gap-6">
       {/* Header Section */}
@@ -262,45 +295,80 @@ export default function FeedbackPage() {
       {isAdmin ? (
         // Admin view - no tabs, just feedback list
         <div className="flex flex-col gap-6">
-          {/* Filters */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Filters</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <label className="text-sm font-medium mb-2 block">Status</label>
-                  <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as FeedbackStatus | 'all')}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Statuses</SelectItem>
-                      <SelectItem value="open">Open</SelectItem>
-                      <SelectItem value="in_progress">In Progress</SelectItem>
-                      <SelectItem value="resolved">Resolved</SelectItem>
-                      <SelectItem value="closed">Closed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex-1">
-                  <label className="text-sm font-medium mb-2 block">Type</label>
-                  <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value as FeedbackType | 'all')}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Types</SelectItem>
-                      <SelectItem value="bug">Bug Report</SelectItem>
-                      <SelectItem value="feature">Feature Request</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Status filters */}
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { value: 'all' as const, label: 'All', icon: MessageSquare },
+                { value: 'open' as const, label: 'New / Open', icon: Clock },
+                { value: 'in_progress' as const, label: 'In Progress', icon: AlertCircle },
+                { value: 'resolved' as const, label: 'Resolved', icon: CheckCircle2 },
+                { value: 'closed' as const, label: 'Closed', icon: XCircle },
+              ].map(({ value, label, icon: Icon }) => {
+                const isActive = statusFilter === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setStatusFilter(value)}
+                    className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                      isActive
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{label}</span>
+                    <span
+                      className={`min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-xs tabular-nums ${
+                        isActive ? 'bg-primary-foreground/20' : 'bg-muted-foreground/15'
+                      }`}
+                    >
+                      {statusCounts[value]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Type filters */}
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Type</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { value: 'all' as const, label: 'All Types', icon: MessageSquare },
+                { value: 'bug' as const, label: 'Bug', icon: Bug },
+                { value: 'feature' as const, label: 'Feature', icon: Sparkles },
+                { value: 'other' as const, label: 'Other', icon: HelpCircle },
+              ].map(({ value, label, icon: Icon }) => {
+                const isActive = typeFilter === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setTypeFilter(value)}
+                    className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                      isActive
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{label}</span>
+                    <span
+                      className={`min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-xs tabular-nums ${
+                        isActive ? 'bg-primary-foreground/20' : 'bg-muted-foreground/15'
+                      }`}
+                    >
+                      {typeCounts[value]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Feedback List */}
           {isLoadingFeedback ? (
