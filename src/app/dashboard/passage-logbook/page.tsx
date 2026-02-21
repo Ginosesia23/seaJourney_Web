@@ -149,11 +149,14 @@ export default function PassageLogbookPage() {
     return vessels.filter((v) => assignedIds.has(v.id));
   }, [vessels, userProfile, vesselAssignments]);
 
-  // When export dialog opens, default vessel filter for vessel accounts to their active vessel
+  // When export dialog opens: vessel accounts use their active vessel only (no "By Vessel" option)
   useEffect(() => {
     if (!isExportDialogOpen) return;
-    if ((userProfile?.role as string) === 'vessel' && (userProfile as any).activeVesselId) {
-      setExportVesselId((userProfile as any).activeVesselId);
+    if ((userProfile?.role as string) === 'vessel') {
+      setExportFilter('all');
+      if ((userProfile as any).activeVesselId) {
+        setExportVesselId((userProfile as any).activeVesselId);
+      }
     }
   }, [isExportDialogOpen, userProfile]);
 
@@ -518,7 +521,25 @@ export default function PassageLogbookPage() {
         filterInfo: Object.keys(filterInfo).length > 0 ? filterInfo : undefined,
       };
 
-      await generatePassageLogPDF(exportData);
+      const baseName = 'Passage-Log-Extract';
+      const namePart = [userProfile.firstName, userProfile.lastName].filter(Boolean).join(' ').trim()
+        || userProfile.username
+        || 'Export';
+      const safeName = namePart.replace(/[^\w\s-]/g, '').replace(/\s+/g, ' ').trim();
+      const dateStr = format(new Date(), 'yyyy-MM-dd');
+      let filename: string;
+      if (filterInfo.vesselName) {
+        const safeVessel = filterInfo.vesselName.replace(/[^\w\s-]/g, '').replace(/\s+/g, ' ').trim();
+        filename = `${baseName} - ${safeName} - ${safeVessel} - ${dateStr}.pdf`;
+      } else if (filterInfo.startDate && filterInfo.endDate) {
+        const start = format(filterInfo.startDate, 'yyyy-MM-dd');
+        const end = format(filterInfo.endDate, 'yyyy-MM-dd');
+        filename = `${baseName} - ${safeName} - ${start} to ${end}.pdf`;
+      } else {
+        filename = `${baseName} - ${safeName} - ${dateStr}.pdf`;
+      }
+
+      await generatePassageLogPDF(exportData, { output: 'download', filename });
 
       toast({
         title: 'Export Complete',
@@ -770,7 +791,7 @@ export default function PassageLogbookPage() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Filter By</label>
                   <Select
-                    value={exportFilter}
+                    value={(userProfile?.role as string) === 'vessel' && exportFilter === 'vessel' ? 'all' : exportFilter}
                     onValueChange={(value: 'all' | 'vessel' | 'date') => setExportFilter(value)}
                   >
                     <SelectTrigger>
@@ -778,13 +799,15 @@ export default function PassageLogbookPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Passages</SelectItem>
-                      <SelectItem value="vessel">By Vessel</SelectItem>
+                      {(userProfile?.role as string) !== 'vessel' && (
+                        <SelectItem value="vessel">By Vessel</SelectItem>
+                      )}
                       <SelectItem value="date">By Date Range</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                {exportFilter === 'vessel' && (
+                {exportFilter === 'vessel' && (userProfile?.role as string) !== 'vessel' && (
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Select Vessel</label>
                     <SearchableSelect
@@ -865,7 +888,7 @@ export default function PassageLogbookPage() {
                 <div className="pt-2">
                   <p className="text-xs text-muted-foreground">
                     {exportFilter === 'all' && `Exporting all ${passages.length} passages`}
-                    {exportFilter === 'vessel' && exportVesselId && `Exporting passages for ${getVesselName(exportVesselId)}`}
+                    {exportFilter === 'vessel' && (userProfile?.role as string) !== 'vessel' && exportVesselId && `Exporting passages for ${getVesselName(exportVesselId)}`}
                     {exportFilter === 'date' && `Exporting passages between selected dates`}
                   </p>
                 </div>
@@ -882,7 +905,7 @@ export default function PassageLogbookPage() {
                 <Button
                   className="rounded-xl"
                   onClick={handleExport}
-                  disabled={isExporting || (exportFilter === 'vessel' && !exportVesselId)}
+                  disabled={isExporting || (exportFilter === 'vessel' && (userProfile?.role as string) !== 'vessel' && !exportVesselId)}
                 >
                   {isExporting ? (
                     <>

@@ -284,6 +284,8 @@ export interface PassageLogExportData {
   };
 }
 
+export type PassageLogPDFOutput = 'download' | 'newtab';
+
 /* ========================================================================== */
 /*                                  HELPERS                                   */
 /* ========================================================================== */
@@ -1463,7 +1465,10 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
 /*                          PASSAGE LOG BOOK EXPORT                           */
 /* ========================================================================== */
 
-export async function generatePassageLogPDF(data: PassageLogExportData) {
+export async function generatePassageLogPDF(
+  data: PassageLogExportData,
+  options?: { output?: PassageLogPDFOutput; filename?: string },
+) {
   const doc = new jsPDF({
     orientation: 'landscape',
     unit: 'mm',
@@ -1477,11 +1482,13 @@ export async function generatePassageLogPDF(data: PassageLogExportData) {
     userProfile.username;
 
   const generatedDate = format(new Date(), 'dd MMM yyyy');
+  const generatedDateFilename = format(new Date(), 'yyyy-MM-dd');
 
-  const textDark: RGB = [30, 30, 30];
-  const textGray: RGB = [100, 100, 100];
-  const borderColor: RGB = [200, 200, 200];
-  const headerColor: RGB = [0, 29, 55];
+  const textDark: RGB = [28, 28, 28];
+  const textMuted: RGB = [82, 82, 82];
+  const borderColor: RGB = [226, 226, 226];
+  const headerBg: RGB = [15, 23, 42];
+  const sectionBg: RGB = [248, 250, 252];
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -1489,103 +1496,111 @@ export async function generatePassageLogPDF(data: PassageLogExportData) {
   const setFillColor = (c: RGB) => doc.setFillColor(c[0], c[1], c[2]);
   const setTextColor = (c: RGB) => doc.setTextColor(c[0], c[1], c[2]);
 
-  // ===== HEADER =====
-  const headerHeight = 32;
-  setFillColor(headerColor);
+  const totalPassages = passages.length;
+  const totalDistance =
+    totalPassages > 0 ? passages.reduce((sum, p) => sum + (p.distance_nm || 0), 0) : 0;
+
+  // ===== HEADER (compact, professional) =====
+  const headerHeight = 22;
+  setFillColor(headerBg);
   doc.rect(0, 0, pageWidth, headerHeight, 'F');
 
-  let currentY = 10;
+  let headerY = 7;
 
   try {
     const logoData = await loadLogoImage('/seajourney_logo_white.png');
-    doc.addImage(logoData, 'PNG', 14, currentY, 35, 8);
+    const logoHeight = 10;
+    const logoWidth = (55 / 15) * logoHeight;
+    doc.addImage(logoData, 'PNG', 14, 5, logoWidth, logoHeight);
   } catch (error) {
     console.warn('Could not load logo:', error);
   }
 
   setTextColor([255, 255, 255]);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text('Passage Log Extract', pageWidth / 2, currentY + 4, { align: 'center' });
+  doc.setFontSize(14);
+  doc.text('Passage Log Extract', 54, headerY + 2);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
-  doc.text(
-    'For use as supporting documentation for sea service verification (e.g. MCA / PYA / Nautilus).',
-    pageWidth / 2,
-    currentY + 10,
-    { align: 'center' },
-  );
-
-  const totalPassages = passages.length;
-  const totalDistance =
-    totalPassages > 0 ? passages.reduce((sum, p) => sum + (p.distance_nm || 0), 0) : 0;
+  setTextColor([220, 220, 220]);
+  doc.text('Sea service supporting document', 54, headerY + 6);
 
   doc.setFontSize(8);
-  doc.text(`Generated: ${generatedDate}`, pageWidth - 14, currentY + 4, { align: 'right' });
-  doc.text(`Total passages: ${totalPassages}`, pageWidth - 14, currentY + 9, { align: 'right' });
+  doc.text(`Generated ${generatedDate}`, pageWidth - 14, headerY + 2, { align: 'right' });
+  doc.text(`${totalPassages} passage${totalPassages !== 1 ? 's' : ''}`, pageWidth - 14, headerY + 6, { align: 'right' });
   if (totalPassages > 0) {
-    doc.text(`Total distance: ${totalDistance.toFixed(1)} NM`, pageWidth - 14, currentY + 14, {
-    align: 'right',
-  });
+    doc.text(`${totalDistance.toFixed(0)} NM total`, pageWidth - 14, headerY + 10, { align: 'right' });
   }
 
-  currentY = headerHeight + 6;
+  let currentY = headerHeight + 10;
 
-  // ===== INFO =====
+  // ===== REPORT & SEAFARER INFO (card-style) =====
   setTextColor(textDark);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('Report & Seafarer Information', 14, currentY);
-  currentY += 4;
+  doc.setFontSize(9);
+  doc.text('Report details', 14, currentY);
+  currentY += 6;
 
   const infoRows: string[][] = [
-    ['Seafarer Name:', safeText(fullName, 'Not provided')],
-    ['Email:', safeText(userProfile.email, 'Not provided')],
+    ['Seafarer', safeText(fullName, 'Not provided')],
+    ['Email', safeText(userProfile.email, 'Not provided')],
   ];
 
   if (filterInfo) {
-    if (filterInfo.vesselName) infoRows.push(['Vessel Filter:', safeText(filterInfo.vesselName)]);
-    if (filterInfo.startDate) infoRows.push(['From Date:', format(filterInfo.startDate, 'dd MMM yyyy')]);
-    if (filterInfo.endDate) infoRows.push(['To Date:', format(filterInfo.endDate, 'dd MMM yyyy')]);
+    if (filterInfo.vesselName) infoRows.push(['Vessel', safeText(filterInfo.vesselName)]);
+    if (filterInfo.startDate) infoRows.push(['From', format(filterInfo.startDate, 'dd MMM yyyy')]);
+    if (filterInfo.endDate) infoRows.push(['To', format(filterInfo.endDate, 'dd MMM yyyy')]);
   }
 
   if (totalPassages > 0) {
     const avgDistance = totalDistance / totalPassages;
-    infoRows.push(['Total Passages in Report:', totalPassages.toString()]);
-    infoRows.push(['Total Distance (NM):', totalDistance.toFixed(1)]);
-    infoRows.push(['Average Distance (NM):', avgDistance.toFixed(1)]);
+    infoRows.push(['Passages', totalPassages.toString()]);
+    infoRows.push(['Distance (NM)', totalDistance.toFixed(1)]);
+    infoRows.push(['Average (NM)', avgDistance.toFixed(1)]);
   }
 
+  const infoTableStartY = currentY;
   autoTable(doc, {
     startY: currentY,
     theme: 'plain',
     body: infoRows,
-    styles: { fontSize: 9, cellPadding: { top: 1.5, right: 3, bottom: 1.5, left: 3 }, textColor: textDark },
+    styles: {
+      fontSize: 9,
+      cellPadding: { top: 3, right: 8, bottom: 3, left: 8 },
+      textColor: textDark,
+      fillColor: sectionBg,
+    },
     columnStyles: {
-      0: { fontStyle: 'bold', cellWidth: 55 },
+      0: { fontStyle: 'bold', cellWidth: 42, textColor: textMuted },
       1: { cellWidth: 'auto' },
     },
-    margin: { left: 18, right: 18 },
+    margin: { left: 14, right: 14 },
     tableLineColor: borderColor,
-    tableLineWidth: 0.2,
+    tableLineWidth: 0.25,
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 6;
+  currentY = (doc as any).lastAutoTable.finalY + 8;
 
-  // ===== TABLE =====
-  doc.setFontSize(10);
+  // ===== PASSAGE RECORDS TABLE =====
   doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
   setTextColor(textDark);
-  doc.text('Passage Records (log-style extract)', 14, currentY);
-  currentY += 4;
+  doc.text('Passage records', 14, currentY);
+  currentY += 5;
 
   if (passages.length === 0) {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    setTextColor(textGray);
+    setTextColor(textMuted);
     doc.text('No passages found for the selected filters.', 14, currentY + 4);
-    doc.output('dataurlnewwindow');
+    const defaultName = `Passage-Log-Extract - ${fullName.replace(/[^\w\s-]/g, '').replace(/\s+/g, ' ').trim() || 'Export'} - ${generatedDateFilename}.pdf`;
+    const filename = options?.filename ?? defaultName;
+    if (options?.output === 'newtab') {
+      doc.output('dataurlnewwindow');
+      return;
+    }
+    doc.save(filename);
     return;
   }
 
@@ -1659,24 +1674,24 @@ export async function generatePassageLogPDF(data: PassageLogExportData) {
     body: tableBody,
     theme: 'grid',
     headStyles: {
-      fillColor: headerColor,
+      fillColor: headerBg,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
       fontSize: 8,
-      cellPadding: { top: 2, right: 2, bottom: 2, left: 2 },
+      cellPadding: { top: 3, right: 4, bottom: 3, left: 4 },
       halign: 'left',
       valign: 'middle',
     },
     styles: {
-      fontSize: 7.5,
+      fontSize: 8,
       textColor: textDark,
-      cellPadding: { top: 1.5, right: 2, bottom: 1.5, left: 2 },
+      cellPadding: { top: 2.5, right: 4, bottom: 2.5, left: 4 },
       halign: 'left',
       valign: 'top',
-      lineColor: [230, 230, 230],
+      lineColor: borderColor,
       lineWidth: 0.2,
     },
-    alternateRowStyles: { fillColor: [249, 249, 249] },
+    alternateRowStyles: { fillColor: [250, 251, 252] },
     columnStyles: {
       0: { cellWidth: colWidths.vessel },
       1: { cellWidth: colWidths.from },
@@ -1689,28 +1704,24 @@ export async function generatePassageLogPDF(data: PassageLogExportData) {
       8: { cellWidth: colWidths.remarks },
     },
     margin: { left: 14, right: 14 },
-    tableLineColor: [220, 220, 220],
+    tableLineColor: borderColor,
     tableLineWidth: 0.2,
     showHead: 'everyPage',
     didDrawPage: (dataHook) => {
-      const footerHeight = 16;
+      const footerHeight = 12;
       const footerStartY = pageHeight - footerHeight;
 
-      setFillColor(headerColor);
+      setFillColor(headerBg);
       doc.rect(0, footerStartY, pageWidth, footerHeight, 'F');
 
-      const footerY = footerStartY + 5;
+      const footerY = footerStartY + 4;
 
       doc.setFontSize(7);
-      doc.setFont('helvetica', 'bold');
-      setTextColor([255, 255, 255]);
-      doc.text('www.seajourney.co.uk', 14, footerY);
-      doc.text('www.seajourney.co.uk/verify', 14, footerY + 4);
-
       doc.setFont('helvetica', 'normal');
-      setTextColor([220, 220, 220]);
+      setTextColor([200, 200, 210]);
+      doc.text('SeaJourney — Passage Log Extract', 14, footerY);
       doc.text(
-        'Electronic passage log extract – to be used in conjunction with signed sea service testimonials where required.',
+        'Supporting document for sea service verification. Use with signed testimonials where required.',
         pageWidth / 2,
         footerY,
         { align: 'center' },
@@ -1724,20 +1735,25 @@ export async function generatePassageLogPDF(data: PassageLogExportData) {
   });
 
   const lastY = (doc as any).lastAutoTable.finalY;
-  if (lastY < pageHeight - 24) {
+  if (lastY < pageHeight - 22) {
     doc.setFontSize(7);
-    setTextColor(textGray);
+    setTextColor(textMuted);
     doc.text(
-      'Note: This document is an electronic extract of passage records maintained by the seafarer. ' +
-        'For formal sea service verification, administrations and recognised organisations may also require ' +
-        'signed testimonials, discharge books or company letters.',
+      'This is an electronic extract of your passage records. For formal verification, signed testimonials or other evidence may be required.',
       14,
       lastY + 5,
       { maxWidth: pageWidth - 28 },
     );
   }
 
-  doc.output('dataurlnewwindow');
+  const defaultName = `Passage-Log-Extract - ${fullName.replace(/[^\w\s-]/g, '').replace(/\s+/g, ' ').trim() || 'Export'} - ${generatedDateFilename}.pdf`;
+  const filename = options?.filename ?? defaultName;
+
+  if (options?.output === 'newtab') {
+    doc.output('dataurlnewwindow');
+    return;
+  }
+  doc.save(filename);
 }
 
 /* ========================================================================== */
