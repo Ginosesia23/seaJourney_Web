@@ -4131,8 +4131,8 @@ export async function generateMCADeckhandTestimonial(
   output: TestimonialPDFOutput = 'download',
   opts?: { debug?: boolean }
 ) {
-  // Debug: ON by default — red crosshairs + labels at each field. Pass { debug: false } to turn off.
-  const debug = opts?.debug !== false;
+  // Debug: pass { debug: true } to draw red crosshairs + labels at each field position (default off)
+  const debug = opts?.debug === true;
   opts = { ...opts, debug };
 
   const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
@@ -4735,8 +4735,8 @@ export async function generateMCAOfficerTestimonial(
   output: TestimonialPDFOutput = 'download',
   opts?: { debug?: boolean }
 ) {
-  // Debug: ON by default — red crosshairs + labels at each field. Pass { debug: false } to turn off.
-  const debug = opts?.debug !== false;
+  // Debug: pass { debug: true } to draw red crosshairs + labels at each field position (default off)
+  const debug = opts?.debug === true;
   opts = { ...opts, debug };
 
   const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
