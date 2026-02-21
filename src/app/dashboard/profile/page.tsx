@@ -2045,6 +2045,14 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
                     <FormControl>
                       <Textarea {...field} placeholder="Full company address" disabled={!isEditing} rows={3} />
                     </FormControl>
+                    <FormDescription>
+                      Add the address on multiple lines (use Enter) so it fits correctly on testimonials and PDFs. For example:
+                      <span className="mt-1.5 block rounded border border-muted bg-muted/30 px-2 py-1.5 font-mono text-xs">
+                        Company Address Line 1<br />
+                        Company Address Line 2<br />
+                        Company Address Line 3
+                      </span>
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

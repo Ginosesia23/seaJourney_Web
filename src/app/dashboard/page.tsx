@@ -1615,7 +1615,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold">{vesselStats.totalSeaDays}</div>
+              <div className="text-3xl font-bold">{(vesselStats.stateBreakdown['underway'] || 0) + (vesselStats.stateBreakdown['at-anchor'] || 0)}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 {vesselStats.totalStandbyDays} standby • {vesselStats.totalDays} total
               </p>
@@ -1706,6 +1706,15 @@ export default function DashboardPage() {
                     );
                   })}
               </div>
+              <div className="pt-2 border-t mt-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Total Days</span>
+                  </div>
+                  <span className="text-lg font-bold">{vesselStats.totalDays} days</span>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -1724,10 +1733,10 @@ export default function DashboardPage() {
                       <span className="text-sm font-semibold">At Sea</span>
                     </div>
                     <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                      {vesselStats.totalSeaDays}
+                      {(vesselStats.stateBreakdown['underway'] || 0) + (vesselStats.stateBreakdown['at-anchor'] || 0)}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground">Days underway</p>
+                  <p className="text-xs text-muted-foreground">Days underway and at anchor</p>
                 </div>
                 <div className="p-4 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800">
                   <div className="flex items-center justify-between mb-2">
@@ -1745,9 +1754,11 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">Total Days</span>
+                      <span className="text-sm font-medium">Total Sea Service Days</span>
                     </div>
-                    <span className="text-lg font-bold">{vesselStats.totalDays} days</span>
+                    <span className="text-lg font-bold">
+                      {(vesselStats.stateBreakdown['underway'] || 0) + (vesselStats.stateBreakdown['at-anchor'] || 0) + vesselStats.totalStandbyDays} days
+                    </span>
                   </div>
                 </div>
               </div>
