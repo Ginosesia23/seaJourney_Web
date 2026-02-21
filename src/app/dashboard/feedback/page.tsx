@@ -352,11 +352,11 @@ export default function FeedbackPage() {
                           </div>
                           <CardDescription className="flex flex-col gap-0.5">
                             <span>Submitted on {format(new Date(feedback.createdAt), 'PPP p')}</span>
-                            {feedback.submitter && (
-                              <span className="text-muted-foreground">
-                                By {[feedback.submitter.first_name, feedback.submitter.last_name].filter(Boolean).join(' ').trim() || feedback.submitter.username || 'Unknown'} ({feedback.submitter.email})
-                              </span>
-                            )}
+                            <span className="text-muted-foreground">
+                              Submitted by: {feedback.submitter
+                                ? [feedback.submitter.first_name, feedback.submitter.last_name].filter(Boolean).join(' ').trim() || feedback.submitter.username || 'Unknown'
+                                : 'Unknown user'}{feedback.submitter?.email ? ` (${feedback.submitter.email})` : feedback.userId ? ` (user ID: ${feedback.userId.slice(0, 8)}…)` : ''}
+                            </span>
                           </CardDescription>
                         </div>
                         <Button
@@ -656,11 +656,11 @@ export default function FeedbackPage() {
               <DialogTitle>Respond to Feedback</DialogTitle>
               <DialogDescription className="space-y-1">
                 <span className="block">{selectedFeedback?.subject}</span>
-                {selectedFeedback?.submitter && (
-                  <span className="block text-muted-foreground">
-                    From {[selectedFeedback.submitter.first_name, selectedFeedback.submitter.last_name].filter(Boolean).join(' ').trim() || selectedFeedback.submitter.username || 'Unknown'} ({selectedFeedback.submitter.email})
-                  </span>
-                )}
+                <span className="block text-muted-foreground">
+                  Submitted by: {selectedFeedback?.submitter
+                    ? [selectedFeedback.submitter.first_name, selectedFeedback.submitter.last_name].filter(Boolean).join(' ').trim() || selectedFeedback.submitter.username || 'Unknown'
+                    : 'Unknown user'}{selectedFeedback?.submitter?.email ? ` (${selectedFeedback.submitter.email})` : selectedFeedback?.userId ? ` (user ID: ${selectedFeedback.userId.slice(0, 8)}…)` : ''}
+                </span>
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">

@@ -1379,7 +1379,8 @@ export async function getUserFeedback(
 }
 
 /**
- * Get all feedback (admin only), with submitter profile joined from users
+ * Get all feedback (admin only). Fetches feedback then looks up submitter from users by user_id
+ * (avoids PostgREST join which requires FK relationship between feedback and users).
  */
 export async function getAllFeedback(
   supabase: SupabaseClient,
@@ -1389,13 +1390,9 @@ export async function getAllFeedback(
     limit?: number;
   }
 ): Promise<Feedback[]> {
-  // Join users so admins can see who submitted (user_id → users)
   let query = supabase
     .from('feedback')
-    .select(`
-      *,
-      users(first_name, last_name, email, username)
-    `)
+    .select('*')
     .order('created_at', { ascending: false });
 
   if (options?.status) {
@@ -1414,7 +1411,31 @@ export async function getAllFeedback(
 
   if (error) throw error;
 
-  return (data || []).map((item: any) => ({
+  const rows = data || [];
+  const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
+  let userMap: Record<string, FeedbackSubmitter> = {};
+
+  if (userIds.length > 0) {
+    const { data: users } = await supabase
+      .from('users')
+      .select('id, email, first_name, last_name, username')
+      .in('id', userIds);
+    if (users) {
+      userMap = Object.fromEntries(
+        users.map((u: any) => [
+          u.id,
+          {
+            email: u.email ?? '',
+            first_name: u.first_name ?? null,
+            last_name: u.last_name ?? null,
+            username: u.username ?? null,
+          },
+        ])
+      );
+    }
+  }
+
+  return rows.map((item: any) => ({
     id: item.id,
     userId: item.user_id,
     type: item.type,
@@ -1427,14 +1448,7 @@ export async function getAllFeedback(
     respondedBy: item.responded_by || null,
     createdAt: item.created_at,
     updatedAt: item.updated_at,
-    submitter: item.users
-      ? {
-          email: item.users.email ?? '',
-          first_name: item.users.first_name ?? null,
-          last_name: item.users.last_name ?? null,
-          username: item.users.username ?? null,
-        }
-      : null,
+    submitter: (item.user_id && userMap[item.user_id]) ? userMap[item.user_id] : null,
   }));
 }
 
