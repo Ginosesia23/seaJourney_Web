@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: 'SeaJourney - Seatime Tracker for Maritime Professionals',
   description:
     'The essential app for yacht crew and maritime professionals to track sea days, manage testimonials, and streamline certificate applications.',
+  icons: {
+    icon: '/icon.png',
+    apple: '/icon.png',
+  },
 };
 
 export default function RootLayout({
