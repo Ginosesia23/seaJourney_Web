@@ -1457,7 +1457,7 @@ export default function CrewPage() {
         if (!currentUserProfile?.activeVesselId || !supabase) return;
         loadVesselBasedSeaTimeData(selectedMemberData);
     }, [selectedMemberData?.profile.id, selectedMemberData?.assignment?.startDate, selectedMemberData?.assignment?.endDate, selectedMemberData?.leavePeriods?.length, currentUserProfile?.role, currentUserProfile?.activeVesselId]);
-
+    
     // Form for inviting crew members
     const inviteForm = useForm<InviteCrewFormValues>({
         resolver: zodResolver(inviteCrewSchema),
@@ -1500,7 +1500,7 @@ export default function CrewPage() {
                 : CREW_PAGE_STORAGE_KEY;
             sessionStorage.setItem(storageKey, memberId);
         } catch (_) {}
-
+        
         // Find the crew member
         const member = crewMembers.find(m => m.profile.id === memberId);
         if (!member) return;
@@ -1542,9 +1542,9 @@ export default function CrewPage() {
 
                 const [vesselTestimonialsRes, navWatchRes] = await Promise.all([
                     supabase
-                        .from('vessel_generated_testimonials')
-                        .select('*')
-                        .eq('crew_user_id', memberId)
+                    .from('vessel_generated_testimonials')
+                    .select('*')
+                    .eq('crew_user_id', memberId)
                         .eq('vessel_id', vesselId)
                         .order('created_at', { ascending: false }),
                     supabase
@@ -1580,7 +1580,7 @@ export default function CrewPage() {
                 }
 
                 if (Object.keys(updates).length > 0) {
-                    setCrewMembers(prev => prev.map(m =>
+                    setCrewMembers(prev => prev.map(m => 
                         m.profile.id === memberId ? { ...m, ...updates } : m
                     ));
                 }
@@ -2672,7 +2672,7 @@ export default function CrewPage() {
             filteredLogs.forEach(log => {
                 logMap.set(log.date, log);
             });
-
+            
             const startDateObj = parse(startDateStr, 'yyyy-MM-dd', new Date());
             const endDateObj = parse(endDateStr, 'yyyy-MM-dd', new Date());
             const dateRangeSet = new Set<string>();
@@ -3641,7 +3641,7 @@ export default function CrewPage() {
                     </CardHeader>
                     <CardContent>
                         {/* Days breakdown - always shown; from crew logs when access approved, otherwise from vessel data + vessel leave periods */}
-                        <div className="mb-6 pb-6 border-b">
+                            <div className="mb-6 pb-6 border-b">
                             <div className="flex items-center gap-2 mb-3">
                                 <h3 className="text-sm font-medium text-muted-foreground">Days breakdown</h3>
                                 {selectedMemberData.seaTimeDataFromVessel && (
@@ -3650,55 +3650,55 @@ export default function CrewPage() {
                                     </Badge>
                                 )}
                             </div>
-                            
-                            {loadingSeaTime.has(selectedMemberData.profile.id) ? (
-                                <div className="flex items-center justify-center py-8">
-                                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                
+                                {loadingSeaTime.has(selectedMemberData.profile.id) ? (
+                                    <div className="flex items-center justify-center py-8">
+                                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
                                     <span className="ml-2 text-muted-foreground">Loading breakdown...</span>
-                                </div>
-                            ) : selectedMemberData.seaTimeData ? (
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                    <Card className="p-3">
-                                        <div className="text-xs text-muted-foreground mb-1">Total Days</div>
-                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.totalDays}</div>
-                                    </Card>
-                                    <Card className="p-3 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
-                                        <div className="text-xs text-muted-foreground mb-1">At Sea Days</div>
-                                        <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{selectedMemberData.seaTimeData.atSeaDays}</div>
-                                    </Card>
-                                    <Card className="p-3 border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20">
-                                        <div className="text-xs text-muted-foreground mb-1">Standby Days</div>
-                                        <div className="text-xl font-bold text-purple-600 dark:text-purple-400">{selectedMemberData.seaTimeData.standbyDays}</div>
-                                    </Card>
-                                    <Card className="p-3">
-                                        <div className="text-xs text-muted-foreground mb-1">Underway Days</div>
-                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.underwayDays}</div>
-                                    </Card>
-                                    <Card className="p-3">
-                                        <div className="text-xs text-muted-foreground mb-1">At Anchor Days</div>
-                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.atAnchorDays}</div>
-                                    </Card>
-                                    <Card className="p-3">
-                                        <div className="text-xs text-muted-foreground mb-1">In Port Days</div>
-                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.inPortDays}</div>
-                                    </Card>
-                                    <Card className="p-3">
-                                        <div className="text-xs text-muted-foreground mb-1">On Leave Days</div>
-                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.onLeaveDays}</div>
-                                    </Card>
-                                    <Card className="p-3">
-                                        <div className="text-xs text-muted-foreground mb-1">In Yard Days</div>
-                                        <div className="text-xl font-bold">{selectedMemberData.seaTimeData.inYardDays}</div>
-                                    </Card>
-                                </div>
-                            ) : (
-                                <div className="text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/20">
+                                    </div>
+                                ) : selectedMemberData.seaTimeData ? (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">Total Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.totalDays}</div>
+                                        </Card>
+                                        <Card className="p-3 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+                                            <div className="text-xs text-muted-foreground mb-1">At Sea Days</div>
+                                            <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{selectedMemberData.seaTimeData.atSeaDays}</div>
+                                        </Card>
+                                        <Card className="p-3 border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20">
+                                            <div className="text-xs text-muted-foreground mb-1">Standby Days</div>
+                                            <div className="text-xl font-bold text-purple-600 dark:text-purple-400">{selectedMemberData.seaTimeData.standbyDays}</div>
+                                        </Card>
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">Underway Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.underwayDays}</div>
+                                        </Card>
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">At Anchor Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.atAnchorDays}</div>
+                                        </Card>
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">In Port Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.inPortDays}</div>
+                                        </Card>
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">On Leave Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.onLeaveDays}</div>
+                                        </Card>
+                                        <Card className="p-3">
+                                            <div className="text-xs text-muted-foreground mb-1">In Yard Days</div>
+                                            <div className="text-xl font-bold">{selectedMemberData.seaTimeData.inYardDays}</div>
+                                        </Card>
+                                    </div>
+                                ) : (
+                                    <div className="text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/20">
                                     {selectedMemberData.accessRequest?.status === 'approved'
                                         ? 'No sea time data available'
                                         : 'No vessel logs in this period. Add vessel state logs or request sea time access from the crew member.'}
-                                </div>
-                            )}
-                        </div>
+                                    </div>
+                                )}
+                            </div>
                         
                         {/* Tabs for Leave Periods and Documents */}
                         <Tabs defaultValue="documents" className="w-full">
@@ -3885,6 +3885,7 @@ export default function CrewPage() {
                                                 </p>
                                             </div>
                                             <div className="flex items-center gap-2">
+                                                {currentUserProfile?.role !== 'vessel' && (
                                                 <Dialog open={isNavWatchDialogOpen} onOpenChange={setIsNavWatchDialogOpen}>
                                                     <DialogTrigger asChild>
                                                         <Button variant="outline" className="rounded-xl" type="button">
@@ -3967,30 +3968,31 @@ export default function CrewPage() {
                                                         </Form>
                                                     </DialogContent>
                                                 </Dialog>
-                                                <Button
-                                                    variant={showGenerateForm ? "outline" : "default"}
-                                                    onClick={() => {
-                                                        setShowGenerateForm(!showGenerateForm);
-                                                        if (showGenerateForm) {
-                                                            setDocumentStartDate(undefined);
-                                                            setDocumentEndDate(undefined);
-                                                            setCalculatedSeaTime(null);
-                                                        }
-                                                    }}
-                                                    className="rounded-xl"
-                                                >
-                                                    {showGenerateForm ? (
-                                                        <>
-                                                            <X className="mr-2 h-4 w-4" />
-                                                            Cancel
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Plus className="mr-2 h-4 w-4" />
-                                                            New Document
-                                                        </>
-                                                    )}
-                                                </Button>
+                                                )}
+                                            <Button
+                                                variant={showGenerateForm ? "outline" : "default"}
+                                                onClick={() => {
+                                                    setShowGenerateForm(!showGenerateForm);
+                                                    if (showGenerateForm) {
+                                                        setDocumentStartDate(undefined);
+                                                        setDocumentEndDate(undefined);
+                                                        setCalculatedSeaTime(null);
+                                                    }
+                                                }}
+                                                className="rounded-xl"
+                                            >
+                                                {showGenerateForm ? (
+                                                    <>
+                                                        <X className="mr-2 h-4 w-4" />
+                                                        Cancel
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Plus className="mr-2 h-4 w-4" />
+                                                        New Document
+                                                    </>
+                                                )}
+                                            </Button>
                                             </div>
                                         </div>
 
@@ -4005,8 +4007,8 @@ export default function CrewPage() {
                                             </Alert>
                                         ) : null}
 
-                                        {/* Nav Watch documents - saved documents, download anytime */}
-                                        {(selectedMemberData.navWatchApplications?.length ?? 0) > 0 && (
+                                        {/* Nav Watch documents - saved documents, download anytime (hidden for vessel accounts for now) */}
+                                        {currentUserProfile?.role !== 'vessel' && (selectedMemberData.navWatchApplications?.length ?? 0) > 0 && (
                                             <div className="space-y-4 mb-6">
                                                 <div className="flex items-center justify-between">
                                                     <h4 className="font-semibold">Nav Watch documents</h4>
@@ -4258,7 +4260,7 @@ export default function CrewPage() {
                                                                                 title="Download"
                                                                             >
                                                                                 {generatingPDF === testimonial.id ? (
-                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                <Loader2 className="h-4 w-4 animate-spin" />
                                                                                 ) : (
                                                                                     <Download className="h-4 w-4" />
                                                                                 )}
@@ -4303,15 +4305,15 @@ export default function CrewPage() {
                                             const hasTestimonials = selectedMemberData.accessRequest?.status === 'approved' && (selectedMemberData.testimonials?.length ?? 0) > 0;
                                             const hasAnyDocuments = hasVesselGenerated || hasTestimonials;
                                             return !hasAnyDocuments ? (
-                                                <Card className="border-dashed">
-                                                    <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                                                        <FileText className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                                                        <h4 className="font-semibold mb-2">No Documents Generated</h4>
-                                                        <p className="text-sm text-muted-foreground mb-4">
-                                                            No documents have been generated for this crew member yet.
-                                                        </p>
-                                                    </CardContent>
-                                                </Card>
+                                            <Card className="border-dashed">
+                                                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                                                    <FileText className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+                                                    <h4 className="font-semibold mb-2">No Documents Generated</h4>
+                                                    <p className="text-sm text-muted-foreground mb-4">
+                                                        No documents have been generated for this crew member yet.
+                                                    </p>
+                                                </CardContent>
+                                            </Card>
                                             ) : null;
                                         })()}
 
