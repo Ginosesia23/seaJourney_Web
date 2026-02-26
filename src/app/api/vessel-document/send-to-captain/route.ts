@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { Resend } from 'resend';
+import { EMAIL_PRIMARY_BLUE } from '@/lib/email-colors';
 
 const resendApiKey = process.env.RESEND_API_KEY;
 const resend = resendApiKey ? new Resend(resendApiKey) : null;
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
         html: `
           <p>You have been sent a sea service document (${doc.start_date} – ${doc.end_date}) to view or download.</p>
           <p><strong>This link can only be used once</strong> and expires in 7 days.</p>
-          <p><a href="${viewLink}" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;text-decoration:none;border-radius:8px;">View / Download document</a></p>
+          <p><a href="${viewLink}" style="display:inline-block;padding:12px 24px;background:${EMAIL_PRIMARY_BLUE};color:#fff;text-decoration:none;border-radius:8px;">View / Download document</a></p>
           <p>If you did not expect this email, you can ignore it.</p>
           <p>— SeaJourney</p>
         `,

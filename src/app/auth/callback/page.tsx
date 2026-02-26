@@ -266,6 +266,20 @@ function AuthCallbackInner() {
               console.warn('[AUTH CALLBACK] WARNING: User profile was not created. User may need to contact support.');
               // Show an error state or message to the user
             } else {
+              // Send welcome email to new joiners (non-blocking)
+              try {
+                if (session.access_token) {
+                  await fetch('/api/send-welcome-email', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${session.access_token}`,
+                    },
+                  });
+                }
+              } catch (welcomeErr) {
+                console.warn('[AUTH CALLBACK] Welcome email request failed:', welcomeErr);
+              }
               // IMPORTANT: Only sign out if profile was successfully created
               // Sign the user out after email confirmation to ensure they need to manually log in
               // Supabase automatically logs users in when they confirm email, but we want them

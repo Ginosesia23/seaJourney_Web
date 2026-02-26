@@ -393,6 +393,7 @@ export default function CrewPage() {
     
     const [crewMembers, setCrewMembers] = useState<CrewMemberWithAssignment[]>([]);
     const [orderedCrewMembers, setOrderedCrewMembers] = useState<CrewMemberWithAssignment[]>([]);
+    const [crewRefreshTrigger, setCrewRefreshTrigger] = useState(0);
     const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
     const [hasPendingCaptaincyRequest, setHasPendingCaptaincyRequest] = useState(false);
     const [isCheckingCaptaincy, setIsCheckingCaptaincy] = useState(false);
@@ -929,7 +930,7 @@ export default function CrewPage() {
         };
 
         fetchCrew();
-    }, [supabase, currentUserProfile?.activeVesselId, isAuthorized, user?.id, currentUserProfile?.role]);
+    }, [supabase, currentUserProfile?.activeVesselId, isAuthorized, user?.id, currentUserProfile?.role, crewRefreshTrigger]);
 
     // Fetch access requests for crew members (vessel managers only)
     useEffect(() => {
@@ -3541,11 +3542,8 @@ export default function CrewPage() {
 
             inviteForm.reset();
             setIsInviteDialogOpen(false);
-            
-            // Refresh crew list after a short delay
-            setTimeout(() => {
-                window.location.reload();
-            }, 2000);
+            // Refetch crew list so the new invite appears (no full page reload)
+            setTimeout(() => setCrewRefreshTrigger(t => t + 1), 1500);
         } catch (error: any) {
             console.error('[CREW PAGE] Error inviting crew member:', error);
             console.error('[CREW PAGE] Error details:', {

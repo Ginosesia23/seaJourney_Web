@@ -56,6 +56,7 @@ export default function SeaTimeRequestPage() {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [requestToCancel, setRequestToCancel] = useState<SeaTimeRequest | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [requestsRefreshTrigger, setRequestsRefreshTrigger] = useState(0);
 
   // Fetch user profile to check subscription
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -171,7 +172,7 @@ export default function SeaTimeRequestPage() {
     });
   }, [vesselsData, vesselAssignments]);
 
-  // Fetch existing requests
+  // Fetch existing requests (refetch when requestsRefreshTrigger changes)
   const { data: requestsData } = useCollection<SeaTimeRequest>(
     'sea_time_requests',
     {
@@ -179,6 +180,7 @@ export default function SeaTimeRequestPage() {
       filterValue: user?.id,
       orderBy: 'created_at',
       ascending: false,
+      refreshTrigger: requestsRefreshTrigger,
     }
   );
 
@@ -215,7 +217,7 @@ export default function SeaTimeRequestPage() {
         endDate: undefined,
       });
       setDateRange(undefined);
-      // Data will update automatically via realtime subscription
+      setRequestsRefreshTrigger((t) => t + 1);
     } catch (error: any) {
       console.error('[SEA TIME REQUEST] Error:', error);
       toast({
@@ -263,7 +265,7 @@ export default function SeaTimeRequestPage() {
 
       setCancelDialogOpen(false);
       setRequestToCancel(null);
-      // Data will update automatically via realtime subscription
+      setRequestsRefreshTrigger((t) => t + 1);
     } catch (error: any) {
       console.error('Error cancelling request:', error);
       toast({
@@ -561,25 +563,27 @@ export default function SeaTimeRequestPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel Sea Time Request?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to cancel this sea time request? This action cannot be undone.
-              {requestToCancel && (
-                <div className="mt-2 text-sm space-y-1">
-                  <div>Vessel: {getVesselName((requestToCancel as any).vessel_id || (requestToCancel as any).vesselId)}</div>
-                  {(() => {
-                    const startDateStr = (requestToCancel as any).start_date || (requestToCancel as any).startDate;
-                    const endDateStr = (requestToCancel as any).end_date || (requestToCancel as any).endDate;
-                    if (startDateStr && endDateStr) {
-                      const startDate = parse(startDateStr, 'yyyy-MM-dd', new Date());
-                      const endDate = parse(endDateStr, 'yyyy-MM-dd', new Date());
-                      if (isValid(startDate) && isValid(endDate)) {
-                        return <div>Date Range: {format(startDate, 'MMM d, yyyy')} - {format(endDate, 'MMM d, yyyy')}</div>;
+            <AlertDialogDescription asChild>
+              <span className="block">
+                Are you sure you want to cancel this sea time request? This action cannot be undone.
+                {requestToCancel && (
+                  <span className="mt-2 block text-sm space-y-1">
+                    <span className="block">Vessel: {getVesselName((requestToCancel as any).vessel_id || (requestToCancel as any).vesselId)}</span>
+                    {(() => {
+                      const startDateStr = (requestToCancel as any).start_date || (requestToCancel as any).startDate;
+                      const endDateStr = (requestToCancel as any).end_date || (requestToCancel as any).endDate;
+                      if (startDateStr && endDateStr) {
+                        const startDate = parse(startDateStr, 'yyyy-MM-dd', new Date());
+                        const endDate = parse(endDateStr, 'yyyy-MM-dd', new Date());
+                        if (isValid(startDate) && isValid(endDate)) {
+                          return <span className="block">Date Range: {format(startDate, 'MMM d, yyyy')} - {format(endDate, 'MMM d, yyyy')}</span>;
+                        }
                       }
-                    }
-                    return null;
-                  })()}
-                </div>
-              )}
+                      return null;
+                    })()}
+                  </span>
+                )}
+              </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

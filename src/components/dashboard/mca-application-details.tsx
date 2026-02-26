@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -88,6 +88,50 @@ function MCASkeleton() {
 const TITLE_OPTIONS = ['Mr', 'Mrs', 'Miss', 'Ms', 'Dr'] as const;
 const SEX_OPTIONS = ['male', 'female'] as const;
 
+const MCA_DRAFT_KEY_PREFIX = 'crew-mca-draft-';
+
+function getMCADraftKey(targetUserId: string) {
+  return `${MCA_DRAFT_KEY_PREFIX}${targetUserId}`;
+}
+
+function serializeMCADraft(values: MCAApplicationFormValues): Record<string, unknown> {
+  return {
+    ...values,
+    dateOfBirth: values.dateOfBirth ? (values.dateOfBirth instanceof Date ? values.dateOfBirth.toISOString() : values.dateOfBirth) : null,
+  };
+}
+
+function deserializeMCADraft(raw: Record<string, unknown>): MCAApplicationFormValues | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const dateOfBirthRaw = raw.dateOfBirth;
+  let dateOfBirth: Date | null = null;
+  if (dateOfBirthRaw) {
+    if (dateOfBirthRaw instanceof Date) dateOfBirth = dateOfBirthRaw;
+    else if (typeof dateOfBirthRaw === 'string') {
+      const d = new Date(dateOfBirthRaw);
+      dateOfBirth = isValid(d) ? d : null;
+    }
+  }
+  return {
+    title: typeof raw.title === 'string' ? raw.title : '',
+    dateOfBirth,
+    sex: raw.sex === 'male' || raw.sex === 'female' ? raw.sex : null,
+    placeOfBirth: typeof raw.placeOfBirth === 'string' ? raw.placeOfBirth : '',
+    countryOfBirth: typeof raw.countryOfBirth === 'string' ? raw.countryOfBirth : '',
+    nationality: typeof raw.nationality === 'string' ? raw.nationality : '',
+    telephone: typeof raw.telephone === 'string' ? raw.telephone : '',
+    mobile: typeof raw.mobile === 'string' ? raw.mobile : '',
+    addressLine1: typeof raw.addressLine1 === 'string' ? raw.addressLine1 : '',
+    addressLine2: typeof raw.addressLine2 === 'string' ? raw.addressLine2 : '',
+    addressDistrict: typeof raw.addressDistrict === 'string' ? raw.addressDistrict : '',
+    addressTownCity: typeof raw.addressTownCity === 'string' ? raw.addressTownCity : '',
+    addressCountyState: typeof raw.addressCountyState === 'string' ? raw.addressCountyState : '',
+    addressPostCode: typeof raw.addressPostCode === 'string' ? raw.addressPostCode : '',
+    addressCountry: typeof raw.addressCountry === 'string' ? raw.addressCountry : '',
+    dischargeBookNumber: typeof raw.dischargeBookNumber === 'string' ? raw.dischargeBookNumber : '',
+  };
+}
+
 function transformRawToMCAProfile(raw: any): MCAFormProfile | null {
   if (!raw) return null;
   const dateOfBirthRaw = raw.date_of_birth || raw.dateOfBirth;
@@ -166,29 +210,83 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
     },
   });
 
-  // Update form values when userProfile loads or changes
+  // Base values from server (userProfile)
+  const serverValues = useMemo(() => {
+    if (userProfile == null || isLoading) return null;
+    return {
+      title: userProfile.title || '',
+      dateOfBirth: userProfile.dateOfBirth ?? null,
+      sex: userProfile.sex ?? null,
+      placeOfBirth: userProfile.placeOfBirth || '',
+      countryOfBirth: userProfile.countryOfBirth || '',
+      nationality: userProfile.nationality || '',
+      telephone: userProfile.telephone || '',
+      mobile: userProfile.mobile || '',
+      addressLine1: userProfile.addressLine1 || '',
+      addressLine2: userProfile.addressLine2 || '',
+      addressDistrict: userProfile.addressDistrict || '',
+      addressTownCity: userProfile.addressTownCity || '',
+      addressCountyState: userProfile.addressCountyState || '',
+      addressPostCode: userProfile.addressPostCode || '',
+      addressCountry: userProfile.addressCountry || '',
+      dischargeBookNumber: userProfile.dischargeBookNumber || '',
+    };
+  }, [userProfile, isLoading]);
+
+  // Update form: when in crew mode, restore draft from sessionStorage if present; otherwise use server values
   useEffect(() => {
-    if (userProfile !== undefined && userProfile !== null && !isLoading) {
-      form.reset({
-        title: userProfile.title || '',
-        dateOfBirth: userProfile.dateOfBirth ?? null,
-        sex: userProfile.sex ?? null,
-        placeOfBirth: userProfile.placeOfBirth || '',
-        countryOfBirth: userProfile.countryOfBirth || '',
-        nationality: userProfile.nationality || '',
-        telephone: userProfile.telephone || '',
-        mobile: userProfile.mobile || '',
-        addressLine1: userProfile.addressLine1 || '',
-        addressLine2: userProfile.addressLine2 || '',
-        addressDistrict: userProfile.addressDistrict || '',
-        addressTownCity: userProfile.addressTownCity || '',
-        addressCountyState: userProfile.addressCountyState || '',
-        addressPostCode: userProfile.addressPostCode || '',
-        addressCountry: userProfile.addressCountry || '',
-        dischargeBookNumber: userProfile.dischargeBookNumber || '',
-      });
+    if (serverValues === null) return;
+    if (isCrewMode && targetUserId && typeof window !== 'undefined') {
+      try {
+        const key = getMCADraftKey(targetUserId);
+        const stored = sessionStorage.getItem(key);
+        if (stored) {
+          const parsed = JSON.parse(stored) as Record<string, unknown>;
+          const draft = deserializeMCADraft(parsed);
+          if (draft) {
+            form.reset(draft);
+            return;
+          }
+        }
+      } catch {
+        // ignore invalid draft
+      }
     }
-  }, [userProfile, isLoading, form]);
+    form.reset(serverValues);
+  }, [serverValues, isCrewMode, targetUserId, form]);
+
+  // Persist MCA form draft to sessionStorage when editing a crew member (debounced)
+  const saveDraftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!isCrewMode || !targetUserId || typeof window === 'undefined') return;
+    const subscription = form.watch((values) => {
+      if (saveDraftTimeoutRef.current) clearTimeout(saveDraftTimeoutRef.current);
+      saveDraftTimeoutRef.current = setTimeout(() => {
+        try {
+          const payload = serializeMCADraft(values as MCAApplicationFormValues);
+          sessionStorage.setItem(getMCADraftKey(targetUserId), JSON.stringify(payload));
+        } catch {
+          // ignore
+        }
+        saveDraftTimeoutRef.current = null;
+      }, 500);
+    });
+    return () => {
+      if (saveDraftTimeoutRef.current) clearTimeout(saveDraftTimeoutRef.current);
+      subscription.unsubscribe();
+    };
+  }, [isCrewMode, targetUserId, form]);
+
+  const clearDraft = useMemo(() => {
+    if (!targetUserId || typeof window === 'undefined') return () => {};
+    return () => {
+      try {
+        sessionStorage.removeItem(getMCADraftKey(targetUserId));
+      } catch {
+        // ignore
+      }
+    };
+  }, [targetUserId]);
 
   const [isEditing, setIsEditing] = useState(false);
   const watchedTitle = form.watch('title');
@@ -234,6 +332,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
           description: "Crew member's MCA application details have been saved.",
         });
         setIsEditing(false);
+        clearDraft();
         onSaved?.(json.profile);
       } catch (error: any) {
         toast({
@@ -292,6 +391,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
 
   const handleCancelEdit = () => {
     setIsEditing(false);
+    if (isCrewMode && targetUserId) clearDraft();
     if (userProfile) {
       form.reset({
         title: userProfile.title || '',

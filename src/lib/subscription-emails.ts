@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { EMAIL_PRIMARY_BLUE } from "@/lib/email-colors";
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 const SITE_URL = process.env.SITE_URL || "https://www.seajourney.co.uk";
@@ -50,7 +51,7 @@ export async function sendSubscriptionEmail(args: {
       <td align="center">
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
-            <td bgcolor="#172b42" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
+            <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
               <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
               <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Welcome to your ${tierName} subscription</p>
             </td>
@@ -79,7 +80,7 @@ export async function sendSubscriptionEmail(args: {
           </tr>
           <tr>
             <td align="center" style="padding:16px 24px 10px;">
-              <a href="${SITE_URL}/dashboard" style="display:inline-block;padding:12px 26px;background-color:#2e8bc0;color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Go to Dashboard</a>
+              <a href="${SITE_URL}/dashboard" style="display:inline-block;padding:12px 26px;background-color:${EMAIL_PRIMARY_BLUE};color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Go to Dashboard</a>
             </td>
           </tr>
           <tr>
@@ -118,7 +119,7 @@ export async function sendSubscriptionEmail(args: {
       <td align="center">
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
-            <td bgcolor="#172b42" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
+            <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
               <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
               <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Subscription upgraded</p>
             </td>
@@ -156,7 +157,7 @@ export async function sendSubscriptionEmail(args: {
           </tr>
           <tr>
             <td align="center" style="padding:16px 24px 10px;">
-              <a href="${SITE_URL}/dashboard" style="display:inline-block;padding:12px 26px;background-color:#2e8bc0;color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Go to Dashboard</a>
+              <a href="${SITE_URL}/dashboard" style="display:inline-block;padding:12px 26px;background-color:${EMAIL_PRIMARY_BLUE};color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Go to Dashboard</a>
             </td>
           </tr>
           <tr>
@@ -201,7 +202,7 @@ export async function sendSubscriptionEmail(args: {
       <td align="center">
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
-            <td bgcolor="#172b42" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
+            <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
               <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
               <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Subscription change scheduled</p>
             </td>
@@ -239,7 +240,7 @@ export async function sendSubscriptionEmail(args: {
           </tr>
           <tr>
             <td align="center" style="padding:16px 24px 10px;">
-              <a href="${SITE_URL}/dashboard/subscription" style="display:inline-block;padding:12px 26px;background-color:#2e8bc0;color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Manage Subscription</a>
+              <a href="${SITE_URL}/dashboard/subscription" style="display:inline-block;padding:12px 26px;background-color:${EMAIL_PRIMARY_BLUE};color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Manage Subscription</a>
             </td>
           </tr>
           <tr>
@@ -277,7 +278,7 @@ export async function sendSubscriptionEmail(args: {
       <td align="center">
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
-            <td bgcolor="#172b42" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
+            <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
               <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
               <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Subscription cancelled</p>
             </td>
@@ -312,7 +313,7 @@ export async function sendSubscriptionEmail(args: {
           </tr>
           <tr>
             <td align="center" style="padding:16px 24px 10px;">
-              <a href="${SITE_URL}/dashboard/subscription" style="display:inline-block;padding:12px 26px;background-color:#2e8bc0;color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Manage Subscription</a>
+              <a href="${SITE_URL}/dashboard/subscription" style="display:inline-block;padding:12px 26px;background-color:${EMAIL_PRIMARY_BLUE};color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Manage Subscription</a>
             </td>
           </tr>
           <tr>
@@ -350,7 +351,7 @@ export async function sendSubscriptionEmail(args: {
       <td align="center">
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
-            <td bgcolor="#172b42" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
+            <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
               <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
               <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Subscription reactivated</p>
             </td>
@@ -379,7 +380,7 @@ export async function sendSubscriptionEmail(args: {
           </tr>
           <tr>
             <td align="center" style="padding:16px 24px 10px;">
-              <a href="${SITE_URL}/dashboard" style="display:inline-block;padding:12px 26px;background-color:#2e8bc0;color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Go to Dashboard</a>
+              <a href="${SITE_URL}/dashboard" style="display:inline-block;padding:12px 26px;background-color:${EMAIL_PRIMARY_BLUE};color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Go to Dashboard</a>
             </td>
           </tr>
           <tr>
@@ -418,7 +419,7 @@ export async function sendSubscriptionEmail(args: {
       <td align="center">
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
-            <td bgcolor="#172b42" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
+            <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
               <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
               <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Subscription updated</p>
             </td>
@@ -447,7 +448,7 @@ export async function sendSubscriptionEmail(args: {
           </tr>
           <tr>
             <td align="center" style="padding:16px 24px 10px;">
-              <a href="${SITE_URL}/dashboard" style="display:inline-block;padding:12px 26px;background-color:#2e8bc0;color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Go to Dashboard</a>
+              <a href="${SITE_URL}/dashboard" style="display:inline-block;padding:12px 26px;background-color:${EMAIL_PRIMARY_BLUE};color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">Go to Dashboard</a>
             </td>
           </tr>
           <tr>

@@ -20,6 +20,8 @@ export function useCollection<T = any>(
     orderBy?: string;
     ascending?: boolean;
     realtime?: boolean;
+    /** Increment to force a refetch (e.g. after a create/delete). */
+    refreshTrigger?: number;
   }
 ): UseCollectionResult<T> {
   const { supabase, user, session, isUserLoading } = useSupabase();
@@ -135,7 +137,7 @@ export function useCollection<T = any>(
     };
 
     fetchData();
-  }, [tableName, user, session, isUserLoading, options?.filter, options?.filterValue, options?.orderBy, options?.ascending, options?.realtime, supabase]);
+  }, [tableName, user, session, isUserLoading, options?.filter, options?.filterValue, options?.orderBy, options?.ascending, options?.realtime, options?.refreshTrigger, supabase]);
 
   return { data, isLoading, error };
 }

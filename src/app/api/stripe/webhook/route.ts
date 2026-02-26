@@ -5,6 +5,7 @@ import { stripe } from "@/lib/stripe";
 import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendSubscriptionEmail as sendSubscriptionEmailUtil, formatTierName } from "@/lib/subscription-emails";
+import { EMAIL_PRIMARY_BLUE } from "@/lib/email-colors";
 
 export const runtime = "nodejs";
 
@@ -817,7 +818,7 @@ export async function POST(req: NextRequest) {
               <div style="font-family: Arial, sans-serif; line-height: 1.5;">
                 <h2>Subscription active</h2>
                 <p>Your <b>${tier}</b> subscription is now active.</p>
-                <p><a href="${SITE_URL}/dashboard">Go to your dashboard</a></p>
+                <p><a href="${SITE_URL}/dashboard" style="display:inline-block;padding:12px 24px;background:${EMAIL_PRIMARY_BLUE};color:#fff;text-decoration:none;border-radius:8px;">Go to your dashboard</a></p>
                 <p style="color:#777; font-size: 12px;">
                   If you didn’t make this purchase, please contact support.
                 </p>

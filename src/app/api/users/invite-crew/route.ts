@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createVesselAssignment } from '@/supabase/database/queries';
 import { Resend } from 'resend';
+import { sendWelcomeEmail } from '@/lib/welcome-email';
+import { EMAIL_PRIMARY_BLUE } from '@/lib/email-colors';
 
 // Initialize Resend only if API key is available
 const resendApiKey = process.env.RESEND_API_KEY;
@@ -305,7 +307,7 @@ export async function POST(req: NextRequest) {
       <td align="center">
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
           <tr>
-            <td style="background-color:#2e8bc0;padding:32px 24px;text-align:center;">
+            <td style="background-color:${EMAIL_PRIMARY_BLUE};padding:32px 24px;text-align:center;">
               <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:600;">Welcome to SeaJourney!</h1>
             </td>
           </tr>
@@ -323,13 +325,13 @@ export async function POST(req: NextRequest) {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center" style="padding:16px 0;">
-                    <a href="${SITE_URL}/forgot-password?email=${encodeURIComponent(email)}" style="display:inline-block;padding:12px 26px;background-color:#2e8bc0;color:#ffffff;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;">Set Up Your Password</a>
+                    <a href="${SITE_URL}/forgot-password?email=${encodeURIComponent(email)}" style="display:inline-block;padding:12px 26px;background-color:${EMAIL_PRIMARY_BLUE};color:#ffffff;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;">Set Up Your Password</a>
                   </td>
                 </tr>
               </table>
               <p style="margin:24px 0 0;color:#6b7280;font-size:14px;line-height:1.6;">
                 If the button doesn't work, copy and paste this link into your browser:<br/>
-                <a href="${SITE_URL}/forgot-password?email=${encodeURIComponent(email)}" style="color:#2e8bc0;text-decoration:underline;">${SITE_URL}/forgot-password?email=${encodeURIComponent(email)}</a>
+                <a href="${SITE_URL}/forgot-password?email=${encodeURIComponent(email)}" style="color:${EMAIL_PRIMARY_BLUE};text-decoration:underline;">${SITE_URL}/forgot-password?email=${encodeURIComponent(email)}</a>
               </p>
             </td>
           </tr>
@@ -369,6 +371,12 @@ export async function POST(req: NextRequest) {
       }
     } else {
       console.warn('[INVITE CREW] Resend API key not configured - skipping email send');
+    }
+
+    // Send welcome-to-SeaJourney email (platform intro, getting started)
+    const welcomeResult = await sendWelcomeEmail({ to: email, firstName: firstName || null });
+    if (!welcomeResult.success) {
+      console.warn('[INVITE CREW] Welcome email not sent:', welcomeResult.error);
     }
 
     return NextResponse.json({

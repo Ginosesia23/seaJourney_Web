@@ -1202,15 +1202,17 @@ export default function BridgeWatchLogPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Watch Log?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this watch log? This action cannot be undone.
-              {watchToDelete && (
-                <div className="mt-2 text-sm">
-                  <div>Date: {format(new Date(watchToDelete.watch_start), 'MMM d, yyyy')}</div>
-                  <div>Vessel: {getVesselName(watchToDelete.vessel_id)}</div>
-                  {watchToDelete.hours && <div>Hours: {watchToDelete.hours}</div>}
-                </div>
-              )}
+            <AlertDialogDescription asChild>
+              <span className="block">
+                Are you sure you want to delete this watch log? This action cannot be undone.
+                {watchToDelete && (
+                  <span className="mt-2 block text-sm">
+                    <span className="block">Date: {format(new Date(watchToDelete.watch_start), 'MMM d, yyyy')}</span>
+                    <span className="block">Vessel: {getVesselName(watchToDelete.vessel_id)}</span>
+                    {watchToDelete.hours && <span className="block">Hours: {watchToDelete.hours}</span>}
+                  </span>
+                )}
+              </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

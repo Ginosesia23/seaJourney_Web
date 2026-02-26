@@ -45,6 +45,7 @@ export default function InboxPage() {
   const [isVesselAccessDialogOpen, setIsVesselAccessDialogOpen] = useState(false);
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [preserveCrewLogs, setPreserveCrewLogs] = useState(true); // When approving sea time import: do not overwrite days crew has already logged (e.g. leave periods)
   const [isProcessing, setIsProcessing] = useState(false);
   
   // Password verification state
@@ -1624,6 +1625,7 @@ export default function InboxPage() {
         body: JSON.stringify({
           requestId: selectedSeaTimeRequest.id,
           action: 'approve',
+          preserveCrewLogs,
         }),
       });
 
@@ -1635,7 +1637,7 @@ export default function InboxPage() {
 
       toast({
         title: 'Request Approved',
-        description: data.warning || `Sea time logs have been copied to the crew member. ${data.logsCopied ? `(${data.logsCopied} days)` : ''}`,
+        description: data.message || data.warning || `Sea time logs have been copied to the crew member. ${data.logsCopied != null ? `(${data.logsCopied} days)` : ''}`,
       });
 
       // Remove from list
@@ -1644,6 +1646,7 @@ export default function InboxPage() {
       setSelectedSeaTimeRequest(null);
       setAction(null);
       setRejectionReason('');
+      setPreserveCrewLogs(true);
     } catch (error: any) {
       console.error('Error approving sea time request:', error);
       toast({
@@ -3324,6 +3327,25 @@ export default function InboxPage() {
                 </div>
               </div>
 
+              {action === 'approve' && (
+                <div className="flex items-start gap-3 rounded-lg border p-3 bg-muted/30">
+                  <Checkbox
+                    id="preserve-crew-logs"
+                    checked={preserveCrewLogs}
+                    onCheckedChange={(checked) => setPreserveCrewLogs(checked === true)}
+                    className="mt-0.5"
+                  />
+                  <div className="grid gap-1 leading-none">
+                    <Label htmlFor="preserve-crew-logs" className="cursor-pointer text-sm font-medium">
+                      Preserve crew&apos;s existing logs (e.g. leave periods)
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Only fill in days the crew member has not already logged. Their leave periods and other logged days will not be overwritten.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {action === 'reject' && (
                 <div className="space-y-2">
                   <Label htmlFor="sea-time-rejection-reason">Rejection Reason</Label>
@@ -3346,6 +3368,7 @@ export default function InboxPage() {
                 setSelectedSeaTimeRequest(null);
                 setAction(null);
                 setRejectionReason('');
+                setPreserveCrewLogs(true);
               }}
               disabled={isProcessing}
               className="rounded-xl"
