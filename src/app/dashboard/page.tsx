@@ -20,6 +20,7 @@ import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
 import { calculateVisaCompliance, detectVisaRules } from '@/lib/visa-compliance';
 import { cn } from '@/lib/utils';
+import { StatePill } from '@/components/state-pill';
 
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
   { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
@@ -57,8 +58,8 @@ export default function DashboardPage() {
     annualRevenue: number;
     crewRevenue: number;
     vesselRevenue: number;
-    recentUserSignups: Array<{ id: string; email: string; firstName: string | null; lastName: string | null; createdAt: string; role: string }>;
-    recentVesselSignups: Array<{ id: string; email: string; firstName: string | null; lastName: string | null; createdAt: string; vesselName: string | null }>;
+    recentUserSignups: Array<{ id: string; email: string; firstName: string | null; lastName: string | null; createdAt: string; role: string; todayState: string | null; todayStateKey: string | null; todayStateLastChanged: string | null }>;
+    recentVesselSignups: Array<{ id: string; email: string; firstName: string | null; lastName: string | null; createdAt: string; vesselName: string | null; todayState: string | null; todayStateKey: string | null; todayStateLastChanged: string | null }>;
   } | null>(null);
   const [isLoadingAdminStats, setIsLoadingAdminStats] = useState(false);
   const [vesselStats, setVesselStats] = useState<{
@@ -209,6 +210,41 @@ export default function DashboardPage() {
           console.error('[ADMIN DASHBOARD] Error fetching vessels:', vesselsError);
         }
 
+        // Most recent state per user (any date) – admin RLS allows SELECT on daily_state_logs
+        const stateLabels: Record<string, string> = {
+          underway: 'Underway',
+          'at-anchor': 'At anchor',
+          'in-port': 'In port',
+          'on-leave': 'On leave',
+          'in-yard': 'In yard',
+        };
+        const todayStateByUser = new Map<string, string>();
+        const todayStateKeyByUser = new Map<string, string>();
+        const todayStateLastChangedByUser = new Map<string, string>();
+        const allUserIds = [
+          ...(allUsers || []).map(u => u.id),
+          ...(allVesselAccounts || []).map(v => v.id),
+        ];
+        if (allUserIds.length > 0) {
+          const { data: allLogs } = await supabase
+            .from('daily_state_logs')
+            .select('user_id, state, date, updated_at, created_at')
+            .in('user_id', allUserIds)
+            .order('date', { ascending: false })
+            .limit(Math.max(2000, allUserIds.length * 30));
+          (allLogs || []).forEach((log: any) => {
+            if (!todayStateByUser.has(log.user_id)) {
+              const label = stateLabels[log.state] || log.state || '—';
+              todayStateByUser.set(log.user_id, label);
+              if (log.state) todayStateKeyByUser.set(log.user_id, log.state);
+              const lastChanged = log.updated_at || log.created_at;
+              if (lastChanged) {
+                todayStateLastChangedByUser.set(log.user_id, format(new Date(lastChanged), 'MMM d, yyyy'));
+              }
+            }
+          });
+        }
+
         // Calculate statistics
         const totalUsers = allUsers?.length || 0;
         const activeSubscriptions = allUsers?.filter(u => {
@@ -305,6 +341,9 @@ export default function DashboardPage() {
             lastName: (u as any).last_name || null,
             createdAt: u.created_at || '',
             role: (u as any).role || 'crew',
+            todayState: todayStateByUser.get(u.id) ?? null,
+            todayStateKey: todayStateKeyByUser.get(u.id) ?? null,
+            todayStateLastChanged: todayStateLastChangedByUser.get(u.id) ?? null,
           }));
 
         // Get recent vessel signups (last 10, regardless of date)
@@ -328,6 +367,9 @@ export default function DashboardPage() {
               lastName: (v as any).last_name || null,
               createdAt: v.created_at || '',
               vesselName: vessel ? (vessel as any).name : null,
+              todayState: todayStateByUser.get(v.id) ?? null,
+              todayStateKey: todayStateKeyByUser.get(v.id) ?? null,
+              todayStateLastChanged: todayStateLastChangedByUser.get(v.id) ?? null,
             };
           });
 
@@ -2227,6 +2269,16 @@ export default function DashboardPage() {
                           <Badge variant="outline" className="text-xs">
                             {user.role === 'crew' ? 'Crew' : user.role === 'captain' ? 'Captain' : user.role}
                           </Badge>
+                          {user.todayStateKey && (
+                            <>
+                              <StatePill stateKey={user.todayStateKey} label={user.todayState} />
+                              {user.todayStateLastChanged && (
+                                <span className="text-xs text-muted-foreground whitespace-nowrap" title="State last changed">
+                                  Last changed: {user.todayStateLastChanged}
+                                </span>
+                              )}
+                            </>
+                          )}
                           <span className="text-xs text-muted-foreground whitespace-nowrap">{signupDate}</span>
                         </div>
                       </div>
@@ -2272,6 +2324,16 @@ export default function DashboardPage() {
                           <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400">
                             Vessel
                           </Badge>
+                          {vessel.todayStateKey && (
+                            <>
+                              <StatePill stateKey={vessel.todayStateKey} label={vessel.todayState} />
+                              {vessel.todayStateLastChanged && (
+                                <span className="text-xs text-muted-foreground whitespace-nowrap" title="State last changed">
+                                  Last changed: {vessel.todayStateLastChanged}
+                                </span>
+                              )}
+                            </>
+                          )}
                           <span className="text-xs text-muted-foreground whitespace-nowrap">{signupDate}</span>
                         </div>
                       </div>

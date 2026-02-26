@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, ArrowUpCircle, Send, Eye, Pencil } from 'lucide-react';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, ArrowUpCircle, Send, Eye, Pencil, Navigation, FileCheck } from 'lucide-react';
 import { format, parse, eachDayOfInterval, format as formatDate, addDays, isWithinInterval } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -47,7 +47,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
-import type { UserProfile, VesselAssignment, Vessel, VesselSeaTimeAccessRequest, CrewLeavePeriod, Testimonial, VesselGeneratedTestimonial, StateLog } from '@/lib/types';
+import type { UserProfile, VesselAssignment, Vessel, VesselSeaTimeAccessRequest, CrewLeavePeriod, Testimonial, VesselGeneratedTestimonial, StateLog, NavWatchApplication } from '@/lib/types';
 import { getActiveVesselAssignmentsByVessel, getVesselStateLogs, updateVesselAssignment } from '@/supabase/database/queries';
 import { useCollection } from '@/supabase/database';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
@@ -58,6 +58,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateMCAWatchRatingForm, type TestimonialPDFFormat, type MCACertificateType } from '@/lib/pdf-generator';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
+import { buildAndGenerateNavWatchApplication, navWatchApplicationDefaultValues, navWatchApplicationSchema, type NavWatchApplicationFormValues } from '@/lib/nav-watch-application';
+import { MCAApplicationDetailsCard } from '@/components/dashboard/mca-application-details';
 
 
 const getInitials = (name: string) => name ? name.split(' ').map((n) => n[0]).join('') : '';
@@ -88,6 +90,7 @@ interface CrewMemberWithAssignment {
     leavePeriodsFromLogs?: Array<{ startDate: string; endDate: string; notes?: string }>;
     testimonials?: Testimonial[];
     vesselGeneratedTestimonials?: VesselGeneratedTestimonial[];
+    navWatchApplications?: NavWatchApplication[];
     hasApprovedAccess?: boolean;
     /** True when seaTimeData was computed from vessel logs (no crew permission) */
     seaTimeDataFromVessel?: boolean;
@@ -411,6 +414,9 @@ export default function CrewPage() {
     const [isDeletingLeavePeriod, setIsDeletingLeavePeriod] = useState<string | null>(null);
     const [isLoadingTestimonials, setIsLoadingTestimonials] = useState(false);
     const [generatingPDF, setGeneratingPDF] = useState<string | null>(null);
+    const [downloadingNavWatchId, setDownloadingNavWatchId] = useState<string | null>(null);
+    const [previewingNavWatchId, setPreviewingNavWatchId] = useState<string | null>(null);
+    const [deletingNavWatchId, setDeletingNavWatchId] = useState<string | null>(null);
     const [showGenerateForm, setShowGenerateForm] = useState(false);
     const [deletingTestimonial, setDeletingTestimonial] = useState<string | null>(null);
     const [sendToCaptainDocId, setSendToCaptainDocId] = useState<string | null>(null);
@@ -444,6 +450,8 @@ export default function CrewPage() {
     const [selectedTestimonialFormat, setSelectedTestimonialFormat] = useState<Record<string, TestimonialPDFFormat>>({});
     const [selectedVesselDocFormat, setSelectedVesselDocFormat] = useState<Record<string, TestimonialPDFFormat>>({});
     const [selectedNewDocFormat, setSelectedNewDocFormat] = useState<TestimonialPDFFormat>('seajourney');
+    const [isNavWatchDialogOpen, setIsNavWatchDialogOpen] = useState(false);
+    const [isSavingNavWatch, setIsSavingNavWatch] = useState(false);
 
     // The user's own profile is needed to check their role and active vessel.
     const { data: currentUserProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -775,6 +783,7 @@ export default function CrewPage() {
                     // Step 6: Match assignments with user profiles
                     const crewWithProfiles = (userProfiles || []).map(profile => {
                         const transformedProfile: UserProfile = {
+                            ...(profile as any),
                             id: profile.id,
                             email: profile.email || '',
                             username: profile.username || '',
@@ -875,6 +884,7 @@ export default function CrewPage() {
                     const profileMap = new Map(
                         filteredProfiles.map(profile => {
                             const transformedProfile: UserProfile = {
+                                ...(profile as any),
                                 id: profile.id,
                                 email: profile.email || '',
                                 username: profile.username || '',
@@ -1458,10 +1468,39 @@ export default function CrewPage() {
         },
     });
 
+    // Form for generating Nav Watch document for selected crew member
+    const navWatchForm = useForm<NavWatchApplicationFormValues>({
+        resolver: zodResolver(navWatchApplicationSchema),
+        defaultValues: navWatchApplicationDefaultValues,
+        mode: 'onChange',
+    });
+
+    const CREW_PAGE_STORAGE_KEY = 'crew-page-selected-member';
+
+    // Restore selected crew member from sessionStorage when crew list is loaded (e.g. after navigating away and back)
+    useEffect(() => {
+        if (crewMembers.length === 0 || selectedCrewMemberId !== null) return;
+        const storageKey = currentUserProfile?.activeVesselId
+            ? `${CREW_PAGE_STORAGE_KEY}-${currentUserProfile.activeVesselId}`
+            : CREW_PAGE_STORAGE_KEY;
+        try {
+            const stored = typeof window !== 'undefined' ? sessionStorage.getItem(storageKey) : null;
+            if (stored && crewMembers.some(m => m.profile.id === stored)) {
+                setSelectedCrewMemberId(stored);
+            }
+        } catch (_) {}
+    }, [crewMembers, currentUserProfile?.activeVesselId, selectedCrewMemberId]);
+
     // Handler for selecting a crew member (show focused view)
     const handleSelectCrewMember = async (memberId: string) => {
         setSelectedCrewMemberId(memberId);
-        
+        try {
+            const storageKey = currentUserProfile?.activeVesselId
+                ? `${CREW_PAGE_STORAGE_KEY}-${currentUserProfile.activeVesselId}`
+                : CREW_PAGE_STORAGE_KEY;
+            sessionStorage.setItem(storageKey, memberId);
+        } catch (_) {}
+
         // Find the crew member
         const member = crewMembers.find(m => m.profile.id === memberId);
         if (!member) return;
@@ -1501,16 +1540,29 @@ export default function CrewPage() {
                     return;
                 }
 
-                const { data: vesselTestimonials, error: testimonialsError } = await supabase
-                    .from('vessel_generated_testimonials')
-                    .select('*')
-                    .eq('crew_user_id', memberId)
-                    .eq('vessel_id', vesselId)
-                    .order('created_at', { ascending: false });
+                const [vesselTestimonialsRes, navWatchRes] = await Promise.all([
+                    supabase
+                        .from('vessel_generated_testimonials')
+                        .select('*')
+                        .eq('crew_user_id', memberId)
+                        .eq('vessel_id', vesselId)
+                        .order('created_at', { ascending: false }),
+                    supabase
+                        .from('nav_watch_applications')
+                        .select('*')
+                        .eq('user_id', memberId)
+                        .order('created_at', { ascending: false }),
+                ]);
 
-                const updates: { vesselGeneratedTestimonials?: VesselGeneratedTestimonial[]; testimonials?: Testimonial[] } = {};
+                const { data: vesselTestimonials, error: testimonialsError } = vesselTestimonialsRes;
+                const { data: navWatchApps, error: navWatchError } = navWatchRes;
+
+                const updates: { vesselGeneratedTestimonials?: VesselGeneratedTestimonial[]; testimonials?: Testimonial[]; navWatchApplications?: NavWatchApplication[] } = {};
                 if (!testimonialsError && vesselTestimonials) {
                     updates.vesselGeneratedTestimonials = vesselTestimonials as VesselGeneratedTestimonial[];
+                }
+                if (!navWatchError && navWatchApps) {
+                    updates.navWatchApplications = navWatchApps as NavWatchApplication[];
                 }
 
                 // When crew has given permission (approved access), also fetch all testimonials for this member/vessel so vessel can view and print
@@ -1679,6 +1731,160 @@ export default function CrewPage() {
         
         return hasDateOfBirth && hasAddressLine1 && hasAddressTownCity && hasAddressPostCode && hasAddressCountry && hasNationality;
     }, [selectedMemberData]);
+
+    // Generate Nav Watch (MCA Watch Rating) document for selected crew member — save and download
+    const handleNavWatchSubmit = async (data: NavWatchApplicationFormValues) => {
+        if (!selectedMemberData?.profile || !supabase || !allVessels) return;
+        setIsSavingNavWatch(true);
+        try {
+            await buildAndGenerateNavWatchApplication(supabase, {
+                userId: selectedMemberData.profile.id,
+                userProfile: selectedMemberData.profile,
+                formData: data,
+                allVessels,
+                vesselId: currentUserProfile?.activeVesselId ?? undefined,
+                vesselUserId: user?.id ?? undefined,
+            });
+            toast({
+                title: 'Success',
+                description: 'Nav Watch document saved and downloaded. You can download it again anytime from the list below.',
+            });
+            setIsNavWatchDialogOpen(false);
+            navWatchForm.reset(navWatchApplicationDefaultValues);
+            // Refresh Nav Watch list for this crew member
+            if (selectedCrewMemberId && currentUserProfile?.activeVesselId) {
+                const { data: navWatchApps, error: navWatchError } = await supabase
+                    .from('nav_watch_applications')
+                    .select('*')
+                    .eq('user_id', selectedMemberData.profile.id)
+                    .order('created_at', { ascending: false });
+                if (!navWatchError && navWatchApps) {
+                    setCrewMembers(prev => prev.map(m =>
+                        m.profile.id === selectedCrewMemberId
+                            ? { ...m, navWatchApplications: navWatchApps as NavWatchApplication[] }
+                            : m
+                    ));
+                }
+            }
+        } catch (error: any) {
+            console.error('[CREW PAGE] Nav Watch generate error:', error);
+            toast({
+                title: 'Error',
+                description: error?.message || 'Failed to generate PDF. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSavingNavWatch(false);
+        }
+    };
+
+    // Generate Nav Watch PDF for a saved application (preview opens in new tab, download triggers download)
+    const handleNavWatchPdf = async (
+        application: NavWatchApplication,
+        output: 'download' | 'newtab'
+    ) => {
+        if (!selectedMemberData?.profile) return;
+        if (output === 'download') setDownloadingNavWatchId(application.id);
+        else setPreviewingNavWatchId(application.id);
+        try {
+            const pd = application.personal_details as any;
+            const profile = selectedMemberData.profile as any;
+            const getProfileField = (snake: string, camel: string): string | undefined => {
+                const v = profile?.[snake] ?? profile?.[camel];
+                return v && String(v).trim() ? String(v).trim() : undefined;
+            };
+            const personalDetails = {
+                ...pd,
+                title: getProfileField('title', 'title') || pd.title,
+                placeOfBirth: getProfileField('place_of_birth', 'placeOfBirth') || pd.placeOfBirth,
+                countryOfBirth: getProfileField('country_of_birth', 'countryOfBirth') || pd.countryOfBirth,
+                nationality: getProfileField('nationality', 'nationality') || pd.nationality,
+                telephone: getProfileField('telephone', 'telephone') || pd.telephone,
+                mobile: getProfileField('mobile', 'mobile') || pd.mobile,
+                address: {
+                    line1: getProfileField('address_line1', 'addressLine1') || pd.address?.line1 || '',
+                    line2: getProfileField('address_line2', 'addressLine2') || pd.address?.line2,
+                    district: getProfileField('address_district', 'addressDistrict') || pd.address?.district,
+                    townCity: getProfileField('address_town_city', 'addressTownCity') || pd.address?.townCity || '',
+                    countyState: getProfileField('address_county_state', 'addressCountyState') || pd.address?.countyState,
+                    postCode: getProfileField('address_post_code', 'addressPostCode') || pd.address?.postCode || '',
+                    country: getProfileField('address_country', 'addressCountry') || pd.address?.country || '',
+                },
+                dateOfBirth: pd.dateOfBirth || '',
+            };
+            await generateMCAWatchRatingForm({
+                personalDetails,
+                certificateType: application.certificate_type,
+                seaServiceRecords: Array.isArray(application.sea_service_records) ? application.sea_service_records : [],
+                userProfile: {
+                    firstName: selectedMemberData.profile.firstName,
+                    lastName: selectedMemberData.profile.lastName,
+                    username: selectedMemberData.profile.username || '',
+                    email: selectedMemberData.profile.email || '',
+                    dateOfBirth: (profile?.date_of_birth ?? profile?.dateOfBirth) || null,
+                    position: selectedMemberData.profile.position || null,
+                    dischargeBookNumber: (profile?.discharge_book_number ?? profile?.dischargeBookNumber) || null,
+                },
+                receiptData: {
+                    documentId: application.id,
+                    documentType: 'nav_watch',
+                    generatedAt: application.created_at,
+                    generatedBy: { userId: user?.id, email: currentUserProfile?.email || undefined },
+                },
+            }, output, { debug: false });
+            if (output === 'download') {
+                toast({ title: 'Success', description: 'PDF downloaded successfully.' });
+            } else {
+                toast({ title: 'Preview', description: 'PDF opened in a new tab.' });
+            }
+        } catch (error: any) {
+            console.error('[CREW PAGE] Nav Watch PDF error:', error);
+            toast({
+                title: 'Error',
+                description: error?.message || (output === 'download' ? 'Failed to download PDF.' : 'Failed to open preview.'),
+                variant: 'destructive',
+            });
+        } finally {
+            setDownloadingNavWatchId(null);
+            setPreviewingNavWatchId(null);
+        }
+    };
+
+    const handleDownloadNavWatch = (app: NavWatchApplication) => handleNavWatchPdf(app, 'download');
+    const handlePreviewNavWatch = (app: NavWatchApplication) => handleNavWatchPdf(app, 'newtab');
+
+    // Delete a saved Nav Watch document
+    const handleDeleteNavWatch = async (application: NavWatchApplication) => {
+        if (!user?.id || !selectedCrewMemberId) return;
+        setDeletingNavWatchId(application.id);
+        try {
+            const { error } = await supabase
+                .from('nav_watch_applications')
+                .delete()
+                .eq('id', application.id);
+
+            if (error) throw error;
+            toast({ title: 'Document deleted', description: 'Nav Watch document has been removed.' });
+            const { data: navWatchApps, error: fetchErr } = await supabase
+                .from('nav_watch_applications')
+                .select('*')
+                .eq('user_id', selectedMemberData!.profile.id)
+                .order('created_at', { ascending: false });
+            if (!fetchErr && navWatchApps) {
+                setCrewMembers(prev => prev.map(m =>
+                    m.profile.id === selectedCrewMemberId ? { ...m, navWatchApplications: navWatchApps as NavWatchApplication[] } : m
+                ));
+            }
+        } catch (error: any) {
+            toast({
+                title: 'Error',
+                description: error?.message || 'Failed to delete document.',
+                variant: 'destructive',
+            });
+        } finally {
+            setDeletingNavWatchId(null);
+        }
+    };
 
     // Delete a vessel-generated testimonial
     const handleDeleteVesselTestimonial = async (testimonialId: string) => {
@@ -3143,6 +3349,12 @@ export default function CrewPage() {
     // Handler for going back to crew list
     const handleBackToCrewList = () => {
         setSelectedCrewMemberId(null);
+        try {
+            const storageKey = currentUserProfile?.activeVesselId
+                ? `${CREW_PAGE_STORAGE_KEY}-${currentUserProfile.activeVesselId}`
+                : CREW_PAGE_STORAGE_KEY;
+            sessionStorage.removeItem(storageKey);
+        } catch (_) {}
         setIsLeavePeriodDialogOpen(false);
         setLeavePeriodStartDate(undefined);
         setLeavePeriodEndDate(undefined);
@@ -3490,16 +3702,37 @@ export default function CrewPage() {
                         
                         {/* Tabs for Leave Periods and Documents */}
                         <Tabs defaultValue="documents" className="w-full">
-                            <TabsList className="grid w-full grid-cols-2 rounded-xl mb-6">
+                            <TabsList className="grid w-full grid-cols-3 rounded-xl mb-6">
                                 <TabsTrigger value="documents" className="rounded-lg" disabled={!hasProTier}>
                                     <FileText className="mr-2 h-4 w-4" />
                                     Documents
+                                </TabsTrigger>
+                                <TabsTrigger value="mca-details" className="rounded-lg">
+                                    <FileCheck className="mr-2 h-4 w-4" />
+                                    MCA Details
                                 </TabsTrigger>
                                 <TabsTrigger value="leave" className="rounded-lg">
                                     <CalendarDays className="mr-2 h-4 w-4" />
                                     Leave Periods
                                 </TabsTrigger>
                             </TabsList>
+
+                            {/* MCA Details Tab - vessel can add/edit crew member MCA info for documents */}
+                            <TabsContent value="mca-details" className="space-y-4 mt-0">
+                                <MCAApplicationDetailsCard
+                                    targetUserId={selectedMemberData.profile.id}
+                                    initialProfileRaw={selectedMemberData.profile}
+                                    onSaved={(updatedProfile) => {
+                                        if (!updatedProfile) return;
+                                        const crewId = selectedMemberData.profile.id;
+                                        setCrewMembers(prev => prev.map(m =>
+                                            m.profile.id === crewId
+                                                ? { ...m, profile: { ...m.profile, ...updatedProfile } }
+                                                : m
+                                        ));
+                                    }}
+                                />
+                            </TabsContent>
                             
                             {/* Leave Periods Tab */}
                             <TabsContent value="leave" className="space-y-4 mt-0">
@@ -3644,49 +3877,217 @@ export default function CrewPage() {
                             <TabsContent value="documents" className="space-y-4 mt-0">
                                 {hasProTier ? (
                                     <>
-                                        <div className="flex items-center justify-between mb-4">
+                                        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                                             <div>
                                                 <h3 className="text-lg font-semibold">Document Generation</h3>
                                                 <p className="text-sm text-muted-foreground mt-1">
                                                     Generate PDF documents on behalf of this crew member.
                                                 </p>
                                             </div>
-                                            <Button
-                                                variant={showGenerateForm ? "outline" : "default"}
-                                                onClick={() => {
-                                                    setShowGenerateForm(!showGenerateForm);
-                                                    if (showGenerateForm) {
-                                                        setDocumentStartDate(undefined);
-                                                        setDocumentEndDate(undefined);
-                                                        setCalculatedSeaTime(null);
-                                                    }
-                                                }}
-                                                className="rounded-xl"
-                                            >
-                                                {showGenerateForm ? (
-                                                    <>
-                                                        <X className="mr-2 h-4 w-4" />
-                                                        Cancel
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Plus className="mr-2 h-4 w-4" />
-                                                        New Document
-                                                    </>
-                                                )}
-                                            </Button>
+                                            <div className="flex items-center gap-2">
+                                                <Dialog open={isNavWatchDialogOpen} onOpenChange={setIsNavWatchDialogOpen}>
+                                                    <DialogTrigger asChild>
+                                                        <Button variant="outline" className="rounded-xl" type="button">
+                                                            <Navigation className="mr-2 h-4 w-4" />
+                                                            Generate Nav Watch Document
+                                                        </Button>
+                                                    </DialogTrigger>
+                                                    <DialogContent className="rounded-xl max-w-lg">
+                                                        <DialogHeader>
+                                                            <DialogTitle>Nav Watch Application</DialogTitle>
+                                                            <DialogDescription>
+                                                                Generate an MCA Watch Rating (Nav Watch) application PDF for {selectedMemberData.profile.firstName || selectedMemberData.profile.username}. Sea service will be taken from their approved testimonials and vessel assignments.
+                                                            </DialogDescription>
+                                                        </DialogHeader>
+                                                        {isMCAInfoComplete ? (
+                                                            <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+                                                                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                                                <AlertTitle className="text-green-900 dark:text-green-100">Using vessel MCA details</AlertTitle>
+                                                                <AlertDescription className="text-green-800 dark:text-green-200">
+                                                                    MCA details are complete and will be used in this document.
+                                                                </AlertDescription>
+                                                            </Alert>
+                                                        ) : null}
+                                                        <Form {...navWatchForm}>
+                                                            <form onSubmit={navWatchForm.handleSubmit(handleNavWatchSubmit)} className="space-y-4">
+                                                                <FormField
+                                                                    control={navWatchForm.control}
+                                                                    name="certificate_type"
+                                                                    render={({ field }) => (
+                                                                        <FormItem>
+                                                                            <FormLabel>Certificate type</FormLabel>
+                                                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                                                <FormControl>
+                                                                                    <SelectTrigger className="rounded-xl">
+                                                                                        <SelectValue placeholder="Select certificate type" />
+                                                                                    </SelectTrigger>
+                                                                                </FormControl>
+                                                                                <SelectContent>
+                                                                                    <SelectItem value="navigational_ii4">Navigational Watch Rating Certificate II/4</SelectItem>
+                                                                                    <SelectItem value="navigational_iii4">Engine Room Watch Rating Certificate III/4</SelectItem>
+                                                                                    <SelectItem value="electro_technical">Electro-technical Rating III/7</SelectItem>
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                            <FormMessage />
+                                                                        </FormItem>
+                                                                    )}
+                                                                />
+                                                                <FormField
+                                                                    control={navWatchForm.control}
+                                                                    name="paymentRegion"
+                                                                    render={({ field }) => (
+                                                                        <FormItem>
+                                                                            <FormLabel>Payment region (optional)</FormLabel>
+                                                                            <Select onValueChange={field.onChange} value={field.value ?? ''}>
+                                                                                <FormControl>
+                                                                                    <SelectTrigger className="rounded-xl">
+                                                                                        <SelectValue placeholder="Select region" />
+                                                                                    </SelectTrigger>
+                                                                                </FormControl>
+                                                                                <SelectContent>
+                                                                                    <SelectItem value="uk">UK</SelectItem>
+                                                                                    <SelectItem value="eu">EU</SelectItem>
+                                                                                    <SelectItem value="row">Rest of World</SelectItem>
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                            <FormMessage />
+                                                                        </FormItem>
+                                                                    )}
+                                                                />
+                                                                <div className="flex justify-end gap-2 pt-2">
+                                                                    <Button type="button" variant="outline" onClick={() => setIsNavWatchDialogOpen(false)} className="rounded-xl">
+                                                                        Cancel
+                                                                    </Button>
+                                                                    <Button type="submit" disabled={isSavingNavWatch} className="rounded-xl">
+                                                                        {isSavingNavWatch ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Navigation className="h-4 w-4 mr-2" />}
+                                                                        Generate PDF
+                                                                    </Button>
+                                                                </div>
+                                                            </form>
+                                                        </Form>
+                                                    </DialogContent>
+                                                </Dialog>
+                                                <Button
+                                                    variant={showGenerateForm ? "outline" : "default"}
+                                                    onClick={() => {
+                                                        setShowGenerateForm(!showGenerateForm);
+                                                        if (showGenerateForm) {
+                                                            setDocumentStartDate(undefined);
+                                                            setDocumentEndDate(undefined);
+                                                            setCalculatedSeaTime(null);
+                                                        }
+                                                    }}
+                                                    className="rounded-xl"
+                                                >
+                                                    {showGenerateForm ? (
+                                                        <>
+                                                            <X className="mr-2 h-4 w-4" />
+                                                            Cancel
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Plus className="mr-2 h-4 w-4" />
+                                                            New Document
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            </div>
                                         </div>
 
-                                        {/* MCA Information Warning */}
-                                        {!isMCAInfoComplete && (
-                                            <Alert className="border-orange-500/50 bg-orange-50 dark:bg-orange-950/20">
-                                                <AlertCircle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                                                <AlertTitle className="text-orange-900 dark:text-orange-100">MCA Information Required</AlertTitle>
-                                                <AlertDescription className="text-orange-800 dark:text-orange-200">
-                                                    {selectedMemberData.profile.firstName || selectedMemberData.profile.username} needs to complete their MCA application details in their profile to generate MCA documents. 
-                                                    Please ask them to fill out their MCA information on their profile page.
+                                        {/* MCA details status: show only when complete */}
+                                        {isMCAInfoComplete ? (
+                                            <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+                                                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                                <AlertTitle className="text-green-900 dark:text-green-100">Using vessel MCA details</AlertTitle>
+                                                <AlertDescription className="text-green-800 dark:text-green-200">
+                                                    MCA details for this crew member are complete. These vessel-provided details will be used when you generate Nav Watch and other MCA documents.
                                                 </AlertDescription>
                                             </Alert>
+                                        ) : null}
+
+                                        {/* Nav Watch documents - saved documents, download anytime */}
+                                        {(selectedMemberData.navWatchApplications?.length ?? 0) > 0 && (
+                                            <div className="space-y-4 mb-6">
+                                                <div className="flex items-center justify-between">
+                                                    <h4 className="font-semibold">Nav Watch documents</h4>
+                                                    <Badge variant="outline" className="text-xs">
+                                                        {selectedMemberData.navWatchApplications!.length} document{selectedMemberData.navWatchApplications!.length !== 1 ? 's' : ''}
+                                                    </Badge>
+                                                </div>
+                                                <div className="grid gap-3">
+                                                    {selectedMemberData.navWatchApplications!.map((app) => {
+                                                        const certLabels: Record<string, string> = {
+                                                            navigational: 'Navigational Watch Rating II/4',
+                                                            engine_room: 'Engine Room Watch Rating III/4',
+                                                            electro_technical: 'Electro-Technical Rating III/7',
+                                                        };
+                                                        const created = format(new Date(app.created_at), 'PPP');
+                                                        return (
+                                                            <Card key={app.id} className="hover:shadow-md transition-shadow">
+                                                                <CardContent className="p-4">
+                                                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                                                        <div className="space-y-1">
+                                                                            <Badge variant="outline" className="font-semibold">
+                                                                                {certLabels[app.certificate_type] || app.certificate_type}
+                                                                            </Badge>
+                                                                            <p className="text-sm text-muted-foreground">{created}</p>
+                                                                            {Array.isArray(app.sea_service_records) && app.sea_service_records.length > 0 && (
+                                                                                <p className="text-xs text-muted-foreground">
+                                                                                    {app.sea_service_records.length} vessel(s) • {app.sea_service_records.reduce((s, r) => s + (r.daysAtSea ?? 0), 0)} days at sea
+                                                                                </p>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 shrink-0">
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                onClick={() => handlePreviewNavWatch(app)}
+                                                                                disabled={downloadingNavWatchId === app.id || previewingNavWatchId === app.id || deletingNavWatchId === app.id}
+                                                                                className="rounded-xl"
+                                                                                title="Preview PDF"
+                                                                            >
+                                                                                {previewingNavWatchId === app.id ? (
+                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                ) : (
+                                                                                    <Eye className="h-4 w-4" />
+                                                                                )}
+                                                                            </Button>
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                onClick={() => handleDownloadNavWatch(app)}
+                                                                                disabled={downloadingNavWatchId === app.id || previewingNavWatchId === app.id || deletingNavWatchId === app.id}
+                                                                                className="rounded-xl"
+                                                                                title="Download PDF"
+                                                                            >
+                                                                                {downloadingNavWatchId === app.id ? (
+                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                ) : (
+                                                                                    <Download className="h-4 w-4" />
+                                                                                )}
+                                                                            </Button>
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                onClick={() => handleDeleteNavWatch(app)}
+                                                                                disabled={downloadingNavWatchId === app.id || previewingNavWatchId === app.id || deletingNavWatchId === app.id}
+                                                                                className="rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                                                title="Delete"
+                                                                            >
+                                                                                {deletingNavWatchId === app.id ? (
+                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                ) : (
+                                                                                    <Trash2 className="h-4 w-4" />
+                                                                                )}
+                                                                            </Button>
+                                                                        </div>
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
                                         )}
 
                                         {/* Testimonials (all) - only when crew has given permission */}
@@ -3715,7 +4116,13 @@ export default function CrewPage() {
                                                                                 </span>
                                                                             </div>
                                                                             <div className="flex items-center gap-2 flex-wrap">
-                                                                                <Badge variant={testimonial.status === 'approved' ? 'default' : 'outline'} className="text-xs">
+                                                                                <Badge
+                                                                                    variant={testimonial.status === 'approved' ? 'outline' : 'outline'}
+                                                                                    className={cn(
+                                                                                        'text-xs',
+                                                                                        testimonial.status === 'approved' && 'border-green-500/40 bg-green-500/15 text-green-800 dark:text-green-200 dark:bg-green-500/20 dark:border-green-500/30'
+                                                                                    )}
+                                                                                >
                                                                                     {statusLabel}
                                                                                 </Badge>
                                                                                 {(testimonial as any).data_source && (

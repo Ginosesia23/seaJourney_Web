@@ -25,6 +25,7 @@ import type { UserProfile, VesselAssignment, Vessel } from '@/lib/types';
 import { format, parse, isAfter, isBefore, startOfDay } from 'date-fns';
 import { useRouter } from 'next/navigation';
 import { useCollection } from '@/supabase/database';
+import { StatePill } from '@/components/state-pill';
 
 interface CrewWithoutVessel {
   id: string;
@@ -39,6 +40,9 @@ interface CrewWithoutVessel {
   hasActiveAssignment: boolean;
   activeVesselId: string | null;
   activeVesselName: string | null;
+  todayState: string | null;
+  todayStateKey: string | null;
+  stateLastChanged: string | null;
 }
 
 export default function CrewAnalyticsPage() {
@@ -154,6 +158,38 @@ export default function CrewAnalyticsPage() {
           assignmentsByUser.get(assignment.userId)!.push(assignment);
         });
 
+        // Most recent state per user (any date) – admin RLS allows SELECT on daily_state_logs
+        const stateLabels: Record<string, string> = {
+          underway: 'Underway',
+          'at-anchor': 'At anchor',
+          'in-port': 'In port',
+          'on-leave': 'On leave',
+          'in-yard': 'In yard',
+        };
+        const latestStateByUser = new Map<string, string>();
+        const latestStateKeyByUser = new Map<string, string>();
+        const stateLastChangedByUser = new Map<string, string>();
+        if (crewUserIds.length > 0) {
+          const { data: allLogs } = await supabase
+            .from('daily_state_logs')
+            .select('user_id, state, date, updated_at, created_at')
+            .in('user_id', crewUserIds)
+            .order('date', { ascending: false })
+            .limit(Math.max(2000, crewUserIds.length * 30));
+          // Rows are newest first; take first occurrence per user = their most recent log
+          (allLogs || []).forEach((log: any) => {
+            if (!latestStateByUser.has(log.user_id)) {
+              const label = stateLabels[log.state] || log.state || '—';
+              latestStateByUser.set(log.user_id, label);
+              if (log.state) latestStateKeyByUser.set(log.user_id, log.state);
+              const lastChanged = log.updated_at || log.created_at;
+              if (lastChanged) {
+                stateLastChangedByUser.set(log.user_id, format(new Date(lastChanged), 'MMM d, yyyy'));
+              }
+            }
+          });
+        }
+
         // Process each crew member
         const crewData: CrewWithoutVessel[] = (allCrew || []).map(crewMember => {
           const userAssignments = assignmentsByUser.get(crewMember.id) || [];
@@ -248,6 +284,9 @@ export default function CrewAnalyticsPage() {
             hasActiveAssignment,
             activeVesselId,
             activeVesselName,
+            todayState: latestStateByUser.get(crewMember.id) ?? null,
+            todayStateKey: latestStateKeyByUser.get(crewMember.id) ?? null,
+            stateLastChanged: stateLastChangedByUser.get(crewMember.id) ?? null,
           };
         });
 
@@ -454,16 +493,15 @@ export default function CrewAnalyticsPage() {
                   <TableHead>Username</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Latest state</TableHead>
+                  <TableHead>State last changed</TableHead>
                   <TableHead>Current Vessel</TableHead>
-                  <TableHead>Last Assignment</TableHead>
-                  <TableHead>Days Since</TableHead>
-                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredCrew.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       {searchTerm ? 'No crew members found matching your search.' : 'No crew members found.'}
                     </TableCell>
                   </TableRow>
@@ -486,6 +524,16 @@ export default function CrewAnalyticsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
+                        {crew.todayStateKey ? (
+                          <StatePill stateKey={crew.todayStateKey} label={crew.todayState} />
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-xs">
+                        {crew.stateLastChanged ?? '—'}
+                      </TableCell>
+                      <TableCell>
                         {crew.hasActiveAssignment && crew.activeVesselName ? (
                           <div className="flex items-center gap-2">
                             <Ship className="h-3 w-3 text-green-600 dark:text-green-400" />
@@ -499,31 +547,6 @@ export default function CrewAnalyticsPage() {
                           </div>
                         ) : (
                           <span className="text-muted-foreground">Not assigned</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {crew.lastAssignmentEndDate ? (
-                          format(parse(crew.lastAssignmentEndDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')
-                        ) : (
-                          <span className="text-muted-foreground">Never assigned</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {crew.daysSinceLastAssignment !== null ? (
-                          <span className={crew.daysSinceLastAssignment > 90 ? 'text-destructive font-medium' : ''}>
-                            {crew.daysSinceLastAssignment} days
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {crew.daysSinceLastAssignment !== null && crew.daysSinceLastAssignment > 90 ? (
-                          <Badge variant="destructive">Inactive</Badge>
-                        ) : crew.lastAssignmentEndDate === null ? (
-                          <Badge variant="outline">New</Badge>
-                        ) : (
-                          <Badge variant="secondary">Available</Badge>
                         )}
                       </TableCell>
                     </TableRow>

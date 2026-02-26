@@ -4469,16 +4469,14 @@ export default function ApplicationsPage() {
                               </div>
                               <div className="flex flex-col sm:flex-row gap-2">
                                 <Button
-                                  variant="default"
+                                  variant="outline"
                                   size="sm"
                                   onClick={async () => {
                                     try {
-                                      // Merge saved application data with latest profile data (profile takes precedence)
                                       const getProfileField = (snakeCase: string, camelCase: string): string | undefined => {
                                         const value = (userProfile as any)?.[snakeCase] || (userProfile as any)?.[camelCase];
                                         return value && value.trim() ? value.trim() : undefined;
                                       };
-
                                       const savedPersonalDetails = application.personal_details as any;
                                       const profilePersonalDetails = {
                                         title: getProfileField('title', 'title') || savedPersonalDetails.title,
@@ -4497,17 +4495,62 @@ export default function ApplicationsPage() {
                                           country: getProfileField('address_country', 'addressCountry') || savedPersonalDetails.address?.country || '',
                                         },
                                       };
-
                                       await generateMCAWatchRatingForm({
-                                        personalDetails: {
-                                          ...savedPersonalDetails,
-                                          ...profilePersonalDetails,
-                                          dateOfBirth: savedPersonalDetails.dateOfBirth || '',
-                                        },
+                                        personalDetails: { ...savedPersonalDetails, ...profilePersonalDetails, dateOfBirth: savedPersonalDetails.dateOfBirth || '' },
                                         certificateType: application.certificate_type,
-                                        seaServiceRecords: Array.isArray(application.sea_service_records) 
-                                          ? application.sea_service_records 
-                                          : [],
+                                        seaServiceRecords: Array.isArray(application.sea_service_records) ? application.sea_service_records : [],
+                                        userProfile: {
+                                          firstName: userProfile?.firstName,
+                                          lastName: userProfile?.lastName,
+                                          username: userProfile?.username || '',
+                                          email: userProfile?.email || '',
+                                          dateOfBirth: (userProfile as any)?.dateOfBirth || null,
+                                          position: userProfile?.position || null,
+                                          dischargeBookNumber: userProfile?.dischargeBookNumber || null,
+                                        },
+                                      }, 'newtab', { debug: false });
+                                      toast({ title: 'Preview', description: 'PDF opened in a new tab.' });
+                                    } catch (error: any) {
+                                      console.error('Error generating PDF:', error);
+                                      toast({ title: 'Error', description: error.message || 'Failed to open preview.', variant: 'destructive' });
+                                    }
+                                  }}
+                                  className="rounded-xl"
+                                >
+                                  <Eye className="mr-2 h-4 w-4" />
+                                  Preview
+                                </Button>
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  onClick={async () => {
+                                    try {
+                                      const getProfileField = (snakeCase: string, camelCase: string): string | undefined => {
+                                        const value = (userProfile as any)?.[snakeCase] || (userProfile as any)?.[camelCase];
+                                        return value && value.trim() ? value.trim() : undefined;
+                                      };
+                                      const savedPersonalDetails = application.personal_details as any;
+                                      const profilePersonalDetails = {
+                                        title: getProfileField('title', 'title') || savedPersonalDetails.title,
+                                        placeOfBirth: getProfileField('place_of_birth', 'placeOfBirth') || savedPersonalDetails.placeOfBirth,
+                                        countryOfBirth: getProfileField('country_of_birth', 'countryOfBirth') || savedPersonalDetails.countryOfBirth,
+                                        nationality: getProfileField('nationality', 'nationality') || savedPersonalDetails.nationality,
+                                        telephone: getProfileField('telephone', 'telephone') || savedPersonalDetails.telephone,
+                                        mobile: getProfileField('mobile', 'mobile') || savedPersonalDetails.mobile,
+                                        address: {
+                                          line1: getProfileField('address_line1', 'addressLine1') || savedPersonalDetails.address?.line1 || '',
+                                          line2: getProfileField('address_line2', 'addressLine2') || savedPersonalDetails.address?.line2,
+                                          district: getProfileField('address_district', 'addressDistrict') || savedPersonalDetails.address?.district,
+                                          townCity: getProfileField('address_town_city', 'addressTownCity') || savedPersonalDetails.address?.townCity || '',
+                                          countyState: getProfileField('address_county_state', 'addressCountyState') || savedPersonalDetails.address?.countyState,
+                                          postCode: getProfileField('address_post_code', 'addressPostCode') || savedPersonalDetails.address?.postCode || '',
+                                          country: getProfileField('address_country', 'addressCountry') || savedPersonalDetails.address?.country || '',
+                                        },
+                                      };
+                                      await generateMCAWatchRatingForm({
+                                        personalDetails: { ...savedPersonalDetails, ...profilePersonalDetails, dateOfBirth: savedPersonalDetails.dateOfBirth || '' },
+                                        certificateType: application.certificate_type,
+                                        seaServiceRecords: Array.isArray(application.sea_service_records) ? application.sea_service_records : [],
                                         userProfile: {
                                           firstName: userProfile?.firstName,
                                           lastName: userProfile?.lastName,
@@ -4518,18 +4561,10 @@ export default function ApplicationsPage() {
                                           dischargeBookNumber: userProfile?.dischargeBookNumber || null,
                                         },
                                       }, 'download', { debug: false });
-                                      
-                                      toast({
-                                        title: 'Success',
-                                        description: 'Official Form PDF downloaded successfully.',
-                                      });
+                                      toast({ title: 'Success', description: 'Official Form PDF downloaded successfully.' });
                                     } catch (error: any) {
                                       console.error('Error generating PDF:', error);
-                                      toast({
-                                        title: 'Error',
-                                        description: error.message || 'Failed to generate PDF. Please try again.',
-                                        variant: 'destructive',
-                                      });
+                                      toast({ title: 'Error', description: error.message || 'Failed to generate PDF. Please try again.', variant: 'destructive' });
                                     }
                                   }}
                                   className="rounded-xl text-white dark:text-white"

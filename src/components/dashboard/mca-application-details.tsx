@@ -6,14 +6,13 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { updateUserProfile } from '@/supabase/database/queries';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, FileText, Info } from 'lucide-react';
+import { Loader2, FileText, Info, Edit, Save } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format, parse, getYear, getMonth, getDate, setYear, setMonth, setDate, isValid } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -34,9 +33,30 @@ const mcaApplicationSchema = z.object({
   addressCountyState: z.string().optional(),
   addressPostCode: z.string().optional(),
   addressCountry: z.string().optional(),
+  dischargeBookNumber: z.string().optional(),
 });
 
 type MCAApplicationFormValues = z.infer<typeof mcaApplicationSchema>;
+
+/** Shape used when vessel is editing a crew member's MCA details (from their profile) */
+export interface MCAFormProfile {
+  title?: string;
+  dateOfBirth?: Date | null;
+  sex?: 'male' | 'female' | null;
+  placeOfBirth?: string;
+  countryOfBirth?: string;
+  nationality?: string;
+  telephone?: string;
+  mobile?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  addressDistrict?: string;
+  addressTownCity?: string;
+  addressCountyState?: string;
+  addressPostCode?: string;
+  addressCountry?: string;
+  dischargeBookNumber?: string;
+}
 
 function MCASkeleton() {
   return (
@@ -65,39 +85,64 @@ function MCASkeleton() {
   );
 }
 
-export function MCAApplicationDetailsCard() {
+const TITLE_OPTIONS = ['Mr', 'Mrs', 'Miss', 'Ms', 'Dr'] as const;
+const SEX_OPTIONS = ['male', 'female'] as const;
+
+function transformRawToMCAProfile(raw: any): MCAFormProfile | null {
+  if (!raw) return null;
+  const dateOfBirthRaw = raw.date_of_birth || raw.dateOfBirth;
+  const dateOfBirth = dateOfBirthRaw ? parse(dateOfBirthRaw, 'yyyy-MM-dd', new Date()) : null;
+  const rawSex = (raw.sex || raw.gender || '').toString().toLowerCase().trim();
+  const sex = SEX_OPTIONS.includes(rawSex as any) ? (rawSex as 'male' | 'female') : null;
+  const rawTitle = (raw.title || '').toString().trim();
+  const titleMatch = TITLE_OPTIONS.find(t => t.toLowerCase() === rawTitle.toLowerCase());
+  const title = titleMatch ? titleMatch : (rawTitle || '');
+  return {
+    title,
+    dateOfBirth,
+    sex,
+    placeOfBirth: raw.place_of_birth || raw.placeOfBirth || '',
+    countryOfBirth: raw.country_of_birth || raw.countryOfBirth || '',
+    nationality: raw.nationality || '',
+    telephone: raw.telephone || '',
+    mobile: raw.mobile || '',
+    addressLine1: raw.address_line1 || raw.addressLine1 || '',
+    addressLine2: raw.address_line2 || raw.addressLine2 || '',
+    addressDistrict: raw.address_district || raw.addressDistrict || '',
+    addressTownCity: raw.address_town_city || raw.addressTownCity || '',
+    addressCountyState: raw.address_county_state || raw.addressCountyState || '',
+    addressPostCode: raw.address_post_code || raw.addressPostCode || '',
+    addressCountry: raw.address_country || raw.addressCountry || '',
+    dischargeBookNumber: raw.discharge_book_number || raw.dischargeBookNumber || '',
+  };
+}
+
+export interface MCAApplicationDetailsCardProps {
+  /** When set, vessel is editing this crew member's MCA details; form submits via API */
+  targetUserId?: string;
+  /** Pre-loaded profile for the crew member (optional; can use initialProfileRaw instead) */
+  initialProfile?: MCAFormProfile | null;
+  /** Raw profile row (snake_case); used when targetUserId is set and initialProfile not provided */
+  initialProfileRaw?: any;
+  /** Called after successful save when editing a crew member; receives updated profile from API */
+  onSaved?: (updatedProfile?: any) => void;
+}
+
+export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps) {
+  const { targetUserId, initialProfile, initialProfileRaw, onSaved } = props || {};
+  const isCrewMode = Boolean(targetUserId);
   const { user } = useUser();
-  const { supabase } = useSupabase();
+  const { supabase, session } = useSupabase();
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
-  const { data: userProfileRaw, isLoading } = useDoc('users', user?.id);
+  const { data: userProfileRaw, isLoading: isLoadingDoc } = useDoc('users', isCrewMode ? undefined : user?.id);
 
-  // Transform user profile to handle both snake_case (from DB) and camelCase (from types)
   const userProfile = useMemo(() => {
-    if (!userProfileRaw) return null;
-    const dateOfBirthRaw = (userProfileRaw as any).date_of_birth || (userProfileRaw as any).dateOfBirth;
-    const dateOfBirth = dateOfBirthRaw ? parse(dateOfBirthRaw, 'yyyy-MM-dd', new Date()) : null;
-    
-    return {
-      ...userProfileRaw,
-      title: (userProfileRaw as any).title || '',
-      dateOfBirth: dateOfBirth,
-      sex: (userProfileRaw as any).sex || (userProfileRaw as any).gender || null,
-      placeOfBirth: (userProfileRaw as any).place_of_birth || (userProfileRaw as any).placeOfBirth || '',
-      countryOfBirth: (userProfileRaw as any).country_of_birth || (userProfileRaw as any).countryOfBirth || '',
-      nationality: (userProfileRaw as any).nationality || '',
-      telephone: (userProfileRaw as any).telephone || '',
-      mobile: (userProfileRaw as any).mobile || '',
-      addressLine1: (userProfileRaw as any).address_line1 || (userProfileRaw as any).addressLine1 || '',
-      addressLine2: (userProfileRaw as any).address_line2 || (userProfileRaw as any).addressLine2 || '',
-      addressDistrict: (userProfileRaw as any).address_district || (userProfileRaw as any).addressDistrict || '',
-      addressTownCity: (userProfileRaw as any).address_town_city || (userProfileRaw as any).addressTownCity || '',
-      addressCountyState: (userProfileRaw as any).address_county_state || (userProfileRaw as any).addressCountyState || '',
-      addressPostCode: (userProfileRaw as any).address_post_code || (userProfileRaw as any).addressPostCode || '',
-      addressCountry: (userProfileRaw as any).address_country || (userProfileRaw as any).addressCountry || '',
-    };
-  }, [userProfileRaw]);
+    if (isCrewMode) return initialProfile ?? transformRawToMCAProfile(initialProfileRaw) ?? null;
+    return transformRawToMCAProfile(userProfileRaw);
+  }, [isCrewMode, initialProfile, initialProfileRaw, userProfileRaw]);
+  const isLoading = isCrewMode ? false : isLoadingDoc;
 
   const form = useForm<MCAApplicationFormValues>({
     resolver: zodResolver(mcaApplicationSchema),
@@ -117,16 +162,17 @@ export function MCAApplicationDetailsCard() {
       addressCountyState: '',
       addressPostCode: '',
       addressCountry: '',
+      dischargeBookNumber: '',
     },
   });
 
   // Update form values when userProfile loads or changes
   useEffect(() => {
-    if (userProfile && !isLoading) {
+    if (userProfile !== undefined && userProfile !== null && !isLoading) {
       form.reset({
         title: userProfile.title || '',
-        dateOfBirth: (userProfile as any).dateOfBirth || null,
-        sex: (userProfile as any).sex || null,
+        dateOfBirth: userProfile.dateOfBirth ?? null,
+        sex: userProfile.sex ?? null,
         placeOfBirth: userProfile.placeOfBirth || '',
         countryOfBirth: userProfile.countryOfBirth || '',
         nationality: userProfile.nationality || '',
@@ -139,16 +185,71 @@ export function MCAApplicationDetailsCard() {
         addressCountyState: userProfile.addressCountyState || '',
         addressPostCode: userProfile.addressPostCode || '',
         addressCountry: userProfile.addressCountry || '',
+        dischargeBookNumber: userProfile.dischargeBookNumber || '',
       });
     }
   }, [userProfile, isLoading, form]);
 
+  const [isEditing, setIsEditing] = useState(false);
+  const watchedTitle = form.watch('title');
+  const watchedSex = form.watch('sex');
+
   const onSubmit = async (data: MCAApplicationFormValues) => {
+    if (isCrewMode) {
+      if (!targetUserId || !session?.access_token) return;
+      setIsSaving(true);
+      try {
+        const res = await fetch('/api/crew-mca-details', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            crewUserId: targetUserId,
+            title: data.title || null,
+            dateOfBirth: data.dateOfBirth ? format(data.dateOfBirth, 'yyyy-MM-dd') : null,
+            sex: data.sex || null,
+            placeOfBirth: data.placeOfBirth || null,
+            countryOfBirth: data.countryOfBirth || null,
+            nationality: data.nationality || null,
+            telephone: data.telephone || null,
+            mobile: data.mobile || null,
+            addressLine1: data.addressLine1 || null,
+            addressLine2: data.addressLine2 || null,
+            addressDistrict: data.addressDistrict || null,
+            addressTownCity: data.addressTownCity || null,
+            addressCountyState: data.addressCountyState || null,
+            addressPostCode: data.addressPostCode || null,
+            addressCountry: data.addressCountry || null,
+            dischargeBookNumber: data.dischargeBookNumber || null,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json.error || json.details || 'Failed to update');
+        }
+        toast({
+          title: 'MCA Details Updated',
+          description: "Crew member's MCA application details have been saved.",
+        });
+        setIsEditing(false);
+        onSaved?.(json.profile);
+      } catch (error: any) {
+        toast({
+          title: 'Error',
+          description: error?.message || 'Failed to update MCA details. Please try again.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
+
     if (!user?.id) return;
     setIsSaving(true);
-    
     try {
-      // Update user profile with MCA fields
       const { error } = await supabase
         .from('users')
         .update({
@@ -167,13 +268,12 @@ export function MCAApplicationDetailsCard() {
           address_county_state: data.addressCountyState || null,
           address_post_code: data.addressPostCode || null,
           address_country: data.addressCountry || null,
+          discharge_book_number: data.dischargeBookNumber || null,
         })
         .eq('id', user.id);
 
-      if (error) {
-        throw error;
-      }
-      
+      if (error) throw error;
+      setIsEditing(false);
       toast({
         title: 'MCA Details Updated',
         description: 'Your MCA application details have been saved successfully.',
@@ -190,6 +290,30 @@ export function MCAApplicationDetailsCard() {
     }
   };
 
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    if (userProfile) {
+      form.reset({
+        title: userProfile.title || '',
+        dateOfBirth: userProfile.dateOfBirth ?? null,
+        sex: userProfile.sex ?? null,
+        placeOfBirth: userProfile.placeOfBirth || '',
+        countryOfBirth: userProfile.countryOfBirth || '',
+        nationality: userProfile.nationality || '',
+        telephone: userProfile.telephone || '',
+        mobile: userProfile.mobile || '',
+        addressLine1: userProfile.addressLine1 || '',
+        addressLine2: userProfile.addressLine2 || '',
+        addressDistrict: userProfile.addressDistrict || '',
+        addressTownCity: userProfile.addressTownCity || '',
+        addressCountyState: userProfile.addressCountyState || '',
+        addressPostCode: userProfile.addressPostCode || '',
+        addressCountry: userProfile.addressCountry || '',
+        dischargeBookNumber: userProfile.dischargeBookNumber || '',
+      });
+    }
+  };
+
   if (isLoading) {
     return <MCASkeleton />;
   }
@@ -197,16 +321,28 @@ export function MCAApplicationDetailsCard() {
   return (
     <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
       <CardHeader>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
             <FileText className="h-5 w-5 text-blue-400" />
           </div>
           <div>
-            <CardTitle className="text-xl">MCA Application Details</CardTitle>
+            <CardTitle className="text-xl">
+              {isCrewMode ? 'Crew member MCA details' : 'MCA Application Details'}
+            </CardTitle>
             <CardDescription className="mt-1">
-              Save your details to auto-populate MCA Watch Rating Certificate applications
+              {isCrewMode
+                ? 'Add or edit this crew member’s details so they are used when you generate Nav Watch and other MCA documents for them.'
+                : 'Save your details to auto-populate MCA Watch Rating Certificate applications'}
             </CardDescription>
           </div>
+          </div>
+          {!isEditing ? (
+            <Button type="button" onClick={() => setIsEditing(true)} variant="default" className="rounded-xl shrink-0">
+              <Edit className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          ) : null}
         </div>
       </CardHeader>
       <CardContent>
@@ -215,11 +351,12 @@ export function MCAApplicationDetailsCard() {
             <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
             <div className="space-y-1">
               <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                Why save these details?
+                {isCrewMode ? 'Why add these details?' : 'Why save these details?'}
               </p>
               <p className="text-xs text-blue-700 dark:text-blue-300">
-                These details will be automatically filled in when you generate MCA Watch Rating Certificate applications, 
-                saving you time and ensuring accuracy.
+                {isCrewMode
+                  ? 'These details will be used when you generate MCA Watch Rating (Nav Watch) and other MCA documents for this crew member.'
+                  : 'These details will be automatically filled in when you generate MCA Watch Rating Certificate applications, saving you time and ensuring accuracy.'}
               </p>
             </div>
           </div>
@@ -234,26 +371,33 @@ export function MCAApplicationDetailsCard() {
                 <FormField
                   control={form.control}
                   name="title"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Title</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || ''}>
-                        <FormControl>
-                          <SelectTrigger className="rounded-xl">
-                            <SelectValue placeholder="Select title" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="Mr">Mr</SelectItem>
-                          <SelectItem value="Mrs">Mrs</SelectItem>
-                          <SelectItem value="Miss">Miss</SelectItem>
-                          <SelectItem value="Ms">Ms</SelectItem>
-                          <SelectItem value="Dr">Dr</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                  render={({ field }) => {
+                    const currentTitle = (watchedTitle ?? field.value ?? '') || '';
+                    return (
+                      <FormItem>
+                        <FormLabel>Title</FormLabel>
+                        <Select
+                          key={`mca-title-${targetUserId || user?.id || 'own'}-${currentTitle || 'empty'}`}
+                          onValueChange={field.onChange}
+                          value={currentTitle}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="rounded-xl" disabled={!isEditing}>
+                              <SelectValue placeholder="Select title" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="Mr">Mr</SelectItem>
+                            <SelectItem value="Mrs">Mrs</SelectItem>
+                            <SelectItem value="Miss">Miss</SelectItem>
+                            <SelectItem value="Ms">Ms</SelectItem>
+                            <SelectItem value="Dr">Dr</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
                 <FormField
                   control={form.control}
@@ -313,6 +457,7 @@ export function MCAApplicationDetailsCard() {
                           <Select
                             value={selectedYear.toString()}
                             onValueChange={(value) => handleDateChange(parseInt(value), undefined, undefined)}
+                            disabled={!isEditing}
                           >
                             <FormControl>
                               <SelectTrigger className="rounded-xl">
@@ -331,6 +476,7 @@ export function MCAApplicationDetailsCard() {
                           <Select
                             value={selectedMonth.toString()}
                             onValueChange={(value) => handleDateChange(undefined, parseInt(value), undefined)}
+                            disabled={!isEditing}
                           >
                             <FormControl>
                               <SelectTrigger className="rounded-xl">
@@ -349,6 +495,7 @@ export function MCAApplicationDetailsCard() {
                           <Select
                             value={selectedDay.toString()}
                             onValueChange={(value) => handleDateChange(undefined, undefined, parseInt(value))}
+                            disabled={!isEditing}
                           >
                             <FormControl>
                               <SelectTrigger className="rounded-xl">
@@ -377,26 +524,32 @@ export function MCAApplicationDetailsCard() {
                 <FormField
                   control={form.control}
                   name="sex"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Gender</FormLabel>
-                      <Select 
-                        onValueChange={(value) => field.onChange(value === '' ? null : value)} 
-                        value={field.value || ''}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="rounded-xl">
-                            <SelectValue placeholder="Select gender" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="male">Male</SelectItem>
-                          <SelectItem value="female">Female</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                  render={({ field }) => {
+                    const currentSex = watchedSex ?? field.value ?? '';
+                    const sexValue = (currentSex === null || currentSex === undefined ? '' : String(currentSex)).toLowerCase();
+                    const displaySex = sexValue === 'male' || sexValue === 'female' ? sexValue : '';
+                    return (
+                      <FormItem>
+                        <FormLabel>Gender</FormLabel>
+                        <Select
+                          key={`mca-sex-${targetUserId || user?.id || 'own'}-${displaySex || 'empty'}`}
+                          onValueChange={(value) => field.onChange(value === '' ? null : value)}
+                          value={displaySex}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="rounded-xl" disabled={!isEditing}>
+                              <SelectValue placeholder="Select gender" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="male">Male</SelectItem>
+                            <SelectItem value="female">Female</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
                 <FormField
                   control={form.control}
@@ -405,7 +558,7 @@ export function MCAApplicationDetailsCard() {
                     <FormItem>
                       <FormLabel>Place of Birth</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., London" {...field} className="rounded-xl" />
+                        <Input placeholder="e.g., London" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -418,7 +571,7 @@ export function MCAApplicationDetailsCard() {
                     <FormItem>
                       <FormLabel>Country of Birth</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., United Kingdom" {...field} className="rounded-xl" />
+                        <Input placeholder="e.g., United Kingdom" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -431,7 +584,7 @@ export function MCAApplicationDetailsCard() {
                     <FormItem>
                       <FormLabel>Nationality</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., British" {...field} className="rounded-xl" />
+                        <Input placeholder="e.g., British" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -451,7 +604,7 @@ export function MCAApplicationDetailsCard() {
                     <FormItem>
                       <FormLabel>Telephone</FormLabel>
                       <FormControl>
-                        <Input placeholder="+44 20 1234 5678" {...field} className="rounded-xl" />
+                        <Input placeholder="+44 20 1234 5678" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -464,7 +617,20 @@ export function MCAApplicationDetailsCard() {
                     <FormItem>
                       <FormLabel>Mobile</FormLabel>
                       <FormControl>
-                        <Input placeholder="+44 7700 900123" {...field} className="rounded-xl" />
+                        <Input placeholder="+44 7700 900123" {...field} className="rounded-xl" disabled={!isEditing} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="dischargeBookNumber"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Discharge book number</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. R123456" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -484,7 +650,7 @@ export function MCAApplicationDetailsCard() {
                     <FormItem className="sm:col-span-2">
                       <FormLabel>Address Line 1</FormLabel>
                       <FormControl>
-                        <Input placeholder="Street address" {...field} className="rounded-xl" />
+                        <Input placeholder="Street address" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -497,7 +663,7 @@ export function MCAApplicationDetailsCard() {
                     <FormItem className="sm:col-span-2">
                       <FormLabel>Address Line 2</FormLabel>
                       <FormControl>
-                        <Input placeholder="Apartment, suite, etc. (optional)" {...field} className="rounded-xl" />
+                        <Input placeholder="Apartment, suite, etc. (optional)" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -510,7 +676,7 @@ export function MCAApplicationDetailsCard() {
                     <FormItem>
                       <FormLabel>District</FormLabel>
                       <FormControl>
-                        <Input placeholder="District (optional)" {...field} className="rounded-xl" />
+                        <Input placeholder="District (optional)" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -523,7 +689,7 @@ export function MCAApplicationDetailsCard() {
                     <FormItem>
                       <FormLabel>Town/City *</FormLabel>
                       <FormControl>
-                        <Input placeholder="Town or city" {...field} className="rounded-xl" />
+                        <Input placeholder="Town or city" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -536,7 +702,7 @@ export function MCAApplicationDetailsCard() {
                     <FormItem>
                       <FormLabel>County/State</FormLabel>
                       <FormControl>
-                        <Input placeholder="County or state (optional)" {...field} className="rounded-xl" />
+                        <Input placeholder="County or state (optional)" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -549,7 +715,7 @@ export function MCAApplicationDetailsCard() {
                     <FormItem>
                       <FormLabel>Post Code *</FormLabel>
                       <FormControl>
-                        <Input placeholder="Post code" {...field} className="rounded-xl" />
+                        <Input placeholder="Post code" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -562,7 +728,7 @@ export function MCAApplicationDetailsCard() {
                     <FormItem>
                       <FormLabel>Country *</FormLabel>
                       <FormControl>
-                        <Input placeholder="Country" {...field} className="rounded-xl" />
+                        <Input placeholder="Country" {...field} className="rounded-xl" disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -575,16 +741,26 @@ export function MCAApplicationDetailsCard() {
               <p className="text-xs text-muted-foreground">
                 * Required fields for MCA applications
               </p>
-              <Button type="submit" disabled={isSaving} variant="default" className="rounded-xl">
-                {isSaving ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  'Save MCA Details'
-                )}
-              </Button>
+              {isEditing ? (
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" className="rounded-xl" onClick={handleCancelEdit}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isSaving} variant="default" className="rounded-xl">
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" />
+                        Save MCA Details
+                      </>
+                    )}
+                  </Button>
+                </div>
+              ) : null}
             </div>
           </form>
         </Form>
