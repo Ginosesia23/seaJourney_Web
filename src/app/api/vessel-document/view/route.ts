@@ -144,7 +144,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       testimonialData,
-      pdfFormat: doc.pdf_format || 'seajourney',
+      pdfFormat: doc.pdf_format || 'mca',
     });
   } catch (e) {
     console.error('[VESSEL-DOCUMENT VIEW] Error:', e);

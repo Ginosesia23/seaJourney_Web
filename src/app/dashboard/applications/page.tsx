@@ -2093,7 +2093,7 @@ export default function ApplicationsPage() {
     return vessels.find(v => v.id === vesselId);
   };
 
-  const handleGeneratePDF = async (testimonial: Testimonial, format: TestimonialPDFFormat = 'seajourney') => {
+  const handleGeneratePDF = async (testimonial: Testimonial, format: TestimonialPDFFormat = 'mca') => {
     if (!userProfile) {
       toast({
         title: 'Error',
@@ -2301,7 +2301,9 @@ export default function ApplicationsPage() {
         }
       } else {
         // Use the standard testimonial generator for other formats
-        await generateTestimonialPDF(testimonialData, format);
+        await generateTestimonialPDF(testimonialData, format, 'download', {
+          debug: process.env.NEXT_PUBLIC_PDF_DEBUG === 'true',
+        });
       }
     } catch (error) {
       console.error('Error generating PDF:', error);

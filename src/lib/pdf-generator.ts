@@ -401,11 +401,19 @@ function loadLogoImage(logoPath: string): Promise<string> {
 /*                          SEA SERVICE TESTIMONIAL                           */
 /* ========================================================================== */
 
+export interface TestimonialPDFOptions {
+  debug?: boolean; // when true, log all layout positions to console
+}
+
 export async function generateTestimonialPDF(
   data: TestimonialPDFData,
-  pdfFormat: TestimonialPDFFormat = 'seajourney',
+  pdfFormat: TestimonialPDFFormat = 'mca',
   output: TestimonialPDFOutput = 'download',
+  options?: TestimonialPDFOptions,
 ) {
+  const debug = options?.debug ?? false;
+  const positions: Record<string, { x?: number; y?: number; w?: number; h?: number }> = {};
+
   const doc = new jsPDF();
   const { testimonial, userProfile, vessel, captainProfile } = data;
 
@@ -445,8 +453,13 @@ export async function generateTestimonialPDF(
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
+  if (debug) {
+    positions.pageWidth = { x: pageWidth };
+    positions.pageHeight = { y: pageHeight };
+  }
 
   let currentY = 20;
+  if (debug) positions.contentStartY = { y: currentY };
 
   // ===== Header =====
   if (isMCATemplate) {
@@ -500,10 +513,15 @@ export async function generateTestimonialPDF(
   
   setTextColor(textDark);
   currentY = headerHeight + 20;
+  if (debug) {
+    positions.headerHeight = { h: headerHeight };
+    positions.afterHeaderY = { y: currentY };
+  }
   }
 
   const sectionHeaderHeight = 8;
-  
+  if (debug) positions.sectionHeaderHeight = { h: sectionHeaderHeight };
+
   // ===== Part 1 – Seafarer's Details =====
   doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
@@ -515,6 +533,7 @@ export async function generateTestimonialPDF(
   doc.line(18, currentY + 3, pageWidth - 18, currentY + 3);
     
   currentY += sectionHeaderHeight + 4;
+  if (debug) positions.part1HeaderY = { x: 18, y: currentY };
 
     doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
@@ -560,6 +579,7 @@ export async function generateTestimonialPDF(
   });
 
   currentY = (doc as any).lastAutoTable.finalY + 4;
+  if (debug) positions.afterPersonalTableY = { y: currentY };
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
@@ -582,9 +602,11 @@ export async function generateTestimonialPDF(
     doc.text('Position not specified', 18 + prefixWidth, currentY);
   }
   currentY += 6;
+  if (debug) positions.hasServedAsY = { x: 18, y: currentY };
 
   // ===== Part 2 – Service =====
   currentY = ensureSpace(doc, currentY, 60);
+  if (debug) positions.beforePart2Y = { y: currentY };
   
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
@@ -639,6 +661,7 @@ export async function generateTestimonialPDF(
   });
 
   currentY = (doc as any).lastAutoTable.finalY + 4;
+  if (debug) positions.afterVesselTableY = { y: currentY };
 
   const serviceDateRows: string[][] = [
     ['From: (i.e. onboard yacht service)', startDate],
@@ -660,6 +683,7 @@ export async function generateTestimonialPDF(
   });
 
   currentY = (doc as any).lastAutoTable.finalY + 4;
+  if (debug) positions.afterServiceDatesY = { y: currentY };
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
@@ -706,10 +730,11 @@ export async function generateTestimonialPDF(
 
   currentY = (doc as any).lastAutoTable.finalY + 4;
   currentY = ensureSpace(doc, currentY, 60);
+  if (debug) positions.afterServiceBreakdownY = { y: currentY };
 
     doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    setTextColor(textDark);
+  doc.setFont('helvetica', 'normal');
+  setTextColor(textDark);
   doc.text(`Days of leave of absence: ${testimonial.leave_days} days`, 18, currentY);
   currentY += 5;
 
@@ -732,6 +757,7 @@ export async function generateTestimonialPDF(
   });
 
   currentY = (doc as any).lastAutoTable.finalY + 6;
+  if (debug) positions.afterCruisingTableY = { y: currentY };
 
   // ===== Captain Comments Section =====
   currentY = ensureSpace(doc, currentY, 100);
@@ -783,6 +809,7 @@ export async function generateTestimonialPDF(
   });
 
   currentY = (doc as any).lastAutoTable.finalY + 6;
+  if (debug) positions.afterCommentsTableY = { y: currentY };
 
   // ===== Company Details Section =====
   currentY = ensureSpace(doc, currentY, 80);
@@ -845,6 +872,7 @@ export async function generateTestimonialPDF(
     });
 
   currentY = (doc as any).lastAutoTable.finalY + 6;
+  if (debug) positions.afterCompanyTableY = { y: currentY };
   
   // ===== Part 3 – Declaration =====
   // Force Part 3 to start on page 3
@@ -910,6 +938,7 @@ export async function generateTestimonialPDF(
   setTextColor(primaryBlue);
   doc.text('Signatory Details', 18, currentY);
   currentY += 8;
+  if (debug) positions.signatoryDetailsLabelY = { x: 18, y: currentY };
 
   // Signatory details box
   const signatoryBoxHeight = 20;
@@ -919,9 +948,17 @@ export async function generateTestimonialPDF(
   setDrawColor(borderColor);
   doc.setLineWidth(0.5);
   doc.rect(18, currentY, signatoryBoxWidth, signatoryBoxHeight);
+  if (debug) {
+    positions.signatoryBox = { x: 18, y: currentY, w: signatoryBoxWidth, h: signatoryBoxHeight };
+  }
 
   const padding = 3;
   let signatoryY = currentY + padding + 3;
+  if (debug) {
+    positions.signatoryNameY = { x: 20, y: signatoryY };
+    positions.signatoryPositionY = { y: signatoryY + 4 };
+    positions.signatoryEmailY = { y: signatoryY + 8 };
+  }
 
   let captainName = testimonial.captain_name;
   if (!captainName && captainProfile) {
@@ -952,10 +989,15 @@ export async function generateTestimonialPDF(
   const sectionHeight = 25; // Height for all three sections
   const sectionWidth = (pageWidth - 36 - 8) / 3; // Divide available width into 3 equal sections (with 4mm gaps)
   const gap = 4; // Gap between sections
+  if (debug) {
+    positions.sectionStartY = { y: sectionStartY };
+    positions.sectionWidth = { w: sectionWidth };
+  }
 
   // Section 1: Signature (left)
   const signatureX = 18;
   const signatureY = sectionStartY;
+  if (debug) positions.signatureLabel = { x: signatureX, y: signatureY };
   
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
@@ -976,7 +1018,8 @@ export async function generateTestimonialPDF(
   
   const signatureBoxY = signatureY + 4;
   const signatureBoxHeight = 12;
-  
+  if (debug) positions.signatureBox = { x: signatureX, y: signatureBoxY, w: sectionWidth - 2, h: signatureBoxHeight };
+
   if (captainSignature) {
     try {
       console.log('[PDF GENERATION] Adding signature image to PDF');
@@ -1023,6 +1066,10 @@ export async function generateTestimonialPDF(
   // Section 2: Date (middle)
   const dateX = signatureX + sectionWidth + gap;
   const dateY = sectionStartY;
+  if (debug) {
+    positions.dateLabel = { x: dateX, y: dateY };
+    positions.dateValueY = { y: dateY + 6 };
+  }
   
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
@@ -1046,6 +1093,7 @@ export async function generateTestimonialPDF(
   // Section 3: Ship's Stamp (right)
   const stampX = dateX + sectionWidth + gap;
   const stampY = sectionStartY;
+  if (debug) positions.stampLabel = { x: stampX, y: stampY };
   
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
@@ -1151,6 +1199,10 @@ export async function generateTestimonialPDF(
   const formatName = pdfFormat.toUpperCase();
 
   const filename = `${startDateFilename} - ${endDateFilename} ${crewName} ${vesselName} testimonial ${formatName}.pdf`;
+
+  if (debug) {
+    console.log('[Testimonial PDF] Layout positions (x, y, w, h in mm):', JSON.stringify(positions, null, 2));
+  }
 
   // ===== Output modes =====
   if (output === 'blob') {
@@ -4316,8 +4368,8 @@ export async function generateMCADeckhandTestimonial(
   // With debug on, red crosshairs + labels show each position. Adjust values below to match your template.
   const COORDS = {
     // Page 1 - Company and Personal Details
-    companyName: { x: 200, top: 190 },
-    companyAddress: { x: 200, top: 210 },
+    companyName: { x: 190, top: 185 },
+    companyAddress: { x: 190, top: 200 },
     contactTel: { x: 250, top: 267 },
     contactEmail: { x: 250, top: 287 },
     
@@ -4919,8 +4971,8 @@ export async function generateMCAOfficerTestimonial(
   // Copied from deckhand coordinates; officer has extra "capacity" field.
   const COORDS = {
     // Page 1 - Company and Personal Details
-    companyName: { x: 200, top: 170 },
-    companyAddress: { x: 200, top: 190 },
+    companyName: { x: 190, top: 160 },
+    companyAddress: { x: 190, top: 173 },
     contactTel: { x: 250, top: 243 },
     contactEmail: { x: 250, top: 263 },
     
@@ -4939,9 +4991,9 @@ export async function generateMCAOfficerTestimonial(
     dateDischarge: { x: 455, top: 440 },
     
     // Service Days
-    actualSeagoingDays: { x: 240, top: 494 },
-    standbyDays: { x: 240, top: 506 },
-    yardDays: { x: 240, top: 519 },
+    actualSeagoingDays: { x: 240, top: 493 },
+    standbyDays: { x: 240, top: 505 },
+    yardDays: { x: 240, top: 518 },
     
     // Comments (Page 2)
     conduct: { x: 140, top: 80, page: 2 },
@@ -4949,9 +5001,9 @@ export async function generateMCAOfficerTestimonial(
     generalComments: { x: 140, top: 160, page: 2 },
     watchDays: { x: 240, top: 690, page: 1 },
     
-    // Standby Service Table A (Page 2)
+    // Standby Service Table A (Page 2) — match deckhand layout
     standbyTableTitle: { x: 25, top: 393, page: 2 },
-    standbyTableStartY: { top: 395, page: 2 },
+    standbyTableStartY: { top: 364, page: 2 },
     standbyTableRowHeight: 14.5,
     standbyTableCol1: { x: 60 },
     standbyTableCol2: { x: 170 },

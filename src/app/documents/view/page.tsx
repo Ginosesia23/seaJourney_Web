@@ -65,7 +65,9 @@ function DocumentViewContent() {
             await generateMCADeckhandTestimonial(withReceipt, 'download');
           }
         } else {
-          await generateTestimonialPDF(testimonialData, format);
+          await generateTestimonialPDF(testimonialData, format, 'download', {
+            debug: process.env.NEXT_PUBLIC_PDF_DEBUG === 'true',
+          });
         }
 
         if (!cancelled) {

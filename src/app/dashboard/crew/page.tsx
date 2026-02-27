@@ -450,7 +450,7 @@ export default function CrewPage() {
     const [selectedDataSource, setSelectedDataSource] = useState<'crew' | 'vessel' | null>(null);
     const [selectedTestimonialFormat, setSelectedTestimonialFormat] = useState<Record<string, TestimonialPDFFormat>>({});
     const [selectedVesselDocFormat, setSelectedVesselDocFormat] = useState<Record<string, TestimonialPDFFormat>>({});
-    const [selectedNewDocFormat, setSelectedNewDocFormat] = useState<TestimonialPDFFormat>('seajourney');
+    const [selectedNewDocFormat, setSelectedNewDocFormat] = useState<TestimonialPDFFormat>('mca');
     const [isNavWatchDialogOpen, setIsNavWatchDialogOpen] = useState(false);
     const [isSavingNavWatch, setIsSavingNavWatch] = useState(false);
 
@@ -2015,7 +2015,7 @@ export default function CrewPage() {
     };
 
     // Generate PDF for a vessel-generated testimonial
-    const handleGenerateVesselTestimonialPDF = async (testimonial: VesselGeneratedTestimonial, format: TestimonialPDFFormat = 'seajourney') => {
+    const handleGenerateVesselTestimonialPDF = async (testimonial: VesselGeneratedTestimonial, format: TestimonialPDFFormat = 'mca') => {
         if (!selectedMemberData) {
             toast({
                 title: 'Error',
@@ -2222,7 +2222,9 @@ export default function CrewPage() {
                     await generateMCADeckhandTestimonial(testimonialDataWithReceipt, 'download');
                 }
             } else {
-                await generateTestimonialPDF(testimonialData, format);
+                await generateTestimonialPDF(testimonialData, format, 'download', {
+                  debug: process.env.NEXT_PUBLIC_PDF_DEBUG === 'true',
+                });
             }
 
             toast({
@@ -2242,7 +2244,7 @@ export default function CrewPage() {
     };
 
     // Generate PDF for a testimonial
-    const handleGeneratePDF = async (testimonial: Testimonial, format: TestimonialPDFFormat = 'seajourney') => {
+    const handleGeneratePDF = async (testimonial: Testimonial, format: TestimonialPDFFormat = 'mca') => {
         if (!selectedMemberData) {
             toast({
                 title: 'Error',
@@ -2497,7 +2499,9 @@ export default function CrewPage() {
                     await generateMCADeckhandTestimonial(testimonialDataWithReceipt, 'download');
                 }
             } else {
-                await generateTestimonialPDF(testimonialData, format);
+                await generateTestimonialPDF(testimonialData, format, 'download', {
+                  debug: process.env.NEXT_PUBLIC_PDF_DEBUG === 'true',
+                });
             }
 
             toast({
@@ -2881,7 +2885,7 @@ export default function CrewPage() {
                 generated_by_email: currentUserProfile.email || null,
                 data_source: dataSource as 'crew' | 'vessel',
                 notes: null, // No notes for vessel-generated testimonials
-                pdf_format: 'seajourney', // Default format, can be changed when generating PDF later
+                pdf_format: 'mca', // Default format, can be changed when generating PDF later
             };
 
             const { data: savedTestimonial, error: saveError } = await supabase
@@ -2951,7 +2955,7 @@ export default function CrewPage() {
     };
 
     // Generate PDF from calculated sea time
-    const handleGenerateFromDateRange = async (pdfFormat: TestimonialPDFFormat = 'seajourney') => {
+    const handleGenerateFromDateRange = async (pdfFormat: TestimonialPDFFormat = 'mca') => {
         if (!selectedMemberData || !currentUserProfile?.activeVesselId || !documentStartDate || !documentEndDate || !calculatedSeaTime) {
             toast({
                 title: 'Error',
@@ -4142,14 +4146,14 @@ export default function CrewPage() {
                                                                             <Button
                                                                                 variant="ghost"
                                                                                 size="sm"
-                                                                                onClick={() => setViewDocumentBreakdown({ ...testimonial, data_source: (testimonial as any).data_source, pdf_format: 'seajourney' })}
+                                                                                onClick={() => setViewDocumentBreakdown({ ...testimonial, data_source: (testimonial as any).data_source, pdf_format: 'mca' })}
                                                                                 className="rounded-lg"
                                                                                 title="View breakdown"
                                                                             >
                                                                                 <Eye className="h-4 w-4" />
                                                                             </Button>
                                                                             <Select
-                                                                                value={selectedTestimonialFormat[testimonial.id] ?? 'seajourney'}
+                                                                                value={selectedTestimonialFormat[testimonial.id] ?? 'mca'}
                                                                                 onValueChange={(format) => setSelectedTestimonialFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
                                                                                 disabled={generatingPDF === testimonial.id}
                                                                             >
@@ -4164,7 +4168,7 @@ export default function CrewPage() {
                                                                             <Button
                                                                                 variant="outline"
                                                                                 size="sm"
-                                                                                onClick={() => handleGeneratePDF(testimonial, selectedTestimonialFormat[testimonial.id] ?? 'seajourney')}
+                                                                                onClick={() => handleGeneratePDF(testimonial, selectedTestimonialFormat[testimonial.id] ?? 'mca')}
                                                                                 disabled={generatingPDF === testimonial.id}
                                                                                 className="rounded-xl"
                                                                                 title="Download"
@@ -4237,7 +4241,7 @@ export default function CrewPage() {
                                                                                 <Eye className="h-4 w-4" />
                                                                             </Button>
                                                                             <Select
-                                                                                value={selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'seajourney'}
+                                                                                value={selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca'}
                                                                                 onValueChange={(format) => setSelectedVesselDocFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
                                                                                 disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
                                                                             >
@@ -4252,7 +4256,7 @@ export default function CrewPage() {
                                                                             <Button
                                                                                 variant="outline"
                                                                                 size="sm"
-                                                                                onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'seajourney')}
+                                                                                onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca')}
                                                                                 disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
                                                                                 className="rounded-xl"
                                                                                 title="Download"
