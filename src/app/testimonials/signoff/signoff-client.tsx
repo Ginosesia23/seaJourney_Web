@@ -4,29 +4,21 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { format, parse } from 'date-fns';
+import Link from 'next/link';
 import {
   CheckCircle2,
   XCircle,
   Loader2,
   Ship,
-  Calendar,
-  Clock,
   AlertCircle,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import Image from 'next/image';
+import Logo from '@/components/logo';
 
 interface TestimonialSummary {
   id: string;
@@ -40,6 +32,8 @@ interface TestimonialSummary {
   leave_days: number;
   captain_name: string | null;
   captain_email: string | null;
+  crew_member_name?: string | null;
+  crew_member_position?: string | null;
   vessel: {
     id: string;
     name: string;
@@ -52,18 +46,55 @@ interface TestimonialSummary {
     beam?: number | null;
     draft?: number | null;
     call_sign?: string | null;
-    [key: string]: any;
+    [key: string]: unknown;
   } | null;
 }
+
+const SignoffLayout = ({
+  children,
+  title,
+}: {
+  children: React.ReactNode;
+  title?: string;
+}) => (
+  <div className="min-h-screen flex flex-col">
+    <header
+      className="sticky top-0 z-50 w-full border-b backdrop-blur-md shrink-0"
+      style={{
+        backgroundColor: '#000b15',
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+      }}
+    >
+      <div className="container mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+        <Logo className="text-white" />
+        {title && (
+          <span className="text-sm font-medium text-white/80 hidden sm:block">
+            {title}
+          </span>
+        )}
+      </div>
+    </header>
+    <main className="flex-1 flex flex-col bg-white">{children}</main>
+    <footer
+      className="shrink-0 border-t py-6"
+      style={{ backgroundColor: '#000b15', borderColor: 'rgba(255, 255, 255, 0.1)' }}
+    >
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-white/60">
+        <span>&copy; {new Date().getFullYear()} SeaJourney. All rights reserved.</span>
+        <Link href="/verify" className="text-white/70 hover:text-white transition-colors">
+          Verify records
+        </Link>
+      </div>
+    </footer>
+  </div>
+);
 
 export default function SignoffClient() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
   const email = searchParams.get('email');
 
-  const [testimonial, setTestimonial] = useState<TestimonialSummary | null>(
-    null,
-  );
+  const [testimonial, setTestimonial] = useState<TestimonialSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,9 +114,7 @@ export default function SignoffClient() {
       }
 
       const res = await fetch(
-        `/api/captain/signoff?token=${encodeURIComponent(
-          token,
-        )}&email=${encodeURIComponent(email)}`,
+        `/api/captain/signoff?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`,
       );
       const json = await res.json();
 
@@ -121,8 +150,7 @@ export default function SignoffClient() {
         token,
         email,
         decision,
-        rejectionReason:
-          decision === 'reject' ? rejectionReason.trim() : undefined,
+        rejectionReason: decision === 'reject' ? rejectionReason.trim() : undefined,
         commentConduct: decision === 'approve' ? commentConduct.trim() : undefined,
         commentAbility: decision === 'approve' ? commentAbility.trim() : undefined,
         commentGeneral: decision === 'approve' ? commentGeneral.trim() : undefined,
@@ -133,10 +161,7 @@ export default function SignoffClient() {
     setProcessing(false);
 
     if (!json.success) {
-      setError(
-        json.error ||
-          'Failed to record your decision. Please try again later.',
-      );
+      setError(json.error || 'Failed to record your decision. Please try again later.');
       return;
     }
 
@@ -150,60 +175,37 @@ export default function SignoffClient() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center subtle-gradient-background">
-        <div className="text-center space-y-6">
-          <div className="flex items-center justify-center mb-6">
-            <Image
-              src="/seajourney_logo_white.png"
-              alt="SeaJourney"
-              width={180}
-              height={64}
-              className="h-14 w-auto"
-              priority
-            />
+      <SignoffLayout title="Captain sign-off">
+        <div className="flex-1 flex items-center justify-center py-16">
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center space-y-6">
+              <Loader2 className="h-10 w-10 animate-spin text-muted-foreground mx-auto" />
+              <p className="text-sm text-muted-foreground">Loading testimonial…</p>
+            </div>
           </div>
-          <Loader2 className="h-8 w-8 animate-spin text-white/70 mx-auto" />
-          <p className="text-sm text-white/70">Loading testimonial...</p>
         </div>
-      </div>
+      </SignoffLayout>
     );
   }
 
   if (error && !testimonial) {
     return (
-      <div className="min-h-screen subtle-gradient-background flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-lg space-y-6">
-          {/* Branding Header */}
-          <div className="flex items-center justify-center py-8 border-b border-white/10">
-            <Image
-              src="/seajourney_logo_white.png"
-              alt="SeaJourney"
-              width={200}
-              height={72}
-              className="h-16 w-auto"
-              priority
-            />
+      <SignoffLayout title="Captain sign-off">
+        <div className="flex-1 flex items-center justify-center py-16">
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="w-full max-w-md mx-auto rounded-xl border border-border bg-card p-8 text-center shadow-sm">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-50">
+              <AlertCircle className="h-7 w-7 text-amber-600" />
+            </div>
+            <h2 className="text-xl font-semibold text-foreground">Unable to load</h2>
+            <p className="mt-2 text-muted-foreground">{error}</p>
+            <p className="mt-4 text-sm text-muted-foreground">
+              If you believe this is an error, please contact the person who requested this testimonial.
+            </p>
+            </div>
           </div>
-
-          <Card>
-            <CardHeader className="text-center pb-4">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <AlertCircle className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <CardTitle className="text-xl">Unable to Load</CardTitle>
-              <CardDescription className="text-base mt-2">
-                {error}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-center">
-              <p className="text-sm text-muted-foreground">
-                If you believe this is an error, please contact the person who
-                requested this testimonial.
-              </p>
-            </CardContent>
-          </Card>
         </div>
-      </div>
+      </SignoffLayout>
     );
   }
 
@@ -211,396 +213,274 @@ export default function SignoffClient() {
     const isApproved = action === 'approve';
 
     return (
-      <div className="min-h-screen subtle-gradient-background flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-lg space-y-6">
-          {/* Branding Header */}
-          <div className="flex items-center justify-center py-8 border-b border-white/10">
-            <Image
-              src="/seajourney_logo_white.png"
-              alt="SeaJourney"
-              width={200}
-              height={72}
-              className="h-16 w-auto"
-              priority
-            />
-          </div>
-
-          <Card>
-            <CardHeader className="text-center pb-4">
+      <SignoffLayout title="Captain sign-off">
+        <div className="flex-1 flex items-center justify-center py-16">
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="w-full max-w-lg mx-auto rounded-xl border border-border bg-card p-8 shadow-sm">
+            <div className="text-center">
               <div
-                className={`mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full ${
-                  isApproved ? 'bg-green-50' : 'bg-red-50'
+                className={`mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full ${
+                  isApproved ? 'bg-emerald-50' : 'bg-red-50'
                 }`}
               >
                 {isApproved ? (
-                  <CheckCircle2 className="h-6 w-6 text-green-600" />
+                  <CheckCircle2 className="h-7 w-7 text-emerald-600" />
                 ) : (
-                  <XCircle className="h-6 w-6 text-red-600" />
+                  <XCircle className="h-7 w-7 text-red-600" />
                 )}
               </div>
-              <CardTitle className="text-xl">
-                {isApproved ? 'Testimonial Approved' : 'Testimonial Rejected'}
-              </CardTitle>
-              <CardDescription className="text-base mt-2">
+              <h2 className="text-xl font-semibold text-foreground">
+                {isApproved ? 'Testimonial approved' : 'Testimonial rejected'}
+              </h2>
+              <p className="mt-2 text-muted-foreground">
                 {isApproved
                   ? 'Thank you for confirming this sea service record. The crew member has been notified.'
                   : 'Your response has been recorded. The crew member has been notified with your reason.'}
-              </CardDescription>
-            </CardHeader>
-
+              </p>
+            </div>
             {testimonial && (
-              <CardContent className="space-y-4 pt-0">
-                <Separator />
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold">Summary</h3>
-                  {testimonial.vessel && (
-                    <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                      <Ship className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm">
-                          {testimonial.vessel.name}
-                        </p>
-                        {testimonial.vessel.type && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {testimonial.vessel.type}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 rounded-lg bg-muted/50">
-                      <p className="text-xs text-muted-foreground mb-1">
-                        Service Period
-                      </p>
-                      <p className="font-medium text-xs leading-tight">
-                        {format(
-                          parse(
-                            testimonial.start_date,
-                            'yyyy-MM-dd',
-                            new Date(),
-                          ),
-                          'MMM d, yyyy',
-                        )}{' '}
-                        -{' '}
-                        {format(
-                          parse(
-                            testimonial.end_date,
-                            'yyyy-MM-dd',
-                            new Date(),
-                          ),
-                          'MMM d, yyyy',
-                        )}
-                      </p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-muted/50">
-                      <p className="text-xs text-muted-foreground mb-1">
-                        Total Days
-                      </p>
-                      <p className="font-medium text-lg">
-                        {testimonial.total_days}
-                      </p>
+              <div className="mt-6 pt-6 border-t space-y-3">
+                <h3 className="text-sm font-semibold text-foreground">Summary</h3>
+                {(testimonial.crew_member_name || testimonial.crew_member_position) && (
+                  <div className="p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground mb-1">Testimonial for</p>
+                    <p className="font-medium text-sm text-foreground">{testimonial.crew_member_name || 'Crew member'}</p>
+                    {testimonial.crew_member_position && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{testimonial.crew_member_position}</p>
+                    )}
+                  </div>
+                )}
+                {testimonial.vessel && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                    <Ship className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm text-foreground">{testimonial.vessel.name}</p>
+                      {testimonial.vessel.type && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{testimonial.vessel.type}</p>
+                      )}
                     </div>
                   </div>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground mb-1">Service period</p>
+                    <p className="font-medium text-xs leading-tight text-foreground">
+                      {format(parse(testimonial.start_date, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')} –{' '}
+                      {format(parse(testimonial.end_date, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground mb-1">Total days</p>
+                    <p className="font-medium text-lg text-foreground">{testimonial.total_days}</p>
+                  </div>
                 </div>
-              </CardContent>
+              </div>
             )}
-
-            <CardContent className="pt-4">
-              <p className="text-xs text-center text-muted-foreground">
-                This link is no longer valid and cannot be used again.
-              </p>
-            </CardContent>
-          </Card>
+            <p className="mt-6 text-xs text-center text-muted-foreground">
+              This link is no longer valid and cannot be used again.
+            </p>
+            </div>
+          </div>
         </div>
-      </div>
+      </SignoffLayout>
     );
   }
 
-  if (!testimonial) {
-    return null;
-  }
+  if (!testimonial) return null;
 
   const startDate = parse(testimonial.start_date, 'yyyy-MM-dd', new Date());
   const endDate = parse(testimonial.end_date, 'yyyy-MM-dd', new Date());
 
   return (
-    <div className="min-h-screen subtle-gradient-background">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-        {/* Branding Header */}
-        <div className="flex items-center justify-center mb-10 py-8 border-b border-white/10">
-          <Image
-            src="/seajourney_logo_white.png"
-            alt="SeaJourney"
-            width={200}
-            height={72}
-            className="h-16 w-auto"
-            priority
-          />
-        </div>
+    <SignoffLayout title="Captain sign-off">
+      <div className="flex-1 w-full py-8 sm:py-10">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-8">
+            <h1 className="font-headline text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+              Sea service testimonial
+            </h1>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              Review the sea service record below and approve or reject this request.
+            </p>
+          </div>
 
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight mb-2 text-white">
-            Sea Service Testimonial
-          </h1>
-          <p className="text-sm text-white/70">
-            Please review the sea service record below and approve or reject
-            this request.
-          </p>
-        </div>
+          {error && (
+            <Alert variant="destructive" className="mb-6">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-        {error && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        <Card>
-          <CardHeader>
-            {/* Vessel Information */}
-            <div className="space-y-4">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
-                  <Ship className="h-4 w-4" />
-                  Vessel
-                </div>
-                <div className="space-y-2">
-                  <p className="text-lg font-semibold">
-                    {testimonial.vessel?.name || 'Unknown Vessel'}
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 xl:gap-8">
+            {/* Left: Sea service details (crew data) */}
+            <div className="xl:col-span-2 space-y-4">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                Sea service details
+              </h2>
+              <div className="rounded-xl border border-border bg-muted/30 overflow-hidden">
+                {/* Testimonial for (crew member) */}
+                {(testimonial.crew_member_name || testimonial.crew_member_position) && (
+                  <div className="p-5 sm:p-6 border-b border-border">
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">Testimonial for</p>
+                    <p className="text-xl font-semibold text-foreground">
+                      {testimonial.crew_member_name || 'Crew member'}
+                    </p>
+                    {testimonial.crew_member_position && (
+                      <p className="text-sm text-muted-foreground mt-1">{testimonial.crew_member_position}</p>
+                    )}
+                  </div>
+                )}
+                {/* Vessel */}
+                <div className="p-5 sm:p-6 border-b border-border">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">Vessel</p>
+                  <p className="text-xl font-semibold text-foreground">
+                    {testimonial.vessel?.name || 'Unknown vessel'}
                   </p>
                   {testimonial.vessel?.type && (
-                    <p className="text-sm text-muted-foreground">
-                      {testimonial.vessel.type}
-                    </p>
+                    <p className="text-sm text-muted-foreground mt-1">{testimonial.vessel.type}</p>
                   )}
-                  {(testimonial.vessel?.imo ||
-                    testimonial.vessel?.mmsi ||
-                    testimonial.vessel?.flag ||
-                    testimonial.vessel?.gross_tonnage) && (
-                    <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-xs text-muted-foreground pt-2 border-t">
-                      {testimonial.vessel?.imo && (
-                        <span>
-                          <span className="font-medium">IMO:</span>{' '}
-                          {testimonial.vessel.imo}
-                        </span>
-                      )}
-                      {testimonial.vessel?.mmsi && (
-                        <span>
-                          <span className="font-medium">MMSI:</span>{' '}
-                          {testimonial.vessel.mmsi}
-                        </span>
-                      )}
-                      {testimonial.vessel?.flag && (
-                        <span>
-                          <span className="font-medium">Flag:</span>{' '}
-                          {testimonial.vessel.flag}
-                        </span>
-                      )}
-                      {testimonial.vessel?.gross_tonnage && (
-                        <span>
-                          <span className="font-medium">GT:</span>{' '}
-                          {testimonial.vessel.gross_tonnage}
-                        </span>
-                      )}
+                  {(testimonial.vessel?.imo || testimonial.vessel?.mmsi || testimonial.vessel?.flag || testimonial.vessel?.gross_tonnage != null) && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 pt-3 border-t border-border text-xs text-muted-foreground">
+                      {testimonial.vessel?.imo && <span><span className="font-medium">IMO</span> {testimonial.vessel.imo}</span>}
+                      {testimonial.vessel?.mmsi && <span><span className="font-medium">MMSI</span> {testimonial.vessel.mmsi}</span>}
+                      {testimonial.vessel?.flag && <span><span className="font-medium">Flag</span> {testimonial.vessel.flag}</span>}
+                      {testimonial.vessel?.gross_tonnage != null && <span><span className="font-medium">GT</span> {testimonial.vessel.gross_tonnage}</span>}
                     </div>
                   )}
                 </div>
-              </div>
 
-              <Separator />
-
-              {/* Date Range */}
-              <div>
-                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
-                  <Calendar className="h-4 w-4" />
-                  Service Period
-                </div>
-                <p className="text-base font-medium">
-                  {format(startDate, 'MMMM d, yyyy')} -{' '}
-                  {format(endDate, 'MMMM d, yyyy')}
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {testimonial.total_days} total days
-                </p>
-              </div>
-
-              <Separator />
-
-              {/* Service Breakdown */}
-              <div>
-                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-3">
-                  <Clock className="h-4 w-4" />
-                  Service Breakdown
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border bg-background">
-                    <span className="text-xs text-muted-foreground">
-                      At Sea:
-                    </span>
-                    <span className="text-xs font-medium">
-                      {testimonial.at_sea_days}
-                    </span>
-                  </div>
-                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border bg-background">
-                    <span className="text-xs text-muted-foreground">
-                      Standby:
-                    </span>
-                    <span className="text-xs font-medium">
-                      {testimonial.standby_days}
-                    </span>
-                  </div>
-                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border bg-background">
-                    <span className="text-xs text-muted-foreground">
-                      In Yard:
-                    </span>
-                    <span className="text-xs font-medium">
-                      {testimonial.yard_days}
-                    </span>
-                  </div>
-                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border bg-background">
-                    <span className="text-xs text-muted-foreground">
-                      On Leave:
-                    </span>
-                    <span className="text-xs font-medium">
-                      {testimonial.leave_days}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardHeader>
-
-          <CardContent className="space-y-6">
-            <Separator />
-
-            {/* Action Section */}
-            <div className="space-y-4">
-              {/* Captain Comments Section */}
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-semibold mb-3">Comments (Optional)</h3>
-                  <p className="text-xs text-muted-foreground mb-4">
-                    You may provide comments on the following areas. These will be included in the testimonial document.
+                {/* Service period */}
+                <div className="p-5 sm:p-6 border-b border-border">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">Service period</p>
+                  <p className="text-base font-medium text-foreground">
+                    {format(startDate, 'd MMMM yyyy')} – {format(endDate, 'd MMMM yyyy')}
                   </p>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="comment-conduct" className="text-sm">
-                    Conduct
-                  </Label>
-                  <Textarea
-                    id="comment-conduct"
-                    placeholder="Comment on the seafarer's conduct..."
-                    value={commentConduct}
-                    onChange={(e) => setCommentConduct(e.target.value)}
-                    rows={2}
-                    className="resize-none"
-                  />
+                  <p className="text-sm text-muted-foreground mt-1">{testimonial.total_days} days total</p>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="comment-ability" className="text-sm">
-                    Ability
-                  </Label>
-                  <Textarea
-                    id="comment-ability"
-                    placeholder="Comment on the seafarer's ability..."
-                    value={commentAbility}
-                    onChange={(e) => setCommentAbility(e.target.value)}
-                    rows={2}
-                    className="resize-none"
-                  />
+                {/* Breakdown stats */}
+                <div className="p-5 sm:p-6">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Days breakdown</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: 'At sea', value: testimonial.at_sea_days },
+                      { label: 'Standby', value: testimonial.standby_days },
+                      { label: 'In yard', value: testimonial.yard_days },
+                      { label: 'On leave', value: testimonial.leave_days },
+                    ].map(({ label, value }) => (
+                      <div
+                        key={label}
+                        className="rounded-lg border border-border bg-background px-4 py-3"
+                      >
+                        <p className="text-xs text-muted-foreground">{label}</p>
+                        <p className="text-2xl font-semibold text-foreground tabular-nums">{value}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="comment-general" className="text-sm">
-                    General Comments
-                  </Label>
-                  <Textarea
-                    id="comment-general"
-                    placeholder="Any additional general comments..."
-                    value={commentGeneral}
-                    onChange={(e) => setCommentGeneral(e.target.value)}
-                    rows={2}
-                    className="resize-none"
-                  />
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-2">
-                <Label htmlFor="rejection-reason" className="text-sm">
-                  Rejection Reason{' '}
-                  <span className="text-muted-foreground font-normal">
-                    (Required if rejecting)
-                  </span>
-                </Label>
-                <Textarea
-                  id="rejection-reason"
-                  placeholder="Please provide a reason for rejection if you plan to reject this testimonial..."
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  rows={3}
-                  className="resize-none"
-                />
-                <p className="text-xs text-muted-foreground">
-                  This reason will be shared with the crew member if you reject
-                  the testimonial.
-                </p>
-              </div>
-
-              <div className="flex gap-3">
-                <Button
-                  onClick={() => handleDecision('approve')}
-                  disabled={processing}
-                  className="flex-1"
-                  variant="default"
-                >
-                  {processing ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="mr-2 h-4 w-4" />
-                      Approve
-                    </>
-                  )}
-                </Button>
-                <Button
-                  onClick={() => handleDecision('reject')}
-                  disabled={processing}
-                  className="flex-1"
-                  variant="destructive"
-                >
-                  {processing ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="mr-2 h-4 w-4" />
-                      Reject
-                    </>
-                  )}
-                </Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        <div className="mt-8 text-center">
-          <p className="text-xs text-white/60">
-            This link will expire after use. If you have any questions, please
-            contact the crew member directly.
+            {/* Right: Your response (comments, rejection, actions) */}
+            <div className="xl:col-span-3 space-y-4">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                Your response
+              </h2>
+              <div className="rounded-xl border border-border bg-card p-5 sm:p-6 lg:p-8 space-y-6">
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">Comments (optional)</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Included on the testimonial document.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-2 sm:col-span-1">
+                      <Label htmlFor="comment-conduct" className="text-sm text-foreground">Conduct</Label>
+                      <Textarea
+                        id="comment-conduct"
+                        placeholder="Conduct…"
+                        value={commentConduct}
+                        onChange={(e) => setCommentConduct(e.target.value)}
+                        rows={3}
+                        className="resize-none"
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-1">
+                      <Label htmlFor="comment-ability" className="text-sm text-foreground">Ability</Label>
+                      <Textarea
+                        id="comment-ability"
+                        placeholder="Ability…"
+                        value={commentAbility}
+                        onChange={(e) => setCommentAbility(e.target.value)}
+                        rows={3}
+                        className="resize-none"
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-1">
+                      <Label htmlFor="comment-general" className="text-sm text-foreground">General</Label>
+                      <Textarea
+                        id="comment-general"
+                        placeholder="General comments…"
+                        value={commentGeneral}
+                        onChange={(e) => setCommentGeneral(e.target.value)}
+                        rows={3}
+                        className="resize-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <Label htmlFor="rejection-reason" className="text-sm font-semibold text-foreground">
+                    Rejection reason <span className="text-muted-foreground font-normal">(required if rejecting)</span>
+                  </Label>
+                  <Textarea
+                    id="rejection-reason"
+                    placeholder="If you reject, provide a reason for the crew member…"
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    rows={3}
+                    className="resize-none"
+                  />
+                </div>
+
+                <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
+                  <Button
+                    onClick={() => handleDecision('reject')}
+                    disabled={processing}
+                    variant="destructive"
+                    className="flex-1 h-11 font-medium"
+                  >
+                    {processing ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing…</>
+                    ) : (
+                      <><XCircle className="mr-2 h-4 w-4" /> Reject</>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={() => handleDecision('approve')}
+                    disabled={processing}
+                    className="flex-1 h-11 font-medium bg-primary hover:bg-primary/90 text-primary-foreground"
+                  >
+                    {processing ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing…</>
+                    ) : (
+                      <><CheckCircle2 className="mr-2 h-4 w-4" /> Approve</>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p className="mt-8 text-center text-xs text-muted-foreground">
+            This link expires after use. Questions? Contact the person who requested this testimonial.
           </p>
         </div>
       </div>
-    </div>
+    </SignoffLayout>
   );
 }

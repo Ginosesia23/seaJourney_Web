@@ -101,7 +101,24 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Send back only what the captain needs
+  // Fetch crew member profile separately (testimonial is for this person)
+  let crewName: string | null = null;
+  let crewPosition: string | null = null;
+  if (data.user_id) {
+    const { data: crewProfile } = await supabaseAdmin
+      .from('users')
+      .select('first_name, last_name, position, username')
+      .eq('id', data.user_id)
+      .maybeSingle();
+    if (crewProfile) {
+      crewName =
+        `${(crewProfile.first_name || '').trim()} ${(crewProfile.last_name || '').trim()}`.trim() ||
+        crewProfile.username ||
+        null;
+      crewPosition = crewProfile.position || null;
+    }
+  }
+
   return NextResponse.json({
     success: true,
     testimonial: {
@@ -117,6 +134,8 @@ export async function GET(req: NextRequest) {
       captain_name: data.captain_name,
       captain_email: data.captain_email,
       vessel: data.vessels,
+      crew_member_name: crewName,
+      crew_member_position: crewPosition,
     },
   });
 }
