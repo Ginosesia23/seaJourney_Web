@@ -43,6 +43,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
@@ -420,6 +421,12 @@ export default function CrewPage() {
     const [deletingNavWatchId, setDeletingNavWatchId] = useState<string | null>(null);
     const [showGenerateForm, setShowGenerateForm] = useState(false);
     const [deletingTestimonial, setDeletingTestimonial] = useState<string | null>(null);
+    const [vesselTestimonialToDeleteId, setVesselTestimonialToDeleteId] = useState<string | null>(null);
+    const [crewTestimonialToDelete, setCrewTestimonialToDelete] = useState<Testimonial | null>(null);
+    const [deleteCrewPassword, setDeleteCrewPassword] = useState('');
+    const [deleteCrewPasswordError, setDeleteCrewPasswordError] = useState('');
+    const [isDeletingCrewTestimonial, setIsDeletingCrewTestimonial] = useState(false);
+    const isVerifyingCrewDeleteRef = React.useRef(false);
     const [sendToCaptainDocId, setSendToCaptainDocId] = useState<string | null>(null);
     const [sendToCaptainEmail, setSendToCaptainEmail] = useState('');
     const [isSendingToCaptainDoc, setIsSendingToCaptainDoc] = useState(false);
@@ -2062,6 +2069,70 @@ export default function CrewPage() {
         }
     };
 
+    // Verify vessel manager password and delete crew testimonial (for approved testimonials)
+    const verifyPasswordAndDeleteCrewTestimonial = async (testimonial: Testimonial) => {
+        const vesselManagerEmail = currentUserProfile?.email || (user as { email?: string } | null)?.email;
+        if (!user?.id || !vesselManagerEmail || !deleteCrewPassword) {
+            setDeleteCrewPasswordError('Password is required');
+            return;
+        }
+        isVerifyingCrewDeleteRef.current = true;
+        setDeleteCrewPasswordError('');
+        try {
+            const { error: signInError } = await supabase.auth.signInWithPassword({
+                email: vesselManagerEmail,
+                password: deleteCrewPassword,
+            });
+            if (signInError) {
+                setDeleteCrewPasswordError('Incorrect password. Please try again.');
+                return;
+            }
+            await handleDeleteCrewTestimonial(testimonial);
+        } catch (err: unknown) {
+            console.error('[CREW PAGE] Error verifying password for delete:', err);
+            setDeleteCrewPasswordError('An error occurred. Please try again.');
+        } finally {
+            isVerifyingCrewDeleteRef.current = false;
+        }
+    };
+
+    // Delete a crew testimonial (from testimonials table; vessel manager must have approved access – RLS)
+    const handleDeleteCrewTestimonial = async (testimonial: Testimonial) => {
+        if (!selectedCrewMemberId || !selectedMemberData) return;
+        setIsDeletingCrewTestimonial(true);
+        try {
+            const { error } = await supabase
+                .from('testimonials')
+                .delete()
+                .eq('id', testimonial.id);
+
+            if (error) throw error;
+
+            toast({
+                title: 'Testimonial deleted',
+                description: 'The testimonial has been removed.',
+            });
+
+            setCrewMembers(prev => prev.map(m =>
+                m.profile.id === selectedCrewMemberId
+                    ? { ...m, testimonials: (m.testimonials || []).filter(t => t.id !== testimonial.id) }
+                    : m
+            ));
+            setCrewTestimonialToDelete(null);
+            setDeleteCrewPassword('');
+            setDeleteCrewPasswordError('');
+        } catch (err: unknown) {
+            console.error('[CREW PAGE] Error deleting crew testimonial:', err);
+            toast({
+                title: 'Error',
+                description: err instanceof Error ? err.message : 'Failed to delete testimonial.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsDeletingCrewTestimonial(false);
+        }
+    };
+
     // Send saved document to captain via one-time link
     const handleSendDocumentToCaptain = async () => {
         if (!sendToCaptainDocId || !sendToCaptainEmail.trim()) {
@@ -2618,20 +2689,27 @@ export default function CrewPage() {
                 };
                 
                 if (isOfficerUser) {
-                    await generateMCAOfficerTestimonial(testimonialDataWithReceipt, 'download');
+                    await generateMCAOfficerTestimonial(testimonialDataWithReceipt, output);
                 } else {
-                    await generateMCADeckhandTestimonial(testimonialDataWithReceipt, 'download');
+                    await generateMCADeckhandTestimonial(testimonialDataWithReceipt, output);
                 }
             } else {
-                await generateTestimonialPDF(testimonialData, format, 'download', {
+                await generateTestimonialPDF(testimonialData, format, output, {
                   debug: process.env.NEXT_PUBLIC_PDF_DEBUG === 'true',
                 });
             }
 
-            toast({
-                title: 'Success',
-                description: 'PDF generated successfully.',
-            });
+            if (output === 'download') {
+                toast({
+                    title: 'Success',
+                    description: 'PDF generated successfully.',
+                });
+            } else if (output === 'newtab') {
+                toast({
+                    title: 'Preview',
+                    description: 'PDF opened in a new tab.',
+                });
+            }
         } catch (error) {
             console.error('[CREW PAGE] Error generating PDF:', error);
             toast({
@@ -2641,6 +2719,27 @@ export default function CrewPage() {
             });
         } finally {
             setGeneratingPDF(null);
+        }
+    };
+
+    // Preview PDF from Document breakdown dialog (finds full testimonial by id and opens in new tab)
+    const handlePreviewFromBreakdown = async () => {
+        if (!viewDocumentBreakdown || !selectedMemberData) return;
+        const vesselGen = selectedMemberData.vesselGeneratedTestimonials?.find(t => t.id === viewDocumentBreakdown.id);
+        const format = (viewDocumentBreakdown.pdf_format as TestimonialPDFFormat) || 'mca';
+        if (vesselGen) {
+            await handleGenerateVesselTestimonialPDF(vesselGen, format, 'newtab');
+        } else {
+            const crewTestimonial = selectedMemberData.testimonials?.find(t => t.id === viewDocumentBreakdown.id);
+            if (crewTestimonial) {
+                await handleGeneratePDF(crewTestimonial, format, 'newtab');
+            } else {
+                toast({
+                    title: 'Preview unavailable',
+                    description: 'Could not find testimonial data to preview.',
+                    variant: 'destructive',
+                });
+            }
         }
     };
 
@@ -4315,6 +4414,20 @@ export default function CrewPage() {
                                                                             >
                                                                                 <Eye className="h-4 w-4" />
                                                                             </Button>
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                onClick={() => handleGeneratePDF(testimonial, selectedTestimonialFormat[testimonial.id] ?? 'mca', 'newtab')}
+                                                                                disabled={generatingPDF === testimonial.id}
+                                                                                className="rounded-lg"
+                                                                                title="Preview PDF"
+                                                                            >
+                                                                                {generatingPDF === testimonial.id ? (
+                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                ) : (
+                                                                                    <FileText className="h-4 w-4" />
+                                                                                )}
+                                                                            </Button>
                                                                             <Select
                                                                                 value={selectedTestimonialFormat[testimonial.id] ?? 'mca'}
                                                                                 onValueChange={(format) => setSelectedTestimonialFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
@@ -4341,6 +4454,16 @@ export default function CrewPage() {
                                                                                 ) : (
                                                                                     <Download className="h-4 w-4" />
                                                                                 )}
+                                                                            </Button>
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                onClick={() => setCrewTestimonialToDelete(testimonial)}
+                                                                                disabled={generatingPDF === testimonial.id || isDeletingCrewTestimonial}
+                                                                                className="rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                                                title="Delete testimonial"
+                                                                            >
+                                                                                <Trash2 className="h-4 w-4" />
                                                                             </Button>
                                                                         </div>
                                                                     </div>
@@ -4403,6 +4526,20 @@ export default function CrewPage() {
                                                                             >
                                                                                 <Eye className="h-4 w-4" />
                                                                             </Button>
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca', 'newtab')}
+                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                className="rounded-lg"
+                                                                                title="Preview PDF"
+                                                                            >
+                                                                                {generatingPDF === testimonial.id ? (
+                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                ) : (
+                                                                                    <FileText className="h-4 w-4" />
+                                                                                )}
+                                                                            </Button>
                                                                             <Select
                                                                                 value={selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca'}
                                                                                 onValueChange={(format) => setSelectedVesselDocFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
@@ -4447,9 +4584,10 @@ export default function CrewPage() {
                                                                             <Button
                                                                                 variant="ghost"
                                                                                 size="sm"
-                                                                                onClick={() => handleDeleteVesselTestimonial(testimonial.id)}
+                                                                                onClick={() => setVesselTestimonialToDeleteId(testimonial.id)}
                                                                                 disabled={deletingTestimonial === testimonial.id || generatingPDF === testimonial.id}
                                                                                 className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg"
+                                                                                title="Delete testimonial"
                                                                             >
                                                                                 {deletingTestimonial === testimonial.id ? (
                                                                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -4915,10 +5053,169 @@ export default function CrewPage() {
                                         <p className="text-sm whitespace-pre-wrap">{viewDocumentBreakdown.notes}</p>
                                     </div>
                                 )}
+                                <div className="flex flex-wrap gap-2 pt-2 border-t">
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        onClick={handlePreviewFromBreakdown}
+                                        disabled={!selectedMemberData || generatingPDF === viewDocumentBreakdown.id}
+                                        className="rounded-lg"
+                                    >
+                                        {generatingPDF === viewDocumentBreakdown.id ? (
+                                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                        ) : (
+                                            <Eye className="h-4 w-4 mr-2" />
+                                        )}
+                                        Preview PDF
+                                    </Button>
+                                </div>
                             </div>
                         )}
                     </DialogContent>
                 </Dialog>
+
+                {/* Delete vessel-generated testimonial confirmation */}
+                <AlertDialog open={!!vesselTestimonialToDeleteId} onOpenChange={(open) => !open && setVesselTestimonialToDeleteId(null)}>
+                    <AlertDialogContent className="rounded-xl">
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Delete testimonial?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                {vesselTestimonialToDeleteId && selectedMemberData?.vesselGeneratedTestimonials && (() => {
+                                    const t = selectedMemberData.vesselGeneratedTestimonials.find(x => x.id === vesselTestimonialToDeleteId);
+                                    if (!t) return 'This vessel-generated document will be permanently deleted.';
+                                    return `Delete the testimonial for ${formatDate(new Date(t.start_date), 'MMM d, yyyy')} – ${formatDate(new Date(t.end_date), 'MMM d, yyyy')}? This cannot be undone.`;
+                                })()}
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={() => {
+                                    if (vesselTestimonialToDeleteId) {
+                                        handleDeleteVesselTestimonial(vesselTestimonialToDeleteId);
+                                        setVesselTestimonialToDeleteId(null);
+                                    }
+                                }}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                                Delete
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+
+                {/* Delete crew testimonial confirmation (password required for approved) */}
+                <AlertDialog
+                    open={!!crewTestimonialToDelete}
+                    onOpenChange={(open) => {
+                        if (!open && !isVerifyingCrewDeleteRef.current && !isDeletingCrewTestimonial) {
+                            setCrewTestimonialToDelete(null);
+                            setDeleteCrewPassword('');
+                            setDeleteCrewPasswordError('');
+                        }
+                    }}
+                >
+                    <AlertDialogContent className="rounded-xl max-w-xl">
+                        <AlertDialogHeader>
+                            <AlertDialogTitle className="flex items-center gap-2">
+                                <Trash2 className="h-5 w-5 text-destructive" />
+                                Delete testimonial?
+                            </AlertDialogTitle>
+                            {crewTestimonialToDelete && (
+                                <AlertDialogDescription>
+                                    {crewTestimonialToDelete.status === 'approved'
+                                        ? 'This approved testimonial will be permanently deleted. The crew member would need to request it again and have it signed off again.'
+                                        : 'Are you sure you want to delete this testimonial? This action cannot be undone.'}
+                                </AlertDialogDescription>
+                            )}
+                        </AlertDialogHeader>
+                        {crewTestimonialToDelete && (
+                            <div className="space-y-3 pt-2">
+                                <div className="text-sm font-medium">
+                                    {formatDate(new Date(crewTestimonialToDelete.start_date), 'MMM d, yyyy')} – {formatDate(new Date(crewTestimonialToDelete.end_date), 'MMM d, yyyy')}
+                                    {crewTestimonialToDelete.testimonial_code && (
+                                        <span className="text-muted-foreground ml-2">({crewTestimonialToDelete.testimonial_code})</span>
+                                    )}
+                                </div>
+                                {crewTestimonialToDelete.status === 'approved' && (
+                                    <>
+                                        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 space-y-2">
+                                            <div className="flex items-start gap-2">
+                                                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                                                <div className="text-sm text-amber-900 dark:text-amber-100 space-y-1">
+                                                    <p className="font-semibold">Approved testimonial</p>
+                                                    <p>Confirm your password to delete this approved testimonial.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="delete-crew-testimonial-password" className="text-sm font-medium">
+                                                Your password
+                                            </Label>
+                                            <Input
+                                                id="delete-crew-testimonial-password"
+                                                type="password"
+                                                placeholder="Enter your password"
+                                                value={deleteCrewPassword}
+                                                onChange={(e) => {
+                                                    setDeleteCrewPassword(e.target.value);
+                                                    setDeleteCrewPasswordError('');
+                                                }}
+                                                className={cn('rounded-lg', deleteCrewPasswordError && 'border-destructive')}
+                                                disabled={isDeletingCrewTestimonial}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' && deleteCrewPassword && !isDeletingCrewTestimonial) {
+                                                        verifyPasswordAndDeleteCrewTestimonial(crewTestimonialToDelete);
+                                                    }
+                                                }}
+                                            />
+                                            {deleteCrewPasswordError && (
+                                                <p className="text-sm text-destructive">{deleteCrewPasswordError}</p>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+                        <AlertDialogFooter>
+                            <AlertDialogCancel
+                                disabled={isDeletingCrewTestimonial}
+                                className="rounded-xl"
+                                onClick={() => {
+                                    setDeleteCrewPassword('');
+                                    setDeleteCrewPasswordError('');
+                                }}
+                            >
+                                Cancel
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={() => {
+                                    if (crewTestimonialToDelete) {
+                                        if (crewTestimonialToDelete.status === 'approved') {
+                                            verifyPasswordAndDeleteCrewTestimonial(crewTestimonialToDelete);
+                                        } else {
+                                            handleDeleteCrewTestimonial(crewTestimonialToDelete);
+                                        }
+                                    }
+                                }}
+                                disabled={isDeletingCrewTestimonial || (crewTestimonialToDelete?.status === 'approved' && !deleteCrewPassword)}
+                                className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                                {isDeletingCrewTestimonial ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Deleting...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        Delete
+                                    </>
+                                )}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
 
                 {/* Leave Period Dialog */}
                 <Dialog open={isLeavePeriodDialogOpen} onOpenChange={setIsLeavePeriodDialogOpen}>
