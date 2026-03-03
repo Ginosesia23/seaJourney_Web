@@ -17,13 +17,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { getVesselStateLogs } from '@/supabase/database/queries';
 import { DateComparisonView } from './date-comparison-view';
-import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog, SeaTimeRequest, VesselSeaTimeAccessRequest } from '@/lib/types';
+import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog, SeaTimeRequest, VesselSeaTimeAccessRequest, VesselSeaTimeOffer } from '@/lib/types';
 
 export default function InboxPage() {
   const { user } = useUser();
-  const { supabase } = useSupabase();
+  const { supabase, session } = useSupabase();
   const { toast } = useToast();
   const [testimonials, setTestimonials] = useState<(Testimonial & { user?: { email: string; first_name?: string; last_name?: string; username?: string } })[]>([]);
   const [approvedTestimonials, setApprovedTestimonials] = useState<(Testimonial & { user?: { email: string; first_name?: string; last_name?: string; username?: string } })[]>([]);
@@ -43,6 +44,9 @@ export default function InboxPage() {
   const [isCaptaincyDialogOpen, setIsCaptaincyDialogOpen] = useState(false);
   const [isCaptainRoleDialogOpen, setIsCaptainRoleDialogOpen] = useState(false);
   const [isVesselAccessDialogOpen, setIsVesselAccessDialogOpen] = useState(false);
+  const [vesselSeaTimeOffers, setVesselSeaTimeOffers] = useState<(VesselSeaTimeOffer & { vessel?: { id: string; name: string }; vessel_user?: { email: string; first_name?: string; last_name?: string; username?: string } })[]>([]);
+  const [selectedSeaTimeOffer, setSelectedSeaTimeOffer] = useState<(VesselSeaTimeOffer & { vessel?: { id: string; name: string }; vessel_user?: { email: string; first_name?: string; last_name?: string; username?: string } }) | null>(null);
+  const [isSeaTimeOfferDialogOpen, setIsSeaTimeOfferDialogOpen] = useState(false);
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [preserveCrewLogs, setPreserveCrewLogs] = useState(true); // When approving sea time import: do not overwrite days crew has already logged (e.g. leave periods)
@@ -123,8 +127,47 @@ export default function InboxPage() {
     const isCaptainRole = userRole === 'captain';
     
     const fetchPendingData = async () => {
+      if (!user?.id) {
+        console.log('[INBOX] No user id yet, skipping fetch (vessel_sea_time_offers not queried)');
+        setIsLoading(false);
+        return;
+      }
+      const userId = user.id;
+      console.log('[INBOX] Fetching vessel_sea_time_offers for crew_user_id:', userId);
       setIsLoading(true);
       try {
+        // Fetch vessel sea time offers first (for crew) so it runs even if later fetches throw
+        const { data: offersData, error: offersError } = await supabase
+          .from('vessel_sea_time_offers')
+          .select('*')
+          .eq('crew_user_id', userId)
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false });
+
+        if (offersError) {
+          console.error('[INBOX] Error fetching vessel_sea_time_offers (table may not exist or RLS issue):', offersError.message, offersError);
+          setVesselSeaTimeOffers([]);
+        } else if (offersData?.length) {
+          console.log('[INBOX] Fetched vessel_sea_time_offers:', offersData.length, 'pending offer(s)');
+          const vesselIds = [...new Set(offersData.map((o: any) => o.vessel_id))];
+          const vesselUserIds = [...new Set(offersData.map((o: any) => o.vessel_user_id))];
+          const [vesselsRes, usersRes] = await Promise.all([
+            vesselIds.length ? supabase.from('vessels').select('id, name').in('id', vesselIds) : { data: [] },
+            vesselUserIds.length ? supabase.from('users').select('id, email, first_name, last_name, username').in('id', vesselUserIds) : { data: [] },
+          ]);
+          const vesselMap = new Map((vesselsRes.data || []).map((v: any) => [v.id, v]));
+          const userMap = new Map((usersRes.data || []).map((u: any) => [u.id, u]));
+          const offersWithDetails = offersData.map((o: any) => ({
+            ...o,
+            vessel: vesselMap.get(o.vessel_id) || undefined,
+            vessel_user: userMap.get(o.vessel_user_id) || undefined,
+          }));
+          setVesselSeaTimeOffers(offersWithDetails as any);
+        } else {
+          setVesselSeaTimeOffers([]);
+        }
+        console.log('[INBOX] vessel_sea_time_offers result:', { count: offersData?.length ?? 0, error: offersError?.message ?? null });
+
         const userIsAdmin = userProfile?.role?.toLowerCase() === 'admin';
         
         // For admins: fetch captaincy requests and captain role applications (testimonials are vessel-specific)
@@ -440,11 +483,11 @@ export default function InboxPage() {
 
         // Fetch vessel sea time access requests for ALL users (crew members need this)
         // This is outside the captain/admin check so crew members can see their requests
-        console.log('[INBOX] Fetching vessel sea time access requests for user:', user.id);
+        console.log('[INBOX] Fetching vessel sea time access requests for user:', userId);
         const { data: accessRequests, error: accessError } = await supabase
           .from('vessel_sea_time_access_requests')
           .select('*')
-          .eq('crew_user_id', user.id)
+          .eq('crew_user_id', userId)
           .eq('status', 'pending')
           .order('created_at', { ascending: false });
 
@@ -507,7 +550,7 @@ export default function InboxPage() {
     };
 
     fetchPendingData();
-  }, [user?.email, isCaptain, userProfile, supabase, toast]);
+  }, [user?.id, user?.email, isCaptain, userProfile, supabase, toast]);
 
   const getVesselName = (vesselId: string) => {
     return vessels?.find(v => v.id === vesselId)?.name || 'Unknown Vessel';
@@ -1745,6 +1788,74 @@ export default function InboxPage() {
     }
   };
 
+  const handleAcceptSeaTimeOffer = async () => {
+    if (!selectedSeaTimeOffer || !session?.access_token) return;
+    setIsProcessing(true);
+    try {
+      const res = await fetch('/api/vessel-sea-time-offers/respond', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          offerId: selectedSeaTimeOffer.id,
+          action: 'accept',
+          preserveCrewLogs,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to accept offer');
+      toast({
+        title: 'Offer accepted',
+        description: data.message || data.warning || (data.logsCopied != null ? `Sea time records (${data.logsCopied} days) have been copied to your account.` : 'Sea time records have been copied to your account.'),
+      });
+      setVesselSeaTimeOffers(prev => prev.filter(o => o.id !== selectedSeaTimeOffer.id));
+      setIsSeaTimeOfferDialogOpen(false);
+      setSelectedSeaTimeOffer(null);
+      setAction(null);
+      setPreserveCrewLogs(true);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to accept offer. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRejectSeaTimeOffer = async () => {
+    if (!selectedSeaTimeOffer || !session?.access_token) return;
+    setIsProcessing(true);
+    try {
+      const res = await fetch('/api/vessel-sea-time-offers/respond', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ offerId: selectedSeaTimeOffer.id, action: 'reject' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to reject offer');
+      toast({ title: 'Offer declined', description: 'You have declined the sea time offer.' });
+      setVesselSeaTimeOffers(prev => prev.filter(o => o.id !== selectedSeaTimeOffer.id));
+      setIsSeaTimeOfferDialogOpen(false);
+      setSelectedSeaTimeOffer(null);
+      setAction(null);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to reject offer. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleRejectSeaTimeRequest = async () => {
     if (!selectedSeaTimeRequest) return;
 
@@ -1798,9 +1909,9 @@ export default function InboxPage() {
     }
   };
 
-  // Allow access if user is captain/admin/vessel OR if they have pending vessel sea time access requests
+  // Allow access if user is captain/admin/vessel OR if they have pending vessel sea time access requests OR vessel sea time offers
   // Also allow access while loading so crew members can see the page while data loads
-  const hasAccess = isCaptain || hasVesselAccessRequests || isLoading;
+  const hasAccess = isCaptain || hasVesselAccessRequests || vesselSeaTimeOffers.length > 0 || isLoading;
 
   if (!hasAccess && !isLoading) {
     return (
@@ -1838,9 +1949,9 @@ export default function InboxPage() {
                   : 'Review and respond to vessel sea time access requests'}
             </p>
           </div>
-          {(testimonials.length > 0 || captaincyRequests.length > 0 || captainRoleApplications.length > 0 || (userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0) || vesselSeaTimeAccessRequests.length > 0) && (
+          {(testimonials.length > 0 || captaincyRequests.length > 0 || captainRoleApplications.length > 0 || (userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0) || vesselSeaTimeAccessRequests.length > 0 || vesselSeaTimeOffers.length > 0) && (
             <Badge variant="secondary" className="text-sm">
-              {testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0) + vesselSeaTimeAccessRequests.length} pending request{(testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0) + vesselSeaTimeAccessRequests.length) !== 1 ? 's' : ''}
+              {testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0) + vesselSeaTimeAccessRequests.length + vesselSeaTimeOffers.length} pending request{(testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0) + vesselSeaTimeAccessRequests.length + vesselSeaTimeOffers.length) !== 1 ? 's' : ''}
             </Badge>
           )}
         </div>
@@ -1863,7 +1974,8 @@ export default function InboxPage() {
             testimonials.length > 0 || 
             approvedTestimonials.length > 0 || 
             (isVesselRole && (seaTimeRequests.length > 0 || captaincyRequests.length > 0)) ||
-            vesselSeaTimeAccessRequests.length > 0
+            vesselSeaTimeAccessRequests.length > 0 ||
+            vesselSeaTimeOffers.length > 0
           ));
         
         return !hasAnyRequests;
@@ -2191,6 +2303,104 @@ export default function InboxPage() {
                     </TableBody>
                   </Table>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Sea time offers from vessel (Crew only: vessel offering to send sea time records) - show section even when empty */}
+          {!isAdmin && userProfile?.role?.toLowerCase() !== 'vessel' && (
+            <Card className="rounded-xl border shadow-sm">
+              <CardHeader>
+                <CardTitle>Sea Time Offers from Vessel</CardTitle>
+                <CardDescription>
+                  {vesselSeaTimeOffers.length > 0
+                    ? 'Your vessel has offered to send you sea time records. Accept to copy them to your account, or decline.'
+                    : 'When your vessel offers to send you sea time (e.g. after changing your start date on the crew page), offers will appear here. You can accept to copy records to your account or decline.'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {vesselSeaTimeOffers.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Vessel</TableHead>
+                        <TableHead>Offered By</TableHead>
+                        <TableHead>Date Range</TableHead>
+                        <TableHead>Offered</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {vesselSeaTimeOffers.map((offer) => (
+                        <TableRow key={offer.id} className="hover:bg-muted/50">
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                                <Ship className="h-5 w-5 text-primary" />
+                              </div>
+                              <div className="font-semibold">
+                                {(offer as any).vessel?.name || 'Vessel'}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              {(offer as any).vessel_user?.first_name && (offer as any).vessel_user?.last_name
+                                ? `${(offer as any).vessel_user.first_name} ${(offer as any).vessel_user.last_name}`
+                                : (offer as any).vessel_user?.username || (offer as any).vessel_user?.email || '—'}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm">
+                              {offer.start_date && offer.end_date
+                                ? `${format(parse(offer.start_date, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')} – ${format(parse(offer.end_date, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}`
+                                : '—'}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm">
+                              {offer.created_at ? format(new Date(offer.created_at), 'MMM d, yyyy') : '—'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                size="sm"
+                                className="rounded-xl bg-green-600 hover:bg-green-700 text-white"
+                                onClick={() => {
+                                  setSelectedSeaTimeOffer(offer);
+                                  setAction('approve');
+                                  setPreserveCrewLogs(true);
+                                  setIsSeaTimeOfferDialogOpen(true);
+                                }}
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-2" />
+                                Accept
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="rounded-xl"
+                                onClick={() => {
+                                  setSelectedSeaTimeOffer(offer);
+                                  setAction('reject');
+                                  setIsSeaTimeOfferDialogOpen(true);
+                                }}
+                              >
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Decline
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground py-4">No pending sea time offers. When a vessel manager offers to send you sea time (from the Crew page when they change your start date), it will appear here.</p>
+                )}
               </CardContent>
             </Card>
           )}
@@ -3254,6 +3464,99 @@ export default function InboxPage() {
                 </>
               );
             })()}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sea Time Offer (from vessel) Action Dialog - Crew accept/decline */}
+      <Dialog open={isSeaTimeOfferDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setIsSeaTimeOfferDialogOpen(false);
+          setSelectedSeaTimeOffer(null);
+          setAction(null);
+          setPreserveCrewLogs(true);
+        }
+      }}>
+        <DialogContent className="rounded-xl max-w-[40rem]">
+          <DialogHeader>
+            <DialogTitle>
+              {action === 'approve' ? 'Accept Sea Time Offer' : 'Decline Sea Time Offer'}
+            </DialogTitle>
+            <DialogDescription>
+              {action === 'approve'
+                ? 'Accept to copy the vessel\'s sea time records for this date range to your account (same as when you request sea time).'
+                : 'Are you sure you want to decline this offer? You can request sea time yourself later from the Sea Time Request page.'}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedSeaTimeOffer && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Vessel:</span>
+                  <span className="font-medium">{(selectedSeaTimeOffer as any).vessel?.name || '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Date range:</span>
+                  <span className="font-medium">
+                    {selectedSeaTimeOffer.start_date && selectedSeaTimeOffer.end_date
+                      ? `${format(parse(selectedSeaTimeOffer.start_date, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')} – ${format(parse(selectedSeaTimeOffer.end_date, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}`
+                      : '—'}
+                  </span>
+                </div>
+              </div>
+              {action === 'approve' && (
+                <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
+                  <Label className="text-sm font-medium">How should we merge with your existing data?</Label>
+                  <RadioGroup
+                    value={preserveCrewLogs ? 'preserve' : 'override'}
+                    onValueChange={(value) => setPreserveCrewLogs(value === 'preserve')}
+                    className="grid gap-3"
+                  >
+                    <div className="flex items-start space-x-3 space-y-0">
+                      <RadioGroupItem value="preserve" id="offer-merge-preserve" className="mt-0.5" />
+                      <div className="grid gap-1 leading-none">
+                        <Label htmlFor="offer-merge-preserve" className="cursor-pointer text-sm font-medium">
+                          Only fill empty days (keep my leave and other logged days)
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Vessel data will be copied only for dates you have not already logged. Your leave periods and any other states you entered will stay as they are.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-3 space-y-0">
+                      <RadioGroupItem value="override" id="offer-merge-override" className="mt-0.5" />
+                      <div className="grid gap-1 leading-none">
+                        <Label htmlFor="offer-merge-override" className="cursor-pointer text-sm font-medium">
+                          Override all dates in this range
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Replace all your logs in this date range with the vessel&apos;s data. Use this only if you want to discard your existing entries (e.g. leave) for this period.
+                        </p>
+                      </div>
+                    </div>
+                  </RadioGroup>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setIsSeaTimeOfferDialogOpen(false); setSelectedSeaTimeOffer(null); setAction(null); }} disabled={isProcessing} className="rounded-xl">
+              Cancel
+            </Button>
+            <Button
+              onClick={action === 'approve' ? handleAcceptSeaTimeOffer : handleRejectSeaTimeOffer}
+              disabled={isProcessing}
+              className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                action === 'approve' ? 'Accept' : 'Decline'
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1347,6 +1347,20 @@ export default function CurrentPage() {
     return () => clearTimeout(timeoutId);
   }, [user?.id, currentVessel?.id, isOfficer, isVesselAccount, supabase, stateLogs]);
 
+  // Check if a date can be marked as part of active passage: previous day must be underway or part of passage
+  const canMarkDateAsPartOfPassage = useCallback((dateStr: string): { allowed: boolean; reason?: string } => {
+    const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+    const prevDate = addDays(date, -1);
+    const prevStr = format(prevDate, 'yyyy-MM-dd');
+    const prevLog = stateLogs?.find(l => l.vesselId === currentVessel?.id && l.date === prevStr);
+    if (!prevLog) {
+      return { allowed: false, reason: 'The previous day must be logged (and be Underway or Part of active passage) before marking this day as part of active passage.' };
+    }
+    if (prevLog.state === 'underway') return { allowed: true };
+    if (partOfActivePassageDates.has(prevStr)) return { allowed: true };
+    return { allowed: false, reason: 'The previous day must be "Underway" or "Part of active passage" to mark this day as part of active passage.' };
+  }, [stateLogs, currentVessel?.id, partOfActivePassageDates]);
+
   // Toggle part of active passage for today (available for all users, any state)
   const handleTogglePartOfActivePassage = async () => {
     if (!user?.id || !currentVessel?.id) return;
@@ -1356,7 +1370,7 @@ export default function CurrentPage() {
 
     try {
       // Get today's state log to update
-      const todayLog = stateLogs?.find(log => log.date === today);
+      const todayLog = stateLogs?.find(log => log.vesselId === currentVessel.id && log.date === today);
       
       if (!todayLog) {
         toast({
@@ -1378,6 +1392,20 @@ export default function CurrentPage() {
         });
         setIsTogglingPartOfActivePassage(false);
         return;
+      }
+
+      // When adding part of passage: previous day must be underway or part of passage
+      if (!isPartOfActivePassageToday) {
+        const check = canMarkDateAsPartOfPassage(today);
+        if (!check.allowed) {
+          toast({
+            title: 'Cannot Mark as Part of Passage',
+            description: check.reason,
+            variant: 'destructive',
+          });
+          setIsTogglingPartOfActivePassage(false);
+          return;
+        }
       }
 
       // Update the state log's is_part_of_active_passage column
@@ -1812,6 +1840,20 @@ export default function CurrentPage() {
           setIsSaving(false);
           return;
         }
+        // Part of passage range: the day before the range start must be underway or part of passage
+        if (isPartOfActivePassageInDialog) {
+          const rangeStartStr = format(dateRange.from, 'yyyy-MM-dd');
+          const check = canMarkDateAsPartOfPassage(rangeStartStr);
+          if (!check.allowed) {
+            toast({
+              title: 'Cannot Mark as Part of Passage',
+              description: check.reason,
+              variant: 'destructive',
+            });
+            setIsSaving(false);
+            return;
+          }
+        }
         
         const today = startOfDay(new Date());
         const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
@@ -1869,6 +1911,19 @@ export default function CurrentPage() {
         }
         
         const dateKey = format(selectedDate, 'yyyy-MM-dd');
+        // Part of passage: previous day must be underway or part of passage
+        if (isPartOfActivePassageInDialog) {
+          const check = canMarkDateAsPartOfPassage(dateKey);
+          if (!check.allowed) {
+            toast({
+              title: 'Cannot Mark as Part of Passage',
+              description: check.reason,
+              variant: 'destructive',
+            });
+            setIsSaving(false);
+            return;
+          }
+        }
         // If state is 'underway' or 'in-yard', automatically set is_part_of_active_passage to false
         const isPartOfPassage = (state === 'underway' || state === 'in-yard') ? false : isPartOfActivePassageInDialog;
         logs = [{ date: dateKey, state, is_part_of_active_passage: isPartOfPassage, notes: notesInDialog.trim() || undefined }];
@@ -3046,39 +3101,41 @@ export default function CurrentPage() {
     });
     
     let atSea = 0;
+    const underwayOrAtAnchorDates = new Set<string>();
     const stateCounts = filteredLogs.reduce((acc, log) => {
         acc[log.state] = (acc[log.state] || 0) + 1;
-        // At sea = underway days only (at-anchor days are NOT counted unless marked as part of active passage)
-        if (log.state === 'underway') atSea++;
+        // At sea = underway + at-anchor days
+        if (log.state === 'underway' || log.state === 'at-anchor') {
+          atSea++;
+          underwayOrAtAnchorDates.add(log.date);
+        }
         return acc;
     }, {} as Record<DailyStatus, number>);
     
-    // Add part of active passage days to at-sea count (these count as "at sea" regardless of state)
-    // Count part of active passage days that fall within the filtered date range
+    // Add part of active passage days to at-sea count (in-port etc. marked as passage — avoid double-counting underway/at-anchor)
     if (partOfActivePassageDates.size > 0) {
       const partOfActivePassageDaysInRange = Array.from(partOfActivePassageDates).filter(dateStr => {
         const passageDate = parse(dateStr, 'yyyy-MM-dd', new Date());
         if (assignmentStartDate) {
           const filterStartDate = assignmentStartDate;
           const filterEndDate = endOfDay(new Date());
-          return isWithinInterval(passageDate, { start: filterStartDate, end: filterEndDate });
+          if (!isWithinInterval(passageDate, { start: filterStartDate, end: filterEndDate })) return false;
         }
-        return true; // No assignment date - count all part of active passage days
+        return !underwayOrAtAnchorDates.has(dateStr);
       }).length;
       atSea += partOfActivePassageDaysInRange;
     }
     
-    // Add watch days to at-sea count (watch days count as "at sea" even if vessel is at anchor)
-    // Count watch days that fall within the filtered date range
+    // Add watch days to at-sea count (only if not already counted as underway/at-anchor)
     if (watchDates.size > 0) {
       const watchDaysInRange = Array.from(watchDates).filter(dateStr => {
         const watchDate = parse(dateStr, 'yyyy-MM-dd', new Date());
         if (assignmentStartDate) {
           const filterStartDate = assignmentStartDate;
           const filterEndDate = endOfDay(new Date());
-          return isWithinInterval(watchDate, { start: filterStartDate, end: filterEndDate });
+          if (!isWithinInterval(watchDate, { start: filterStartDate, end: filterEndDate })) return false;
         }
-        return true; // No assignment date - count all watch days
+        return !underwayOrAtAnchorDates.has(dateStr);
       }).length;
       atSea += watchDaysInRange;
     }
@@ -3206,7 +3263,8 @@ export default function CurrentPage() {
         <Separator />
       {isDisplayingStatus ? (
         <div className="space-y-6">
-            {/* Top Row: Watch and Current/Vessel Cards */}
+            {/* Top Row: Vessel Info (crew/captain only — vessel accounts have a single vessel so no need) and Watch card */}
+            {!isVesselAccount && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Left: Vessel Info */}
                 <Card className="rounded-xl border shadow-sm bg-gradient-to-r from-primary/5 to-primary/10">
@@ -3291,7 +3349,7 @@ export default function CurrentPage() {
                 </Card>
 
                 {/* Right: Watch Logging (Officers Only, Not Vessel Accounts) */}
-                {isOfficer && !isVesselAccount && (
+                {isOfficer && (
                     <Card className="rounded-xl border shadow-sm bg-gradient-to-r from-blue-500/5 to-blue-500/10">
                         <CardContent className="pt-6">
                             <div className="space-y-4">
@@ -3379,6 +3437,7 @@ export default function CurrentPage() {
                     </Card>
                 )}
             </div>
+            )}
 
             {/* Second Row: Update Today's Status (half) and Part of Active Passage (half) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -3922,7 +3981,7 @@ export default function CurrentPage() {
                                     <div>
                                         <p className="text-sm font-medium text-muted-foreground mb-1">At Sea Days</p>
                                         <p className="text-3xl font-bold text-blue-700 dark:text-blue-400">{atSeaDays}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">Underway + Watch + Active Passage</p>
+                                        <p className="text-xs text-muted-foreground mt-1">Underway + At Anchor + Watch + Active Passage</p>
                                     </div>
                                     <div className="h-12 w-12 rounded-lg bg-blue-500/20 flex items-center justify-center">
                                         <Waves className="h-6 w-6 text-blue-600 dark:text-blue-400" />

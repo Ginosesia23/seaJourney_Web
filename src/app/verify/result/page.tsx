@@ -209,7 +209,7 @@ function VerificationResultContent() {
     return (
       <div className="min-h-screen bg-background">
         {/* Header */}
-        <div className="border-b bg-muted/30">
+        <div className="border-b bg-header text-header-foreground">
           <div className="container mx-auto px-6 py-4 flex justify-center">
             <LogoOnboarding />
           </div>
@@ -234,7 +234,7 @@ function VerificationResultContent() {
     return (
       <div className="min-h-screen bg-background">
         {/* Header */}
-        <div className="border-b bg-muted/30">
+        <div className="border-b bg-header text-header-foreground">
           <div className="container mx-auto px-6 py-4 flex justify-center">
             <LogoOnboarding />
           </div>
@@ -274,7 +274,7 @@ function VerificationResultContent() {
     return (
       <div className="min-h-screen bg-background flex flex-col">
         {/* Header */}
-        <div className="border-b bg-muted/30">
+        <div className="border-b bg-header text-header-foreground">
           <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
             <LogoOnboarding />
           </div>
@@ -329,7 +329,7 @@ function VerificationResultContent() {
     return (
       <div className="min-h-screen bg-background">
         {/* Header */}
-        <div className="border-b bg-muted/30">
+        <div className="border-b bg-header text-header-foreground">
           <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
             <LogoOnboarding />
           </div>
@@ -373,7 +373,7 @@ function VerificationResultContent() {
     return (
       <div className="min-h-screen bg-background">
         {/* Header */}
-        <div className="border-b bg-muted/30">
+        <div className="border-b bg-header text-header-foreground">
           <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
             <LogoOnboarding />
           </div>
@@ -565,7 +565,7 @@ export default function VerificationResultPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-background">
-        <div className="border-b bg-muted/30">
+        <div className="border-b bg-header text-header-foreground">
           <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
             <LogoOnboarding />
           </div>

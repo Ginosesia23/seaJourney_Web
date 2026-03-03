@@ -1,14 +1,16 @@
 /**
  * MCA/PYA Standby Days Calculation
- * 
+ *
  * Rules:
  * 1. Voyages = consecutive 'underway' days (or 'at-anchor' days that are part of an active passage)
  *    Note: 'at-anchor' days AFTER a voyage ends are counted as standby, not part of the voyage
- * 2. Standby = time immediately following a voyage while in 'in-port' or 'at-anchor' state
+ * 2. Standby = time immediately following a voyage while in 'in-port' or 'at-anchor' state only.
  *    (at-anchor can be both sea time when part of voyage, and standby when after voyage ends)
- * 3. Max 14 consecutive days of standby can be counted from any single period
- * 4. A standby block can't be longer than the previous voyage
- * 5. Total standby service can never exceed total actual sea service
+ * 3. In-yard and on-leave are NEVER standby: they end the standby period. Example: 4 days passage,
+ *    then 1 day at anchor, then yard → 4 at sea, 1 standby, rest are in-yard only.
+ * 4. Max 14 consecutive days of standby can be counted from any single period
+ * 5. A standby block can't be longer than the previous voyage
+ * 6. Total standby service can never exceed total actual sea service
  */
 
 import type { StateLog, DailyStatus } from './types';
@@ -29,16 +31,25 @@ interface StandbyPeriod {
   countedDays: number;
 }
 
+export interface CalculateStandbyDaysOptions {
+  /** When set, only logs and counted days within this range (inclusive) are used. YYYY-MM-DD. */
+  rangeStart?: string;
+  /** When set with rangeStart, only logs and counted days within this range (inclusive) are used. YYYY-MM-DD. */
+  rangeEnd?: string;
+}
+
 /**
  * Calculate MCA/PYA compliant standby days from state logs
  * @param stateLogs - Array of state logs
  * @param watchDates - Set of dates (YYYY-MM-DD format) where officer was on watch (these count as "at sea" instead of standby)
  * @param partOfActivePassageDates - Set of dates (YYYY-MM-DD format) where user marked part of active passage (these count as "at sea" instead of standby)
+ * @param options - Optional rangeStart/rangeEnd (YYYY-MM-DD). When provided, only logs within the range are used and only days within the range are counted (for testimonials/document date ranges).
  */
 export function calculateStandbyDays(
   stateLogs: StateLog[],
   watchDates?: Set<string>,
-  partOfActivePassageDates?: Set<string>
+  partOfActivePassageDates?: Set<string>,
+  options?: CalculateStandbyDaysOptions
 ): {
   totalSeaDays: number;
   totalStandbyDays: number;
@@ -55,9 +66,26 @@ export function calculateStandbyDays(
   }
 
   // Sort logs by date
-  const sortedLogs = [...stateLogs].sort((a, b) => {
+  let sortedLogs = [...stateLogs].sort((a, b) => {
     return new Date(a.date).getTime() - new Date(b.date).getTime();
   });
+
+  // Restrict to date range when provided (e.g. testimonial start_date / end_date)
+  const rangeStart = options?.rangeStart;
+  const rangeEnd = options?.rangeEnd;
+  if (rangeStart && rangeEnd) {
+    sortedLogs = sortedLogs.filter(
+      (log) => log.date >= rangeStart && log.date <= rangeEnd
+    );
+    if (sortedLogs.length === 0) {
+      return {
+        totalSeaDays: 0,
+        totalStandbyDays: 0,
+        voyages: [],
+        standbyPeriods: [],
+      };
+    }
+  }
 
   // Identify voyages (consecutive 'underway' days, with part-of-active-passage days treated as part of voyage)
   // Key rule: Voyages are 'underway' days. Part-of-active-passage days between underway days are treated as part of the voyage.
@@ -243,11 +271,11 @@ export function calculateStandbyDays(
         console.log(`[Standby Calculation] Skipping ${currentDateStr} (watch/part of active passage), continuing standby period`);
         currentDate = addDays(currentDate, 1); // Move to next day without counting this one
       } else if (log.state === 'in-port' || log.state === 'at-anchor') {
-        // Valid standby day - count it
+        // Valid standby day - count it (only in-port and at-anchor after voyage count as standby)
         standbyDays++;
         currentDate = addDays(currentDate, 1); // Move to next day
       } else {
-        // Non-standby state - end standby period
+        // in-yard, on-leave, underway, or any other state - end standby period; never count as standby
         console.log(`[Standby Calculation] Non-standby state '${log.state}' found for ${currentDateStr}, ending standby period`);
         break;
       }
@@ -280,7 +308,7 @@ export function calculateStandbyDays(
   }
 
   // Apply rules to calculate counted standby days
-  // Note: period.days should already be limited to maxAllowedStandby, but we double-check here
+  // When rangeStart/rangeEnd are set, only count days that fall within the range
   let totalStandbyDays = 0;
   
   for (const period of standbyPeriods) {
@@ -290,30 +318,28 @@ export function calculateStandbyDays(
     const maxAllowed = Math.min(14, period.precedingVoyageDays);
     
     // Count up to the maximum allowed (whichever is smaller: actual days, 14-day limit, or voyage length)
-    // period.days should already be capped, but we ensure it here
-    const counted = Math.min(period.days, maxAllowed);
+    const rawCounted = Math.min(period.days, maxAllowed);
     
-    // Safety check: ensure we never count more than allowed
-    if (counted > maxAllowed) {
-      console.warn(`[Standby Calculation] WARNING: Counted ${counted} days but max allowed is ${maxAllowed}, capping to ${maxAllowed}`);
-    }
-    
-    if (period.days > maxAllowed) {
-      console.warn(`[Standby Calculation] WARNING: Period has ${period.days} days but max allowed is ${maxAllowed}, this should not happen!`);
+    // Only count days that fall within the document/testimonial range when range is provided
+    let counted = 0;
+    const countedDates: string[] = [];
+    for (let i = 0; i < rawCounted; i++) {
+      const date = addDays(period.startDate, i);
+      const dateStr = format(date, 'yyyy-MM-dd');
+      if (rangeStart && rangeEnd) {
+        if (dateStr < rangeStart || dateStr > rangeEnd) continue;
+      }
+      counted++;
+      countedDates.push(dateStr);
     }
     
     period.countedDays = counted;
     totalStandbyDays += counted;
     
-    // Debug logging - show which dates are being counted
-    const countedDates: string[] = [];
-    for (let i = 0; i < counted; i++) {
-      const date = addDays(period.startDate, i);
-      countedDates.push(format(date, 'yyyy-MM-dd'));
+    console.log(`[Standby Calculation] Period: ${format(period.startDate, 'yyyy-MM-dd')} to ${format(period.endDate, 'yyyy-MM-dd')}, Days in Period: ${period.days}, Preceding Voyage: ${period.precedingVoyageDays} days, Max Allowed: ${maxAllowed}, Counted (in range): ${counted}`);
+    if (countedDates.length > 0) {
+      console.log(`[Standby Calculation] Counted dates: ${countedDates.join(', ')}`);
     }
-    
-    console.log(`[Standby Calculation] Period: ${format(period.startDate, 'yyyy-MM-dd')} to ${format(period.endDate, 'yyyy-MM-dd')}, Days in Period: ${period.days}, Preceding Voyage: ${period.precedingVoyageDays} days, Max Allowed: ${maxAllowed}, Counted: ${counted}`);
-    console.log(`[Standby Calculation] Counted dates: ${countedDates.join(', ')}`);
   }
 
   // Debug logging

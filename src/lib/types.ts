@@ -125,6 +125,8 @@ export interface Testimonial {
     generated_by_user_id?: string | null;      // User who created this: vessel manager or crew (for tracking)
     created_at: string;           // ISO timestamp
     updated_at: string;           // ISO timestamp
+    /** When status is 'approved', set from approved_testimonials.approved_at (for display) */
+    approved_at?: string | null;  // ISO timestamp
 }
 
 export interface VesselGeneratedTestimonial {
@@ -274,6 +276,19 @@ export interface SeaTimeRequest {
     rejectionReason?: string | null;   // Optional rejection reason from vessel manager
     createdAt?: string;                // ISO timestamp
     updatedAt?: string;                // ISO timestamp
+}
+
+/** Vessel offers to send sea time to crew; crew accepts/rejects in Inbox. On accept, logs are copied like crew-requested sea time. */
+export interface VesselSeaTimeOffer {
+    id: string;
+    vessel_user_id: string;
+    crew_user_id: string;
+    vessel_id: string;
+    start_date: string;
+    end_date: string;
+    status: 'pending' | 'accepted' | 'rejected';
+    created_at?: string;
+    updated_at?: string;
 }
 
 export interface VesselSeaTimeAccessRequest {

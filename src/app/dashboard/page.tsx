@@ -15,6 +15,8 @@ import { getVesselSeaService, getVesselStateLogs, updateStateLogsBatch, getVesse
 import { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type { Vessel, SeaServiceRecord, StateLog, UserProfile, DailyStatus, Testimonial, VisaTracker, VisaEntry, VesselAssignment } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
@@ -81,6 +83,9 @@ export default function DashboardPage() {
     }>;
   } | null>(null);
   const [isLoadingVesselStats, setIsLoadingVesselStats] = useState(false);
+  const [vesselStateLogs, setVesselStateLogs] = useState<StateLog[] | null>(null);
+  const [seaTimeRangeStart, setSeaTimeRangeStart] = useState<string>(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [seaTimeRangeEnd, setSeaTimeRangeEnd] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
 
   // Fetch user profile to get active vessel
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -402,6 +407,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!isVesselManager || !user?.id || !userProfile?.activeVesselId) {
       setVesselStats(null);
+      setVesselStateLogs(null);
       return;
     }
 
@@ -470,14 +476,17 @@ export default function DashboardPage() {
           console.error('[VESSEL DASHBOARD] Error fetching logs:', logsError);
         }
 
-        // Transform logs
+        // Transform logs (include isPartOfActivePassage for standby calculation)
         const stateLogs: StateLog[] = (allLogs || []).map((log: any) => ({
           id: log.id,
           userId: log.user_id,
           vesselId: log.vessel_id,
           date: log.date,
           state: log.state,
+          isPartOfActivePassage: log.is_part_of_active_passage ?? false,
         }));
+
+        setVesselStateLogs(stateLogs);
 
         // Extract part of active passage dates from logs
         const partOfActivePassageDates = new Set<string>();
@@ -597,6 +606,7 @@ export default function DashboardPage() {
       } catch (error) {
         console.error('[VESSEL DASHBOARD] Exception fetching stats:', error);
         setVesselStats(null);
+        setVesselStateLogs(null);
       } finally {
         setIsLoadingVesselStats(false);
       }
@@ -617,6 +627,27 @@ export default function DashboardPage() {
     const activeVesselId = userProfile.activeVesselId;
     return vessels.find(v => v.id === activeVesselId);
   }, [vessels, userProfile]);
+
+  // Sea time for vessel dashboard date range (quick calculator)
+  const vesselSeaTimeInRange = useMemo(() => {
+    if (!vesselStateLogs || vesselStateLogs.length === 0) return null;
+    const start = seaTimeRangeStart;
+    const end = seaTimeRangeEnd;
+    if (!start || !end || end < start) return null;
+    const filtered = vesselStateLogs.filter(log => log.date >= start && log.date <= end);
+    if (filtered.length === 0) return { totalDays: 0, atSeaDays: 0, standbyDays: 0, seaServiceDays: 0 };
+    const partOfActivePassageDates = new Set<string>();
+    filtered.forEach(log => {
+      if (log.isPartOfActivePassage) partOfActivePassageDates.add(log.date);
+    });
+    const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(filtered, undefined, partOfActivePassageDates);
+    return {
+      totalDays: filtered.length,
+      atSeaDays: totalSeaDays,
+      standbyDays: totalStandbyDays,
+      seaServiceDays: totalSeaDays + totalStandbyDays,
+    };
+  }, [vesselStateLogs, seaTimeRangeStart, seaTimeRangeEnd]);
 
   useEffect(() => {
     if (vessels && user?.id) {
@@ -1898,30 +1929,70 @@ export default function DashboardPage() {
 
           <Card className="rounded-xl border shadow-sm">
             <CardHeader>
-              <CardTitle className="text-lg font-semibold">Activity Overview</CardTitle>
-              <CardDescription>Last 7 days summary</CardDescription>
+              <CardTitle className="text-lg font-semibold">Quick Sea Time Calculator</CardTitle>
+              <CardDescription>Select a date range to see sea time (MCA/PYA compliant) for this vessel</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                  <div className="flex items-center gap-2">
-                    <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Days Logged</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="sea-time-from" className="text-xs text-muted-foreground">From</Label>
+                    <Input
+                      id="sea-time-from"
+                      type="date"
+                      value={seaTimeRangeStart}
+                      onChange={(e) => setSeaTimeRangeStart(e.target.value)}
+                      className="rounded-lg"
+                    />
                   </div>
-                  <span className="text-2xl font-bold">{vesselStats.recentActivity}</span>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                  <div className="flex items-center gap-2">
-                    <Waves className="h-4 w-4 text-blue-500" />
-                    <span className="text-sm font-medium">This Month</span>
+                  <div className="space-y-2">
+                    <Label htmlFor="sea-time-to" className="text-xs text-muted-foreground">To</Label>
+                    <Input
+                      id="sea-time-to"
+                      type="date"
+                      value={seaTimeRangeEnd}
+                      onChange={(e) => setSeaTimeRangeEnd(e.target.value)}
+                      className="rounded-lg"
+                    />
                   </div>
-                  <span className="text-2xl font-bold">{vesselStats.currentMonthSeaDays}</span>
                 </div>
+                {vesselSeaTimeInRange !== null && (
+                  <div className="space-y-3 pt-2 border-t">
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                      <div className="flex items-center gap-2">
+                        <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">Total days logged</span>
+                      </div>
+                      <span className="text-xl font-bold">{vesselSeaTimeInRange.totalDays}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                      <div className="flex items-center gap-2">
+                        <Waves className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        <span className="text-sm font-medium">At sea</span>
+                      </div>
+                      <span className="text-xl font-bold text-blue-600 dark:text-blue-400">{vesselSeaTimeInRange.atSeaDays}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800">
+                      <div className="flex items-center gap-2">
+                        <Anchor className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                        <span className="text-sm font-medium">Standby</span>
+                      </div>
+                      <span className="text-xl font-bold text-orange-600 dark:text-orange-400">{vesselSeaTimeInRange.standbyDays}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-primary/10 border border-primary/20">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-semibold">Sea service days</span>
+                      </div>
+                      <span className="text-xl font-bold text-primary">{vesselSeaTimeInRange.seaServiceDays}</span>
+                    </div>
+                  </div>
+                )}
                 <div className="pt-2 border-t">
                   <Button asChild variant="ghost" className="w-full rounded-lg" size="sm">
                     <Link href="/dashboard/calendar">
                       <History className="mr-2 h-4 w-4" />
-                      View Full Activity
+                      View calendar
                     </Link>
                   </Button>
                 </div>
@@ -2645,84 +2716,66 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Current Vessel Card */}
         <Card className="rounded-xl border shadow-sm hover:shadow-md transition-all duration-300 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent relative overflow-hidden">
-            {/* Decorative background element */}
-            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl -mr-16 -mt-16" />
-            <CardHeader className="relative">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center">
-                  <MapPin className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <CardTitle>Current Vessel</CardTitle>
-                  <CardDescription className="mt-0.5">
-                    {currentVessel ? `${currentVessel.name}` : 'No active vessel at this time'}
-                  </CardDescription>
-                </div>
-              </div>
-              {currentVessel && (
-                <Badge variant="secondary" className="bg-primary text-primary-foreground animate-pulse">Active</Badge>
-              )}
-            </div>
+            <div className="absolute top-0 right-0 w-40 h-40 bg-primary/5 rounded-full blur-3xl -mr-20 -mt-20" />
+            <CardHeader className="relative pb-1">
+              <CardTitle className="text-lg">Current Vessel</CardTitle>
+              <CardDescription>
+                {currentVessel ? 'Your active assignment' : 'No active vessel at this time'}
+              </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4 pb-6 px-6">
             {currentVessel ? (
-              <div className="space-y-4">
-                {/* Vessel Header */}
-                <div>
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="h-14 w-14 rounded-full bg-primary/20 flex items-center justify-center">
-                      <Ship className="h-7 w-7 text-primary" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-xl font-semibold">{currentVessel.name}</p>
-                      <p className="text-sm text-muted-foreground">{currentVessel.type || 'Vessel'}</p>
-                    </div>
+              <div className="space-y-6 relative">
+                {/* Vessel hero — name, type, active badge */}
+                <div className="flex items-start gap-4">
+                  <div className="h-14 w-14 rounded-2xl bg-primary/20 flex items-center justify-center flex-shrink-0">
+                    <Ship className="h-7 w-7 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0 pt-0.5">
+                    <p className="text-xl font-semibold text-foreground truncate">{currentVessel.name}</p>
+                    <p className="text-sm text-muted-foreground mt-0.5">{currentVessel.type || 'Vessel'}</p>
+                    <Badge variant="secondary" className="mt-2 bg-primary/20 text-primary font-medium">Active</Badge>
                   </div>
                 </div>
-                
-                {/* Service Duration and Start Date */}
+
+                {/* Service info — duration and start date */}
                 {currentVesselStats.serviceStartDate && (
-                  <div className="flex items-center gap-4 text-sm">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">
-                        {currentVesselStats.serviceDuration} day{currentVesselStats.serviceDuration !== 1 ? 's' : ''}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">
-                        Since {format(currentVesselStats.serviceStartDate, 'MMM d, yyyy')}
-                      </span>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
+                    <span className="flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      {currentVesselStats.serviceDuration} day{currentVesselStats.serviceDuration !== 1 ? 's' : ''} on vessel
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      Since {format(currentVesselStats.serviceStartDate, 'MMM d, yyyy')}
+                    </span>
                   </div>
                 )}
-                
-                <Separator />
-                
-                {/* Today's Status */}
+
+                <Separator className="my-2" />
+
+                {/* Today's status — more padding */}
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Today's Status</p>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Today&apos;s status</p>
                   {todayStatus ? (
-                    <div className="flex items-center gap-3 p-3 rounded-xl bg-background/50 border">
+                    <div className="flex items-center gap-4 p-4 rounded-xl bg-background/60 border">
                       {(() => {
                         const stateInfo = vesselStates.find(s => s.value === todayStatus);
                         const StateIcon = stateInfo?.icon || Ship;
                         return (
                           <>
-                            <div 
-                              className="h-10 w-10 rounded-full flex items-center justify-center"
+                            <div
+                              className="h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0"
                               style={{ backgroundColor: `${stateInfo?.color || 'hsl(var(--muted-foreground))'}20` }}
                             >
-                              <StateIcon className="h-5 w-5" style={{ color: stateInfo?.color || 'hsl(var(--muted-foreground))' }} />
+                              <StateIcon className="h-6 w-6" style={{ color: stateInfo?.color || 'hsl(var(--muted-foreground))' }} />
                             </div>
-                            <div className="flex-1">
-                              <p className="text-sm font-semibold">{stateInfo?.label || todayStatus}</p>
-                              <p className="text-xs text-muted-foreground">{format(new Date(), 'EEEE, MMM d')}</p>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-foreground">{stateInfo?.label || todayStatus}</p>
+                              <p className="text-sm text-muted-foreground">{format(new Date(), 'EEEE, MMM d')}</p>
                             </div>
-                            <div 
-                              className="h-3 w-3 rounded-full" 
+                            <div
+                              className="h-3 w-3 rounded-full flex-shrink-0"
                               style={{ backgroundColor: stateInfo?.color || 'hsl(var(--muted-foreground))' }}
                             />
                           </>
@@ -2730,49 +2783,46 @@ export default function DashboardPage() {
                       })()}
                     </div>
                   ) : (
-                    <div className="p-3 rounded-xl bg-background/50 border border-dashed">
-                      <p className="text-sm text-muted-foreground">No status logged for today</p>
+                    <div className="p-4 rounded-xl bg-background/40 border border-dashed text-muted-foreground">
+                      <p className="text-sm">No status logged for today</p>
                     </div>
                   )}
                 </div>
 
-                <Separator />
-                
-                {/* Stats Grid */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="text-center p-3 rounded-xl bg-background/50">
-                    <p className="text-2xl font-bold">{currentVesselStats.totalDays}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Total Days</p>
+                {/* Stats — larger cells and spacing */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center p-4 rounded-xl bg-background/50 border">
+                    <p className="text-2xl font-bold text-foreground">{currentVesselStats.totalDays}</p>
+                    <p className="text-xs text-muted-foreground mt-1.5">Total days</p>
                   </div>
-                  <div className="text-center p-3 rounded-xl bg-background/50">
-                    <div className="flex items-center justify-center gap-1 mb-1">
-                      <Waves className="h-3 w-3 text-blue-500" />
-                      <p className="text-2xl font-bold">{currentVesselStats.atSeaDays}</p>
+                  <div className="text-center p-4 rounded-xl bg-background/50 border">
+                    <div className="flex items-center justify-center gap-1.5 mb-1">
+                      <Waves className="h-4 w-4 text-blue-500" />
+                      <p className="text-2xl font-bold text-foreground">{currentVesselStats.atSeaDays}</p>
                     </div>
-                    <p className="text-xs text-muted-foreground">At Sea</p>
+                    <p className="text-xs text-muted-foreground">At sea</p>
                   </div>
-                  <div className="text-center p-3 rounded-xl bg-background/50">
-                    <div className="flex items-center justify-center gap-1 mb-1">
-                      <Anchor className="h-3 w-3 text-orange-500" />
-                      <p className="text-2xl font-bold">{currentVesselStats.standbyDays}</p>
+                  <div className="text-center p-4 rounded-xl bg-background/50 border">
+                    <div className="flex items-center justify-center gap-1.5 mb-1">
+                      <Anchor className="h-4 w-4 text-orange-500" />
+                      <p className="text-2xl font-bold text-foreground">{currentVesselStats.standbyDays}</p>
                     </div>
                     <p className="text-xs text-muted-foreground">Standby</p>
                   </div>
                 </div>
-                
-                {/* State Breakdown Visualization */}
+
+                {/* State distribution */}
                 {currentVesselStats.totalDays > 0 && (
                   <>
-                    <Separator />
+                    <Separator className="my-2" />
                     <div>
-                      <p className="text-xs font-medium text-muted-foreground mb-3">State Distribution</p>
-                      <div className="space-y-2.5">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">State distribution</p>
+                      <div className="space-y-3">
                         {vesselStates.map(state => {
                           const count = currentVesselStats.stateBreakdown[state.value] || 0;
                           if (count === 0) return null;
                           const percentage = (count / currentVesselStats.totalDays) * 100;
                           const StateIcon = state.icon;
-                          
                           return (
                             <div key={state.value} className="space-y-1.5">
                               <div className="flex items-center justify-between text-xs">
@@ -2780,18 +2830,12 @@ export default function DashboardPage() {
                                   <StateIcon className="h-3.5 w-3.5" style={{ color: state.color }} />
                                   <span className="text-muted-foreground">{state.label}</span>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-foreground">{count}</span>
-                                  <span className="text-muted-foreground">({Math.round(percentage)}%)</span>
-                                </div>
+                                <span className="font-medium text-foreground">{count} <span className="text-muted-foreground font-normal">({Math.round(percentage)}%)</span></span>
                               </div>
                               <div className="relative h-2 w-full rounded-full bg-muted overflow-hidden">
-                                <div 
+                                <div
                                   className="h-full rounded-full transition-all"
-                                  style={{ 
-                                    width: `${percentage}%`,
-                                    backgroundColor: state.color
-                                  }}
+                                  style={{ width: `${percentage}%`, backgroundColor: state.color }}
                                 />
                               </div>
                             </div>
@@ -2801,17 +2845,17 @@ export default function DashboardPage() {
                     </div>
                   </>
                 )}
-                
-                {/* Action Buttons */}
-                <div className="flex gap-2">
-                  <Button asChild className="flex-1 rounded-xl">
+
+                {/* Actions */}
+                <div className="flex gap-3 pt-1">
+                  <Button asChild className="flex-1 rounded-xl h-10">
                     <Link href="/dashboard/current">
                       <MapPin className="mr-2 h-4 w-4" />
-                      Manage Service
+                      Manage service
                     </Link>
                   </Button>
                   {todayStatus && (
-                    <Button asChild variant="outline" className="rounded-xl" size="icon">
+                    <Button asChild variant="outline" size="icon" className="rounded-xl h-10 w-10">
                       <Link href="/dashboard/current">
                         <TrendingUp className="h-4 w-4" />
                       </Link>
@@ -2820,13 +2864,16 @@ export default function DashboardPage() {
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-32 text-center">
-                <Ship className="h-8 w-8 text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground mb-4">No active vessel</p>
-                <Button asChild variant="outline" className="rounded-lg">
+              <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                <div className="h-16 w-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+                  <Ship className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium text-foreground mb-1">No active vessel</p>
+                <p className="text-sm text-muted-foreground mb-6 max-w-xs">Start a service to track sea time on a vessel.</p>
+                <Button asChild variant="outline" size="lg" className="rounded-xl">
                   <Link href="/dashboard/current">
                     <PlusCircle className="mr-2 h-4 w-4" />
-                    Start a Service
+                    Start a service
                   </Link>
                 </Button>
               </div>

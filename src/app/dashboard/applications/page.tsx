@@ -202,9 +202,13 @@ function calculateDayCounts(stateLogs: StateLog[], startDate: string, endDate: s
     }
   });
   
-  // Calculate standby days using the standby calculation function
-  // Pass watch dates (for officers) and part of active passage dates so they're counted as "at sea"
-  const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(rangeLogs, watchDates, partOfActivePassageDates);
+  // Calculate standby days using the standby calculation function; restrict counts to the document range
+  const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(
+    rangeLogs,
+    watchDates,
+    partOfActivePassageDates,
+    { rangeStart: startDate, rangeEnd: endDate }
+  );
   const standbyDays = totalStandbyDays;
   
   // At sea = underway days + part of active passage days + watch days (for officers)

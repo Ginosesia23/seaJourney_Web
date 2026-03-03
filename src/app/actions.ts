@@ -604,7 +604,12 @@ export async function generateSeaTimeReportData(
         }
       });
       
-      const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(period.logs, undefined, partOfActivePassageDates);
+      const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(
+        period.logs,
+        undefined,
+        partOfActivePassageDates,
+        { rangeStart: period.startDate, rangeEnd: period.endDate }
+      );
       
       // At sea = underway days + part of active passage days
       // Note: at-anchor days are NOT counted unless marked as part of active passage

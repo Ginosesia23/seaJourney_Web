@@ -116,6 +116,13 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     ]
   },
   {
+    title: "Generator",
+    hideForRoles: ['crew', 'captain'],
+    items: [
+      { href: "/dashboard/documents", label: "Documents", icon: FileText, disabled: false, requiredRole: "vessel" },
+    ]
+  },
+  {
     title: "Crew Management",
     hideForRoles: ['crew'], // Hide entire section for crew members
     items: [
@@ -275,11 +282,6 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
       
       const userRole = userProfile.role?.toLowerCase() || '';
       const isCaptain = userRole === 'captain' || userRole === 'vessel' || userRole === 'admin';
-      
-      if (!isCaptain) {
-        setInboxCount(0);
-        return;
-      }
 
       try {
         if (userRole === 'admin') {
@@ -300,7 +302,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           const applicationsCount = applicationsResult.count || 0;
           console.log('[SIDEBAR] Admin inbox count:', { captaincyCount, applicationsCount, total: captaincyCount + applicationsCount });
           setInboxCount(captaincyCount + applicationsCount);
-        } else {
+        } else if (userRole === 'captain' || userRole === 'vessel') {
           // Captains/vessel managers see testimonials addressed to them
           let testimonialQuery = supabase
             .from('testimonials')
@@ -343,6 +345,38 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           }
           
           setInboxCount((testimonialCount || 0) + seaTimeCount + captaincyCount);
+        } else {
+          // Crew: vessel sea time access requests, vessel sea time offers, and pending testimonials (where user is captain)
+          const [accessResult, offersResult, testimonialResult] = await Promise.all([
+            supabase
+              .from('vessel_sea_time_access_requests')
+              .select('id', { count: 'exact', head: true })
+              .eq('crew_user_id', user.id)
+              .eq('status', 'pending'),
+            supabase
+              .from('vessel_sea_time_offers')
+              .select('id', { count: 'exact', head: true })
+              .eq('crew_user_id', user.id)
+              .eq('status', 'pending'),
+            (() => {
+              let q = supabase
+                .from('testimonials')
+                .select('id', { count: 'exact', head: true })
+                .eq('status', 'pending_captain');
+              if (user?.id && user?.email) {
+                q = q.or(`captain_user_id.eq.${user.id},captain_email.ilike.${user.email}`);
+              } else if (user?.id) {
+                q = q.eq('captain_user_id', user.id);
+              } else if (user?.email) {
+                q = q.ilike('captain_email', user.email);
+              }
+              return q;
+            })(),
+          ]);
+          const accessCount = accessResult.count ?? 0;
+          const offersCount = offersResult.count ?? 0;
+          const testimonialCount = testimonialResult.count ?? 0;
+          setInboxCount(accessCount + offersCount + testimonialCount);
         }
       } catch (error) {
         console.error('[SIDEBAR] Error fetching inbox count:', error);
@@ -387,6 +421,29 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           schema: 'public',
           table: 'captain_role_applications',
           filter: `status=eq.pending`,
+        },
+        () => {
+          fetchInboxCount();
+        }
+      )
+      // Crew: vessel sea time access requests and vessel sea time offers
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'vessel_sea_time_access_requests',
+        },
+        () => {
+          fetchInboxCount();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'vessel_sea_time_offers',
         },
         () => {
           fetchInboxCount();

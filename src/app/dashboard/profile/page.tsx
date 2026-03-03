@@ -22,13 +22,15 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselAssignments, updateVesselAssignment } from '@/supabase/database/queries';
+import { getVesselAssignments, updateVesselAssignment, getVesselStateLogs } from '@/supabase/database/queries';
 import { format, parse, differenceInDays, isAfter, startOfDay, isBefore, getYear, getMonth, setMonth, setYear, startOfMonth, addDays } from 'date-fns';
-import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit, Shield, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2 } from 'lucide-react';
+import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit, Shield, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Target, Award } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { cn } from '@/lib/utils';
-import type { VesselAssignment, Vessel, UserProfile, PositionHistory } from '@/lib/types';
+import type { VesselAssignment, Vessel, UserProfile, PositionHistory, StateLog } from '@/lib/types';
+import { calculateStandbyDays } from '@/lib/standby-calculation';
+import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
@@ -386,6 +388,15 @@ const POSITION_OPTIONS = [
   'Other',
 ] as const;
 
+/** Sea time (days) required for common maritime qualification milestones. Used for progression tracker. */
+const QUALIFICATION_TIERS = [
+  { id: 'deckhand', name: 'Deckhand / AB', requiredDays: 365, description: '1 year sea service' },
+  { id: 'oow', name: 'Officer of the Watch (OOW)', requiredDays: 1095, description: '36 months sea service' },
+  { id: 'chief-mate', name: 'Chief Mate', requiredDays: 1825, description: '5 years sea service' },
+  { id: 'master', name: 'Master (Captain)', requiredDays: 2555, description: '7 years sea service' },
+  { id: 'master-unlimited', name: 'Master Unlimited', requiredDays: 3650, description: '10 years sea service' },
+] as const;
+
 const positionHistorySchema = z.object({
   position: z.string().min(1, 'Position is required'),
   startDate: z.date({ required_error: 'Start date is required' }),
@@ -414,7 +425,9 @@ function CareerTab({ userId }: { userId?: string }) {
   const [editingPosition, setEditingPosition] = useState<PositionHistory | null>(null);
   const [deletePositionId, setDeletePositionId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  
+  const [totalSeaTimeDays, setTotalSeaTimeDays] = useState<number | null>(null);
+  const [isLoadingSeaTime, setIsLoadingSeaTime] = useState(false);
+
   // Fetch all vessels for name lookup
   const { data: vessels } = useCollection<Vessel>('vessels');
   
@@ -499,6 +512,71 @@ function CareerTab({ userId }: { userId?: string }) {
 
     fetchData();
   }, [userId, supabase]);
+
+  // Check if current position is officer (for watch days in sea time calculation)
+  const isOfficer = useMemo(() => {
+    const current = positionHistory.find(p => !p.endDate);
+    const position = (current?.position || '').toLowerCase();
+    const officerKeywords = ['captain', 'master', 'officer', 'mate', 'chief officer', 'first officer', 'engineer', 'oow'];
+    return officerKeywords.some(kw => position.includes(kw));
+  }, [positionHistory]);
+
+  // Fetch total sea time (at sea + standby) for progression tracker
+  useEffect(() => {
+    if (!userId || !assignments.length) {
+      setTotalSeaTimeDays(null);
+      return;
+    }
+
+    const vesselIds = [...new Set(assignments.map(a => a.vesselId))];
+
+    const fetchSeaTime = async () => {
+      setIsLoadingSeaTime(true);
+      try {
+        const allLogs: StateLog[] = [];
+        for (const vesselId of vesselIds) {
+          const logs = await getVesselStateLogs(supabase, vesselId, userId);
+          allLogs.push(...logs);
+        }
+        // Sort by date for calculateStandbyDays
+        allLogs.sort((a, b) => a.date.localeCompare(b.date));
+
+        let watchDates = new Set<string>();
+        if (isOfficer) {
+          const { data: watchLogs } = await supabase
+            .from('watch_logs')
+            .select('watch_start')
+            .eq('user_id', userId);
+          if (watchLogs) {
+            watchLogs.forEach((log: { watch_start: string }) => {
+              watchDates.add(format(new Date(log.watch_start), 'yyyy-MM-dd'));
+            });
+          }
+        }
+
+        const partOfActivePassageDates = new Set<string>();
+        allLogs.forEach(log => {
+          if (log.isPartOfActivePassage) partOfActivePassageDates.add(log.date);
+        });
+
+        const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(allLogs, watchDates.size > 0 ? watchDates : undefined, partOfActivePassageDates);
+        setTotalSeaTimeDays(totalSeaDays + totalStandbyDays);
+      } catch (err) {
+        console.error('Error fetching sea time for progression:', err);
+        setTotalSeaTimeDays(null);
+      } finally {
+        setIsLoadingSeaTime(false);
+      }
+    };
+
+    fetchSeaTime();
+  }, [userId, assignments, isOfficer, supabase]);
+
+  // Next qualification tier (first tier whose required days exceed current sea time)
+  const nextQualification = useMemo(() => {
+    const current = totalSeaTimeDays ?? 0;
+    return QUALIFICATION_TIERS.find(t => t.requiredDays > current) ?? null;
+  }, [totalSeaTimeDays]);
 
   // Calculate total days for each assignment
   const getAssignmentDuration = (assignment: VesselAssignment): number => {
@@ -876,6 +954,61 @@ function CareerTab({ userId }: { userId?: string }) {
 
     return (
     <div className="space-y-6">
+      {/* Qualification Progression Tracker */}
+      <Card className="rounded-xl border bg-gradient-to-br from-primary/5 via-transparent to-transparent">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="h-5 w-5" />
+            Qualification progression
+          </CardTitle>
+          <CardDescription>
+            Sea service days (at sea + standby) toward your next qualification milestone
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoadingSeaTime ? (
+            <div className="flex items-center gap-3 py-6">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Calculating your sea time…</span>
+            </div>
+          ) : nextQualification ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="text-2xl font-bold">{totalSeaTimeDays ?? 0}</span>
+                <span className="text-muted-foreground">sea service days</span>
+                <span className="text-muted-foreground">→</span>
+                <span className="font-medium">{nextQualification.name}</span>
+                <span className="text-sm text-muted-foreground">({nextQualification.requiredDays} days required)</span>
+              </div>
+              <Progress
+                value={Math.min(100, ((totalSeaTimeDays ?? 0) / nextQualification.requiredDays) * 100)}
+                className="h-3"
+              />
+              <p className="text-sm text-muted-foreground">
+                <strong className="text-foreground">{Math.max(0, nextQualification.requiredDays - (totalSeaTimeDays ?? 0))} days</strong>
+                {' '}until you meet the sea time requirement for {nextQualification.name}.
+              </p>
+            </div>
+          ) : totalSeaTimeDays !== null && totalSeaTimeDays > 0 ? (
+            <div className="flex items-center gap-3 py-2">
+              <Award className="h-10 w-10 text-primary" />
+              <div>
+                <p className="font-semibold">You've passed the highest milestone</p>
+                <p className="text-sm text-muted-foreground">
+                  {totalSeaTimeDays} sea service days logged. You meet or exceed the 10-year (3,650 days) reference tier.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="py-4">
+              <p className="text-sm text-muted-foreground">
+                Log sea time on your vessel assignments to see progress toward your next qualification. Sea service is calculated from your daily state logs (at sea + standby).
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Position History Section */}
       <Card className="rounded-xl border">
         <CardHeader>

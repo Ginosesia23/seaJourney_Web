@@ -646,6 +646,35 @@ export async function getActiveVesselAssignmentsByVessel(
 }
 
 /**
+ * Get all vessel assignments for a specific vessel (active and past; no end_date filter)
+ */
+export async function getAllVesselAssignmentsByVessel(
+  supabase: SupabaseClient,
+  vesselId: string
+): Promise<VesselAssignment[]> {
+  const { data, error } = await supabase
+    .from('vessel_assignments')
+    .select('*')
+    .eq('vessel_id', vesselId)
+    .order('start_date', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || []).map((assignment) => ({
+    id: assignment.id,
+    userId: assignment.user_id,
+    vesselId: assignment.vessel_id,
+    startDate: assignment.start_date,
+    endDate: assignment.end_date || null,
+    position: assignment.position || null,
+    assignmentRole: assignment.assignment_role || null,
+    onboard: assignment.onboard || false,
+    createdAt: timestampToISO(assignment.created_at),
+    updatedAt: timestampToISO(assignment.updated_at),
+  }));
+}
+
+/**
  * Create a vessel assignment
  */
 export async function createVesselAssignment(

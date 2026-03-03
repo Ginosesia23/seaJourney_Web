@@ -86,8 +86,12 @@ export interface TestimonialPDFData {
   } | null;
   receiptData?: MCAReceiptData; // Optional receipt/verification data
   standbyPeriods?: Array<{
-    passageStartDate: string; // YYYY-MM-DD
-    passageEndDate: string; // YYYY-MM-DD
+    passageStartDate: string; // YYYY-MM-DD (voyage)
+    passageEndDate: string; // YYYY-MM-DD (voyage)
+    /** Actual standby period start (in-port/at-anchor only; does not extend into yard) */
+    standbyStartDate?: string; // YYYY-MM-DD
+    /** Actual standby period end (in-port/at-anchor only; does not extend into yard) */
+    standbyEndDate?: string; // YYYY-MM-DD
     standbyDays: number;
   }>; // Standby service periods for Table A
 }
@@ -4465,9 +4469,12 @@ export async function generateMCADeckhandTestimonial(
   drawText(page1, base, dateJoining, COORDS.dateJoining.x, COORDS.dateJoining.top);
   drawText(page1, base, dateDischarge, COORDS.dateDischarge.x, COORDS.dateDischarge.top);
 
-  // Service Days
+  // Service Days - use sum of standby periods when present so displayed count matches Table A
+  const displayStandbyDays = (data.standbyPeriods && data.standbyPeriods.length > 0)
+    ? data.standbyPeriods.reduce((sum, period) => sum + period.standbyDays, 0)
+    : testimonial.standby_days;
   drawText(page1, base, testimonial.at_sea_days.toString(), COORDS.actualSeagoingDays.x, COORDS.actualSeagoingDays.top);
-  drawText(page1, base, testimonial.standby_days.toString(), COORDS.standbyDays.x, COORDS.standbyDays.top);
+  drawText(page1, base, displayStandbyDays.toString(), COORDS.standbyDays.x, COORDS.standbyDays.top);
   drawText(page1, base, testimonial.yard_days.toString(), COORDS.yardDays.x, COORDS.yardDays.top);
 
   // Comments (Page 2)
@@ -4742,7 +4749,7 @@ export async function generateMCADeckhandTestimonial(
     addRow('Date Range', `${formatDateLocal(testimonial.start_date, 'DD/MM/YYYY')} – ${formatDateLocal(testimonial.end_date, 'DD/MM/YYYY')}`, 'left');
     addRow('Total Days', safeInt(testimonial.total_days ?? 0), 'left');
     addRow('At Sea Days', safeInt(testimonial.at_sea_days), 'left');
-    addRow('Standby Days', safeInt(testimonial.standby_days), 'left');
+    addRow('Standby Days', safeInt(displayStandbyDays), 'left');
     addRow('Yard Days', safeInt(testimonial.yard_days), 'left');
     addRow('Leave Days', safeInt(testimonial.leave_days ?? 0), 'left');
     y -= 12;
@@ -5077,9 +5084,12 @@ export async function generateMCAOfficerTestimonial(
   drawText(page1, base, dateJoining, COORDS.dateJoining.x, COORDS.dateJoining.top);
   drawText(page1, base, dateDischarge, COORDS.dateDischarge.x, COORDS.dateDischarge.top);
 
-  // Service Days
+  // Service Days - use sum of standby periods when present so displayed count matches Table A
+  const displayStandbyDays = (data.standbyPeriods && data.standbyPeriods.length > 0)
+    ? data.standbyPeriods.reduce((sum, period) => sum + period.standbyDays, 0)
+    : testimonial.standby_days;
   drawText(page1, base, testimonial.at_sea_days.toString(), COORDS.actualSeagoingDays.x, COORDS.actualSeagoingDays.top);
-  drawText(page1, base, testimonial.standby_days.toString(), COORDS.standbyDays.x, COORDS.standbyDays.top);
+  drawText(page1, base, displayStandbyDays.toString(), COORDS.standbyDays.x, COORDS.standbyDays.top);
   drawText(page1, base, testimonial.yard_days.toString(), COORDS.yardDays.x, COORDS.yardDays.top);
 
   // Comments (Page 2)
@@ -5355,7 +5365,7 @@ export async function generateMCAOfficerTestimonial(
     addRow('Date Range', `${formatDateLocal(testimonial.start_date, 'DD/MM/YYYY')} – ${formatDateLocal(testimonial.end_date, 'DD/MM/YYYY')}`, 'left');
     addRow('Total Days', safeInt(testimonial.total_days ?? 0), 'left');
     addRow('At Sea Days', safeInt(testimonial.at_sea_days), 'left');
-    addRow('Standby Days', safeInt(testimonial.standby_days), 'left');
+    addRow('Standby Days', safeInt(displayStandbyDays), 'left');
     addRow('Yard Days', safeInt(testimonial.yard_days), 'left');
     addRow('Leave Days', safeInt(testimonial.leave_days ?? 0), 'left');
     y -= 12;
