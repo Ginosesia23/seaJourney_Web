@@ -1,0 +1,216 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useUser, useSupabase } from '@/supabase';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ShieldCheck, Download, Ship, Loader2 } from 'lucide-react';
+import { format, parse } from 'date-fns';
+import { useToast } from '@/hooks/use-toast';
+import type { ProofOfService } from '@/lib/types';
+import { generateProofOfServicePDF } from '@/lib/pdf-generator';
+
+function mapRow(row: any): ProofOfService {
+  return {
+    id: row.id,
+    crewUserId: row.crew_user_id,
+    vesselId: row.vessel_id,
+    vesselUserId: row.vessel_user_id,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    totalDays: row.total_days,
+    atSeaDays: row.at_sea_days,
+    standbyDays: row.standby_days,
+    yardDays: row.yard_days,
+    leaveDays: row.leave_days,
+    vesselName: row.vessel_name,
+    vesselType: row.vessel_type ?? null,
+    vesselImo: row.vessel_imo ?? null,
+    crewName: row.crew_name,
+    crewPosition: row.crew_position ?? null,
+    generatedByName: row.generated_by_name,
+    generatedByEmail: row.generated_by_email ?? null,
+    dataSource: row.data_source,
+    notes: row.notes ?? null,
+    verificationCode: row.verification_code ?? '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export default function ProofOfServicePage() {
+  const { user } = useUser();
+  const { supabase } = useSupabase();
+  const { toast } = useToast();
+  const [entries, setEntries] = useState<ProofOfService[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setIsLoading(false);
+      return;
+    }
+    const fetchEntries = async () => {
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('proof_of_service')
+          .select('*')
+          .eq('crew_user_id', user.id)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        const rows = data || [];
+        const byId = new Map<string, (typeof rows)[0]>();
+        rows.forEach((r) => byId.set(r.id, r));
+        setEntries(Array.from(byId.values()).map(mapRow));
+      } catch (e) {
+        console.error('[PROOF OF SERVICE]', e);
+        toast({
+          title: 'Error',
+          description: 'Failed to load proof of service entries.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchEntries();
+  }, [user?.id, supabase, toast]);
+
+  const handleDownload = async (entry: ProofOfService) => {
+    setDownloadingId(entry.id);
+    try {
+      await generateProofOfServicePDF({
+        vesselName: entry.vesselName,
+        vesselType: entry.vesselType,
+        vesselImo: entry.vesselImo,
+        crewName: entry.crewName,
+        crewPosition: entry.crewPosition,
+        startDate: entry.startDate,
+        endDate: entry.endDate,
+        totalDays: entry.totalDays,
+        atSeaDays: entry.atSeaDays,
+        standbyDays: entry.standbyDays,
+        yardDays: entry.yardDays,
+        leaveDays: entry.leaveDays,
+        generatedByName: entry.generatedByName,
+        generatedByEmail: entry.generatedByEmail,
+        notes: entry.notes,
+        verificationCode: entry.verificationCode,
+      }, 'download');
+      toast({ title: 'Downloaded', description: 'Proof of Service PDF saved to your device.' });
+    } catch (e) {
+      toast({
+        title: 'Error',
+        description: 'Failed to generate PDF.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Proof of Service</h1>
+        <p className="text-muted-foreground mt-1">
+          Your saved proof of service entries from vessels you have worked on. Each entry can be downloaded as a PDF for printing or sharing.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardHeader>
+                <Skeleton className="h-5 w-1/3" />
+                <Skeleton className="h-4 w-1/2 mt-2" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-10 w-32" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : entries.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <ShieldCheck className="h-14 w-14 text-muted-foreground mb-4 opacity-50" />
+            <h3 className="text-lg font-semibold mb-2">No proof of service yet</h3>
+            <p className="text-sm text-muted-foreground max-w-md mb-4">
+              When you leave a vessel, the vessel can generate a Proof of Service for your time on board and save it to your profile. You can then download or print it here. Ask your vessel manager to create one for you from Generator → Documents.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {entries.map((entry, index) => (
+            <Card key={entry.id ?? `entry-${index}`} className="overflow-hidden">
+              <CardHeader className="pb-2">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                      <Ship className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg">{entry.vesselName}</CardTitle>
+                      <CardDescription className="mt-0.5">
+                        {format(parse(entry.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – {format(parse(entry.endDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}
+                        {entry.vesselType && ` · ${entry.vesselType}`}
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl shrink-0"
+                    onClick={() => handleDownload(entry)}
+                    disabled={downloadingId === entry.id}
+                  >
+                    {downloadingId === entry.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Download className="h-4 w-4 mr-2" />
+                    )}
+                    Download PDF
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Total days</span>
+                    <p className="font-semibold">{entry.totalDays}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">At sea</span>
+                    <p className="font-semibold">{entry.atSeaDays}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Standby</span>
+                    <p className="font-semibold">{entry.standbyDays}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Yard</span>
+                    <p className="font-semibold">{entry.yardDays}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Leave</span>
+                    <p className="font-semibold">{entry.leaveDays}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-3">
+                  Generated by {entry.generatedByName}
+                  {entry.createdAt && ` on ${format(new Date(entry.createdAt), 'dd MMM yyyy')}`}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

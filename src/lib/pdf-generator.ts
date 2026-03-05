@@ -99,6 +99,32 @@ export interface TestimonialPDFData {
 export type TestimonialPDFFormat = 'mca' | 'mlc' | 'pya' | 'seajourney';
 export type TestimonialPDFOutput = 'download' | 'newtab' | 'blob';
 
+/** Data for one Proof of Service entry (one vessel + period). Multiple entries = multiple boxes on the PDF. */
+export interface ProofOfServicePDFData {
+  vesselName: string;
+  vesselType: string | null;
+  vesselImo: string | null;
+  crewName: string;
+  crewPosition: string | null;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  atSeaDays: number;
+  standbyDays: number;
+  yardDays: number;
+  leaveDays: number;
+  generatedByName: string;
+  generatedByEmail: string | null;
+  notes: string | null;
+  /** Verification code from DB (present when entry was loaded from proof_of_service). */
+  verificationCode?: string | null;
+}
+
+/** Single entry or array of entries (one box per entry; same vessel twice = two boxes). */
+export type ProofOfServicePDFInput = ProofOfServicePDFData | ProofOfServicePDFData[];
+
+export type ProofOfServicePDFOutput = 'download' | 'newtab' | 'blob';
+
 export interface NavWatchApplicationPDFData {
   application: {
     id: string;
@@ -1515,6 +1541,240 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
   }
 
   doc.output('dataurlnewwindow');
+}
+
+/* ========================================================================== */
+/*                         PROOF OF SERVICE PDF                               */
+/* ========================================================================== */
+
+export async function generateProofOfServicePDF(
+  data: ProofOfServicePDFInput,
+  output: ProofOfServicePDFOutput = 'download'
+) {
+  const entries: ProofOfServicePDFData[] = Array.isArray(data) ? data : [data];
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 7;
+  const boxPadding = 6;
+  const borderRadius = 2.5;
+  const textDark: [number, number, number] = [30, 30, 30];
+  const textMuted: [number, number, number] = [100, 100, 100];
+  const primaryBlue: [number, number, number] = [15, 23, 42];
+  const atSeaBlue: [number, number, number] = [37, 99, 235];
+  const standbyPurple: [number, number, number] = [126, 34, 206];
+  const boxBorder: [number, number, number] = [226, 232, 240];
+  const boxBg: [number, number, number] = [248, 250, 252];
+  const sectionLabelBg: [number, number, number] = [241, 245, 249];
+  const setTextColor = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
+  const setDrawColor = (c: [number, number, number]) => doc.setDrawColor(c[0], c[1], c[2]);
+  const setFillColor = (c: [number, number, number]) => doc.setFillColor(c[0], c[1], c[2]);
+  const safe = (s: string | null | undefined) => (s && String(s).trim()) || '—';
+
+  const headerHeight = 28;
+  doc.setFillColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
+  doc.rect(0, 0, pageWidth, headerHeight, 'F');
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 255, 255);
+  doc.text('Proof of Service', pageWidth / 2, 11, { align: 'center' });
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(226, 232, 240);
+  doc.text('Sea service record for use as supporting documentation', pageWidth / 2, 18, { align: 'center' });
+  doc.setFontSize(8);
+  doc.setTextColor(203, 213, 225);
+  doc.text(`Generated ${format(new Date(), 'dd MMM yyyy')}`, pageWidth / 2, 24, { align: 'center' });
+
+  let y = headerHeight + 12;
+  const contentWidth = pageWidth - 2 * margin;
+  const innerLeft = margin + boxPadding;
+  const innerRight = pageWidth - margin - boxPadding;
+  const colGap = 10;
+  const midX = margin + contentWidth / 2;
+  const leftColLeft = innerLeft;
+  const leftColRight = midX - colGap / 2;
+  const rightColLeft = midX + colGap / 2;
+  const rightColRight = innerRight;
+  const leftColWidth = leftColRight - leftColLeft;
+  const rightColWidth = rightColRight - rightColLeft;
+
+  for (let i = 0; i < entries.length; i++) {
+    const data = entries[i];
+    setTextColor(textDark);
+
+    // Measure pass: left and right column heights (sea time = two rows)
+    let measureLeft = y + boxPadding;
+    measureLeft += 6; measureLeft += 5; measureLeft += 5; measureLeft += 5;
+    if (data.vesselImo) measureLeft += 5;
+    measureLeft += 4;
+    measureLeft += 6; measureLeft += 5; measureLeft += 5; measureLeft += 5; measureLeft += 6;
+    const leftHeight = measureLeft - (y + boxPadding);
+    let measureRight = y + boxPadding;
+    measureRight += 6; // Sea time title
+    measureRight += 5; measureRight += 6; measureRight += 4; // table (label row + value row) + gap
+    if (data.notes) { measureRight += 4; measureRight += 6; }
+    measureRight += 4; measureRight += 3; measureRight += 4; measureRight += 5; // footer line + generated by
+    if (data.verificationCode) { measureRight += 5; measureRight += 4; measureRight += 4; measureRight += 5; measureRight += 5; }
+    const rightHeight = measureRight - (y + boxPadding);
+    const boxHeight = Math.max(leftHeight, rightHeight) + 2 * boxPadding;
+    const approxEntryHeight = boxHeight;
+
+    if (y + approxEntryHeight > pageHeight - 16) {
+      doc.addPage();
+      y = 10;
+    }
+
+    const boxTop = y;
+
+    // Draw box first so it sits behind the text
+    setDrawColor(boxBorder);
+    doc.setLineWidth(0.25);
+    setFillColor(boxBg);
+    if (typeof (doc as unknown as { roundedRect?: unknown }).roundedRect === 'function') {
+      (doc as unknown as { roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, style: string) => void }).roundedRect(margin, boxTop, contentWidth, boxHeight, borderRadius, borderRadius, 'FD');
+    } else {
+      doc.rect(margin, boxTop, contentWidth, boxHeight, 'FD');
+    }
+
+    // Vertical divider between columns
+    setDrawColor(boxBorder);
+    doc.setLineWidth(0.2);
+    doc.line(midX, boxTop + boxPadding, midX, boxTop + boxHeight - boxPadding);
+
+    let leftY = y + boxPadding;
+    let rightY = y + boxPadding;
+
+    // ---- LEFT COLUMN: Vessel ----
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
+    doc.text('Vessel', leftColLeft, leftY);
+    leftY += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    setTextColor(textDark);
+    doc.text(`Name: ${safe(data.vesselName)}`, leftColLeft, leftY, { maxWidth: leftColWidth });
+    leftY += 5;
+    doc.text(`Type: ${safe(data.vesselType)}`, leftColLeft, leftY, { maxWidth: leftColWidth });
+    leftY += 5;
+    if (data.vesselImo) {
+      doc.text(`IMO / Official No.: ${safe(data.vesselImo)}`, leftColLeft, leftY, { maxWidth: leftColWidth });
+      leftY += 5;
+    }
+    leftY += 4;
+
+    // ---- LEFT COLUMN: Crew & period ----
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
+    doc.text('Crew member & period', leftColLeft, leftY);
+    leftY += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    setTextColor(textDark);
+    doc.text(`Name: ${safe(data.crewName)}`, leftColLeft, leftY, { maxWidth: leftColWidth });
+    leftY += 5;
+    doc.text(`Position: ${safe(data.crewPosition)}`, leftColLeft, leftY, { maxWidth: leftColWidth });
+    leftY += 5;
+    const periodStr = `${format(parse(data.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – ${format(parse(data.endDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}`;
+    doc.text(`Period: ${periodStr}`, leftColLeft, leftY, { maxWidth: leftColWidth });
+    leftY += 6;
+
+    // ---- RIGHT COLUMN: Sea time breakdown (bordered grid, no background fill) ----
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
+    doc.text('Sea time breakdown', rightColLeft, rightY);
+    rightY += 6;
+    const tableTop = rightY;
+    const labelRowHeight = 5;
+    const valueRowHeight = 6;
+    const tableHeight = labelRowHeight + valueRowHeight;
+    const numCols = 5;
+    const cellW = rightColWidth / numCols;
+    setDrawColor(boxBorder);
+    doc.setLineWidth(0.2);
+    doc.rect(rightColLeft, tableTop, rightColWidth, tableHeight, 'S');
+    for (let c = 1; c < numCols; c++) {
+      doc.line(rightColLeft + c * cellW, tableTop, rightColLeft + c * cellW, tableTop + tableHeight);
+    }
+    doc.line(rightColLeft, tableTop + labelRowHeight, rightColRight, tableTop + labelRowHeight);
+    const labelY = tableTop + 3.5;
+    const valueY = tableTop + labelRowHeight + 4;
+    const pad = 2;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    setTextColor(textMuted);
+    doc.text('Total days', rightColLeft + pad, labelY);
+    doc.text('At sea', rightColLeft + cellW + pad, labelY);
+    doc.text('Standby', rightColLeft + 2 * cellW + pad, labelY);
+    doc.text('Yard', rightColLeft + 3 * cellW + pad, labelY);
+    doc.text('Leave', rightColLeft + 4 * cellW + pad, labelY);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    setTextColor(textDark);
+    doc.text(String(data.totalDays), rightColLeft + pad, valueY);
+    setTextColor(atSeaBlue);
+    doc.text(String(data.atSeaDays), rightColLeft + cellW + pad, valueY);
+    setTextColor(standbyPurple);
+    doc.text(String(data.standbyDays), rightColLeft + 2 * cellW + pad, valueY);
+    setTextColor(textDark);
+    doc.text(String(data.yardDays), rightColLeft + 3 * cellW + pad, valueY);
+    doc.text(String(data.leaveDays), rightColLeft + 4 * cellW + pad, valueY);
+    rightY = tableTop + tableHeight + 4;
+
+    if (data.notes) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      setTextColor(textMuted);
+      doc.text('Notes', rightColLeft, rightY);
+      rightY += 4;
+      doc.setFontSize(9);
+      setTextColor(textDark);
+      doc.text(safe(data.notes), rightColLeft, rightY, { maxWidth: rightColWidth });
+      rightY += 6;
+    }
+
+    // ---- RIGHT COLUMN: Footer ----
+    rightY += 4;
+    setDrawColor(boxBorder);
+    doc.setLineWidth(0.15);
+    doc.line(rightColLeft, rightY, rightColRight, rightY);
+    rightY += 4;
+    doc.setFontSize(7);
+    setTextColor(textMuted);
+    doc.text(`Generated by ${safe(data.generatedByName)}${data.generatedByEmail ? ` (${data.generatedByEmail})` : ''}`, rightColLeft, rightY, { maxWidth: rightColWidth });
+    if (data.verificationCode) {
+      const displayCode = data.verificationCode?.startsWith('POS-') ? data.verificationCode : `POS-${(data.verificationCode || '').replace(/^POS-/, '').substring(0, 8)}`;
+      rightY += 5;
+      setDrawColor(boxBorder);
+      doc.setLineWidth(0.2);
+      doc.line(rightColLeft, rightY, rightColRight, rightY);
+      rightY += 4;
+      doc.setFontSize(8);
+      setTextColor(textMuted);
+      doc.text('Verify at www.seajourney.co.uk/verify', rightColLeft, rightY);
+      rightY += 5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
+      doc.text(`Reference code: ${displayCode}`, rightColLeft, rightY);
+    }
+
+    y = boxTop + boxHeight + 8;
+  }
+
+  const first = entries[0];
+  const filename = entries.length === 1
+    ? `Proof of Service ${safe(first.vesselName)} ${first.startDate} to ${first.endDate}.pdf`
+    : `Proof of Service ${entries.length} entries.pdf`;
+  if (output === 'blob') return doc.output('blob');
+  if (output === 'newtab') {
+    doc.output('dataurlnewwindow');
+    return;
+  }
+  doc.save(filename);
 }
 
 /* ========================================================================== */

@@ -29,6 +29,7 @@ import {
   ClipboardList,
   Database,
   UserCog,
+  ShieldCheck,
 } from "lucide-react"
 
 import {
@@ -113,6 +114,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/applications", label: "Documents", icon: FileText, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'] },
       { href: "/dashboard/certificates", label: "Certificates", icon: Award, disabled: false },
+      { href: "/dashboard/proof-of-service", label: "Proof of Service", icon: ShieldCheck, disabled: false },
     ]
   },
   {

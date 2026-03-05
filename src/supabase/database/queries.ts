@@ -1330,12 +1330,17 @@ export interface Feedback {
   respondedBy: string | null;
   createdAt: string;
   updatedAt: string;
+  /** When set, this is an admin message to this user (userId = admin, recipientId = target) */
+  recipientId?: string | null;
   /** Populated by getAllFeedback for admin view */
   submitter?: FeedbackSubmitter | null;
+  /** Populated by getAllFeedback for admin-sent messages (who received it) */
+  recipient?: FeedbackSubmitter | null;
 }
 
 /**
- * Create a new feedback entry
+ * Create a new feedback entry.
+ * When recipientId is set, this is an admin message to that user (userId = sender admin).
  */
 export async function createFeedback(
   supabase: SupabaseClient,
@@ -1344,17 +1349,22 @@ export async function createFeedback(
     type: FeedbackType;
     subject: string;
     message: string;
+    recipientId?: string | null;
   }
 ): Promise<Feedback> {
+  const insertData: Record<string, unknown> = {
+    user_id: feedbackData.userId,
+    type: feedbackData.type,
+    subject: feedbackData.subject,
+    message: feedbackData.message,
+    status: 'open',
+  };
+  if (feedbackData.recipientId) {
+    insertData.recipient_id = feedbackData.recipientId;
+  }
   const { data, error } = await supabase
     .from('feedback')
-    .insert({
-      user_id: feedbackData.userId,
-      type: feedbackData.type,
-      subject: feedbackData.subject,
-      message: feedbackData.message,
-      status: 'open',
-    })
+    .insert(insertData)
     .select()
     .single();
 
@@ -1373,11 +1383,13 @@ export async function createFeedback(
     respondedBy: data.responded_by || null,
     createdAt: data.created_at,
     updatedAt: data.updated_at,
+    recipientId: data.recipient_id ?? null,
   };
 }
 
 /**
- * Get all feedback for a user
+ * Get all feedback for a user: feedback they submitted (user_id = userId)
+ * and messages sent to them (recipient_id = userId).
  */
 export async function getUserFeedback(
   supabase: SupabaseClient,
@@ -1386,12 +1398,12 @@ export async function getUserFeedback(
   const { data, error } = await supabase
     .from('feedback')
     .select('*')
-    .eq('user_id', userId)
+    .or(`user_id.eq.${userId},recipient_id.eq.${userId}`)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
 
-  return (data || []).map((item) => ({
+  return (data || []).map((item: any) => ({
     id: item.id,
     userId: item.user_id,
     type: item.type,
@@ -1404,6 +1416,7 @@ export async function getUserFeedback(
     respondedBy: item.responded_by || null,
     createdAt: item.created_at,
     updatedAt: item.updated_at,
+    recipientId: item.recipient_id ?? null,
   }));
 }
 
@@ -1442,13 +1455,15 @@ export async function getAllFeedback(
 
   const rows = data || [];
   const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
+  const recipientIds = [...new Set(rows.map((r: any) => r.recipient_id).filter(Boolean))];
+  const allUserIds = [...new Set([...userIds, ...recipientIds])];
   let userMap: Record<string, FeedbackSubmitter> = {};
 
-  if (userIds.length > 0) {
+  if (allUserIds.length > 0) {
     const { data: users } = await supabase
       .from('users')
       .select('id, email, first_name, last_name, username')
-      .in('id', userIds);
+      .in('id', allUserIds);
     if (users) {
       userMap = Object.fromEntries(
         users.map((u: any) => [
@@ -1477,7 +1492,9 @@ export async function getAllFeedback(
     respondedBy: item.responded_by || null,
     createdAt: item.created_at,
     updatedAt: item.updated_at,
+    recipientId: item.recipient_id ?? null,
     submitter: (item.user_id && userMap[item.user_id]) ? userMap[item.user_id] : null,
+    recipient: (item.recipient_id && userMap[item.recipient_id]) ? userMap[item.recipient_id] : null,
   }));
 }
 
@@ -1522,6 +1539,7 @@ export async function markFeedbackResponseAsRead(
     respondedBy: data.responded_by || null,
     createdAt: data.created_at,
     updatedAt: data.updated_at,
+    recipientId: data.recipient_id ?? null,
   };
 }
 
@@ -1581,5 +1599,21 @@ export async function updateFeedback(
     respondedBy: data.responded_by || null,
     createdAt: data.created_at,
     updatedAt: data.updated_at,
+    recipientId: data.recipient_id ?? null,
   };
+}
+
+/**
+ * Delete a feedback entry (admin only)
+ */
+export async function deleteFeedback(
+  supabase: SupabaseClient,
+  feedbackId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('feedback')
+    .delete()
+    .eq('id', feedbackId);
+
+  if (error) throw error;
 }

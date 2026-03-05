@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, AlertTriangle, ArrowUpCircle, Send, Eye, Pencil, Navigation, FileCheck, Copy } from 'lucide-react';
+import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, AlertTriangle, ArrowUpCircle, Send, Eye, Pencil, Navigation, FileCheck, Copy, ShieldCheck } from 'lucide-react';
 import { format, parse, eachDayOfInterval, format as formatDate, addDays, isWithinInterval, differenceInDays, startOfDay } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -49,7 +49,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
-import type { UserProfile, VesselAssignment, Vessel, VesselSeaTimeAccessRequest, CrewLeavePeriod, Testimonial, VesselGeneratedTestimonial, StateLog, NavWatchApplication } from '@/lib/types';
+import type { UserProfile, VesselAssignment, Vessel, VesselSeaTimeAccessRequest, CrewLeavePeriod, Testimonial, VesselGeneratedTestimonial, StateLog, NavWatchApplication, ProofOfService } from '@/lib/types';
 import { getActiveVesselAssignmentsByVessel, getAllVesselAssignmentsByVessel, getVesselStateLogs, updateVesselAssignment } from '@/supabase/database/queries';
 import { useCollection } from '@/supabase/database';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
@@ -58,7 +58,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateMCAWatchRatingForm, type TestimonialPDFFormat, type TestimonialPDFOutput, type MCACertificateType } from '@/lib/pdf-generator';
+import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateMCAWatchRatingForm, generateProofOfServicePDF, type TestimonialPDFFormat, type TestimonialPDFOutput, type MCACertificateType } from '@/lib/pdf-generator';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
 import { buildAndGenerateNavWatchApplication, navWatchApplicationDefaultValues, navWatchApplicationSchema, type NavWatchApplicationFormValues } from '@/lib/nav-watch-application';
@@ -78,6 +78,8 @@ type InviteCrewFormValues = z.infer<typeof inviteCrewSchema>;
 interface CrewMemberWithAssignment {
     profile: UserProfile;
     assignment: VesselAssignment;
+    /** Other assignments on this vessel (e.g. previous periods if they left and rejoined). Used to show one row per user. */
+    otherAssignments?: VesselAssignment[];
     accessRequest?: VesselSeaTimeAccessRequest | null;
     seaTimeData?: {
         totalDays: number;
@@ -94,6 +96,7 @@ interface CrewMemberWithAssignment {
     testimonials?: Testimonial[];
     vesselGeneratedTestimonials?: VesselGeneratedTestimonial[];
     navWatchApplications?: NavWatchApplication[];
+    proofOfServiceEntries?: ProofOfService[];
     hasApprovedAccess?: boolean;
     /** True when seaTimeData was computed from vessel logs (no crew permission) */
     seaTimeDataFromVessel?: boolean;
@@ -154,7 +157,7 @@ function SortableRow({
         transform,
         transition,
         isDragging,
-    } = useSortable({ id: profile.id });
+    } = useSortable({ id: assignment.id || profile.id });
 
     const style = {
         transform: CSS.Transform.toString(transform),
@@ -267,23 +270,37 @@ function SortableRow({
                 </TableCell>
             ) : (
                 <TableCell>
-                    <div className="flex items-center gap-1.5">
-                        {assignment.startDate 
-                            ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
-                            : 'N/A'}
-                        {currentUserProfile?.role === 'vessel' && onEditStartDate && assignment.id && !assignment.id.startsWith('placeholder-') && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onEditStartDate(member);
-                                }}
-                                title="Change start date"
+                    <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                            {assignment.startDate 
+                                ? format(new Date(assignment.startDate), 'dd MMM, yyyy')
+                                : 'N/A'}
+                            {currentUserProfile?.role === 'vessel' && onEditStartDate && assignment.id && !assignment.id.startsWith('placeholder-') && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onEditStartDate(member);
+                                    }}
+                                    title="Change start date"
+                                >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                            )}
+                        </div>
+                        {member.otherAssignments && member.otherAssignments.length > 0 && (
+                            <span
+                                className="text-xs text-muted-foreground"
+                                title={member.otherAssignments
+                                    .map((a) => `${format(new Date(a.startDate), 'dd MMM yyyy')} – ${a.endDate ? format(new Date(a.endDate), 'dd MMM yyyy') : 'present'}`)
+                                    .join('; ')}
                             >
-                                <Pencil className="h-3.5 w-3.5" />
-                            </Button>
+                                {member.otherAssignments.length === 1
+                                    ? `Previously: ${format(new Date(member.otherAssignments[0].startDate), 'dd MMM yyyy')} – ${member.otherAssignments[0].endDate ? format(new Date(member.otherAssignments[0].endDate), 'dd MMM yyyy') : 'present'}`
+                                    : `${member.otherAssignments.length} previous periods`}
+                            </span>
                         )}
                     </div>
                 </TableCell>
@@ -427,6 +444,8 @@ export default function CrewPage() {
     const [dragCoordinates, setDragCoordinates] = useState<{ x: number; y: number; index: number } | null>(null);
     const [selectedCrewMemberId, setSelectedCrewMemberId] = useState<string | null>(null);
     const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
+    /** When member has multiple service periods: 'current' | assignmentId | 'all'. Controls which period's data is shown. */
+    const [viewingServicePeriod, setViewingServicePeriod] = useState<'current' | string | 'all'>('current');
     const [isLeavePeriodDialogOpen, setIsLeavePeriodDialogOpen] = useState(false);
     const [leavePeriodStartDate, setLeavePeriodStartDate] = useState<Date | undefined>(undefined);
     const [leavePeriodEndDate, setLeavePeriodEndDate] = useState<Date | undefined>(undefined);
@@ -437,6 +456,7 @@ export default function CrewPage() {
     const [isLoadingTestimonials, setIsLoadingTestimonials] = useState(false);
     const [generatingPDF, setGeneratingPDF] = useState<string | null>(null);
     const [downloadingNavWatchId, setDownloadingNavWatchId] = useState<string | null>(null);
+    const [downloadingProofOfServiceId, setDownloadingProofOfServiceId] = useState<string | null>(null);
     const [previewingNavWatchId, setPreviewingNavWatchId] = useState<string | null>(null);
     const [deletingNavWatchId, setDeletingNavWatchId] = useState<string | null>(null);
     const [showGenerateForm, setShowGenerateForm] = useState(false);
@@ -486,6 +506,8 @@ export default function CrewPage() {
     const [leavePeriodsViewSource, setLeavePeriodsViewSource] = useState<'vessel' | 'crew'>('vessel');
     const [vesselBreakdownForView, setVesselBreakdownForView] = useState<{
         memberId: string;
+        startDate: string;
+        endDate: string;
         data: NonNullable<CrewMemberWithAssignment['seaTimeData']>;
     } | null>(null);
     const [selectedTestimonialFormat, setSelectedTestimonialFormat] = useState<Record<string, TestimonialPDFFormat>>({});
@@ -946,19 +968,45 @@ export default function CrewPage() {
                         })
                     );
 
-                    // Combine assignments with profiles
-                    const crewWithProfiles: CrewMemberWithAssignment[] = assignments
-                        .map(assignment => {
-                            const profile = profileMap.get(assignment.userId);
-                            if (!profile) {
-                                console.warn(`[CREW PAGE] No profile found for userId: ${assignment.userId}`);
-                                return null;
-                            }
-                            return { profile, assignment };
-                        })
-                        .filter((item): item is CrewMemberWithAssignment => item !== null);
-                    
-                    console.log('[CREW PAGE] Final crew members:', crewWithProfiles.length);
+                    // Group assignments by user so each person appears once; prefer active assignment, then most recent
+                    const byUserId = new Map<string, VesselAssignment[]>();
+                    for (const a of assignments) {
+                        const list = byUserId.get(a.userId) || [];
+                        list.push(a);
+                        byUserId.set(a.userId, list);
+                    }
+                    const isActive = (a: VesselAssignment) => {
+                        if (!a.endDate) return true;
+                        const end = new Date(a.endDate);
+                        const today = new Date();
+                        end.setHours(0, 0, 0, 0);
+                        today.setHours(0, 0, 0, 0);
+                        return end >= today;
+                    };
+                    const crewWithProfiles: CrewMemberWithAssignment[] = [];
+                    byUserId.forEach((userAssignments, userId) => {
+                        const profile = profileMap.get(userId);
+                        if (!profile) {
+                            console.warn(`[CREW PAGE] No profile found for userId: ${userId}`);
+                            return;
+                        }
+                        // Prefer active, then most recent by start_date
+                        const sorted = [...userAssignments].sort((a, b) => {
+                            const aActive = isActive(a);
+                            const bActive = isActive(b);
+                            if (aActive !== bActive) return aActive ? -1 : 1;
+                            return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+                        });
+                        const primary = sorted[0];
+                        const otherAssignments = sorted.length > 1 ? sorted.slice(1) : undefined;
+                        crewWithProfiles.push({
+                            profile,
+                            assignment: primary,
+                            ...(otherAssignments?.length ? { otherAssignments } : {}),
+                        });
+                    });
+
+                    console.log('[CREW PAGE] Final crew members (one per user):', crewWithProfiles.length);
                     setCrewMembers(crewWithProfiles);
                 }
             } catch (error) {
@@ -1277,8 +1325,12 @@ export default function CrewPage() {
                         state: state as StateLog['state'],
                     } as StateLog;
                 })
-                .sort((a, b) => a.date.localeCompare(b.date));
-            // One log per date (vessel may have multiple users' logs for same day)
+                .sort((a, b) => {
+                const d = a.date.localeCompare(b.date);
+                if (d !== 0) return d;
+                return (a.id || '').localeCompare(b.id || '');
+            });
+            // One log per date: keep first after stable sort so result is deterministic across refetches
             const byDate = new Map<string, StateLog>();
             filtered.forEach(log => { if (!byDate.has(log.date)) byDate.set(log.date, log); });
             const effectiveLogs = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
@@ -1369,7 +1421,11 @@ export default function CrewPage() {
                     const state = onLeave ? 'on-leave' : log.state;
                     return { ...log, date: dateStr(log.date), state: state as StateLog['state'] } as StateLog;
                 })
-                .sort((a, b) => a.date.localeCompare(b.date));
+                .sort((a, b) => {
+                    const d = a.date.localeCompare(b.date);
+                    if (d !== 0) return d;
+                    return (a.id || '').localeCompare(b.id || '');
+                });
             const byDate = new Map<string, StateLog>();
             filtered.forEach(log => { if (!byDate.has(log.date)) byDate.set(log.date, log); });
             const effectiveLogs = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
@@ -1386,7 +1442,9 @@ export default function CrewPage() {
                 onLeaveDays: effectiveLogs.filter(l => l.state === 'on-leave').length,
                 inYardDays: effectiveLogs.filter(l => l.state === 'in-yard').length,
             };
-            setVesselBreakdownForView({ memberId: member.profile.id, data });
+            const startDateStr = member.assignment.startDate;
+            const endDateStr = member.assignment.endDate ?? new Date().toISOString().split('T')[0];
+            setVesselBreakdownForView({ memberId: member.profile.id, startDate: startDateStr, endDate: endDateStr, data });
         } catch (error: any) {
             console.error('[CREW PAGE] Error loading vessel breakdown for view:', error);
             toast({ title: 'Error', description: error.message || 'Failed to load vessel data.', variant: 'destructive' });
@@ -1592,8 +1650,8 @@ export default function CrewPage() {
         
         if (over && active.id !== over.id) {
             setOrderedCrewMembers((items) => {
-                const oldIndex = items.findIndex(item => item.profile.id === active.id);
-                const newIndex = items.findIndex(item => item.profile.id === over.id);
+                const oldIndex = items.findIndex(item => (item.assignment.id || item.profile.id) === active.id);
+                const newIndex = items.findIndex(item => (item.assignment.id || item.profile.id) === over.id);
                 const newItems = arrayMove(items, oldIndex, newIndex);
                 
                 if (debugMode) {
@@ -1684,22 +1742,71 @@ export default function CrewPage() {
         };
     }, [selectedCrewMemberId, selectedAssignmentId, crewMembers]);
 
+    // Effective member for viewing: same as selectedMemberData but assignment may be a chosen period (current, previous, or merged "all")
+    const effectiveMember = useMemo(() => {
+        if (!selectedMemberData) return null;
+        const hasOther = (selectedMemberData.otherAssignments?.length ?? 0) > 0;
+        if (!hasOther || viewingServicePeriod === 'current') {
+            return selectedMemberData;
+        }
+        if (viewingServicePeriod === 'all') {
+            const allAssignments = [selectedMemberData.assignment, ...(selectedMemberData.otherAssignments ?? [])];
+            const starts = allAssignments.map((a) => a.startDate);
+            const ends = allAssignments.map((a) => a.endDate ?? new Date().toISOString().split('T')[0]);
+            const minStart = starts.sort()[0];
+            const maxEnd = ends.sort()[ends.length - 1];
+            return {
+                ...selectedMemberData,
+                assignment: {
+                    ...selectedMemberData.assignment,
+                    id: selectedMemberData.assignment.id,
+                    startDate: minStart,
+                    endDate: maxEnd,
+                },
+            };
+        }
+        // viewingServicePeriod is an assignment id
+        if (selectedMemberData.assignment.id === viewingServicePeriod) {
+            return selectedMemberData;
+        }
+        const prev = selectedMemberData.otherAssignments?.find((a) => a.id === viewingServicePeriod);
+        if (!prev) return selectedMemberData;
+        return {
+            ...selectedMemberData,
+            assignment: prev,
+        };
+    }, [selectedMemberData, viewingServicePeriod]);
+
     // When a crew member is selected without approved access, load breakdown from vessel data (vessel logs + vessel-added leave periods)
     useEffect(() => {
-        if (!selectedMemberData || currentUserProfile?.role !== 'vessel' || selectedMemberData.accessRequest?.status === 'approved') return;
+        if (!effectiveMember || currentUserProfile?.role !== 'vessel' || effectiveMember.accessRequest?.status === 'approved') return;
         if (!currentUserProfile?.activeVesselId || !supabase) return;
-        loadVesselBasedSeaTimeData(selectedMemberData);
-    }, [selectedMemberData?.profile.id, selectedMemberData?.assignment?.startDate, selectedMemberData?.assignment?.endDate, selectedMemberData?.leavePeriods?.length, currentUserProfile?.role, currentUserProfile?.activeVesselId]);
+        loadVesselBasedSeaTimeData(effectiveMember);
+    }, [effectiveMember?.profile.id, effectiveMember?.assignment?.startDate, effectiveMember?.assignment?.endDate, effectiveMember?.leavePeriods?.length, currentUserProfile?.role, currentUserProfile?.activeVesselId]);
 
     // When a crew member with approved access is selected, ensure we load crew sea time + leave from logs
     useEffect(() => {
-        if (!selectedMemberData || currentUserProfile?.role !== 'vessel' || !user?.id || !currentUserProfile?.activeVesselId) return;
-        if (selectedMemberData.accessRequest?.status !== 'approved') return;
-        const needsCrewData = !selectedMemberData.seaTimeData || selectedMemberData.seaTimeDataFromVessel;
-        if (!needsCrewData || loadingSeaTime.has(selectedMemberData.profile.id)) return;
+        if (!effectiveMember || currentUserProfile?.role !== 'vessel' || !user?.id || !currentUserProfile?.activeVesselId) return;
+        if (effectiveMember.accessRequest?.status !== 'approved') return;
+        const needsCrewData = !effectiveMember.seaTimeData || effectiveMember.seaTimeDataFromVessel;
+        if (!needsCrewData || loadingSeaTime.has(effectiveMember.profile.id)) return;
 
-        loadSeaTimeData(selectedMemberData);
-    }, [selectedMemberData?.profile.id, selectedMemberData?.accessRequest?.status, selectedMemberData?.seaTimeData, selectedMemberData?.seaTimeDataFromVessel, currentUserProfile?.role, currentUserProfile?.activeVesselId, user?.id]);
+        loadSeaTimeData(effectiveMember);
+    }, [effectiveMember?.profile.id, effectiveMember?.accessRequest?.status, effectiveMember?.seaTimeData, effectiveMember?.seaTimeDataFromVessel, effectiveMember?.assignment?.startDate, effectiveMember?.assignment?.endDate, currentUserProfile?.role, currentUserProfile?.activeVesselId, user?.id]);
+
+    // When viewing period changes or user switches to vessel view: load vessel breakdown only if we don't have cached data for this member+period (avoids refetch when toggling Crew ↔ Vessel, so numbers stay consistent)
+    useEffect(() => {
+        if (!effectiveMember || currentUserProfile?.role !== 'vessel' || effectiveMember.accessRequest?.status !== 'approved') return;
+        if (breakdownViewSource !== 'vessel') return;
+        if (!currentUserProfile?.activeVesselId || !user?.id) return;
+        const start = effectiveMember.assignment.startDate;
+        const end = effectiveMember.assignment.endDate ?? new Date().toISOString().split('T')[0];
+        const cached = vesselBreakdownForView?.memberId === effectiveMember.profile.id
+            && vesselBreakdownForView?.startDate === start
+            && vesselBreakdownForView?.endDate === end;
+        if (cached) return;
+        loadVesselBreakdownForView(effectiveMember);
+    }, [effectiveMember?.profile.id, effectiveMember?.assignment?.startDate, effectiveMember?.assignment?.endDate, breakdownViewSource, currentUserProfile?.role, currentUserProfile?.activeVesselId, user?.id, vesselBreakdownForView?.memberId, vesselBreakdownForView?.startDate, vesselBreakdownForView?.endDate]);
 
     // When a crew member is selected, fetch vessel-added leave periods (for both approved and non-approved)
     useEffect(() => {
@@ -1744,6 +1851,7 @@ export default function CrewPage() {
     const handleSelectCrewMember = async (memberId: string, assignmentId?: string) => {
         setSelectedCrewMemberId(memberId);
         setSelectedAssignmentId(assignmentId ?? null);
+        setViewingServicePeriod('current');
         
         const member = crewMembers.find(m =>
             m.profile.id === memberId &&
@@ -1794,7 +1902,7 @@ export default function CrewPage() {
                     return;
                 }
 
-                const [vesselTestimonialsRes, navWatchRes] = await Promise.all([
+                const [vesselTestimonialsRes, navWatchRes, proofOfServiceRes] = await Promise.all([
                     supabase
                     .from('vessel_generated_testimonials')
                     .select('*')
@@ -1806,17 +1914,51 @@ export default function CrewPage() {
                         .select('*')
                         .eq('user_id', memberId)
                         .order('created_at', { ascending: false }),
+                    supabase
+                        .from('proof_of_service')
+                        .select('*')
+                        .eq('crew_user_id', memberId)
+                        .eq('vessel_id', vesselId)
+                        .order('created_at', { ascending: false }),
                 ]);
 
                 const { data: vesselTestimonials, error: testimonialsError } = vesselTestimonialsRes;
                 const { data: navWatchApps, error: navWatchError } = navWatchRes;
+                const { data: proofOfServiceRows, error: proofOfServiceError } = proofOfServiceRes;
 
-                const updates: { vesselGeneratedTestimonials?: VesselGeneratedTestimonial[]; testimonials?: Testimonial[]; navWatchApplications?: NavWatchApplication[] } = {};
+                const updates: { vesselGeneratedTestimonials?: VesselGeneratedTestimonial[]; testimonials?: Testimonial[]; navWatchApplications?: NavWatchApplication[]; proofOfServiceEntries?: ProofOfService[] } = {};
                 if (!testimonialsError && vesselTestimonials) {
                     updates.vesselGeneratedTestimonials = vesselTestimonials as VesselGeneratedTestimonial[];
                 }
                 if (!navWatchError && navWatchApps) {
                     updates.navWatchApplications = navWatchApps as NavWatchApplication[];
+                }
+                if (!proofOfServiceError && proofOfServiceRows) {
+                    updates.proofOfServiceEntries = proofOfServiceRows.map((r: any) => ({
+                        id: r.id,
+                        crewUserId: r.crew_user_id,
+                        vesselId: r.vessel_id,
+                        vesselUserId: r.vessel_user_id,
+                        startDate: r.start_date,
+                        endDate: r.end_date,
+                        totalDays: r.total_days,
+                        atSeaDays: r.at_sea_days,
+                        standbyDays: r.standby_days,
+                        yardDays: r.yard_days,
+                        leaveDays: r.leave_days,
+                        vesselName: r.vessel_name,
+                        vesselType: r.vessel_type ?? null,
+                        vesselImo: r.vessel_imo ?? null,
+                        crewName: r.crew_name,
+                        crewPosition: r.crew_position ?? null,
+                        generatedByName: r.generated_by_name,
+                        generatedByEmail: r.generated_by_email ?? null,
+                        dataSource: r.data_source,
+                        notes: r.notes ?? null,
+                        verificationCode: r.verification_code ?? '',
+                        createdAt: r.created_at,
+                        updatedAt: r.updated_at,
+                    }));
                 }
 
                 // When crew has given permission (approved access), also fetch all testimonials for this member/vessel so vessel can view and print
@@ -1870,63 +2012,70 @@ export default function CrewPage() {
 
     // When crew has granted access, vessel leave is source of truth. Otherwise merge both.
     const availablePeriodsBetweenLeave = useMemo(() => {
-        if (!selectedMemberData) return [];
+        if (!effectiveMember) return [];
 
         const allLeavePeriods: Array<{ startDate: string; endDate: string }> = [];
-        const hasAccess = selectedMemberData.accessRequest?.status === 'approved';
+        const hasAccess = effectiveMember.accessRequest?.status === 'approved';
 
         if (hasAccess) {
-            // Use only vessel's leave periods (vessel logs are authoritative when crew has given access)
-            if (selectedMemberData.leavePeriods) {
-                selectedMemberData.leavePeriods.forEach(period => {
+            if (effectiveMember.leavePeriods) {
+                effectiveMember.leavePeriods.forEach(period => {
                     allLeavePeriods.push({ startDate: period.startDate, endDate: period.endDate });
                 });
             }
         } else {
-            // No access: use vessel data only (leavePeriodsFromLogs not available)
-            if (selectedMemberData.leavePeriods) {
-                selectedMemberData.leavePeriods.forEach(period => {
+            if (effectiveMember.leavePeriods) {
+                effectiveMember.leavePeriods.forEach(period => {
                     allLeavePeriods.push({ startDate: period.startDate, endDate: period.endDate });
                 });
             }
-            if (selectedMemberData.leavePeriodsFromLogs) {
-                selectedMemberData.leavePeriodsFromLogs.forEach(period => {
+            if (effectiveMember.leavePeriodsFromLogs) {
+                effectiveMember.leavePeriodsFromLogs.forEach(period => {
                     allLeavePeriods.push({ startDate: period.startDate, endDate: period.endDate });
                 });
             }
         }
 
-        // If no leave periods, return empty array
         if (allLeavePeriods.length === 0) return [];
 
-        // Sort leave periods by start date
-        const sortedLeavePeriods = [...allLeavePeriods].sort((a, b) => 
-            new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
-        );
-
-        // Helper to normalize date to midnight
-        const normalizeDate = (dateStr: string | null | undefined): Date => {
-            if (!dateStr) return new Date(new Date().setHours(0, 0, 0, 0));
-            // If it's already a full ISO string, parse it; otherwise add time component
-            const date = dateStr.includes('T') 
-                ? new Date(dateStr) 
-                : new Date(dateStr + 'T00:00:00');
+        const normalizeDate = (dateStr: string): Date => {
+            const date = dateStr.includes('T') ? new Date(dateStr) : new Date(dateStr + 'T00:00:00');
             date.setHours(0, 0, 0, 0);
             return date;
         };
+        const rangeStart = normalizeDate(effectiveMember.assignment.startDate);
+        const rangeEnd = normalizeDate(effectiveMember.assignment.endDate ?? new Date().toISOString().split('T')[0]);
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const effectiveEnd = rangeEnd > today ? today : rangeEnd;
+        // Only leave periods overlapping the viewing period
+        const overlappingLeave = allLeavePeriods.filter(lp => {
+            const lpStart = normalizeDate(lp.startDate);
+            const lpEnd = normalizeDate(lp.endDate);
+            return lpStart <= effectiveEnd && lpEnd >= rangeStart;
+        });
 
-        // Get assignment start date (use today if not available)
-        const assignmentStartDate = normalizeDate(selectedMemberData.assignment.startDate);
-        
-        // Get assignment end date or use today
-        const assignmentEndDate = normalizeDate(selectedMemberData.assignment.endDate);
-        
-        const today = new Date(new Date().setHours(0, 0, 0, 0));
-        const effectiveEndDate = assignmentEndDate > today ? today : assignmentEndDate;
+        const sortedLeavePeriods = [...overlappingLeave].sort((a, b) => 
+            new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+        );
+
+        // Helper to normalize date to midnight (nullable for assignment end)
+        const normalizeDateFull = (dateStr: string | null | undefined): Date => {
+            if (!dateStr) return new Date(new Date().setHours(0, 0, 0, 0));
+            const date = dateStr.includes('T') ? new Date(dateStr) : new Date(dateStr + 'T00:00:00');
+            date.setHours(0, 0, 0, 0);
+            return date;
+        };
+        const assignmentStartDate = normalizeDateFull(effectiveMember.assignment.startDate);
+        const assignmentEndDate = normalizeDateFull(effectiveMember.assignment.endDate);
+        const todayMidnight = new Date(new Date().setHours(0, 0, 0, 0));
+        const effectiveEndDate = assignmentEndDate > todayMidnight ? todayMidnight : assignmentEndDate;
+
+        if (sortedLeavePeriods.length === 0) {
+            return [{ startDate: assignmentStartDate, endDate: effectiveEndDate, label: `Full period (${formatDate(assignmentStartDate, 'MMM dd')} - ${formatDate(effectiveEndDate, 'MMM dd, yyyy')})` }];
+        }
 
         const periods: Array<{ startDate: Date; endDate: Date; label: string }> = [];
 
-        // Helper to normalize leave period date
         const normalizeLeaveDate = (dateStr: string): Date => {
             const date = dateStr.includes('T') 
                 ? new Date(dateStr) 
@@ -1987,16 +2136,16 @@ export default function CrewPage() {
         }
 
         return periods;
-    }, [selectedMemberData]);
+    }, [effectiveMember]);
 
     // When crew has granted access: vessel leave is used for calculations. Detect conflict if crew's logs differ from vessel.
     const leaveConflictInfo = useMemo(() => {
-        if (!selectedMemberData || selectedMemberData.accessRequest?.status !== 'approved') return null;
-        const startStr = selectedMemberData.assignment?.startDate;
+        if (!effectiveMember || effectiveMember.accessRequest?.status !== 'approved') return null;
+        const startStr = effectiveMember.assignment?.startDate;
         if (!startStr) return null;
         const startDate = parse(startStr, 'yyyy-MM-dd', new Date());
-        const endDate = selectedMemberData.assignment?.endDate
-            ? parse(selectedMemberData.assignment.endDate, 'yyyy-MM-dd', new Date())
+        const endDate = effectiveMember.assignment?.endDate
+            ? parse(effectiveMember.assignment.endDate, 'yyyy-MM-dd', new Date())
             : new Date();
         const today = startOfDay(new Date());
         const effectiveEnd = endDate > today ? today : endDate;
@@ -2012,17 +2161,47 @@ export default function CrewPage() {
         };
 
         let vesselLeaveDays = 0;
-        (selectedMemberData.leavePeriods || []).forEach(lp => {
+        (effectiveMember.leavePeriods || []).forEach(lp => {
             vesselLeaveDays += daysInRange(lp.startDate, lp.endDate);
         });
         let crewLeaveDays = 0;
-        (selectedMemberData.leavePeriodsFromLogs || []).forEach(lp => {
+        (effectiveMember.leavePeriodsFromLogs || []).forEach(lp => {
             crewLeaveDays += daysInRange(lp.startDate, lp.endDate);
         });
 
         const conflict = vesselLeaveDays !== crewLeaveDays;
         return { vesselLeaveDays, crewLeaveDays, conflict };
-    }, [selectedMemberData]);
+    }, [effectiveMember]);
+
+    // Filter documents and leave to the effective viewing period (current, previous, or all)
+    const effectivePeriodFiltered = useMemo(() => {
+        if (!effectiveMember) return { vesselGeneratedTestimonials: [], testimonials: [], proofOfServiceEntries: [], leavePeriods: [], leavePeriodsFromLogs: [] };
+        const toDateStr = (s: string | null | undefined) => (s ? String(s).split('T')[0] ?? s : '');
+        const start = toDateStr(effectiveMember.assignment.startDate) || '';
+        const end = toDateStr(effectiveMember.assignment.endDate) || toDateStr(new Date().toISOString());
+        const overlaps = (itemStart: string, itemEnd: string) => {
+            const a = toDateStr(itemStart);
+            const b = toDateStr(itemEnd);
+            return a <= end && b >= start;
+        };
+
+        const vg = (effectiveMember.vesselGeneratedTestimonials ?? []).filter((t: { start_date: string; end_date?: string | null }) =>
+            overlaps(t.start_date, t.end_date ?? end)
+        );
+        const test = (effectiveMember.testimonials ?? []).filter((t: { start_date: string; end_date: string }) =>
+            overlaps(t.start_date, t.end_date ?? end)
+        );
+        const pos = (effectiveMember.proofOfServiceEntries ?? []).filter((e: { startDate: string; endDate: string | null }) =>
+            overlaps(e.startDate, e.endDate ?? end)
+        );
+        const lp = (effectiveMember.leavePeriods ?? []).filter((p: { startDate: string; endDate: string }) =>
+            overlaps(toDateStr(p.startDate), toDateStr(p.endDate))
+        );
+        const lpLogs = (effectiveMember.leavePeriodsFromLogs ?? []).filter((p: { startDate: string; endDate: string }) =>
+            overlaps(toDateStr(p.startDate), toDateStr(p.endDate))
+        );
+        return { vesselGeneratedTestimonials: vg, testimonials: test, proofOfServiceEntries: pos, leavePeriods: lp, leavePeriodsFromLogs: lpLogs };
+    }, [effectiveMember]);
 
     // Check if selected crew member's MCA information is complete
     const isMCAInfoComplete = useMemo(() => {
@@ -2190,6 +2369,35 @@ export default function CrewPage() {
             });
         } finally {
             setDeletingNavWatchId(null);
+        }
+    };
+
+    const handleDownloadProofOfService = async (entry: ProofOfService) => {
+        setDownloadingProofOfServiceId(entry.id);
+        try {
+            await generateProofOfServicePDF({
+                vesselName: entry.vesselName,
+                vesselType: entry.vesselType,
+                vesselImo: entry.vesselImo,
+                crewName: entry.crewName,
+                crewPosition: entry.crewPosition,
+                startDate: entry.startDate,
+                endDate: entry.endDate,
+                totalDays: entry.totalDays,
+                atSeaDays: entry.atSeaDays,
+                standbyDays: entry.standbyDays,
+                yardDays: entry.yardDays,
+                leaveDays: entry.leaveDays,
+                generatedByName: entry.generatedByName,
+                generatedByEmail: entry.generatedByEmail,
+                notes: entry.notes,
+                verificationCode: entry.verificationCode,
+            }, 'download');
+            toast({ title: 'Downloaded', description: 'Proof of Service PDF saved.' });
+        } catch (e: any) {
+            toast({ title: 'Error', description: e?.message ?? 'Failed to generate PDF.', variant: 'destructive' });
+        } finally {
+            setDownloadingProofOfServiceId(null);
         }
     };
 
@@ -4334,6 +4542,47 @@ export default function CrewPage() {
                         </div>
                     </CardHeader>
                     <CardContent>
+                        {/* Service history: current + previous periods; selector to view data for one period or all */}
+                        {(selectedMemberData.otherAssignments?.length ?? 0) > 0 && (
+                            <div className="mb-6 pb-4 border-b">
+                                <h3 className="text-sm font-medium text-muted-foreground mb-2">Service on this vessel</h3>
+                                <p className="text-xs text-muted-foreground mb-3">View data for a specific period or all combined.</p>
+                                <div className="flex flex-wrap gap-2">
+                                    <Button
+                                        variant={viewingServicePeriod === 'current' ? 'secondary' : 'outline'}
+                                        size="sm"
+                                        className="rounded-xl"
+                                        onClick={() => setViewingServicePeriod('current')}
+                                    >
+                                        Current
+                                    </Button>
+                                    {selectedMemberData.otherAssignments!.map((a) => (
+                                        <Button
+                                            key={a.id}
+                                            variant={viewingServicePeriod === a.id ? 'secondary' : 'outline'}
+                                            size="sm"
+                                            className="rounded-xl text-left whitespace-nowrap"
+                                            onClick={() => setViewingServicePeriod(a.id)}
+                                        >
+                                            {format(new Date(a.startDate), 'dd MMM yyyy')} – {a.endDate ? format(new Date(a.endDate), 'dd MMM yyyy') : 'present'}
+                                        </Button>
+                                    ))}
+                                    <Button
+                                        variant={viewingServicePeriod === 'all' ? 'secondary' : 'outline'}
+                                        size="sm"
+                                        className="rounded-xl"
+                                        onClick={() => setViewingServicePeriod('all')}
+                                    >
+                                        All
+                                    </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-2">
+                                    Showing: {viewingServicePeriod === 'current' && 'Current period'}
+                                    {viewingServicePeriod === 'all' && 'All periods combined'}
+                                    {viewingServicePeriod !== 'current' && viewingServicePeriod !== 'all' && effectiveMember && `${format(new Date(effectiveMember.assignment.startDate), 'dd MMM yyyy')} – ${effectiveMember.assignment.endDate ? format(new Date(effectiveMember.assignment.endDate), 'dd MMM yyyy') : 'present'}`}
+                                </p>
+                            </div>
+                        )}
                         {/* Days breakdown - crew logs when access approved (can switch to vessel data); otherwise vessel data only. Vessel data for toggle is in local state only. */}
                             <div className="mb-6 pb-6 border-b">
                             <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -4361,8 +4610,8 @@ export default function CrewPage() {
                                             type="button"
                                             onClick={() => {
                                                 setBreakdownViewSource('vessel');
-                                                if (!loadingSeaTime.has(selectedMemberData.profile.id)) {
-                                                    loadVesselBreakdownForView(selectedMemberData);
+                                                if (effectiveMember && !loadingSeaTime.has(effectiveMember.profile.id)) {
+                                                    loadVesselBreakdownForView(effectiveMember);
                                                 }
                                             }}
                                             className={cn(
@@ -4378,7 +4627,13 @@ export default function CrewPage() {
                             {(() => {
                                 const hasAccess = selectedMemberData.accessRequest?.status === 'approved';
                                 const useVessel = hasAccess ? breakdownViewSource === 'vessel' : true;
-                                const vesselData = vesselBreakdownForView?.memberId === selectedMemberData.profile.id ? vesselBreakdownForView.data : null;
+                                const vesselData = (() => {
+                                    if (!vesselBreakdownForView || vesselBreakdownForView.memberId !== effectiveMember?.profile.id) return null;
+                                    const start = effectiveMember.assignment.startDate;
+                                    const end = effectiveMember.assignment.endDate ?? new Date().toISOString().split('T')[0];
+                                    if (vesselBreakdownForView.startDate !== start || vesselBreakdownForView.endDate !== end) return null;
+                                    return vesselBreakdownForView.data;
+                                })();
                                 // When crew has no access, vessel-based breakdown is stored on the member (loadVesselBasedSeaTimeData); use it. When they have access, use toggle: vesselData or crew seaTimeData.
                                 const data = hasAccess ? (useVessel ? vesselData : selectedMemberData.seaTimeData) : selectedMemberData.seaTimeData;
                                 const isLoading = loadingSeaTime.has(selectedMemberData.profile.id);
@@ -4581,9 +4836,9 @@ export default function CrewPage() {
 
                                 {leavePeriodsViewSource === 'vessel' && (
                                     <>
-                                        {selectedMemberData.leavePeriods && selectedMemberData.leavePeriods.length > 0 ? (
+                                        {effectivePeriodFiltered.leavePeriods.length > 0 ? (
                                             <div className="grid gap-3">
-                                                {selectedMemberData.leavePeriods.map((period) => {
+                                                {effectivePeriodFiltered.leavePeriods.map((period) => {
                                                     const startDate = parse(period.startDate, 'yyyy-MM-dd', new Date());
                                                     const endDate = parse(period.endDate, 'yyyy-MM-dd', new Date());
                                                     const days = eachDayOfInterval({ start: startDate, end: endDate }).length;
@@ -4645,12 +4900,12 @@ export default function CrewPage() {
 
                                 {leavePeriodsViewSource === 'crew' && (
                                     <>
-                                        {selectedMemberData.leavePeriodsFromLogs && selectedMemberData.leavePeriodsFromLogs.length > 0 ? (
+                                        {effectivePeriodFiltered.leavePeriodsFromLogs.length > 0 ? (
                                             <div className="grid gap-3">
                                                 <p className="text-xs text-muted-foreground mb-1">
                                                     Auto-detected from crew member&apos;s state logs (read-only).
                                                 </p>
-                                                {selectedMemberData.leavePeriodsFromLogs.map((period, index) => {
+                                                {effectivePeriodFiltered.leavePeriodsFromLogs.map((period, index) => {
                                                     const startDate = parse(period.startDate, 'yyyy-MM-dd', new Date());
                                                     const endDate = parse(period.endDate, 'yyyy-MM-dd', new Date());
                                                     const days = eachDayOfInterval({ start: startDate, end: endDate }).length;
@@ -4699,7 +4954,7 @@ export default function CrewPage() {
                                             <div>
                                                 <h3 className="text-lg font-semibold">Documents</h3>
                                                 <p className="text-sm text-muted-foreground mt-1">
-                                                    View and download documents for this crew member. Create sea service testimonials from <Link href="/dashboard/documents" className="text-primary underline underline-offset-2 font-medium">Generator → Documents</Link>.
+                                                    View and download documents for this crew member. Create testimonials or Proof of Service from <Link href="/dashboard/documents" className="text-primary underline underline-offset-2 font-medium">Generator → Documents</Link>.
                                                 </p>
                                             </div>
                                             <div className="flex items-center gap-2">
@@ -4886,17 +5141,66 @@ export default function CrewPage() {
                                             </div>
                                         )}
 
+                                        {/* Proof of Service - entries saved from Generator → Proof of Service */}
+                                        {effectivePeriodFiltered.proofOfServiceEntries.length > 0 && (
+                                            <div className="space-y-4 mb-6">
+                                                <div className="flex items-center justify-between">
+                                                    <h4 className="font-semibold flex items-center gap-2">
+                                                        <ShieldCheck className="h-4 w-4 text-primary" />
+                                                        Proof of Service
+                                                    </h4>
+                                                    <Badge variant="outline" className="text-xs">
+                                                        {effectivePeriodFiltered.proofOfServiceEntries.length} entry{effectivePeriodFiltered.proofOfServiceEntries.length !== 1 ? 's' : ''}
+                                                    </Badge>
+                                                </div>
+                                                <div className="grid gap-3">
+                                                    {effectivePeriodFiltered.proofOfServiceEntries.map((entry) => (
+                                                        <Card key={entry.id} className="hover:shadow-md transition-shadow">
+                                                            <CardContent className="p-4">
+                                                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                                                    <div className="space-y-1">
+                                                                        <p className="font-medium text-sm">{entry.vesselName}</p>
+                                                                        <p className="text-sm text-muted-foreground">
+                                                                            {format(new Date(entry.startDate), 'dd MMM yyyy')} – {format(new Date(entry.endDate), 'dd MMM yyyy')}
+                                                                        </p>
+                                                                        <p className="text-xs text-muted-foreground">
+                                                                            {entry.totalDays} days total · {entry.atSeaDays} at sea
+                                                                            {entry.createdAt && ` · Generated ${format(new Date(entry.createdAt), 'dd MMM yyyy')}`}
+                                                                        </p>
+                                                                    </div>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => handleDownloadProofOfService(entry)}
+                                                                        disabled={downloadingProofOfServiceId === entry.id}
+                                                                        className="rounded-xl shrink-0"
+                                                                    >
+                                                                        {downloadingProofOfServiceId === entry.id ? (
+                                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                                        ) : (
+                                                                            <Download className="h-4 w-4 mr-2" />
+                                                                        )}
+                                                                        Download PDF
+                                                                    </Button>
+                                                                </div>
+                                                            </CardContent>
+                                                        </Card>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {/* Testimonials (all) - only when crew has given permission */}
-                                        {selectedMemberData.accessRequest?.status === 'approved' && selectedMemberData.testimonials && selectedMemberData.testimonials.length > 0 && (
+                                        {effectiveMember?.accessRequest?.status === 'approved' && effectivePeriodFiltered.testimonials.length > 0 && (
                                             <div className="space-y-4 mb-6">
                                                 <div className="flex items-center justify-between">
                                                     <h4 className="font-semibold">Testimonials</h4>
                                                     <Badge variant="outline" className="text-xs">
-                                                        {selectedMemberData.testimonials.length} testimonial{selectedMemberData.testimonials.length !== 1 ? 's' : ''}
+                                                        {effectivePeriodFiltered.testimonials.length} testimonial{effectivePeriodFiltered.testimonials.length !== 1 ? 's' : ''}
                                                     </Badge>
                                                 </div>
                                                 <div className="grid gap-3">
-                                                    {selectedMemberData.testimonials.map((testimonial) => {
+                                                    {effectivePeriodFiltered.testimonials.map((testimonial) => {
                                                         const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
                                                         const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
                                                         const statusLabel = testimonial.status === 'approved' ? 'Approved' : testimonial.status === 'pending_captain' ? 'Pending captain' : testimonial.status === 'rejected' ? 'Rejected' : testimonial.status === 'draft' ? 'Draft' : testimonial.status;
@@ -5020,16 +5324,16 @@ export default function CrewPage() {
                                             <div className="flex items-center justify-center py-12">
                                                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
                                             </div>
-                                        ) : (selectedMemberData.vesselGeneratedTestimonials?.length ?? 0) > 0 ? (
+                                        ) : effectivePeriodFiltered.vesselGeneratedTestimonials.length > 0 ? (
                                             <div className="space-y-4">
                                                 <div className="flex items-center justify-between">
                                                     <h4 className="font-semibold">Generated Documents</h4>
                                                     <Badge variant="outline" className="text-xs">
-                                                        {selectedMemberData.vesselGeneratedTestimonials!.length} document{selectedMemberData.vesselGeneratedTestimonials!.length !== 1 ? 's' : ''}
+                                                        {effectivePeriodFiltered.vesselGeneratedTestimonials.length} document{effectivePeriodFiltered.vesselGeneratedTestimonials.length !== 1 ? 's' : ''}
                                                     </Badge>
                                                 </div>
                                                 <div className="grid gap-3">
-                                                    {selectedMemberData.vesselGeneratedTestimonials!.map((testimonial) => {
+                                                    {effectivePeriodFiltered.vesselGeneratedTestimonials.map((testimonial) => {
                                                         const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
                                                         const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
                                                         
@@ -5149,9 +5453,10 @@ export default function CrewPage() {
                                                 </div>
                                             </div>
                                         ) : (() => {
-                                            const hasVesselGenerated = (selectedMemberData.vesselGeneratedTestimonials?.length ?? 0) > 0;
-                                            const hasTestimonials = selectedMemberData.accessRequest?.status === 'approved' && (selectedMemberData.testimonials?.length ?? 0) > 0;
-                                            const hasAnyDocuments = hasVesselGenerated || hasTestimonials;
+                                            const hasVesselGenerated = effectivePeriodFiltered.vesselGeneratedTestimonials.length > 0;
+                                            const hasTestimonials = effectiveMember?.accessRequest?.status === 'approved' && effectivePeriodFiltered.testimonials.length > 0;
+                                            const hasProofOfService = effectivePeriodFiltered.proofOfServiceEntries.length > 0;
+                                            const hasAnyDocuments = hasVesselGenerated || hasTestimonials || hasProofOfService;
                                             return !hasAnyDocuments ? (
                                             <Card className="border-dashed">
                                                 <CardContent className="flex flex-col items-center justify-center py-12 text-center">
@@ -6041,11 +6346,11 @@ export default function CrewPage() {
                                 </TableRow>
                             ) : filteredCrewMembers && filteredCrewMembers.length > 0 ? (
                                     <SortableContext
-                                        items={filteredCrewMembers.map(m => m.profile.id)}
+                                        items={filteredCrewMembers.map(m => m.assignment.id || m.profile.id)}
                                         strategy={verticalListSortingStrategy}
                                     >
                                         {filteredCrewMembers.map((member, index) => (
-                                        <React.Fragment key={member.profile.id}>
+                                        <React.Fragment key={member.assignment.id || member.profile.id}>
                                             <SortableRow
                                                 member={member}
                                                 index={index}

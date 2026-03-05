@@ -155,6 +155,33 @@ export interface VesselGeneratedTestimonial {
     share_used_at?: string | null;
 }
 
+/** Proof of service: one record per vessel/period, stored on crew profile for evidence of experience */
+export interface ProofOfService {
+  id: string;
+  crewUserId: string;
+  vesselId: string;
+  vesselUserId: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  atSeaDays: number;
+  standbyDays: number;
+  yardDays: number;
+  leaveDays: number;
+  vesselName: string;
+  vesselType: string | null;
+  vesselImo: string | null;
+  crewName: string;
+  crewPosition: string | null;
+  generatedByName: string;
+  generatedByEmail: string | null;
+  dataSource: 'crew' | 'vessel';
+  notes: string | null;
+  verificationCode: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PassageLog {
     id: string;                        // uuid PK
     crew_id: string;                   // uuid FK → profiles.id

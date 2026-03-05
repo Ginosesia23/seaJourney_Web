@@ -5,7 +5,7 @@ import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { useCollection } from '@/supabase/database';
 import { format as formatDate, parse, addDays, differenceInDays } from 'date-fns';
-import { FileText, Users, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send } from 'lucide-react';
+import { FileText, Users, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -31,7 +31,7 @@ import Link from 'next/link';
 import type { UserProfile, VesselAssignment, Vessel, VesselGeneratedTestimonial, StateLog, Testimonial } from '@/lib/types';
 import { getActiveVesselAssignmentsByVessel, getVesselStateLogs } from '@/supabase/database/queries';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
-import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, type TestimonialPDFFormat, type TestimonialPDFOutput } from '@/lib/pdf-generator';
+import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateProofOfServicePDF, type TestimonialPDFFormat, type TestimonialPDFOutput } from '@/lib/pdf-generator';
 import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
 import { cn } from '@/lib/utils';
 
@@ -42,6 +42,7 @@ interface CrewOption {
 
 const DOCUMENT_TYPES = [
   { value: 'testimonial', label: 'Sea service testimonial (MCA)', icon: FileText },
+  { value: 'proof_of_service', label: 'Proof of Service', icon: ShieldCheck },
 ] as const;
 
 export default function DocumentsGeneratorPage() {
@@ -94,6 +95,8 @@ export default function DocumentsGeneratorPage() {
   const [isSendingToCaptain, setIsSendingToCaptain] = useState(false);
   const [isSendingTestimonialByEmail, setIsSendingTestimonialByEmail] = useState(false);
   const [generatingPDF, setGeneratingPDF] = useState<string | null>(null);
+  const [isSavingProofOfService, setIsSavingProofOfService] = useState(false);
+  const [generatingProofOfServicePDF, setGeneratingProofOfServicePDF] = useState(false);
   const [leavePeriods, setLeavePeriods] = useState<Array<{ startDate: string; endDate: string }>>([]);
   const [leavePeriodsFromLogs, setLeavePeriodsFromLogs] = useState<Array<{ startDate: string; endDate: string; notes?: string }>>([]);
 
@@ -317,6 +320,31 @@ export default function DocumentsGeneratorPage() {
     }
     return periods;
   }, [selectedCrew?.assignment, leavePeriods, leavePeriodsFromLogs]);
+
+  // Proof of Service quick range: start on vessel → today (or end date if crew has left)
+  const proofOfServiceFullRange = useMemo(() => {
+    if (!selectedCrew?.assignment?.startDate) return null;
+    const start = (() => {
+      const s = selectedCrew.assignment.startDate;
+      if (!s) return null;
+      const d = s.includes('T') ? new Date(s) : new Date(s + 'T00:00:00');
+      d.setHours(0, 0, 0, 0);
+      return d;
+    })();
+    if (!start) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endDateStr = selectedCrew.assignment.endDate;
+    const end = endDateStr
+      ? (() => {
+          const d = endDateStr.includes('T') ? new Date(endDateStr) : new Date(endDateStr + 'T00:00:00');
+          d.setHours(0, 0, 0, 0);
+          return d > today ? today : d;
+        })()
+      : today;
+    if (start > end) return null;
+    return { startDate: start, endDate: end };
+  }, [selectedCrew?.assignment?.startDate, selectedCrew?.assignment?.endDate]);
 
   useEffect(() => {
     const loadActiveCaptain = async () => {
@@ -714,6 +742,97 @@ export default function DocumentsGeneratorPage() {
     }
   };
 
+  const handleSaveProofOfService = async () => {
+    if (!selectedCrew || !activeVesselId || !documentStartDate || !documentEndDate || !calculatedSeaTime || !vessel || !currentUserProfile) {
+      toast({ title: 'Error', description: 'Please select crew, dates, and calculate sea time first.', variant: 'destructive' });
+      return;
+    }
+    setIsSavingProofOfService(true);
+    try {
+      const startDateStr = formatDate(documentStartDate, 'yyyy-MM-dd');
+      const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
+      const totalDays = calculatedSeaTime.totalDays;
+      const standbyCap = Math.min(calculatedSeaTime.standbyDays, totalDays, calculatedSeaTime.atSeaDays);
+      const crewName = [selectedCrew.profile.firstName, selectedCrew.profile.lastName].filter(Boolean).join(' ').trim() || selectedCrew.profile.username || 'Crew member';
+      const generatedByName = currentUserProfile.firstName && currentUserProfile.lastName
+        ? `${currentUserProfile.firstName} ${currentUserProfile.lastName}`
+        : currentUserProfile.email || 'Vessel Manager';
+      const dataSource = (hasApprovedAccess ? (calculatedSeaTime?.dataSource ?? effectiveDataSource) : 'vessel') as 'crew' | 'vessel';
+
+      const { error } = await supabase.from('proof_of_service').insert({
+        crew_user_id: selectedCrew.profile.id,
+        vessel_id: activeVesselId,
+        vessel_user_id: currentUserProfile.id,
+        start_date: startDateStr,
+        end_date: endDateStr,
+        total_days: totalDays,
+        at_sea_days: calculatedSeaTime.atSeaDays,
+        standby_days: standbyCap,
+        yard_days: calculatedSeaTime.yardDays,
+        leave_days: calculatedSeaTime.leaveDays,
+        vessel_name: vessel.name,
+        vessel_type: vessel.type ?? null,
+        vessel_imo: (vessel as any).imo ?? (vessel as any).officialNumber ?? null,
+        crew_name: crewName,
+        crew_position: selectedCrew.profile.position ?? null,
+        generated_by_name: generatedByName,
+        generated_by_email: currentUserProfile.email ?? null,
+        data_source: dataSource,
+        notes: null,
+      });
+      if (error) throw error;
+      toast({ title: 'Saved', description: 'Proof of Service has been saved to the crew member\'s profile. They can view and download it from Proof of Service.' });
+      setCalculatedSeaTime(null);
+      setDocumentStartDate(undefined);
+      setDocumentEndDate(undefined);
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message ?? 'Failed to save Proof of Service.', variant: 'destructive' });
+    } finally {
+      setIsSavingProofOfService(false);
+    }
+  };
+
+  const handleDownloadProofOfServicePDF = async () => {
+    if (!selectedCrew || !documentStartDate || !documentEndDate || !calculatedSeaTime || !vessel || !currentUserProfile) {
+      toast({ title: 'Error', description: 'Please select crew, dates, and calculate sea time first.', variant: 'destructive' });
+      return;
+    }
+    setGeneratingProofOfServicePDF(true);
+    try {
+      const startDateStr = formatDate(documentStartDate, 'yyyy-MM-dd');
+      const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
+      const totalDays = calculatedSeaTime.totalDays;
+      const standbyCap = Math.min(calculatedSeaTime.standbyDays, totalDays, calculatedSeaTime.atSeaDays);
+      const crewName = [selectedCrew.profile.firstName, selectedCrew.profile.lastName].filter(Boolean).join(' ').trim() || selectedCrew.profile.username || 'Crew member';
+      const generatedByName = currentUserProfile.firstName && currentUserProfile.lastName
+        ? `${currentUserProfile.firstName} ${currentUserProfile.lastName}`
+        : currentUserProfile.email || 'Vessel Manager';
+
+      await generateProofOfServicePDF({
+        vesselName: vessel.name,
+        vesselType: vessel.type ?? null,
+        vesselImo: (vessel as any).imo ?? (vessel as any).officialNumber ?? null,
+        crewName,
+        crewPosition: selectedCrew.profile.position ?? null,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        totalDays,
+        atSeaDays: calculatedSeaTime.atSeaDays,
+        standbyDays: standbyCap,
+        yardDays: calculatedSeaTime.yardDays,
+        leaveDays: calculatedSeaTime.leaveDays,
+        generatedByName,
+        generatedByEmail: currentUserProfile.email ?? null,
+        notes: null,
+      }, 'download');
+      toast({ title: 'Downloaded', description: 'Proof of Service PDF generated.' });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message ?? 'Failed to generate PDF.', variant: 'destructive' });
+    } finally {
+      setGeneratingProofOfServicePDF(false);
+    }
+  };
+
   const handleSendToCaptain = async () => {
     if (!selectedCrew || !activeVesselId || !documentStartDate || !documentEndDate || !calculatedSeaTime || !activeCaptain) {
       toast({ title: 'Error', description: 'Please select dates, calculate sea time, and ensure a captain is available.', variant: 'destructive' });
@@ -950,17 +1069,42 @@ export default function DocumentsGeneratorPage() {
         </Card>
       </div>
 
-      {selectedCrew && documentType === 'testimonial' && (
+      {selectedCrew && (documentType === 'testimonial' || documentType === 'proof_of_service') && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Calendar className="h-5 w-5" />
               Date range & generate
             </CardTitle>
-            <CardDescription>Set the date range, choose data source if the crew member has given access, then calculate sea time and save or generate.</CardDescription>
+            <CardDescription>
+              {documentType === 'proof_of_service'
+                ? 'Set the date range and calculate sea time, then save to the crew member’s profile or download PDF.'
+                : 'Set the date range, choose data source if the crew member has given access, then calculate sea time and save or generate.'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {availablePeriodsBetweenLeave.length > 0 && (
+            {documentType === 'proof_of_service' && proofOfServiceFullRange && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Quick select</Label>
+                <p className="text-xs text-muted-foreground">
+                  From start on vessel to today{selectedCrew?.assignment?.endDate ? ' (or their end date if set)' : ''}.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDocumentStartDate(proofOfServiceFullRange.startDate);
+                      setDocumentEndDate(proofOfServiceFullRange.endDate);
+                    }}
+                    className="rounded-xl text-xs h-auto py-2 px-3 whitespace-normal hover:bg-primary hover:text-primary-foreground"
+                  >
+                    {formatDate(proofOfServiceFullRange.startDate, 'dd MMM yyyy')} → {formatDate(proofOfServiceFullRange.endDate, 'dd MMM yyyy')}
+                  </Button>
+                </div>
+              </div>
+            )}
+            {documentType === 'testimonial' && availablePeriodsBetweenLeave.length > 0 && (
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Quick select: periods between leave</Label>
                 <p className="text-xs text-muted-foreground">
@@ -1066,6 +1210,11 @@ export default function DocumentsGeneratorPage() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Calculating…
                 </>
+              ) : documentType === 'proof_of_service' ? (
+                <>
+                  <Clock className="mr-2 h-4 w-4" />
+                  Calculate
+                </>
               ) : (
                 <>
                   <Clock className="mr-2 h-4 w-4" />
@@ -1114,6 +1263,8 @@ export default function DocumentsGeneratorPage() {
 
                   <Separator />
                   <div className="flex flex-wrap gap-2">
+                    {documentType === 'testimonial' && (
+                      <>
                     <Button
                       onClick={handleSaveDocument}
                       disabled={isSaving || generatingPDF === 'date-range'}
@@ -1201,6 +1352,48 @@ export default function DocumentsGeneratorPage() {
                           </>
                         )}
                       </Button>
+                    )}
+                      </>
+                    )}
+                    {documentType === 'proof_of_service' && (
+                      <>
+                    <Button
+                      variant="outline"
+                      onClick={handleSaveProofOfService}
+                      disabled={isSavingProofOfService || generatingProofOfServicePDF}
+                      className="rounded-xl"
+                    >
+                      {isSavingProofOfService ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Saving…
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck className="mr-2 h-4 w-4" />
+                          Save as Proof of Service
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleDownloadProofOfServicePDF}
+                      disabled={isSavingProofOfService || generatingProofOfServicePDF}
+                      className="rounded-xl"
+                    >
+                      {generatingProofOfServicePDF ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Generating…
+                        </>
+                      ) : (
+                        <>
+                          <Download className="mr-2 h-4 w-4" />
+                          Proof of Service (PDF)
+                        </>
+                      )}
+                    </Button>
+                      </>
                     )}
                   </div>
                 </CardContent>

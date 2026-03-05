@@ -18,8 +18,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from '@/hooks/use-toast';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { createFeedback, getUserFeedback, getAllFeedback, updateFeedback, markFeedbackResponseAsRead, type Feedback, type FeedbackType, type FeedbackStatus } from '@/supabase/database/queries';
-import { Loader2, MessageSquare, Bug, Sparkles, HelpCircle, CheckCircle2, Clock, XCircle, AlertCircle } from 'lucide-react';
+import { createFeedback, getUserFeedback, getAllFeedback, updateFeedback, markFeedbackResponseAsRead, deleteFeedback, type Feedback, type FeedbackType, type FeedbackStatus } from '@/supabase/database/queries';
+import { Loader2, MessageSquare, Bug, Sparkles, HelpCircle, CheckCircle2, Clock, XCircle, AlertCircle, Send, Trash2 } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
 import type { UserProfile } from '@/lib/types';
 
@@ -61,6 +62,15 @@ export default function FeedbackPage() {
   const [isMarkingAsRead, setIsMarkingAsRead] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<FeedbackStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<FeedbackType | 'all'>('all');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isDeletingFeedback, setIsDeletingFeedback] = useState(false);
+  // Admin: send message to user
+  const [messageToUserId, setMessageToUserId] = useState<string>('');
+  const [messageToUserSubject, setMessageToUserSubject] = useState('');
+  const [messageToUserMessage, setMessageToUserMessage] = useState('');
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [isNewMessageDialogOpen, setIsNewMessageDialogOpen] = useState(false);
+  const [usersList, setUsersList] = useState<Array<{ id: string; email: string; first_name?: string | null; last_name?: string | null; username?: string | null }>>([]);
 
   // Fetch user profile to check if admin
   const { data: userProfileRaw } = useDoc<UserProfile>('users', user?.id);
@@ -111,6 +121,80 @@ export default function FeedbackPage() {
 
     fetchFeedback();
   }, [user?.id, supabase, isAdmin, toast]);
+
+  // Admin: fetch users for "Send message to user"
+  useEffect(() => {
+    if (!isAdmin || !supabase) return;
+    const fetchUsers = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, email, first_name, last_name, username')
+          .order('email', { ascending: true });
+        if (error) throw error;
+        setUsersList(data || []);
+      } catch (err) {
+        console.error('[FEEDBACK] Error fetching users:', err);
+      }
+    };
+    fetchUsers();
+  }, [isAdmin, supabase]);
+
+  const sendMessageToUser = async () => {
+    if (!user?.id || !messageToUserId?.trim()) {
+      toast({
+        title: 'Select a user',
+        description: 'Please select a user to send the message to.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!messageToUserSubject.trim() || messageToUserSubject.length < 3) {
+      toast({
+        title: 'Subject required',
+        description: 'Subject must be at least 3 characters.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!messageToUserMessage.trim() || messageToUserMessage.length < 10) {
+      toast({
+        title: 'Message required',
+        description: 'Message must be at least 10 characters.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setIsSendingMessage(true);
+    try {
+      await createFeedback(supabase, {
+        userId: user.id,
+        type: 'other',
+        subject: messageToUserSubject.trim(),
+        message: messageToUserMessage.trim(),
+        recipientId: messageToUserId.trim(),
+      });
+      toast({
+        title: 'Message sent',
+        description: 'The user will see this message in their Feedback page.',
+      });
+      setMessageToUserId('');
+      setMessageToUserSubject('');
+      setMessageToUserMessage('');
+      setIsNewMessageDialogOpen(false);
+      const feedback = await getAllFeedback(supabase);
+      setAllFeedback(feedback);
+    } catch (error) {
+      console.error('[FEEDBACK] Error sending message:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to send message. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
 
   // Admin: status counts filtered by current type (so type row selection updates status numbers)
   const statusCounts = useMemo(() => {
@@ -277,6 +361,30 @@ export default function FeedbackPage() {
     }
   };
 
+  const handleDeleteFeedback = async () => {
+    if (!deleteConfirmId) return;
+    setIsDeletingFeedback(true);
+    try {
+      await deleteFeedback(supabase, deleteConfirmId);
+      toast({
+        title: 'Feedback deleted',
+        description: 'The entry has been removed.',
+      });
+      setDeleteConfirmId(null);
+      const feedback = await getAllFeedback(supabase);
+      setAllFeedback(feedback);
+    } catch (error) {
+      console.error('[FEEDBACK] Error deleting:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete feedback. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDeletingFeedback(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6">
       {/* Header Section */}
@@ -288,6 +396,12 @@ export default function FeedbackPage() {
               {isAdmin ? 'Manage user feedback and respond to requests' : 'Report problems or suggest new features'}
             </p>
           </div>
+          {isAdmin && (
+            <Button onClick={() => setIsNewMessageDialogOpen(true)} className="rounded-xl shrink-0">
+              <Send className="h-4 w-4 mr-2" />
+              New message
+            </Button>
+          )}
         </div>
         <Separator />
       </div>
@@ -421,19 +535,31 @@ export default function FeedbackPage() {
                           <CardDescription className="flex flex-col gap-0.5">
                             <span>Submitted on {format(new Date(feedback.createdAt), 'PPP p')}</span>
                             <span className="text-muted-foreground">
-                              Submitted by: {feedback.submitter
-                                ? [feedback.submitter.first_name, feedback.submitter.last_name].filter(Boolean).join(' ').trim() || feedback.submitter.username || 'Unknown'
-                                : 'Unknown user'}{feedback.submitter?.email ? ` (${feedback.submitter.email})` : feedback.userId ? ` (user ID: ${feedback.userId.slice(0, 8)}…)` : ''}
+                              {feedback.recipientId && feedback.recipient
+                                ? `To: ${[feedback.recipient.first_name, feedback.recipient.last_name].filter(Boolean).join(' ').trim() || feedback.recipient.username || 'Unknown'}${feedback.recipient.email ? ` (${feedback.recipient.email})` : ''}`
+                                : `Submitted by: ${feedback.submitter
+                                  ? [feedback.submitter.first_name, feedback.submitter.last_name].filter(Boolean).join(' ').trim() || feedback.submitter.username || 'Unknown'
+                                  : 'Unknown user'}${feedback.submitter?.email ? ` (${feedback.submitter.email})` : feedback.userId ? ` (user ID: ${feedback.userId.slice(0, 8)}…)` : ''}`}
                             </span>
                           </CardDescription>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openResponseDialog(feedback)}
-                        >
-                          {feedback.adminResponse ? 'Edit Response' : 'Respond'}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openResponseDialog(feedback)}
+                          >
+                            {feedback.adminResponse ? 'Edit Response' : 'Respond'}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => setDeleteConfirmId(feedback.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -627,6 +753,7 @@ export default function FeedbackPage() {
           ) : (
             <div className="space-y-4">
               {displayFeedback.map((feedback) => {
+                const isReceivedMessage = !isAdmin && feedback.recipientId === user?.id;
                 const typeInfo = feedbackTypeLabels[feedback.type];
                 const statusInfo = statusLabels[feedback.status];
                 const TypeIcon = typeInfo.icon;
@@ -640,25 +767,43 @@ export default function FeedbackPage() {
                           <div className="flex items-center gap-2 mb-2">
                             <TypeIcon className="h-5 w-5" />
                             <CardTitle className="text-lg">{feedback.subject}</CardTitle>
-                            <Badge variant={feedback.type === 'bug' ? 'destructive' : 'default'}>
-                              {typeInfo.label}
-                            </Badge>
-                            <Badge variant={feedback.status === 'resolved' ? 'default' : 'secondary'}>
-                              <StatusIcon className="h-3 w-3 mr-1" />
-                              {statusInfo.label}
-                            </Badge>
+                            {isReceivedMessage && (
+                              <Badge variant="secondary">Message from admin</Badge>
+                            )}
+                            {!isReceivedMessage && (
+                              <>
+                                <Badge variant={feedback.type === 'bug' ? 'destructive' : 'default'}>
+                                  {typeInfo.label}
+                                </Badge>
+                                <Badge variant={feedback.status === 'resolved' ? 'default' : 'secondary'}>
+                                  <StatusIcon className="h-3 w-3 mr-1" />
+                                  {statusInfo.label}
+                                </Badge>
+                              </>
+                            )}
                           </div>
                           <CardDescription>
-                            Submitted on {format(new Date(feedback.createdAt), 'PPP p')}
+                            {isReceivedMessage
+                              ? `Received on ${format(new Date(feedback.createdAt), 'PPP p')}`
+                              : `Submitted on ${format(new Date(feedback.createdAt), 'PPP p')}`}
                           </CardDescription>
                         </div>
-                        {isAdmin && (
+                        {isAdmin && !feedback.recipientId && (
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => openResponseDialog(feedback)}
                           >
                             {feedback.adminResponse ? 'Edit Response' : 'Respond'}
+                          </Button>
+                        )}
+                        {isAdmin && feedback.recipientId && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openResponseDialog(feedback)}
+                          >
+                            {feedback.adminResponse ? 'Edit follow-up' : 'Add follow-up'}
                           </Button>
                         )}
                       </div>
@@ -714,6 +859,68 @@ export default function FeedbackPage() {
           )}
           </TabsContent>
         </Tabs>
+      )}
+
+      {/* Admin: New message to user dialog */}
+      {isAdmin && (
+        <Dialog open={isNewMessageDialogOpen} onOpenChange={setIsNewMessageDialogOpen}>
+          <DialogContent className="max-w-md rounded-xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Send className="h-5 w-5" />
+                Send message to user
+              </DialogTitle>
+              <DialogDescription>
+                The user will see this under Feedback → My Feedback.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Recipient</label>
+                <Select value={messageToUserId} onValueChange={setMessageToUserId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a user" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {usersList.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {[u.first_name, u.last_name].filter(Boolean).join(' ').trim() || u.username || 'Unknown'}{u.email ? ` (${u.email})` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Subject</label>
+                <Input
+                  placeholder="Message subject"
+                  value={messageToUserSubject}
+                  onChange={(e) => setMessageToUserSubject(e.target.value)}
+                  maxLength={200}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Message</label>
+                <Textarea
+                  placeholder="Write your message to the user..."
+                  className="min-h-[120px]"
+                  value={messageToUserMessage}
+                  onChange={(e) => setMessageToUserMessage(e.target.value)}
+                  maxLength={5000}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setIsNewMessageDialogOpen(false)} disabled={isSendingMessage}>
+                  Cancel
+                </Button>
+                <Button onClick={sendMessageToUser} disabled={isSendingMessage}>
+                  {isSendingMessage && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Send message
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Admin Response Dialog */}
@@ -792,6 +999,38 @@ export default function FeedbackPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Admin: delete confirmation */}
+      <AlertDialog open={!!deleteConfirmId} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete feedback?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove this feedback entry. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingFeedback}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleDeleteFeedback();
+              }}
+              disabled={isDeletingFeedback}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingFeedback ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
