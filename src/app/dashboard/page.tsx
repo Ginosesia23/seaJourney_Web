@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { Vessel, SeaServiceRecord, StateLog, UserProfile, DailyStatus, Testimonial, VisaTracker, VisaEntry, VesselAssignment } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
+import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
 import { findMissingDays } from '@/lib/fill-missing-days';
 import { calculateVisaCompliance, detectVisaRules } from '@/lib/visa-compliance';
 import { cn } from '@/lib/utils';
@@ -1056,44 +1057,56 @@ export default function DashboardPage() {
   }, [allSeaService, selectedYear, selectedVessel]);
 
    const { totalDays, atSeaDays, standbyDays } = useMemo(() => {
-    let days = 0;
-
-    // Collect all logs to filter by vessel and year
-    const vesselIdsToCount = selectedVessel === 'all' 
+    const vesselIdsToCount = selectedVessel === 'all'
       ? Array.from(allStateLogs.keys())
       : [selectedVessel];
 
-    // Collect filtered logs for MCA/PYA calculation
     const filteredLogs: StateLog[] = [];
-
     vesselIdsToCount.forEach(vesselId => {
       const logs = allStateLogs.get(vesselId) || [];
-        logs.forEach(log => {
-        // Filter by year if needed
+      logs.forEach(log => {
         const logYear = getYear(new Date(log.date));
         const yearMatch = selectedYear === 'all' || logYear === parseInt(selectedYear, 10);
-        
-        if (yearMatch) {
-            days++;
-          filteredLogs.push(log);
-            }
-        });
+        if (yearMatch) filteredLogs.push(log);
+      });
     });
 
-    // Extract part of active passage dates from logs
-    const partOfActivePassageDates = new Set<string>();
+    const totalDays = filteredLogs.length;
+    if (filteredLogs.length === 0) return { totalDays: 0, atSeaDays: 0, standbyDays: 0 };
+
+    const vesselsById = new Map<string, Vessel>(vessels?.map(v => [v.id, v]) ?? []);
+    const logsByVessel = new Map<string, StateLog[]>();
     filteredLogs.forEach(log => {
-      if (log.isPartOfActivePassage) {
-        partOfActivePassageDates.add(log.date);
+      if (!logsByVessel.has(log.vesselId)) logsByVessel.set(log.vesselId, []);
+      logsByVessel.get(log.vesselId)!.push(log);
+    });
+
+    let atSeaSum = 0;
+    let standbySum = 0;
+
+    logsByVessel.forEach((logs, vesselId) => {
+      const vessel = vesselsById.get(vesselId);
+      const category = getVesselCalculationCategory(vessel?.type ?? null);
+
+      if (isAllDaysExceptLeaveCountAsSea(category)) {
+        const leaveCount = logs.filter(l => l.state === 'on-leave').length;
+        atSeaSum += logs.length - leaveCount;
+      } else {
+        const partOfActivePassageV = new Set(
+          logs.filter(l => l.isPartOfActivePassage).map(l => l.date)
+        );
+        const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(
+          logs,
+          watchDates,
+          partOfActivePassageV
+        );
+        atSeaSum += totalSeaDays;
+        standbySum += totalStandbyDays;
       }
     });
 
-    // Calculate MCA/PYA compliant standby days and sea days
-    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(filteredLogs, watchDates, partOfActivePassageDates);
-    
-    // At sea = underway days + part of active passage days (from calculation)
-    return { totalDays: days, atSeaDays: totalSeaDays, standbyDays: totalStandbyDays };
-  }, [allStateLogs, selectedVessel, selectedYear, watchDates]);
+    return { totalDays, atSeaDays: atSeaSum, standbyDays: standbySum };
+  }, [allStateLogs, selectedVessel, selectedYear, watchDates, vessels]);
 
   const [visaEntries, setVisaEntries] = useState<VisaEntry[]>([]);
 
@@ -2681,7 +2694,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
             <div className="text-3xl font-bold">{atSeaDays}</div>
-            <p className="text-xs text-muted-foreground mt-1">Total days underway</p>
+            <p className="text-xs text-muted-foreground mt-1">Sea service days</p>
             </CardContent>
         </Card>
         

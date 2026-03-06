@@ -7,6 +7,7 @@ import { stripe } from '@/lib/stripe';
 import type { Stripe } from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
+import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
 
 //
 // SUPABASE ADMIN CLIENT (server-only)
@@ -604,19 +605,33 @@ export async function generateSeaTimeReportData(
         }
       });
       
-      const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(
-        period.logs,
-        undefined,
-        partOfActivePassageDates,
-        { rangeStart: period.startDate, rangeEnd: period.endDate }
-      );
-      
-      // At sea = underway days + part of active passage days
-      // Note: at-anchor days are NOT counted unless marked as part of active passage
-      const atSeaDays = totalSeaDays; // Use the calculated total sea days from standby calculation
+      const vesselType = vessel?.type ?? null;
+      const category = getVesselCalculationCategory(vesselType);
+      const useCommercialRules = isAllDaysExceptLeaveCountAsSea(category);
+
       const yardDays = period.logs.filter(log => log.state === 'in-yard').length;
       const leaveDays = period.logs.filter(log => log.state === 'on-leave').length;
       const totalDays = period.logs.length;
+
+      let atSeaDays: number;
+      let standbyDays: number;
+      let yardDaysForRecord: number;
+
+      if (useCommercialRules) {
+        atSeaDays = totalDays - leaveDays;
+        standbyDays = 0;
+        yardDaysForRecord = 0;
+      } else {
+        const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(
+          period.logs,
+          undefined,
+          partOfActivePassageDates,
+          { rangeStart: period.startDate, rangeEnd: period.endDate }
+        );
+        atSeaDays = totalSeaDays;
+        standbyDays = totalStandbyDays;
+        yardDaysForRecord = yardDays;
+      }
 
       serviceRecords.push({
         id: `${vesselId}-${period.startDate}-${period.endDate}`,
@@ -629,8 +644,8 @@ export async function generateSeaTimeReportData(
         start_date: period.startDate,
         end_date: period.endDate,
         at_sea_days: atSeaDays,
-        standby_days: totalStandbyDays,
-        yard_days: yardDays,
+        standby_days: standbyDays,
+        yard_days: yardDaysForRecord,
         leave_days: leaveDays,
       });
     }

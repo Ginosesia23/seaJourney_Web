@@ -60,6 +60,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateMCAWatchRatingForm, generateProofOfServicePDF, type TestimonialPDFFormat, type TestimonialPDFOutput, type MCACertificateType } from '@/lib/pdf-generator';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
+import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
 import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
 import { buildAndGenerateNavWatchApplication, navWatchApplicationDefaultValues, navWatchApplicationSchema, type NavWatchApplicationFormValues } from '@/lib/nav-watch-application';
 import { MCAApplicationDetailsCard } from '@/components/dashboard/mca-application-details';
@@ -3517,6 +3518,28 @@ export default function CrewPage() {
                 } else {
                     effectiveState.set(dateStr, firstState);
                 }
+            }
+
+            const vessel = getVesselDetails(currentUserProfile.activeVesselId!);
+            const category = getVesselCalculationCategory(vessel?.type ?? null);
+            if (isAllDaysExceptLeaveCountAsSea(category)) {
+                let leaveCount = 0;
+                dateRangeSet.forEach((dateStr) => {
+                    if (effectiveState.get(dateStr) === 'on-leave') leaveCount++;
+                });
+                const totalDays = dateRangeSet.size;
+                setCalculatedSeaTime({
+                    totalDays,
+                    atSeaDays: totalDays - leaveCount,
+                    standbyDays: 0,
+                    yardDays: 0,
+                    leaveDays: leaveCount,
+                    otherDays: 0,
+                    isOfficer,
+                });
+                toast({ title: 'Calculated', description: 'Sea time calculated (commercial rules: all days onboard count except leave).' });
+                setIsCalculatingSeaTime(false);
+                return;
             }
 
             const voyageDatesSet = new Set<string>();

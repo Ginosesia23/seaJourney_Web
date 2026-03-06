@@ -31,6 +31,7 @@ import Link from 'next/link';
 import type { UserProfile, VesselAssignment, Vessel, VesselGeneratedTestimonial, StateLog, Testimonial } from '@/lib/types';
 import { getActiveVesselAssignmentsByVessel, getVesselStateLogs } from '@/supabase/database/queries';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
+import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
 import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateProofOfServicePDF, type TestimonialPDFFormat, type TestimonialPDFOutput } from '@/lib/pdf-generator';
 import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
 import { cn } from '@/lib/utils';
@@ -465,6 +466,27 @@ export default function DocumentsGeneratorPage() {
         } else {
           effectiveState.set(dateStr, firstState);
         }
+      }
+      const category = getVesselCalculationCategory(vessel?.type ?? null);
+      if (isAllDaysExceptLeaveCountAsSea(category)) {
+        let leaveCount = 0;
+        dateRangeSet.forEach((dateStr) => {
+          if (effectiveState.get(dateStr) === 'on-leave') leaveCount++;
+        });
+        const totalDays = dateRangeSet.size;
+        setCalculatedSeaTime({
+          totalDays,
+          atSeaDays: totalDays - leaveCount,
+          standbyDays: 0,
+          yardDays: 0,
+          leaveDays: leaveCount,
+          otherDays: 0,
+          isOfficer,
+          dataSource: useCrewLogs ? 'crew' : 'vessel',
+        });
+        toast({ title: 'Calculated', description: 'Sea time calculated for the selected range (commercial rules: all days onboard count except leave).' });
+        setIsCalculating(false);
+        return;
       }
       const voyageDatesSet = new Set<string>();
       voyages.forEach((voyage) => {

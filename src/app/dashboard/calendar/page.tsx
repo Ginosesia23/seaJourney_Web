@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { format, startOfYear, endOfYear, eachMonthOfInterval, startOfMonth, endOfMonth, eachDayOfInterval, getDaysInMonth, getDay, isSameMonth, isToday, isWithinInterval, startOfDay, endOfDay, isAfter, isBefore, parse, addDays } from 'date-fns';
-import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, Wrench, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, Clock, User, XCircle } from 'lucide-react';
+import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, Wrench, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, CheckSquare, Clock, User, XCircle } from 'lucide-react';
 import { DateRange } from 'react-day-picker';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,8 +49,9 @@ export default function CalendarPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [stateLogs, setStateLogs] = useState<StateLog[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
-  const [selectionMode, setSelectionMode] = useState<'single' | 'range'>('single');
+  const [selectionMode, setSelectionMode] = useState<'single' | 'range' | 'multi'>('single');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [multiSelectedDates, setMultiSelectedDates] = useState<Set<string>>(new Set());
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
   const [isPartOfActivePassageInDialog, setIsPartOfActivePassageInDialog] = useState<boolean>(false);
   const [isWatchInDialog, setIsWatchInDialog] = useState<boolean>(false);
@@ -452,6 +453,31 @@ export default function CalendarPage() {
     return map;
   }, [stateLogs, vesselAssignments, vessels, findVesselForDate]);
 
+  // Map date -> vessel for the log displayed on that date (so tooltip shows correct vessel for past logs)
+  const vesselForDisplayByDate = useMemo(() => {
+    const out = new Map<string, Vessel | null>();
+    if (!vessels?.length) return out;
+    const logsByDate = new Map<string, StateLog[]>();
+    stateLogs.forEach(log => {
+      if (!logsByDate.has(log.date)) logsByDate.set(log.date, []);
+      logsByDate.get(log.date)!.push(log);
+    });
+    logsByDate.forEach((logs, dateStr) => {
+      let chosenLog: StateLog;
+      if (logs.length === 1) {
+        chosenLog = logs[0];
+      } else {
+        const dateObj = parse(dateStr, 'yyyy-MM-dd', new Date());
+        const { vessel } = findVesselForDate(dateObj);
+        const correctLog = vessel ? logs.find(log => log.vesselId === vessel.id) : null;
+        chosenLog = correctLog ?? logs[0];
+      }
+      const vessel = vessels.find(v => v.id === chosenLog.vesselId) ?? null;
+      out.set(dateStr, vessel);
+    });
+    return out;
+  }, [stateLogs, vessels, findVesselForDate]);
+
   // Calculate standby periods to identify standby dates
   // Extract part of active passage dates from state logs
   const partOfActivePassageDates = useMemo(() => {
@@ -718,7 +744,36 @@ export default function CalendarPage() {
       const existingLog = stateLogs.find(log => log.date === dateKey);
       setNotesInDialog(existingLog?.notes || '');
       setDateRange(undefined);
+      setMultiSelectedDates(new Set());
       setIsDialogOpen(true);
+    } else if (selectionMode === 'multi') {
+      // Multi selection: toggle this date
+      const dateKey = format(date, 'yyyy-MM-dd');
+      const today = startOfDay(new Date());
+      const dayStart = startOfDay(date);
+      if (isAfter(dayStart, today)) {
+        toast({
+          title: 'Future Date',
+          description: 'You cannot select future dates.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const validation = isDateValidForStateChange(date);
+      if (!validation.valid) {
+        toast({
+          title: 'Invalid Date',
+          description: validation.reason || 'You cannot select this date.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      setMultiSelectedDates(prev => {
+        const next = new Set(prev);
+        if (next.has(dateKey)) next.delete(dateKey);
+        else next.add(dateKey);
+        return next;
+      });
     } else {
       // Range selection mode
       if (!dateRange?.from || (dateRange.from && dateRange.to)) {
@@ -805,12 +860,24 @@ export default function CalendarPage() {
         setDateRange({ from: start, to: end });
         setSelectedDate(null);
         setSelectedState(null);
+        setMultiSelectedDates(new Set());
         setIsPartOfActivePassageInDialog(false); // Reset for range selection
         setIsWatchInDialog(false); // Reset for range selection (watch only applies to single dates)
         setNotesInDialog(''); // Reset notes for range selection
         setIsDialogOpen(true);
       }
     }
+  };
+
+  const openMultiSelectDialog = () => {
+    if (multiSelectedDates.size === 0) return;
+    setSelectedDate(null);
+    setDateRange(undefined);
+    setSelectedState(null);
+    setIsPartOfActivePassageInDialog(false);
+    setIsWatchInDialog(false);
+    setNotesInDialog('');
+    setIsDialogOpen(true);
   };
 
   const handleStateChange = async (state: DailyStatus | null) => {
@@ -855,6 +922,29 @@ export default function CalendarPage() {
           toast({
             title: 'Invalid Range',
             description: 'No valid dates in the selected range. Dates may be outside your vessel assignment periods or in the future.',
+            variant: 'destructive',
+          });
+          setIsSaving(false);
+          return;
+        }
+      } else if (selectionMode === 'multi' && multiSelectedDates.size > 0) {
+        // Multi selection update
+        const today = startOfDay(new Date());
+        const sortedDates = Array.from(multiSelectedDates).sort();
+        for (const dateKey of sortedDates) {
+          const day = parse(dateKey, 'yyyy-MM-dd', new Date());
+          const dayStart = startOfDay(day);
+          if (isAfter(dayStart, today)) continue;
+          const validation = isDateValidForStateChange(day);
+          if (!validation.valid || !validation.vessel) continue;
+          const vesselId = validation.vessel.id;
+          if (!logsByVessel.has(vesselId)) logsByVessel.set(vesselId, []);
+          logsByVessel.get(vesselId)!.push({ date: dateKey, state, is_part_of_active_passage: isPartOfActivePassageInDialog, notes: notesInDialog.trim() || undefined });
+        }
+        if (logsByVessel.size === 0) {
+          toast({
+            title: 'Invalid Selection',
+            description: 'No valid dates in the selection.',
             variant: 'destructive',
           });
           setIsSaving(false);
@@ -1056,6 +1146,7 @@ export default function CalendarPage() {
       setIsDialogOpen(false);
       setDateRange(undefined);
       setSelectedDate(null);
+      setMultiSelectedDates(new Set());
       setIsPartOfActivePassageInDialog(false);
       setIsWatchInDialog(false);
       setNotesInDialog('');
@@ -1063,16 +1154,20 @@ export default function CalendarPage() {
       const stateLabel = vesselStates.find(s => s.value === state)?.label || state;
       
       if (dateRange?.from && dateRange?.to) {
-        // Calculate total days from all vessels
         let totalDays = 0;
-        for (const vesselLogs of logsByVessel.values()) {
-          totalDays += vesselLogs.length;
-        }
+        for (const vesselLogs of logsByVessel.values()) totalDays += vesselLogs.length;
         toast({
           title: 'States Updated',
           description: passageCreated
             ? `${totalDays} day${totalDays > 1 ? 's' : ''} updated to ${stateLabel}. A passage was added to the Passage Log Book—you can add ports and details there.`
             : `${totalDays} day${totalDays > 1 ? 's' : ''} (${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}) updated to ${stateLabel}.`,
+        });
+      } else if (selectionMode === 'multi' && multiSelectedDates.size > 0) {
+        let totalDays = 0;
+        for (const vesselLogs of logsByVessel.values()) totalDays += vesselLogs.length;
+        toast({
+          title: 'States Updated',
+          description: `${totalDays} day${totalDays > 1 ? 's' : ''} updated to ${stateLabel}.`,
         });
       } else {
         toast({
@@ -1104,32 +1199,42 @@ export default function CalendarPage() {
       const datesByVessel = new Map<string, string[]>();
       
       if (dateRange?.from && dateRange?.to) {
-        // Range removal
         const today = startOfDay(new Date());
         const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
-        
         for (const day of interval) {
           const dayStart = startOfDay(day);
-          // Filter out future dates
           if (isAfter(dayStart, today)) continue;
-          
-          // Validate each date and find which vessel it belongs to
           const validation = isDateValidForStateChange(day);
           if (!validation.valid || !validation.vessel) continue;
-          
           const dateKey = format(day, 'yyyy-MM-dd');
           const vesselId = validation.vessel.id;
-          
-          if (!datesByVessel.has(vesselId)) {
-            datesByVessel.set(vesselId, []);
-          }
+          if (!datesByVessel.has(vesselId)) datesByVessel.set(vesselId, []);
           datesByVessel.get(vesselId)!.push(dateKey);
         }
-        
         if (datesByVessel.size === 0) {
           toast({
             title: 'Invalid Range',
             description: 'No valid dates in the selected range. Dates may be outside your vessel assignment periods or in the future.',
+            variant: 'destructive',
+          });
+          setIsSaving(false);
+          return;
+        }
+      } else if (selectionMode === 'multi' && multiSelectedDates.size > 0) {
+        const today = startOfDay(new Date());
+        for (const dateKey of multiSelectedDates) {
+          const day = parse(dateKey, 'yyyy-MM-dd', new Date());
+          if (isAfter(day, today)) continue;
+          const validation = isDateValidForStateChange(day);
+          if (!validation.valid || !validation.vessel) continue;
+          const vesselId = validation.vessel.id;
+          if (!datesByVessel.has(vesselId)) datesByVessel.set(vesselId, []);
+          datesByVessel.get(vesselId)!.push(dateKey);
+        }
+        if (datesByVessel.size === 0) {
+          toast({
+            title: 'Invalid Selection',
+            description: 'No valid dates in the selection.',
             variant: 'destructive',
           });
           setIsSaving(false);
@@ -1230,19 +1335,24 @@ export default function CalendarPage() {
       setIsDialogOpen(false);
       setDateRange(undefined);
       setSelectedDate(null);
+      setMultiSelectedDates(new Set());
       setIsPartOfActivePassageInDialog(false);
       setIsWatchInDialog(false);
       setNotesInDialog('');
       
       if (dateRange?.from && dateRange?.to) {
-        // Calculate total days from all vessels
         let totalDays = 0;
-        for (const dates of datesByVessel.values()) {
-          totalDays += dates.length;
-        }
+        for (const dates of datesByVessel.values()) totalDays += dates.length;
         toast({
           title: 'States Removed',
           description: `${totalDays} day${totalDays > 1 ? 's' : ''} (${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}) state${totalDays > 1 ? 's' : ''} removed.`,
+        });
+      } else if (selectionMode === 'multi' && multiSelectedDates.size > 0) {
+        let totalDays = 0;
+        for (const dates of datesByVessel.values()) totalDays += dates.length;
+        toast({
+          title: 'States Removed',
+          description: `${totalDays} day${totalDays > 1 ? 's' : ''} removed.`,
         });
       } else {
         toast({
@@ -1345,7 +1455,16 @@ export default function CalendarPage() {
                 const dateKey = format(day, 'yyyy-MM-dd');
                 const state = stateLogMap.get(dateKey);
                 const stateInfo = state ? vesselStates.find(s => s.value === state) : null;
-                const existingLog = stateLogs.find(log => log.date === dateKey);
+                const displayVesselForDate = vesselForDisplayByDate.get(dateKey);
+                const logsForDate = stateLogs.filter(log => log.date === dateKey);
+                const existingLog =
+                  logsForDate.length === 0
+                    ? undefined
+                    : logsForDate.length === 1
+                      ? logsForDate[0]
+                      : displayVesselForDate
+                        ? logsForDate.find(log => log.vesselId === displayVesselForDate.id) ?? logsForDate[0]
+                        : logsForDate[0];
                 const notes = existingLog?.notes;
                 const isCurrentDay = isToday(day);
                 const isCurrentMonth = isSameMonth(day, month);
@@ -1385,6 +1504,7 @@ export default function CalendarPage() {
                   isRangeStartOnly = format(day, 'yyyy-MM-dd') === format(dateRange.from, 'yyyy-MM-dd');
                   isRangeStart = isRangeStartOnly;
                 }
+                const isInMultiSelect = selectionMode === 'multi' && multiSelectedDates.has(dateKey);
 
                 // Standby dates use purple border outline (same as current page)
 
@@ -1424,9 +1544,9 @@ export default function CalendarPage() {
                             <div className="whitespace-pre-wrap">{notes}</div>
                           </div>
                         )}
-                        {currentVessel && (
+                        {displayVesselForDate && (
                           <div className="text-muted-foreground text-xs pt-1 border-t border-border/50">
-                            Vessel: {currentVessel.name}
+                            Vessel: {displayVesselForDate.name}
                           </div>
                         )}
                       </>
@@ -1460,20 +1580,21 @@ export default function CalendarPage() {
                       isFuture && "opacity-30 cursor-not-allowed",
                       // When only start date is selected (no end date yet) - show prominent blue border (highest priority for selection)
                       isRangeStartOnly && "!border-2 !border-blue-600 !border-solid ring-2 ring-blue-500/50 ring-offset-1",
+                      // Multi-selected dates - same blue styling as range
+                      isInMultiSelect && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && "border-2 border-blue-600 border-solid ring-2 ring-blue-500/30 ring-offset-1",
                       // Selected range styling - use a distinct color (blue) and solid border to differentiate from assignment outline
                       isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && !isRangeStartOnly && "border-2 border-blue-500 border-solid",
                       // Range start/end dates when both are selected
                       (isRangeStart || isRangeEnd) && !isRangeStartOnly && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && "border-2 border-blue-600 border-solid ring-2 ring-blue-500/30 ring-offset-1",
-                      isCurrentDay && !isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && !isRangeStartOnly && "ring-2 ring-primary ring-offset-2",
+                      isCurrentDay && !isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && !isRangeStartOnly && !isInMultiSelect && "ring-2 ring-primary ring-offset-2",
                       // Watch outline (yellow) - takes priority unless range start only
-                      hasWatch && !isRangeStartOnly && "border-[3px] border-yellow-400",
+                      hasWatch && !isRangeStartOnly && !isInMultiSelect && "border-[3px] border-yellow-400",
                       // Part of active passage outline (blue) - unless range start only
-                      isPartOfActivePassage && !hasWatch && !isRangeStartOnly && "border-[3px] border-blue-600",
+                      isPartOfActivePassage && !hasWatch && !isRangeStartOnly && !isInMultiSelect && "border-[3px] border-blue-600",
                       // Standby outline (purple) - only if not watch or part of active passage
-                      isCountedStandby && !hasWatch && !isPartOfActivePassage && !isRangeStartOnly && "border-[3px] border-purple-600",
+                      isCountedStandby && !hasWatch && !isPartOfActivePassage && !isRangeStartOnly && !isInMultiSelect && "border-[3px] border-purple-600",
                       // Assignable date outline (dashed border) - dates within assignment range but no state logged
-                      // Only show if not in selected range or start
-                      isAssignableDate && !hasWatch && !isPartOfActivePassage && !isCountedStandby && !isInRange && !isRangeStartOnly && "border-2 border-dashed border-muted-foreground/40",
+                      isAssignableDate && !hasWatch && !isPartOfActivePassage && !isCountedStandby && !isInRange && !isRangeStartOnly && !isInMultiSelect && "border-2 border-dashed border-muted-foreground/40",
                       stateInfo 
                         ? "text-white" 
                         : isAssignableDate
@@ -1490,6 +1611,8 @@ export default function CalendarPage() {
                           } 
                         : isInRange 
                           ? { backgroundColor: 'hsl(var(--primary) / 0.15)' } 
+                          : isInMultiSelect
+                            ? { backgroundColor: 'hsl(217 91% 60% / 0.2)', border: '2px solid hsl(217 91% 50%)', borderColor: 'hsl(217 91% 50%)' }
                           : isRangeStartOnly
                             ? { backgroundColor: 'hsl(217 91% 60% / 0.2)', border: '2px solid hsl(217 91% 50%)', borderColor: 'hsl(217 91% 50%)' } // Blue tint and border for start date only
                             : isAssignableDate
@@ -1592,7 +1715,7 @@ export default function CalendarPage() {
           <div className="space-y-1">
             <h1 className="text-3xl font-bold tracking-tight">Calendar</h1>
               <p className="text-muted-foreground">
-                View and manage your vessel states throughout the year. Click on any date to change its state, or use range mode to select multiple dates at once.
+                View and manage your vessel states throughout the year. Use single date, date range, or multi-select to choose dates, then change their state.
               </p>
           </div>
           {/* Captain View Mode Toggle - Only show for approved captains */}
@@ -1646,14 +1769,6 @@ export default function CalendarPage() {
             </Button>
             <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 text-center sm:text-left min-w-0 flex-1 sm:flex-initial justify-center">
               <h2 className="text-2xl font-bold tabular-nums tracking-tight">{selectedYear}</h2>
-              <span className="text-muted-foreground hidden sm:inline sm:text-base">·</span>
-              <p className="text-sm sm:text-base text-muted-foreground truncate">
-                {currentVessel
-                  ? currentVessel.name
-                  : vesselsWithLogs.length > 0
-                    ? `${vesselsWithLogs.length} vessel${vesselsWithLogs.length > 1 ? 's' : ''}`
-                    : 'All Vessels'}
-              </p>
             </div>
             <Button
               variant="outline"
@@ -1677,6 +1792,7 @@ export default function CalendarPage() {
                   setSelectionMode('single');
                   setDateRange(undefined);
                   setSelectedDate(null);
+                  setMultiSelectedDates(new Set());
                 }}
                 className="rounded-xl"
               >
@@ -1690,11 +1806,25 @@ export default function CalendarPage() {
                   setSelectionMode('range');
                   setSelectedDate(null);
                   setDateRange(undefined);
+                  setMultiSelectedDates(new Set());
                 }}
                 className="rounded-xl"
               >
                 <BoxSelect className="mr-2 h-4 w-4" />
                 Date range
+              </Button>
+              <Button
+                variant={selectionMode === 'multi' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => {
+                  setSelectionMode('multi');
+                  setSelectedDate(null);
+                  setDateRange(undefined);
+                }}
+                className="rounded-xl"
+              >
+                <CheckSquare className="mr-2 h-4 w-4" />
+                Multi
               </Button>
             </div>
             {selectionMode === 'range' && (
@@ -1703,6 +1833,18 @@ export default function CalendarPage() {
                   ? `Range started: ${format(dateRange.from, 'MMM d, yyyy')}. Click another date to complete.`
                   : 'Click a date to start the range, then click another to complete it.'}
               </p>
+            )}
+            {selectionMode === 'multi' && (
+              <p className="text-xs text-muted-foreground">
+                {multiSelectedDates.size > 0
+                  ? `${multiSelectedDates.size} date${multiSelectedDates.size > 1 ? 's' : ''} selected. Click "Change state" to apply.`
+                  : 'Click dates to select multiple (non-contiguous). Then click "Change state" to apply.'}
+              </p>
+            )}
+            {selectionMode === 'multi' && multiSelectedDates.size > 0 && (
+              <Button size="sm" onClick={openMultiSelectDialog} className="rounded-xl mt-1">
+                Change state ({multiSelectedDates.size})
+              </Button>
             )}
           </div>
         </div>
@@ -1781,9 +1923,10 @@ export default function CalendarPage() {
       <Dialog open={isDialogOpen} onOpenChange={(open) => {
           setIsDialogOpen(open);
         if (!open) {
-          // Reset selection when dialog closes
           if (selectionMode === 'range') {
             setDateRange(undefined);
+          } else if (selectionMode === 'multi') {
+            setMultiSelectedDates(new Set());
           } else {
             setSelectedDate(null);
           }
@@ -1797,6 +1940,8 @@ export default function CalendarPage() {
             <DialogTitle>
               {dateRange?.from && dateRange?.to
                 ? `Change State for ${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}`
+                : selectionMode === 'multi' && multiSelectedDates.size > 0
+                ? `Change State for ${multiSelectedDates.size} date${multiSelectedDates.size > 1 ? 's' : ''}`
                 : selectedDate
                 ? `Change State for ${format(selectedDate, 'MMMM d, yyyy')}`
                 : 'Change State'}
@@ -1804,6 +1949,11 @@ export default function CalendarPage() {
             {dateRange?.from && dateRange?.to && (
               <p className="text-sm text-muted-foreground mt-1">
                 {eachDayOfInterval({ start: dateRange.from, end: dateRange.to }).length} day{eachDayOfInterval({ start: dateRange.from, end: dateRange.to }).length > 1 ? 's' : ''} selected
+              </p>
+            )}
+            {selectionMode === 'multi' && multiSelectedDates.size > 0 && !dateRange?.to && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {multiSelectedDates.size} day{multiSelectedDates.size > 1 ? 's' : ''} selected
               </p>
             )}
           </DialogHeader>
@@ -1866,13 +2016,11 @@ export default function CalendarPage() {
                 let hasStates = false;
                 if (dateRange?.from && dateRange?.to) {
                   const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
-                  hasStates = interval.some(day => {
-                    const dateKey = format(day, 'yyyy-MM-dd');
-                    return stateLogMap.has(dateKey);
-                  });
+                  hasStates = interval.some(day => stateLogMap.has(format(day, 'yyyy-MM-dd')));
+                } else if (selectionMode === 'multi' && multiSelectedDates.size > 0) {
+                  hasStates = Array.from(multiSelectedDates).some(dateKey => stateLogMap.has(dateKey));
                 } else if (selectedDate) {
-                  const dateKey = format(selectedDate, 'yyyy-MM-dd');
-                  hasStates = stateLogMap.has(dateKey);
+                  hasStates = stateLogMap.has(format(selectedDate, 'yyyy-MM-dd'));
                 }
                 
                 if (!hasStates) return null;
@@ -2006,6 +2154,8 @@ export default function CalendarPage() {
                 setIsDialogOpen(false);
                 if (selectionMode === 'range') {
                   setDateRange(undefined);
+                } else if (selectionMode === 'multi') {
+                  setMultiSelectedDates(new Set());
                 } else {
                   setSelectedDate(null);
                 }
