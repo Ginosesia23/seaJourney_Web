@@ -1,10 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ShieldCheck, Download, Ship, Loader2 } from 'lucide-react';
 import { format, parse } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
@@ -39,6 +48,27 @@ function mapRow(row: any): ProofOfService {
   };
 }
 
+function entryToPdfData(entry: ProofOfService) {
+  return {
+    vesselName: entry.vesselName,
+    vesselType: entry.vesselType,
+    vesselImo: entry.vesselImo,
+    crewName: entry.crewName,
+    crewPosition: entry.crewPosition,
+    startDate: entry.startDate,
+    endDate: entry.endDate,
+    totalDays: entry.totalDays,
+    atSeaDays: entry.atSeaDays,
+    standbyDays: entry.standbyDays,
+    yardDays: entry.yardDays,
+    leaveDays: entry.leaveDays,
+    generatedByName: entry.generatedByName,
+    generatedByEmail: entry.generatedByEmail,
+    notes: entry.notes,
+    verificationCode: entry.verificationCode,
+  };
+}
+
 export default function ProofOfServicePage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -46,6 +76,15 @@ export default function ProofOfServicePage() {
   const [entries, setEntries] = useState<ProofOfService[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [selectedForDownload, setSelectedForDownload] = useState<Set<string>>(new Set());
+  const [downloadingSelected, setDownloadingSelected] = useState(false);
+
+  const allSelected = useMemo(
+    () => entries.length > 0 && selectedForDownload.size === entries.length,
+    [entries.length, selectedForDownload.size]
+  );
+  const noneSelected = selectedForDownload.size === 0;
 
   useEffect(() => {
     if (!user?.id) {
@@ -78,6 +117,48 @@ export default function ProofOfServicePage() {
     };
     fetchEntries();
   }, [user?.id, supabase, toast]);
+
+  useEffect(() => {
+    if (downloadDialogOpen && entries.length > 0) {
+      setSelectedForDownload(new Set(entries.map((e) => e.id)));
+    }
+  }, [downloadDialogOpen, entries]);
+
+  const toggleSelected = (id: string) => {
+    setSelectedForDownload((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const selectAll = () => setSelectedForDownload(new Set(entries.map((e) => e.id)));
+  const clearAll = () => setSelectedForDownload(new Set());
+
+  const handleDownloadSelected = async () => {
+    const selected = entries.filter((e) => selectedForDownload.has(e.id));
+    if (selected.length === 0) return;
+    setDownloadingSelected(true);
+    try {
+      await generateProofOfServicePDF(
+        selected.map(entryToPdfData),
+        'download'
+      );
+      toast({
+        title: 'Downloaded',
+        description: `Proof of Service PDF with ${selected.length} ${selected.length === 1 ? 'entry' : 'entries'} saved to your device.`,
+      });
+      setDownloadDialogOpen(false);
+    } catch (e) {
+      toast({
+        title: 'Error',
+        description: 'Failed to generate PDF.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDownloadingSelected(false);
+    }
+  };
 
   const handleDownload = async (entry: ProofOfService) => {
     setDownloadingId(entry.id);
@@ -114,11 +195,22 @@ export default function ProofOfServicePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Proof of Service</h1>
-        <p className="text-muted-foreground mt-1">
-          Your saved proof of service entries from vessels you have worked on. Each entry can be downloaded as a PDF for printing or sharing.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Proof of Service</h1>
+          <p className="text-muted-foreground mt-1">
+            Your saved proof of service entries from vessels you have worked on. Download one PDF per entry or choose which entries to include in a single PDF.
+          </p>
+        </div>
+        {entries.length > 0 && (
+          <Button
+            className="shrink-0"
+            onClick={() => setDownloadDialogOpen(true)}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Download selected as PDF
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -211,6 +303,78 @@ export default function ProofOfServicePage() {
           ))}
         </div>
       )}
+
+      <Dialog open={downloadDialogOpen} onOpenChange={setDownloadDialogOpen}>
+        <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Download Proof of Service</DialogTitle>
+            <DialogDescription>
+              Select which entries to include in the PDF. You can download all or choose specific vessels.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground border-b pb-2">
+            <button
+              type="button"
+              className="text-primary hover:underline font-medium"
+              onClick={selectAll}
+            >
+              Select all
+            </button>
+            <span>·</span>
+            <button
+              type="button"
+              className="text-primary hover:underline font-medium"
+              onClick={clearAll}
+            >
+              Clear all
+            </button>
+            <span className="ml-auto">
+              {selectedForDownload.size} of {entries.length} selected
+            </span>
+          </div>
+          <div className="overflow-y-auto flex-1 min-h-0 space-y-2 pr-1 -mr-1">
+            {entries.map((entry, index) => (
+              <label
+                key={entry.id ?? `entry-${index}`}
+                className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
+              >
+                <Checkbox
+                  checked={selectedForDownload.has(entry.id)}
+                  onCheckedChange={() => toggleSelected(entry.id)}
+                  onPointerDown={(e) => e.preventDefault()}
+                />
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium">{entry.vesselName}</span>
+                  <span className="text-muted-foreground text-sm block">
+                    {format(parse(entry.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – {format(parse(entry.endDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}
+                    {entry.vesselType && ` · ${entry.vesselType}`}
+                  </span>
+                </div>
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDownloadDialogOpen(false)}
+              disabled={downloadingSelected}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDownloadSelected}
+              disabled={noneSelected || downloadingSelected}
+            >
+              {downloadingSelected ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              Download PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

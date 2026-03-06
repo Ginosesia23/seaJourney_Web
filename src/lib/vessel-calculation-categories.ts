@@ -56,3 +56,39 @@ export function isAllDaysExceptLeaveCountAsSea(
 ): boolean {
   return category === 'commercial_class' || category === 'passenger_commercial_class';
 }
+
+/** Human-readable labels and descriptions for the dashboard/calculations page */
+export const VESSEL_CALCULATION_CATEGORY_LABELS: Record<
+  VesselCalculationCategory,
+  { label: string; shortDescription: string }
+> = {
+  yacht_class: {
+    label: 'Yacht class',
+    shortDescription: 'MCA/PYA rules: at sea, standby, yard and leave are calculated separately. Standby is limited by preceding voyage sea days.',
+  },
+  commercial_class: {
+    label: 'Commercial class',
+    shortDescription: 'All days onboard count as sea time except on-leave. No separate standby or yard breakdown.',
+  },
+  passenger_commercial_class: {
+    label: 'Passenger commercial class',
+    shortDescription: 'Same as commercial: all days onboard count as sea time except on-leave.',
+  },
+  fishing_class: {
+    label: 'Fishing class',
+    shortDescription: 'MCA-style rules: at sea, standby, yard and leave calculated as for yacht class.',
+  },
+  other_class: {
+    label: 'Other class',
+    shortDescription: 'MCA-style rules: at sea, standby, yard and leave calculated as for yacht class.',
+  },
+};
+
+/** Vessel types grouped by calculation category (for display on calculations page) */
+export const VESSEL_TYPES_BY_CATEGORY: Record<VesselCalculationCategory, readonly string[]> = {
+  yacht_class: YACHT_CLASS_TYPES,
+  commercial_class: COMMERCIAL_CLASS_TYPES,
+  passenger_commercial_class: PASSENGER_COMMERCIAL_CLASS_TYPES,
+  fishing_class: FISHING_CLASS_TYPES,
+  other_class: OTHER_CLASS_TYPES,
+};

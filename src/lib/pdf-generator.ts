@@ -379,6 +379,7 @@ function ensureSpace(
  * Load PNG logo image for PDF from public folder (cached + CORS-safe)
  */
 const __logoCache = new Map<string, string>();
+const __logoDimensionsCache = new Map<string, { width: number; height: number }>();
 
 function loadLogoImage(logoPath: string): Promise<string> {
   const cached = __logoCache.get(logoPath);
@@ -404,6 +405,10 @@ function loadLogoImage(logoPath: string): Promise<string> {
         const dataURL = canvas.toDataURL('image/png');
 
         __logoCache.set(logoPath, dataURL);
+        __logoDimensionsCache.set(logoPath, {
+          width: img.naturalWidth || img.width,
+          height: img.naturalHeight || img.height,
+        });
         resolve(dataURL);
       } catch (error) {
         reject(new Error(`Failed to convert image to data URL: ${error}`));
@@ -424,6 +429,17 @@ function loadLogoImage(logoPath: string): Promise<string> {
     if (img.complete) {
       img.onload(new Event('load') as any);
     }
+  });
+}
+
+/** Load logo and return data URL plus natural dimensions (for aspect-ratio–correct scaling in PDF). */
+function loadLogoImageWithDimensions(
+  logoPath: string
+): Promise<{ dataURL: string; width: number; height: number }> {
+  return loadLogoImage(logoPath).then((dataURL) => {
+    const dims = __logoDimensionsCache.get(logoPath);
+    if (dims) return { dataURL, ...dims };
+    return { dataURL, width: 1, height: 1 };
   });
 }
 
@@ -513,14 +529,16 @@ export async function generateTestimonialPDF(
   doc.line(0, headerHeight, pageWidth, headerHeight);
 
     let headerY = 12;
-  
+
   try {
-      const logoDataURL = await loadLogoImage('/seajourney_logo_white.png');
-    const logoWidth = 55;
-    const logoHeight = 15;
-    const logoX = (pageWidth - logoWidth) / 2;
-      doc.addImage(logoDataURL, 'PNG', logoX, headerY, logoWidth, logoHeight);
-      headerY += logoHeight + 8;
+      const { dataURL: logoData, width: imgW, height: imgH } = await loadLogoImageWithDimensions('/logo-seajourney.png');
+      const targetH = 9.5;
+      const aspect = imgW / imgH;
+      const logoH = targetH;
+      const logoW = aspect * targetH;
+      const logoX = (pageWidth - logoW) / 2;
+      doc.addImage(logoData, 'PNG', logoX, headerY, logoW, logoH);
+      headerY += logoH + 8;
   } catch (error) {
     console.error('Failed to load logo image:', error);
     doc.setFontSize(22);
@@ -1293,12 +1311,14 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
   let headerY = 12;
 
   try {
-    const logoDataURL = await loadLogoImage('/seajourney_logo_white.png');
-    const logoWidth = 55;
-    const logoHeight = 15;
-    const logoX = (pageWidth - logoWidth) / 2;
-    doc.addImage(logoDataURL, 'PNG', logoX, headerY, logoWidth, logoHeight);
-    headerY += logoHeight + 8;
+    const { dataURL: logoData, width: imgW, height: imgH } = await loadLogoImageWithDimensions('/logo-seajourney.png');
+    const targetH = 9.5;
+    const aspect = imgW / imgH;
+    const logoH = targetH;
+    const logoW = aspect * targetH;
+    const logoX = (pageWidth - logoW) / 2;
+    doc.addImage(logoData, 'PNG', logoX, headerY, logoW, logoH);
+    headerY += logoH + 8;
   } catch (error) {
     console.error('Failed to load logo image:', error);
     doc.setFontSize(22);
@@ -1553,222 +1573,305 @@ export async function generateProofOfServicePDF(
 ) {
   const entries: ProofOfServicePDFData[] = Array.isArray(data) ? data : [data];
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 7;
-  const boxPadding = 6;
-  const borderRadius = 2.5;
-  const textDark: [number, number, number] = [30, 30, 30];
-  const textMuted: [number, number, number] = [100, 100, 100];
-  const primaryBlue: [number, number, number] = [15, 23, 42];
-  const atSeaBlue: [number, number, number] = [37, 99, 235];
-  const standbyPurple: [number, number, number] = [126, 34, 206];
-  const boxBorder: [number, number, number] = [226, 232, 240];
-  const boxBg: [number, number, number] = [248, 250, 252];
-  const sectionLabelBg: [number, number, number] = [241, 245, 249];
-  const setTextColor = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
-  const setDrawColor = (c: [number, number, number]) => doc.setDrawColor(c[0], c[1], c[2]);
-  const setFillColor = (c: [number, number, number]) => doc.setFillColor(c[0], c[1], c[2]);
+  const margin = 10;
+  const contentWidth = pageWidth - margin * 2;
+
+  const colors = {
+    navy: [15, 23, 42] as [number, number, number],
+    blue: [37, 99, 235] as [number, number, number],
+    purple: [126, 34, 206] as [number, number, number],
+    text: [28, 28, 30] as [number, number, number],
+    muted: [107, 114, 128] as [number, number, number],
+    border: [226, 232, 240] as [number, number, number],
+    softBg: [248, 250, 252] as [number, number, number],
+    lightBlue: [239, 246, 255] as [number, number, number],
+    lightPurple: [245, 243, 255] as [number, number, number],
+    white: [255, 255, 255] as [number, number, number],
+    successBg: [240, 253, 244] as [number, number, number],
+    successText: [22, 101, 52] as [number, number, number],
+  };
+
+  const setText = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
+  const setDraw = (c: [number, number, number]) => doc.setDrawColor(c[0], c[1], c[2]);
+  const setFill = (c: [number, number, number]) => doc.setFillColor(c[0], c[1], c[2]);
   const safe = (s: string | null | undefined) => (s && String(s).trim()) || '—';
 
-  const headerHeight = 28;
-  doc.setFillColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
-  doc.rect(0, 0, pageWidth, headerHeight, 'F');
-  doc.setFontSize(18);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(255, 255, 255);
-  doc.text('Proof of Service', pageWidth / 2, 11, { align: 'center' });
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(226, 232, 240);
-  doc.text('Sea service record for use as supporting documentation', pageWidth / 2, 18, { align: 'center' });
-  doc.setFontSize(8);
-  doc.setTextColor(203, 213, 225);
-  doc.text(`Generated ${format(new Date(), 'dd MMM yyyy')}`, pageWidth / 2, 24, { align: 'center' });
-
-  let y = headerHeight + 12;
-  const contentWidth = pageWidth - 2 * margin;
-  const innerLeft = margin + boxPadding;
-  const innerRight = pageWidth - margin - boxPadding;
-  const colGap = 10;
-  const midX = margin + contentWidth / 2;
-  const leftColLeft = innerLeft;
-  const leftColRight = midX - colGap / 2;
-  const rightColLeft = midX + colGap / 2;
-  const rightColRight = innerRight;
-  const leftColWidth = leftColRight - leftColLeft;
-  const rightColWidth = rightColRight - rightColLeft;
-
-  for (let i = 0; i < entries.length; i++) {
-    const data = entries[i];
-    setTextColor(textDark);
-
-    // Measure pass: left and right column heights (sea time = two rows)
-    let measureLeft = y + boxPadding;
-    measureLeft += 6; measureLeft += 5; measureLeft += 5; measureLeft += 5;
-    if (data.vesselImo) measureLeft += 5;
-    measureLeft += 4;
-    measureLeft += 6; measureLeft += 5; measureLeft += 5; measureLeft += 5; measureLeft += 6;
-    const leftHeight = measureLeft - (y + boxPadding);
-    let measureRight = y + boxPadding;
-    measureRight += 6; // Sea time title
-    measureRight += 5; measureRight += 6; measureRight += 4; // table (label row + value row) + gap
-    if (data.notes) { measureRight += 4; measureRight += 6; }
-    measureRight += 4; measureRight += 3; measureRight += 4; measureRight += 5; // footer line + generated by
-    if (data.verificationCode) { measureRight += 5; measureRight += 4; measureRight += 4; measureRight += 5; measureRight += 5; }
-    const rightHeight = measureRight - (y + boxPadding);
-    const boxHeight = Math.max(leftHeight, rightHeight) + 2 * boxPadding;
-    const approxEntryHeight = boxHeight;
-
-    if (y + approxEntryHeight > pageHeight - 16) {
-      doc.addPage();
-      y = 10;
-    }
-
-    const boxTop = y;
-
-    // Draw box first so it sits behind the text
-    setDrawColor(boxBorder);
+  const drawRoundedRect = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    fillColor?: [number, number, number],
+    drawColor?: [number, number, number]
+  ) => {
+    if (fillColor) setFill(fillColor);
+    if (drawColor) setDraw(drawColor);
     doc.setLineWidth(0.25);
-    setFillColor(boxBg);
-    if (typeof (doc as unknown as { roundedRect?: unknown }).roundedRect === 'function') {
-      (doc as unknown as { roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, style: string) => void }).roundedRect(margin, boxTop, contentWidth, boxHeight, borderRadius, borderRadius, 'FD');
+
+    const hasRoundedRect = typeof (doc as unknown as { roundedRect?: unknown }).roundedRect === 'function';
+    if (hasRoundedRect) {
+      (doc as unknown as {
+        roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, style: string) => void;
+      }).roundedRect(x, y, w, h, 2.5, 2.5, fillColor ? 'FD' : 'S');
     } else {
-      doc.rect(margin, boxTop, contentWidth, boxHeight, 'FD');
+      doc.rect(x, y, w, h, fillColor ? 'FD' : 'S');
     }
+  };
 
-    // Vertical divider between columns
-    setDrawColor(boxBorder);
-    doc.setLineWidth(0.2);
-    doc.line(midX, boxTop + boxPadding, midX, boxTop + boxHeight - boxPadding);
-
-    let leftY = y + boxPadding;
-    let rightY = y + boxPadding;
-
-    // ---- LEFT COLUMN: Vessel ----
-    doc.setFontSize(10);
+  const drawSectionLabel = (label: string, x: number, y: number) => {
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
-    doc.text('Vessel', leftColLeft, leftY);
-    leftY += 6;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    setTextColor(textDark);
-    doc.text(`Name: ${safe(data.vesselName)}`, leftColLeft, leftY, { maxWidth: leftColWidth });
-    leftY += 5;
-    doc.text(`Type: ${safe(data.vesselType)}`, leftColLeft, leftY, { maxWidth: leftColWidth });
-    leftY += 5;
-    if (data.vesselImo) {
-      doc.text(`IMO / Official No.: ${safe(data.vesselImo)}`, leftColLeft, leftY, { maxWidth: leftColWidth });
-      leftY += 5;
-    }
-    leftY += 4;
+    doc.setFontSize(8);
+    setText(colors.muted);
+    doc.text(label.toUpperCase(), x, y);
+  };
 
-    // ---- LEFT COLUMN: Crew & period ----
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
-    doc.text('Crew member & period', leftColLeft, leftY);
-    leftY += 6;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    setTextColor(textDark);
-    doc.text(`Name: ${safe(data.crewName)}`, leftColLeft, leftY, { maxWidth: leftColWidth });
-    leftY += 5;
-    doc.text(`Position: ${safe(data.crewPosition)}`, leftColLeft, leftY, { maxWidth: leftColWidth });
-    leftY += 5;
-    const periodStr = `${format(parse(data.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – ${format(parse(data.endDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}`;
-    doc.text(`Period: ${periodStr}`, leftColLeft, leftY, { maxWidth: leftColWidth });
-    leftY += 6;
-
-    // ---- RIGHT COLUMN: Sea time breakdown (bordered grid, no background fill) ----
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
-    doc.text('Sea time breakdown', rightColLeft, rightY);
-    rightY += 6;
-    const tableTop = rightY;
-    const labelRowHeight = 5;
-    const valueRowHeight = 6;
-    const tableHeight = labelRowHeight + valueRowHeight;
-    const numCols = 5;
-    const cellW = rightColWidth / numCols;
-    setDrawColor(boxBorder);
-    doc.setLineWidth(0.2);
-    doc.rect(rightColLeft, tableTop, rightColWidth, tableHeight, 'S');
-    for (let c = 1; c < numCols; c++) {
-      doc.line(rightColLeft + c * cellW, tableTop, rightColLeft + c * cellW, tableTop + tableHeight);
-    }
-    doc.line(rightColLeft, tableTop + labelRowHeight, rightColRight, tableTop + labelRowHeight);
-    const labelY = tableTop + 3.5;
-    const valueY = tableTop + labelRowHeight + 4;
-    const pad = 2;
+  const drawField = (
+    label: string,
+    value: string,
+    x: number,
+    y: number,
+    width: number,
+    valueColor: [number, number, number] = colors.text
+  ) => {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    setTextColor(textMuted);
-    doc.text('Total days', rightColLeft + pad, labelY);
-    doc.text('At sea', rightColLeft + cellW + pad, labelY);
-    doc.text('Standby', rightColLeft + 2 * cellW + pad, labelY);
-    doc.text('Yard', rightColLeft + 3 * cellW + pad, labelY);
-    doc.text('Leave', rightColLeft + 4 * cellW + pad, labelY);
+    setText(colors.muted);
+    doc.text(label, x, y);
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    setTextColor(textDark);
-    doc.text(String(data.totalDays), rightColLeft + pad, valueY);
-    setTextColor(atSeaBlue);
-    doc.text(String(data.atSeaDays), rightColLeft + cellW + pad, valueY);
-    setTextColor(standbyPurple);
-    doc.text(String(data.standbyDays), rightColLeft + 2 * cellW + pad, valueY);
-    setTextColor(textDark);
-    doc.text(String(data.yardDays), rightColLeft + 3 * cellW + pad, valueY);
-    doc.text(String(data.leaveDays), rightColLeft + 4 * cellW + pad, valueY);
-    rightY = tableTop + tableHeight + 4;
+    setText(valueColor);
 
-    if (data.notes) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      setTextColor(textMuted);
-      doc.text('Notes', rightColLeft, rightY);
-      rightY += 4;
-      doc.setFontSize(9);
-      setTextColor(textDark);
-      doc.text(safe(data.notes), rightColLeft, rightY, { maxWidth: rightColWidth });
-      rightY += 6;
-    }
+    const lines = doc.splitTextToSize(value, width);
+    doc.text(lines, x, y + 4.5);
 
-    // ---- RIGHT COLUMN: Footer ----
-    rightY += 4;
-    setDrawColor(boxBorder);
-    doc.setLineWidth(0.15);
-    doc.line(rightColLeft, rightY, rightColRight, rightY);
-    rightY += 4;
-    doc.setFontSize(7);
-    setTextColor(textMuted);
-    doc.text(`Generated by ${safe(data.generatedByName)}${data.generatedByEmail ? ` (${data.generatedByEmail})` : ''}`, rightColLeft, rightY, { maxWidth: rightColWidth });
-    if (data.verificationCode) {
-      const displayCode = data.verificationCode?.startsWith('POS-') ? data.verificationCode : `POS-${(data.verificationCode || '').replace(/^POS-/, '').substring(0, 8)}`;
-      rightY += 5;
-      setDrawColor(boxBorder);
-      doc.setLineWidth(0.2);
-      doc.line(rightColLeft, rightY, rightColRight, rightY);
-      rightY += 4;
-      doc.setFontSize(8);
-      setTextColor(textMuted);
-      doc.text('Verify at www.seajourney.co.uk/verify', rightColLeft, rightY);
-      rightY += 5;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
-      doc.text(`Reference code: ${displayCode}`, rightColLeft, rightY);
-    }
+    return y + 4.5 + lines.length * 4.2;
+  };
 
-    y = boxTop + boxHeight + 8;
+  const drawMetricCard = (
+    label: string,
+    value: string,
+    x: number,
+    y: number,
+    w: number,
+    bg: [number, number, number],
+    valueColor: [number, number, number]
+  ) => {
+    drawRoundedRect(x, y, w, 17, bg, colors.border);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    setText(colors.muted);
+    doc.text(label, x + 3, y + 5);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    setText(valueColor);
+    doc.text(value, x + 3, y + 12);
+  };
+
+  const drawHeader = async (title: string, subtitle: string) => {
+    const headerHeight = 34;
+    setFill(colors.navy);
+    doc.rect(0, 0, pageWidth, headerHeight, 'F');
+
+    try {
+      const { dataURL: logoData, width: imgW, height: imgH } = await loadLogoImageWithDimensions('/logo-seajourney.png');
+      const targetH = 8;
+      const aspect = imgW / imgH;
+      const logoH = targetH;
+      const logoW = aspect * targetH;
+      const logoX = margin;
+      const logoY = (headerHeight - logoH) / 2;
+      doc.addImage(logoData, 'PNG', logoX, logoY, logoW, logoH);
+    } catch {}
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(19);
+    doc.setTextColor(255, 255, 255);
+    doc.text(title, pageWidth - margin, 14, { align: 'right' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(203, 213, 225);
+    doc.text(subtitle, pageWidth - margin, 20, { align: 'right' });
+  };
+
+  const drawFooter = (
+    pageNumber: number,
+    totalPages: number,
+    generatedByName?: string,
+    generatedByEmail?: string,
+    leftText?: string
+  ) => {
+    const footerY = pageHeight - 10;
+    setDraw(colors.border);
+    doc.setLineWidth(0.2);
+    doc.line(margin, footerY - 4, pageWidth - margin, footerY - 4);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    setText(colors.muted);
+    const left =
+      leftText !== undefined
+        ? leftText
+        : `Generated by ${safe(generatedByName)}${generatedByEmail ? ` (${generatedByEmail})` : ''}`;
+    doc.text(left, margin, footerY);
+    doc.text(`SeaJourney • Page ${pageNumber} of ${totalPages}`, pageWidth - margin, footerY, {
+      align: 'right',
+    });
+  };
+
+  const drawSummaryPage = async () => {
+    const first = entries[0];
+    const totalDays = entries.reduce((sum, e) => sum + (e.totalDays || 0), 0);
+    const totalAtSea = entries.reduce((sum, e) => sum + (e.atSeaDays || 0), 0);
+    const totalStandby = entries.reduce((sum, e) => sum + (e.standbyDays || 0), 0);
+    const totalYard = entries.reduce((sum, e) => sum + (e.yardDays || 0), 0);
+    const totalAtAnchor = entries.reduce((sum, e) => sum + (e.leaveDays || 0), 0);
+
+    await drawHeader('Proof of Service', 'Crew service summary');
+
+    let y = 46;
+
+    drawRoundedRect(margin, y, contentWidth, 32, colors.white, colors.border);
+    drawSectionLabel('Crew member summary', margin + 4, y + 6);
+
+    let sy = y + 12;
+    sy = drawField('Name', safe(first.crewName), margin + 4, sy, 80);
+    drawField('Position', safe(first.crewPosition), margin + 100, y + 12, 80);
+    drawField('Entries included', String(entries.length), margin + 4, sy + 4, 80);
+    drawField('Generated', format(new Date(), 'dd MMM yyyy'), margin + 100, y + 21, 80);
+
+    y += 42;
+
+    drawSectionLabel('Combined totals', margin, y);
+    y += 3;
+
+    const gap = 4;
+    const metricW = (contentWidth - gap * 4) / 5;
+    drawMetricCard('Total days', String(totalDays), margin, y, metricW, colors.softBg, colors.navy);
+    drawMetricCard('At sea', String(totalAtSea), margin + (metricW + gap) * 1, y, metricW, colors.lightBlue, colors.blue);
+    drawMetricCard('Standby', String(totalStandby), margin + (metricW + gap) * 2, y, metricW, colors.lightPurple, colors.purple);
+    drawMetricCard('Yard', String(totalYard), margin + (metricW + gap) * 3, y, metricW, colors.softBg, colors.text);
+    drawMetricCard('At anchor', String(totalAtAnchor), margin + (metricW + gap) * 4, y, metricW, colors.softBg, colors.text);
+
+    y += 28;
+
+    drawRoundedRect(margin, y, contentWidth, 28, colors.softBg, colors.border);
+    drawSectionLabel('Document purpose', margin + 4, y + 6);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    setText(colors.text);
+    doc.text(
+      doc.splitTextToSize(
+        'This document contains individual proof of service records for the crew member listed above. Each following page represents one vessel entry and its associated service period.',
+        contentWidth - 8
+      ),
+      margin + 4,
+      y + 13
+    );
+  };
+
+  const drawEntryPage = async (entry: ProofOfServicePDFData, pageNumber: number, totalPages: number) => {
+    await drawHeader('Proof of Service Record', 'Individual vessel service entry');
+
+    const displayCode = entry.verificationCode
+      ? entry.verificationCode.startsWith('POS-')
+        ? entry.verificationCode
+        : `POS-${entry.verificationCode.replace(/^POS-/, '').substring(0, 8)}`
+      : 'Not assigned';
+
+    const periodStr = `${format(parse(entry.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – ${format(
+      parse(entry.endDate, 'yyyy-MM-dd', new Date()),
+      'dd MMM yyyy'
+    )}`;
+
+    let y = 42;
+    const gap = 6;
+    const halfW = (contentWidth - gap) / 2;
+
+    drawRoundedRect(margin, y, halfW, 40, colors.white, colors.border);
+    drawSectionLabel('Vessel details', margin + 4, y + 6);
+    let ly = y + 12;
+    ly = drawField('Vessel name', safe(entry.vesselName), margin + 4, ly, halfW - 8);
+    ly = drawField('Vessel type', safe(entry.vesselType), margin + 4, ly + 2, halfW - 8);
+    drawField('IMO / Official No.', safe(entry.vesselImo), margin + 4, ly + 2, halfW - 8);
+
+    drawRoundedRect(margin + halfW + gap, y, halfW, 40, colors.white, colors.border);
+    drawSectionLabel('Crew & service period', margin + halfW + gap + 4, y + 6);
+    let ry = y + 12;
+    ry = drawField('Crew name', safe(entry.crewName), margin + halfW + gap + 4, ry, halfW - 8);
+    ry = drawField('Position', safe(entry.crewPosition), margin + halfW + gap + 4, ry + 2, halfW - 8);
+    drawField('Service period', periodStr, margin + halfW + gap + 4, ry + 2, halfW - 8);
+
+    y += 48;
+
+    drawSectionLabel('Sea time breakdown', margin, y);
+    y += 3;
+
+    const metricGap = 4;
+    const metricW = (contentWidth - metricGap * 4) / 5;
+
+    drawMetricCard('Total days', String(entry.totalDays), margin, y, metricW, colors.softBg, colors.navy);
+    drawMetricCard('At sea', String(entry.atSeaDays), margin + (metricW + metricGap) * 1, y, metricW, colors.lightBlue, colors.blue);
+    drawMetricCard('Standby', String(entry.standbyDays), margin + (metricW + metricGap) * 2, y, metricW, colors.lightPurple, colors.purple);
+    drawMetricCard('Yard', String(entry.yardDays), margin + (metricW + metricGap) * 3, y, metricW, colors.softBg, colors.text);
+    drawMetricCard('At anchor', String(entry.leaveDays), margin + (metricW + metricGap) * 4, y, metricW, colors.softBg, colors.text);
+
+    y += 24;
+
+    drawRoundedRect(margin, y, contentWidth, 32, colors.white, colors.border);
+    drawSectionLabel('Verification', margin + 4, y + 6);
+
+    drawRoundedRect(margin + 4, y + 10, 34, 10, colors.successBg, colors.successBg);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    setText(colors.successText);
+    doc.text('SEAJOURNEY ID', margin + 21, y + 16.3, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    setText(colors.muted);
+    doc.text('Verify this record at', margin + 44, y + 14);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    setText(colors.navy);
+    doc.text('www.seajourney.co.uk/verify', margin + 44, y + 20);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    setText(colors.muted);
+    doc.text('Reference code', margin + 132, y + 14);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    setText(colors.navy);
+    doc.text(displayCode, margin + 132, y + 20);
+
+    drawFooter(pageNumber, totalPages, entry.generatedByName, entry.generatedByEmail);
+  };
+
+  const totalPages = 1 + entries.length;
+
+  await drawSummaryPage();
+  drawFooter(1, totalPages, undefined, undefined, 'www.seajourney.co.uk/verify');
+
+  for (let i = 0; i < entries.length; i++) {
+    doc.addPage();
+    await drawEntryPage(entries[i], i + 2, totalPages);
   }
 
   const first = entries[0];
-  const filename = entries.length === 1
-    ? `Proof of Service ${safe(first.vesselName)} ${first.startDate} to ${first.endDate}.pdf`
-    : `Proof of Service ${entries.length} entries.pdf`;
+  const filename =
+    entries.length === 1
+      ? `Proof of Service ${safe(first.vesselName)} ${first.startDate} to ${first.endDate}.pdf`
+      : `Proof of Service ${safe(first.crewName)} ${entries.length} entries.pdf`;
+
   if (output === 'blob') return doc.output('blob');
   if (output === 'newtab') {
     doc.output('dataurlnewwindow');

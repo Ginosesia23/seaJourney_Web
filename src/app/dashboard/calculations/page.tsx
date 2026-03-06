@@ -3,7 +3,24 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Calculator, FileText, BookOpen, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Calculator, FileText, BookOpen, CheckCircle2, AlertCircle, Ship } from 'lucide-react';
+import {
+  VESSEL_CALCULATION_CATEGORY_LABELS,
+  VESSEL_TYPES_BY_CATEGORY,
+  type VesselCalculationCategory,
+} from '@/lib/vessel-calculation-categories';
+import { vesselTypes } from '@/lib/vessel-types';
+
+const vesselTypeToLabel: Record<string, string> = {};
+vesselTypes.forEach(({ value, label }) => { vesselTypeToLabel[value] = label; });
+
+const CATEGORY_ORDER: VesselCalculationCategory[] = [
+  'yacht_class',
+  'commercial_class',
+  'passenger_commercial_class',
+  'fishing_class',
+  'other_class',
+];
 
 export default function CalculationsPage() {
   return (
@@ -45,14 +62,61 @@ export default function CalculationsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
+            <Ship className="h-5 w-5" />
+            Vessel class categories
+          </CardTitle>
+          <CardDescription>
+            The vessel type you set for each vessel determines which calculation rules apply
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Sea time is calculated differently depending on your vessel&apos;s type. Each vessel type belongs to a calculation category; the category controls whether we use MCA/PYA-style rules (at sea, standby, yard, leave) or commercial rules (all days except leave count as sea time).
+          </p>
+          <div className="space-y-4">
+            {CATEGORY_ORDER.map((category) => {
+              const { label, shortDescription } = VESSEL_CALCULATION_CATEGORY_LABELS[category];
+              const types = VESSEL_TYPES_BY_CATEGORY[category];
+              const typeLabels = types.map((v) => vesselTypeToLabel[v] ?? v).join(', ');
+              return (
+                <div key={category} className="rounded-lg border p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="font-medium">
+                      {label}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {shortDescription}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Vessel types:</span> {typeLabels}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          <div className="bg-muted/50 p-4 rounded-lg">
+            <p className="text-sm text-muted-foreground">
+              When you add or edit a vessel, set its type from the list above. Your sea time and standby for that vessel will then use the rules for its category. You can see which category applies on your dashboard and in your vessel history.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
             At Sea Days
           </CardTitle>
+          <CardDescription>
+            What counts as &quot;at sea&quot; depends on your vessel&apos;s class category (see above)
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-3">
             <div>
-              <h3 className="font-semibold mb-2">Days Counted as "At Sea":</h3>
+              <h3 className="font-semibold mb-2">Yacht, fishing and other class (MCA/PYA-style):</h3>
               <ul className="space-y-2 text-sm">
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
@@ -60,13 +124,19 @@ export default function CalculationsPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                  <span><strong>Watch days:</strong> Days when you were on watch duty (officers only) - these count as "at sea" even if the vessel was at anchor</span>
+                  <span><strong>Watch days:</strong> Days when you were on watch duty (officers only) — these count as &quot;at sea&quot; even if the vessel was at anchor</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                  <span><strong>Part of active passage:</strong> Days you've marked as part of an active passage, regardless of vessel state</span>
+                  <span><strong>Part of active passage:</strong> Days you&apos;ve marked as part of an active passage, regardless of vessel state</span>
                 </li>
               </ul>
+            </div>
+            <div>
+              <h3 className="font-semibold mb-2">Commercial and passenger commercial class:</h3>
+              <p className="text-sm text-muted-foreground">
+                All days onboard count as sea time except days on leave. There is no separate standby or yard breakdown; in-port and at-anchor days are included in sea time.
+              </p>
             </div>
           </div>
         </CardContent>
@@ -78,11 +148,14 @@ export default function CalculationsPage() {
             <BookOpen className="h-5 w-5" />
             Standby Days
           </CardTitle>
+          <CardDescription>
+            Applies to yacht, fishing and other class vessels; commercial and passenger commercial do not use standby
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Standby days are calculated using MCA/PYA compliant calculation methods and represent time spent in port or at anchor that may count towards sea service requirements.
+              For yacht, fishing and other class vessels, standby days are calculated using MCA/PYA compliant calculation methods and represent time spent in port or at anchor that may count towards sea service requirements. Commercial and passenger commercial vessels do not have a separate standby count (all non-leave days count as sea time).
             </p>
             
             <div>
@@ -171,7 +244,10 @@ export default function CalculationsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Example Calculation</CardTitle>
+          <CardTitle>Example Calculation (yacht class)</CardTitle>
+          <CardDescription>
+            MCA/PYA-style voyage and standby rules
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-3 text-sm">

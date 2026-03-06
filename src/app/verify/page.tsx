@@ -1,18 +1,27 @@
 'use client';
 
-import { useState, useRef, KeyboardEvent, ChangeEvent } from 'react';
+import { useState, useRef, useMemo, KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search, FileText, ShieldCheck, AlertCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import LogoOnboarding from '@/components/logo-onboarding';
+import { createPublicSupabaseClient } from '@/lib/supabase-public';
+
+type CodeType = 'sj' | 'pos';
 
 export default function VerificationPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [codeType, setCodeType] = useState<CodeType>('sj');
   const [code, setCode] = useState<string[]>(['', '', '', '', '', '', '', '']);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const router = useRouter();
+  const supabase = useMemo(() => createPublicSupabaseClient(), []);
+
+  const prefix = codeType === 'sj' ? 'SJ-' : 'POS-';
 
   const handleInputChange = (index: number, value: string) => {
     // Only allow alphanumeric characters
@@ -28,7 +37,8 @@ export default function VerificationPage() {
         }
       });
       setCode(newCode);
-      
+      if (notFound) setNotFound(false);
+
       // Focus the next empty input or the last one
       const nextEmptyIndex = newCode.findIndex((c, i) => i >= index && c === '');
       const focusIndex = nextEmptyIndex !== -1 ? nextEmptyIndex : Math.min(index + chars.length, 7);
@@ -40,7 +50,8 @@ export default function VerificationPage() {
       const newCode = [...code];
       newCode[index] = cleanedValue;
       setCode(newCode);
-      
+      if (notFound) setNotFound(false);
+
       // Auto-advance to next input if a character was entered
       if (cleanedValue && index < 7) {
         inputRefs.current[index + 1]?.focus();
@@ -63,7 +74,15 @@ export default function VerificationPage() {
     e.preventDefault();
     const pastedText = e.clipboardData.getData('text').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (pastedText.length > 0) {
-      const chars = pastedText.split('').slice(0, 8);
+      let codePart: string;
+      if (pastedText.startsWith('POS') && pastedText.length >= 11) {
+        codePart = pastedText.slice(3, 11);
+      } else if (pastedText.startsWith('SJ') && pastedText.length >= 10) {
+        codePart = pastedText.slice(2, 10);
+      } else {
+        codePart = pastedText.slice(0, 8);
+      }
+      const chars = codePart.split('').slice(0, 8);
       const newCode = [...code];
       chars.forEach((char, i) => {
         if (i < 8) {
@@ -71,7 +90,8 @@ export default function VerificationPage() {
         }
       });
       setCode(newCode);
-      
+      if (notFound) setNotFound(false);
+
       // Focus the next empty input or the last one
       const nextEmptyIndex = newCode.findIndex((c) => c === '');
       const focusIndex = nextEmptyIndex !== -1 ? nextEmptyIndex : 7;
@@ -83,29 +103,40 @@ export default function VerificationPage() {
 
   const handleVerification = async () => {
     const fullCode = code.join('').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    
-    console.log('[VERIFY PAGE] Full code:', fullCode);
-    console.log('[VERIFY PAGE] Code length:', fullCode.length);
-    
-    if (fullCode.length !== 8) {
-      console.error('[VERIFY PAGE] Code is not 8 characters:', fullCode);
-      setIsLoading(false);
-      return;
-    }
+    if (fullCode.length !== 8) return;
 
     setIsLoading(true);
+    setNotFound(false);
 
     try {
-      // Clean and encode the code for URL
-      const codeParam = encodeURIComponent(fullCode);
-      const url = `/verify/result?code=${codeParam}`;
-      
-      console.log('[VERIFY PAGE] Redirecting to:', url);
-      
-      // Use replace instead of push to avoid back button issues on mobile
-      router.replace(url);
+      const codeWithPrefix = prefix + fullCode;
+      const codeParam = encodeURIComponent(codeWithPrefix);
+      const typeParam = codeType === 'sj' ? 'sj' : 'pos';
+
+      if (codeType === 'pos') {
+        const res = await fetch(`/api/verify/proof-of-service?code=${encodeURIComponent(codeWithPrefix)}`);
+        const json = res.ok ? await res.json() : {};
+        if (json.found && json.record) {
+          router.replace(`/verify/result?code=${codeParam}&type=${typeParam}`);
+          return;
+        }
+      } else {
+        const { data } = await supabase
+          .from('approved_testimonials')
+          .select('id')
+          .eq('testimonial_code', codeWithPrefix)
+          .maybeSingle();
+        if (data) {
+          router.replace(`/verify/result?code=${codeParam}&type=${typeParam}`);
+          return;
+        }
+      }
+
+      setNotFound(true);
     } catch (e) {
       console.error('[VERIFY PAGE] Verification failed:', e);
+      setNotFound(true);
+    } finally {
       setIsLoading(false);
     }
   };
@@ -122,7 +153,7 @@ export default function VerificationPage() {
         <div className="absolute -top-px -right-px h-3 w-3 sm:h-4 sm:w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
         <div className="absolute -bottom-px -left-px h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
         <div className="absolute -bottom-px -right-px h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
-        
+
         <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
           <CardHeader className="text-center px-4 sm:px-6 pt-6 pb-4">
             <div className="mx-auto flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-full bg-primary/10">
@@ -130,18 +161,60 @@ export default function VerificationPage() {
             </div>
             <CardTitle className="mt-3 sm:mt-4 font-headline text-2xl sm:text-3xl">Sea Time Verification</CardTitle>
             <CardDescription className="mt-2 text-sm sm:text-lg text-muted-foreground px-2">
-              Enter the document verification code from the PDF to verify the record's authenticity.
+              Enter the verification code from the PDF to verify a testimonial or Proof of Service record.
             </CardDescription>
           </CardHeader>
           <CardContent className="px-4 sm:px-6 pb-6">
             <div className="space-y-4 sm:space-y-6">
+              {notFound && (
+                <Alert variant="destructive" className="py-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Code not found. Try switching to the other document type (SJ or POS) above and verify again.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Document type toggle - pill style, centered */}
+              <div className="space-y-2 flex flex-col items-center">
+                <label className="text-xs sm:text-sm font-semibold text-muted-foreground block">
+                  Document type
+                </label>
+                <div className="flex p-0.5 rounded-full bg-muted/80 border border-border/60 w-full max-w-[10rem]">
+                  <button
+                    type="button"
+                    onClick={() => { setCodeType('sj'); setNotFound(false); }}
+                    className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-1.5 px-3 text-xs font-medium transition-colors rounded-l-full rounded-r-md outline-none focus:ring-0 focus-visible:ring-0 ${
+                      codeType === 'sj'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span>SJ</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setCodeType('pos'); setNotFound(false); }}
+                    className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-1.5 px-3 text-xs font-medium transition-colors rounded-r-full rounded-l-md outline-none focus:ring-0 focus-visible:ring-0 ${
+                      codeType === 'pos'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+                    <span>POS</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Code Input */}
               <div className="space-y-2 sm:space-y-3">
                 <label className="text-xs sm:text-sm font-semibold text-muted-foreground text-center block">
-                  Document Verification Code
+                  Verification code
                 </label>
                 <div className="flex items-center justify-center gap-1 sm:gap-2 flex-wrap">
-                  <span className="text-xl sm:text-2xl font-bold text-primary">SJ-</span>
+                  <span className="text-xl sm:text-2xl font-bold text-primary">{prefix}</span>
                   <div className="flex gap-1 sm:gap-2">
                     {code.map((char, index) => (
                       <input
@@ -167,7 +240,7 @@ export default function VerificationPage() {
                   </div>
                 </div>
                 <p className="text-[10px] sm:text-xs text-muted-foreground text-center mt-1 sm:mt-2 px-2">
-                  Enter the 8-character code from the PDF footer
+                  Enter the 8-character code from the PDF (after {prefix})
                 </p>
               </div>
 
