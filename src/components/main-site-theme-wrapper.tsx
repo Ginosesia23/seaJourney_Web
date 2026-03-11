@@ -11,25 +11,25 @@ import { useTheme } from 'next-themes';
 export function MainSiteThemeWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { setTheme } = useTheme();
-  const isDashboardRoute = pathname?.startsWith('/dashboard') || pathname === '/offers';
+  const isDashboardRoute = pathname?.startsWith('/dashboard');
+  const isOffersRoute = pathname === '/offers';
   const isRoadmapRoute = pathname === '/roadmap';
+  const isDarkRoute = isOffersRoute || isRoadmapRoute;
 
   useEffect(() => {
     // Force light mode on main site (non-dashboard) pages
-    // Exclude roadmap page which should maintain dark mode
-    // Only apply this on the client side after mount
-    if (typeof window !== 'undefined' && !isDashboardRoute && !isRoadmapRoute) {
-      // Force light mode for main site pages
-      document.documentElement.classList.add('light');
-      document.documentElement.classList.remove('dark');
-      setTheme('light');
-    } else if (typeof window !== 'undefined' && isRoadmapRoute) {
-      // Force dark mode for roadmap page to maintain its appearance
+    // Force dark on offers and roadmap so they match dashboard / app experience
+    if (typeof window === 'undefined') return;
+    if (isDarkRoute) {
       document.documentElement.classList.add('dark');
       document.documentElement.classList.remove('light');
       setTheme('dark');
+    } else if (!isDashboardRoute) {
+      document.documentElement.classList.add('light');
+      document.documentElement.classList.remove('dark');
+      setTheme('light');
     }
-  }, [pathname, isDashboardRoute, isRoadmapRoute, setTheme]);
+  }, [pathname, isDashboardRoute, isOffersRoute, isRoadmapRoute, isDarkRoute, setTheme]);
 
   return <>{children}</>;
 }

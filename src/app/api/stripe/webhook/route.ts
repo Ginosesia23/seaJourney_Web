@@ -435,6 +435,7 @@ export async function POST(req: NextRequest) {
             stripe_customer_id: customerId,
             stripe_subscription_id: subscriptionId,
             subscription_tier: tier,
+            subscription_status: "active",
           })
           .eq("id", userId)
           .select("id, email, role, active_vessel_id, stripe_customer_id, stripe_subscription_id, subscription_tier");
@@ -446,6 +447,23 @@ export async function POST(req: NextRequest) {
           
           // Ensure vessel accounts have their active_vessel_id set
           await ensureVesselActiveVesselId(userId);
+
+          // Send "subscription created" welcome email for new subscribers (idempotency by subscription id so we don't duplicate with customer.subscription.created)
+          const userRow = Array.isArray(updated) ? updated[0] : updated;
+          const toEmail = userRow?.email;
+          if (subscriptionId && toEmail) {
+            const createdEmailEventId = `sub_created_evt_${subscriptionId}`;
+            if (!(await emailAlreadySent(createdEmailEventId))) {
+              await sendSubscriptionEmail({
+                eventId: createdEmailEventId,
+                emailType: "subscription.created",
+                toEmail,
+                userId,
+                tier,
+                eventType: "created",
+              });
+            }
+          }
         }
 
         break;
@@ -464,10 +482,11 @@ export async function POST(req: NextRequest) {
 
         const syncResult = await syncUserFromSubscription(full as StripeType.Subscription);
 
-        // Send welcome email for new subscription
-        if (syncResult?.after?.email) {
+        // Send welcome email for new subscription (use same idempotency key as checkout.session.completed so we only send once)
+        const createdEmailEventId = `sub_created_evt_${partial.id}`;
+        if (syncResult?.after?.email && !(await emailAlreadySent(createdEmailEventId))) {
           await sendSubscriptionEmail({
-            eventId: event.id,
+            eventId: createdEmailEventId,
             emailType: "subscription.created",
             toEmail: syncResult.after.email,
             userId: syncResult.userId,

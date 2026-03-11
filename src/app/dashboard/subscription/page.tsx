@@ -1099,8 +1099,8 @@ export default function ManageSubscriptionPage() {
                     isHighlighted
                       ? 'bg-purple-50/80 dark:bg-purple-950/20'
                       : plan.color === 'blue'
-                      ? 'bg-white dark:bg-[rgba(2,22,44,0.6)]'
-                      : 'bg-white dark:bg-[rgba(2,22,44,0.6)]'
+                      ? 'bg-slate-50 dark:bg-[rgba(2,22,44,0.6)]'
+                      : 'bg-slate-50 dark:bg-[rgba(2,22,44,0.6)]'
                   } ${
                     plan.color === 'blue'
                       ? 'shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30'

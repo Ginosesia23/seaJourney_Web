@@ -690,7 +690,7 @@ export default function OffersPage() {
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: 0 }}
               >
-                <Card className="flex flex-col rounded-2xl border border-blue-500/30 ring-1 ring-blue-500/20 dark:border-blue-500/30 dark:ring-blue-500/20 transition-all duration-300 hover:scale-105 bg-white dark:bg-[rgba(2,22,44,0.6)] shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30 backdrop-blur-sm dark:backdrop-blur-[20px]">
+                <Card className="flex flex-col rounded-2xl border border-blue-500/30 ring-1 ring-blue-500/20 dark:border-blue-500/30 dark:ring-blue-500/20 transition-all duration-300 hover:scale-105 bg-slate-50 dark:bg-[rgba(2,22,44,0.6)] shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30 backdrop-blur-sm dark:backdrop-blur-[20px]">
                   <CardHeader className="flex-grow pb-6">
                     <div className="flex items-center gap-3 mb-4">
                       <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-100 dark:bg-blue-500/20">
@@ -767,8 +767,8 @@ export default function OffersPage() {
                         isHighlighted || plan.color === 'purple'
                           ? 'bg-purple-50/80 dark:bg-purple-950/20'
                           : plan.color === 'blue'
-                          ? 'bg-white dark:bg-[rgba(2,22,44,0.6)]'
-                          : 'bg-white dark:bg-[rgba(2,22,44,0.6)]'
+                          ? 'bg-slate-50 dark:bg-[rgba(2,22,44,0.6)]'
+                          : 'bg-slate-50 dark:bg-[rgba(2,22,44,0.6)]'
                       } ${
                         plan.color === 'blue'
                           ? 'shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30'

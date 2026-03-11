@@ -149,7 +149,7 @@ const VerificationCTA = () => {
                           {['9', '8', '2', 'F', '8', '4', '8', '4'].map((char, index) => (
                             <div
                               key={index}
-                              className="w-8 h-10 sm:w-10 sm:h-12 md:w-12 md:h-14 rounded-lg border-2 flex items-center justify-center text-base sm:text-lg md:text-xl font-bold uppercase bg-background/50 border-green-500/30 text-white shrink-0"
+                              className="w-8 h-10 sm:w-10 sm:h-12 md:w-12 md:h-14 rounded-lg border-2 flex items-center justify-center text-base sm:text-lg md:text-xl font-bold uppercase border-green-500/30 text-white shrink-0"
                             >
                               {char}
                             </div>

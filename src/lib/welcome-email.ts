@@ -33,8 +33,8 @@ export async function sendWelcomeEmail(args: { to: string; firstName?: string | 
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
           <tr>
             <td style="background-color:${EMAIL_PRIMARY_BLUE};padding:32px 24px;text-align:center;">
-              <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:600;">Welcome to SeaJourney</h1>
-              <p style="margin:8px 0 0;color:rgba(255,255,255,0.9);font-size:14px;">Your digital sea-service logbook for yacht crew</p>
+              <img src="${SITE_URL}/logo-seajourney.png" alt="SeaJourney" width="200" style="display:block;margin:0 auto;max-width:200px;height:auto;border:0;" />
+              <p style="margin:12px 0 0;color:rgba(255,255,255,0.9);font-size:14px;">Your digital sea-service logbook for yacht crew</p>
             </td>
           </tr>
           <tr>

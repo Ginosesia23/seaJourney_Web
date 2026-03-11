@@ -13,6 +13,7 @@ import VerificationCTA from '@/components/sections/verification-cta';
 import OfficialForms from '@/components/sections/official-forms';
 import AISImportPromo from '@/components/sections/ais-import-promo';
 import CertificateTracking from '@/components/sections/certificate-tracking';
+import WatchFeatureComingSoon from '@/components/sections/watch-feature-coming-soon';
 import { AuthRecoveryHandler } from '@/components/auth-recovery-handler';
 
 export default function Home() {
@@ -26,10 +27,14 @@ export default function Home() {
         <Features />
         <OfficialForms />
         <CertificateTracking />
+        <WatchFeatureComingSoon />
         <AISImportPromo />
         <VerificationCTA />
         {/* <Testimonials /> */}
-        <MembershipCTA />
+        {/* Force dark mode for offers so they never appear with a light background */}
+        <div className="dark" style={{ backgroundColor: '#000b15' }}>
+          <MembershipCTA />
+        </div>
         <div className="border-t border-white/10" style={{ backgroundColor: '#000b15' }}>
         <AndroidTesterSignup />
         </div>

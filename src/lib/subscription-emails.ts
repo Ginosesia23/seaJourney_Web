@@ -52,8 +52,8 @@ export async function sendSubscriptionEmail(args: {
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
             <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
-              <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
-              <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Welcome to your ${tierName} subscription</p>
+              <img src="${SITE_URL}/logo-seajourney.png" alt="SeaJourney" width="200" style="display:block;margin:0 auto;max-width:200px;height:auto;border:0;" />
+              <p style="margin:12px 0 0;font-size:12px;opacity:0.85;">Welcome to your ${tierName} subscription</p>
             </td>
           </tr>
           <tr>
@@ -120,8 +120,8 @@ export async function sendSubscriptionEmail(args: {
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
             <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
-              <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
-              <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Subscription upgraded</p>
+              <img src="${SITE_URL}/logo-seajourney.png" alt="SeaJourney" width="200" style="display:block;margin:0 auto;max-width:200px;height:auto;border:0;" />
+              <p style="margin:12px 0 0;font-size:12px;opacity:0.85;">Subscription upgraded</p>
             </td>
           </tr>
           <tr>
@@ -203,8 +203,8 @@ export async function sendSubscriptionEmail(args: {
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
             <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
-              <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
-              <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Subscription change scheduled</p>
+              <img src="${SITE_URL}/logo-seajourney.png" alt="SeaJourney" width="200" style="display:block;margin:0 auto;max-width:200px;height:auto;border:0;" />
+              <p style="margin:12px 0 0;font-size:12px;opacity:0.85;">Subscription change scheduled</p>
             </td>
           </tr>
           <tr>
@@ -279,8 +279,8 @@ export async function sendSubscriptionEmail(args: {
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
             <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
-              <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
-              <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Subscription cancelled</p>
+              <img src="${SITE_URL}/logo-seajourney.png" alt="SeaJourney" width="200" style="display:block;margin:0 auto;max-width:200px;height:auto;border:0;" />
+              <p style="margin:12px 0 0;font-size:12px;opacity:0.85;">Subscription cancelled</p>
             </td>
           </tr>
           <tr>
@@ -352,8 +352,8 @@ export async function sendSubscriptionEmail(args: {
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
             <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
-              <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
-              <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Subscription reactivated</p>
+              <img src="${SITE_URL}/logo-seajourney.png" alt="SeaJourney" width="200" style="display:block;margin:0 auto;max-width:200px;height:auto;border:0;" />
+              <p style="margin:12px 0 0;font-size:12px;opacity:0.85;">Subscription reactivated</p>
             </td>
           </tr>
           <tr>
@@ -420,8 +420,8 @@ export async function sendSubscriptionEmail(args: {
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #dde4f0;">
           <tr>
             <td bgcolor="${EMAIL_PRIMARY_BLUE}" style="padding:24px 24px 18px;color:#ffffff;text-align:center;">
-              <h1 style="margin:0;font-size:20px;font-weight:700;">SeaJourney</h1>
-              <p style="margin:4px 0 0;font-size:12px;opacity:0.85;">Subscription updated</p>
+              <img src="${SITE_URL}/logo-seajourney.png" alt="SeaJourney" width="200" style="display:block;margin:0 auto;max-width:200px;height:auto;border:0;" />
+              <p style="margin:12px 0 0;font-size:12px;opacity:0.85;">Subscription updated</p>
             </td>
           </tr>
           <tr>

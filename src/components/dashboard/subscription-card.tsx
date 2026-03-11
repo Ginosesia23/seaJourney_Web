@@ -16,7 +16,7 @@ import { getVesselStateLogs, getPassageLogs, getBridgeWatchLogs } from '@/supaba
 
 function SubscriptionSkeleton() {
     return (
-        <Card className="rounded-xl border shadow-sm">
+        <Card className="rounded-xl border shadow-sm bg-slate-50 dark:bg-card">
              <CardHeader>
                 <div className="flex items-center justify-between">
                     <div className="space-y-2">
@@ -253,7 +253,7 @@ export function SubscriptionCard() {
   const vesselLimitForFleet = getVesselLimitForFleet();
   
   return (
-    <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
+    <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-slate-50 dark:bg-card">
         <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
