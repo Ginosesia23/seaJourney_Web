@@ -445,7 +445,9 @@ export default function RoadmapPage() {
                   </div>
                   <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
                     <div className="absolute inset-0 bg-yellow-500/30 blur-md rounded-full"></div>
-                    <div className="relative h-6 w-6 rounded-full bg-yellow-500 border-4 border-yellow-400 ring-4 ring-yellow-500/20"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-yellow-500 border-2 border-yellow-400 ring-4 ring-yellow-500/20 flex items-center justify-center">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-white drop-shadow-sm" strokeWidth={2.5} />
+                    </div>
                   </div>
                   <div className="md:w-1/2 md:pl-12"></div>
                 </motion.div>
@@ -478,7 +480,9 @@ export default function RoadmapPage() {
                   </div>
                   <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
                     <div className="absolute inset-0 bg-blue-500/30 blur-md rounded-full"></div>
-                    <div className="relative h-6 w-6 rounded-full bg-blue-500 border-4 border-blue-400 ring-4 ring-blue-500/20"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-blue-500 border-2 border-blue-400 ring-4 ring-blue-500/20 flex items-center justify-center">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-white drop-shadow-sm" strokeWidth={2.5} />
+                    </div>
                   </div>
                   <div className="md:w-1/2 md:pr-12"></div>
                 </motion.div>
@@ -511,7 +515,9 @@ export default function RoadmapPage() {
                   </div>
                   <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
                     <div className="absolute inset-0 bg-cyan-500/30 blur-md rounded-full"></div>
-                    <div className="relative h-6 w-6 rounded-full bg-cyan-500 border-4 border-cyan-400 ring-4 ring-cyan-500/20"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-cyan-500 border-2 border-cyan-400 ring-4 ring-cyan-500/20 flex items-center justify-center">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-white drop-shadow-sm" strokeWidth={2.5} />
+                    </div>
                   </div>
                   <div className="md:w-1/2 md:pr-12"></div>
                 </motion.div>
@@ -544,9 +550,19 @@ export default function RoadmapPage() {
                   </div>
                   <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
                     <div className="absolute inset-0 bg-green-500/30 blur-md rounded-full animate-pulse"></div>
-                    <div className="relative h-6 w-6 rounded-full bg-green-500 border-4 border-green-400 ring-4 ring-green-500/20"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-green-500 border-2 border-green-400 ring-4 ring-green-500/20 flex items-center justify-center">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-white drop-shadow-sm" strokeWidth={2.5} />
+                    </div>
                   </div>
-                  <div className="md:w-1/2 md:pl-12"></div>
+                  <div className="md:w-1/2 md:pl-12 flex items-center">
+                    <div className="w-full rounded-2xl border-2 border-green-500/40 bg-gradient-to-br from-green-500/20 to-green-500/5 p-5 sm:p-6 text-center md:text-left shadow-lg shadow-green-500/20">
+                      <div className="inline-flex h-14 w-14 rounded-full bg-green-500/30 border-2 border-green-400/50 items-center justify-center mb-3">
+                        <Rocket className="h-7 w-7 text-green-400" />
+                      </div>
+                      <p className="text-lg font-bold text-white mb-1">We&apos;ve launched!</p>
+                      <p className="text-sm text-green-200/90">SeaJourney is live. This is where we are now.</p>
+                    </div>
+                  </div>
                 </motion.div>
 
                 {/* Features & Growth Phase */}
@@ -576,8 +592,7 @@ export default function RoadmapPage() {
                     </Card>
                   </div>
                   <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
-                    <div className="absolute inset-0 bg-purple-500/30 blur-md rounded-full"></div>
-                    <div className="relative h-6 w-6 rounded-full bg-purple-500 border-4 border-purple-400 ring-4 ring-purple-500/20"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-transparent border-2 border-purple-400 ring-4 ring-purple-500/20"></div>
                   </div>
                   <div className="md:w-1/2 md:pr-12"></div>
                 </motion.div>
@@ -609,8 +624,7 @@ export default function RoadmapPage() {
                     </Card>
                   </div>
                   <div className="absolute left-0 md:left-1/2 top-6 md:top-1/2 transform md:-translate-x-1/2 md:-translate-y-1/2 flex items-center justify-center z-10">
-                    <div className="absolute inset-0 bg-orange-500/30 blur-md rounded-full animate-pulse"></div>
-                    <div className="relative h-6 w-6 rounded-full bg-orange-500 border-4 border-orange-400 ring-4 ring-orange-500/20"></div>
+                    <div className="relative h-6 w-6 rounded-full bg-transparent border-2 border-orange-400 ring-4 ring-orange-500/20"></div>
                   </div>
                   <div className="md:w-1/2 md:pl-12"></div>
                 </motion.div>
