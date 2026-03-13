@@ -101,6 +101,8 @@ interface CrewMemberWithAssignment {
     hasApprovedAccess?: boolean;
     /** True when seaTimeData was computed from vessel logs (no crew permission) */
     seaTimeDataFromVessel?: boolean;
+    /** Admin only: all vessels this member is tracking (active + past) for dropdown display */
+    allVesselsForUser?: { vesselName: string; startDate: string; endDate: string | null }[];
 }
 
 // Sortable Row Component
@@ -202,9 +204,14 @@ function SortableRow({
         : null;
 
     const isVesselManager = currentUserProfile?.role === 'vessel';
+    const isAdminWithVessels = currentUserProfile?.role === 'admin' && member.allVesselsForUser && member.allVesselsForUser.length > 0;
     const handleRowClick = () => {
-        // Only allow clicking to open crew member details if vessel has Pro tier
-        if (isVesselManager && hasProTier && !isDragging) {
+        if (isDragging) return;
+        if (isAdminWithVessels) {
+            onToggleRowExpansion(member);
+            return;
+        }
+        if (isVesselManager && hasProTier) {
             onOpenLeavePeriodsDialog(member);
         }
     };
@@ -216,7 +223,8 @@ function SortableRow({
             className={cn(
                 isDragging ? 'bg-muted/50' : '',
                 isVesselManager && hasProTier ? 'cursor-pointer hover:bg-muted/30 transition-colors' : '',
-                isVesselManager && !hasProTier ? 'cursor-default' : ''
+                isVesselManager && !hasProTier ? 'cursor-default' : '',
+                isAdminWithVessels ? 'cursor-pointer hover:bg-muted/30 transition-colors' : ''
             )}
             onClick={handleRowClick}
         >
@@ -236,7 +244,26 @@ function SortableRow({
             <TableCell>{profile.email}</TableCell>
             {currentUserProfile?.role === 'admin' && (
                 <TableCell>
-                    <span className="font-medium">{vesselName}</span>
+                    {member.allVesselsForUser && member.allVesselsForUser.length > 0 ? (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto py-1 px-2 -ml-2 font-medium flex items-center gap-1"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleRowExpansion(member);
+                            }}
+                        >
+                            <span>{vesselName}</span>
+                            {expandedRows.has(profile.id) ? (
+                                <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
+                            ) : (
+                                <ChevronRight className="h-4 w-4 shrink-0 opacity-70" />
+                            )}
+                        </Button>
+                    ) : (
+                        <span className="font-medium">{vesselName}</span>
+                    )}
                 </TableCell>
             )}
             <TableCell>
@@ -818,6 +845,24 @@ export default function CrewPage() {
                         setAllVesselsForAdmin(transformedVessels);
                     }
 
+                    // Step 4b: Build userId -> list of vessels (active + past) for dropdown
+                    const vesselIdToName = new Map<string, string>();
+                    (allVesselsData || []).forEach((v: any) => vesselIdToName.set(v.id, v.name || 'Unknown'));
+                    const userToVessels = new Map<string, { vesselName: string; startDate: string; endDate: string | null }[]>();
+                    allAssignments.forEach((a: any) => {
+                        const list = userToVessels.get(a.user_id) || [];
+                        list.push({
+                            vesselName: vesselIdToName.get(a.vessel_id) || `Vessel (${(a.vessel_id || '').slice(0, 8)}…)`,
+                            startDate: a.start_date,
+                            endDate: a.end_date || null,
+                        });
+                        userToVessels.set(a.user_id, list);
+                    });
+                    // Sort each user's list by start_date desc (most recent first)
+                    userToVessels.forEach((list) => {
+                        list.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+                    });
+
                     // Step 5: Create a map of userId -> most recent assignment (prefer active, but show latest if no active)
                     const assignmentMap = new Map<string, any>();
                     allAssignments.forEach(assignment => {
@@ -886,7 +931,11 @@ export default function CrewPage() {
                             position: profile.position || null,
                         };
 
-                        return { profile: transformedProfile, assignment };
+                        return {
+                            profile: transformedProfile,
+                            assignment,
+                            allVesselsForUser: userToVessels.get(profile.id) || [],
+                        };
                     });
 
                     console.log('[CREW PAGE] Final crew members (from assignments):', crewWithProfiles.length);
@@ -1454,10 +1503,17 @@ export default function CrewPage() {
         }
     };
 
-    // Function to toggle expanded row (no longer used, but kept for compatibility)
-    const toggleRowExpansion = async (crewMember: CrewMemberWithAssignment) => {
-        // This function is no longer needed as sea time is shown in focused view
-        // But kept for compatibility with SortableRow component
+    // Toggle expanded row: for admin, expand/collapse vessel list; kept for compatibility for vessel view
+    const toggleRowExpansion = (crewMember: CrewMemberWithAssignment) => {
+        if (currentUserProfile?.role === 'admin') {
+            setExpandedRows((prev) => {
+                const key = crewMember.profile.id;
+                const next = new Set(prev);
+                if (next.has(key)) next.delete(key);
+                else next.add(key);
+                return next;
+            });
+        }
     };
 
     // Function to toggle onboard status (vessel accounts only)
@@ -6391,6 +6447,32 @@ export default function CrewPage() {
                                                 onEditStartDate={currentUserProfile?.role === 'vessel' ? openEditStartDate : undefined}
                                                 onSetEndDate={currentUserProfile?.role === 'vessel' ? openSetEndDate : undefined}
                                             />
+                                            {currentUserProfile?.role === 'admin' && expandedRows.has(member.profile.id) && member.allVesselsForUser && member.allVesselsForUser.length > 0 && (
+                                                <TableRow className="bg-muted/30 hover:bg-muted/30">
+                                                    <TableCell colSpan={7} className="py-3 px-4">
+                                                        <div className="text-xs font-medium text-muted-foreground mb-2">Vessels ({member.allVesselsForUser.length}) — active & past</div>
+                                                        <div className="flex flex-wrap gap-3">
+                                                            {member.allVesselsForUser.map((v, i) => {
+                                                                const isActive = !v.endDate || new Date(v.endDate) >= new Date();
+                                                                return (
+                                                                    <div key={i} className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2 min-w-[200px]">
+                                                                        <span className="font-medium text-foreground">{v.vesselName}</span>
+                                                                        <span className="text-muted-foreground">
+                                                                            {format(new Date(v.startDate), 'dd MMM yyyy')}
+                                                                            {v.endDate ? ` – ${format(new Date(v.endDate), 'dd MMM yyyy')}` : ' – present'}
+                                                                        </span>
+                                                                        {isActive ? (
+                                                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">Active</Badge>
+                                                                        ) : (
+                                                                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">Past</Badge>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
                                         </React.Fragment>
                                     ))}
                                     </SortableContext>
