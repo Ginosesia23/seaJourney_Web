@@ -16,30 +16,19 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselStateLogs, updateStateLogsBatch, getVesselAssignments, deleteStateLogsForDates, getPassageLogs, createPassageLog } from '@/supabase/database/queries';
+import { getVesselStateLogs, getAllStateLogsForUser, updateStateLogsBatch, getVesselAssignments, deleteStateLogsForDates, getPassageLogs, createPassageLog } from '@/supabase/database/queries';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, Vessel, StateLog, DailyStatus, VesselAssignment } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
+import { calendarStateSolid, calendarStateWash } from '@/lib/calendar-state-colors';
 
 const vesselStates: { value: DailyStatus; label: string; color: string; icon: React.FC<any> }[] = [
-  { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
-  { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
-  { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
-  { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
-  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Wrench },
+  { value: 'underway', label: 'Underway', color: calendarStateSolid('underway'), icon: Waves },
+  { value: 'at-anchor', label: 'At Anchor', color: calendarStateSolid('at-anchor'), icon: Anchor },
+  { value: 'in-port', label: 'In Port', color: calendarStateSolid('in-port'), icon: Building },
+  { value: 'on-leave', label: 'On Leave', color: calendarStateSolid('on-leave'), icon: Briefcase },
+  { value: 'in-yard', label: 'In Yard', color: calendarStateSolid('in-yard'), icon: Wrench },
 ];
-
-// Helper function to get CSS variable name for a state
-const getStateColorVar = (state: DailyStatus): string => {
-  const colorMap: Record<DailyStatus, string> = {
-    'underway': 'chart-blue',
-    'at-anchor': 'chart-orange',
-    'in-port': 'chart-green',
-    'on-leave': 'chart-gray',
-    'in-yard': 'chart-red',
-  };
-  return colorMap[state];
-};
 
 export default function CalendarPage() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -339,9 +328,27 @@ export default function CalendarPage() {
         }
 
         // Remove duplicates (same date + vessel combination)
-        const uniqueLogs = Array.from(
+        let uniqueLogs = Array.from(
           new Map(allLogs.map(log => [`${log.date}-${log.vesselId}`, log])).values()
         );
+
+        // Include any user rows not covered by assignment vessel IDs (missing/legacy assignments).
+        const isCaptainVesselView = userProfile?.role === 'captain' && captainViewMode === 'vessel';
+        if (!isCaptainVesselView) {
+          try {
+            const userWide = await getAllStateLogsForUser(supabase, user.id);
+            const seen = new Set(uniqueLogs.map(log => `${log.date}-${log.vesselId}`));
+            for (const log of userWide) {
+              const k = `${log.date}-${log.vesselId}`;
+              if (!seen.has(k)) {
+                seen.add(k);
+                uniqueLogs.push(log);
+              }
+            }
+          } catch (mergeErr) {
+            console.error('[CALENDAR PAGE] Error merging user-wide state logs:', mergeErr);
+          }
+        }
 
         console.log('[CALENDAR PAGE] Total logs fetched from all vessels:', {
           totalLogs: uniqueLogs.length,
@@ -358,7 +365,7 @@ export default function CalendarPage() {
     };
     
     fetchAllLogs();
-  }, [user?.id, vessels, vesselAssignments, userProfile?.role, captainViewMode, supabase]);
+  }, [user?.id, vessels, vesselAssignments, currentVessel?.id, userProfile?.role, captainViewMode, supabase]);
 
   // Fetch vessel assignments to determine valid date ranges
   useEffect(() => {
@@ -497,9 +504,11 @@ export default function CalendarPage() {
       return { standbyPeriods: [] };
     }
     // Pass watchDates to exclude them from standby calculation
-    const result = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates);
+    const result = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates, {
+      vesselManagerSeaTime: isVesselAccount,
+    });
     return { standbyPeriods: result.standbyPeriods };
-  }, [stateLogs, watchDates, partOfActivePassageDates]);
+  }, [stateLogs, watchDates, partOfActivePassageDates, isVesselAccount]);
 
   // Create a Set of dates that are counted as standby (for visual differentiation)
   // Exclude watch dates and part of active passage dates (these count as "at sea", not standby)
@@ -1506,7 +1515,13 @@ export default function CalendarPage() {
                 }
                 const isInMultiSelect = selectionMode === 'multi' && multiSelectedDates.has(dateKey);
 
-                // Standby dates use purple border outline (same as current page)
+                // Bottom strip for watch / passage / standby (watch > passage > standby)
+                let secondaryIndicatorBar: 'watch' | 'passage' | 'standby' | null = null;
+                if (!isRangeStartOnly && !isInMultiSelect) {
+                  if (hasWatch) secondaryIndicatorBar = 'watch';
+                  else if (isPartOfActivePassage) secondaryIndicatorBar = 'passage';
+                  else if (isCountedStandby) secondaryIndicatorBar = 'standby';
+                }
 
                 // Build tooltip content
                 const tooltipContent = (
@@ -1544,7 +1559,7 @@ export default function CalendarPage() {
                             <div className="whitespace-pre-wrap">{notes}</div>
                           </div>
                         )}
-                        {displayVesselForDate && (
+                        {!isVesselAccount && displayVesselForDate && (
                           <div className="text-muted-foreground text-xs pt-1 border-t border-border/50">
                             Vessel: {displayVesselForDate.name}
                           </div>
@@ -1553,7 +1568,7 @@ export default function CalendarPage() {
                     ) : isAssignableDate ? (
                       <div className="text-muted-foreground">
                         No state logged - within vessel assignment range
-                        {dateVessel && (
+                        {!isVesselAccount && dateVessel && (
                           <div className="text-xs mt-1">Vessel: {dateVessel.name}</div>
                         )}
                       </div>
@@ -1569,12 +1584,13 @@ export default function CalendarPage() {
                 return (
                   <Tooltip key={dateKey}>
                     <TooltipTrigger asChild>
-                      <div className="aspect-square">
+                      <div className="aspect-square rounded-[6px] overflow-hidden">
                   <button
                     onClick={() => handleDateClick(day)}
                     disabled={isFuture}
                     className={cn(
-                            "w-full h-full rounded-xl text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                            "w-full h-full rounded-[6px] text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                            secondaryIndicatorBar && "relative overflow-hidden",
                       !isFuture && "hover:scale-105 hover:shadow-md",
                       !isCurrentMonth && "opacity-40",
                       isFuture && "opacity-30 cursor-not-allowed",
@@ -1586,13 +1602,7 @@ export default function CalendarPage() {
                       isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && !isRangeStartOnly && "border-2 border-blue-500 border-solid",
                       // Range start/end dates when both are selected
                       (isRangeStart || isRangeEnd) && !isRangeStartOnly && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && "border-2 border-blue-600 border-solid ring-2 ring-blue-500/30 ring-offset-1",
-                      isCurrentDay && !isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && !isRangeStartOnly && !isInMultiSelect && "ring-2 ring-primary ring-offset-2",
-                      // Watch outline (yellow) - takes priority unless range start only
-                      hasWatch && !isRangeStartOnly && !isInMultiSelect && "border-[3px] border-yellow-400",
-                      // Part of active passage outline (blue) - unless range start only
-                      isPartOfActivePassage && !hasWatch && !isRangeStartOnly && !isInMultiSelect && "border-[3px] border-blue-600",
-                      // Standby outline (purple) - only if not watch or part of active passage
-                      isCountedStandby && !hasWatch && !isPartOfActivePassage && !isRangeStartOnly && !isInMultiSelect && "border-[3px] border-purple-600",
+                      isCurrentDay && !isInRange && !isAssignableDate && !isRangeStartOnly && !isInMultiSelect && "ring-2 ring-primary ring-offset-2",
                       // Assignable date outline (dashed border) - dates within assignment range but no state logged
                       isAssignableDate && !hasWatch && !isPartOfActivePassage && !isCountedStandby && !isInRange && !isRangeStartOnly && !isInMultiSelect && "border-2 border-dashed border-muted-foreground/40",
                       stateInfo 
@@ -1602,7 +1612,7 @@ export default function CalendarPage() {
                           : "bg-muted/50 text-muted-foreground hover:bg-muted"
                     )}
                     style={
-                      // Always show the primary state color, with outlines for secondary indicators
+                      // Primary state fill; watch/passage/standby use bottom strip
                       stateInfo 
                         ? { 
                             backgroundColor: stateInfo.color,
@@ -1620,13 +1630,27 @@ export default function CalendarPage() {
                               : undefined
                     }
                   >
-                    <div className="flex flex-col items-center justify-center h-full relative">
+                    <div className="flex flex-col items-center justify-center h-full relative z-[1]">
                       <span className="relative z-10 text-center">{format(day, 'd')}</span>
-                      {/* State icon centered for all dates */}
-                      {stateInfo && (
-                        <stateInfo.icon className="h-2 w-2 mt-0.5 opacity-90 relative z-10" />
-                      )}
                     </div>
+                    {secondaryIndicatorBar === 'watch' && (
+                      <div
+                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-yellow-400"
+                        aria-hidden
+                      />
+                    )}
+                    {secondaryIndicatorBar === 'passage' && (
+                      <div
+                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-blue-600"
+                        aria-hidden
+                      />
+                    )}
+                    {secondaryIndicatorBar === 'standby' && (
+                      <div
+                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-purple-600"
+                        aria-hidden
+                      />
+                    )}
                   </button>
                       </div>
                     </TooltipTrigger>
@@ -1640,43 +1664,43 @@ export default function CalendarPage() {
           </div>
           
           {/* Month Summary Section — vessel: no On Leave, show Part of passage instead */}
-          <Separator className="mt-6 mb-4" />
-          <div className="grid grid-cols-3 gap-3 text-sm">
+          <Separator className="mt-4 mb-2" />
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-[10px] sm:text-xs leading-tight">
             {(isVesselAccount ? vesselStates.filter(s => s.value !== 'on-leave') : vesselStates).map((state) => {
               const count = monthStateCounts[state.value] || 0;
               const StateIcon = state.icon;
               return (
                 <div 
                   key={state.value} 
-                  className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"
+                  className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 rounded-md bg-muted/50"
                 >
-                  <StateIcon className="h-4 w-4" style={{ color: state.color }} />
+                  <StateIcon className="h-3 w-3 shrink-0" style={{ color: state.color }} />
                   <div className="flex-1 min-w-0">
                     <div className="text-muted-foreground truncate">{state.label}</div>
                   </div>
-                  <span className="font-medium">{count}</span>
+                  <span className="font-medium tabular-nums shrink-0">{count}</span>
                 </div>
               );
             })}
             {isVesselAccount && (
               <div 
-                className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"
+                className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 rounded-md bg-muted/50"
               >
-                <Ship className="h-4 w-4" style={{ color: 'hsl(var(--chart-blue))' }} />
+                <Ship className="h-3 w-3 shrink-0" style={{ color: calendarStateSolid('underway') }} />
                 <div className="flex-1 min-w-0">
                   <div className="text-muted-foreground truncate">Part of passage</div>
                 </div>
-                <span className="font-medium">{monthPartOfPassageCount}</span>
+                <span className="font-medium tabular-nums shrink-0">{monthPartOfPassageCount}</span>
               </div>
             )}
             <div 
-              className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"
+              className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 rounded-md bg-muted/50"
             >
-              <Clock className="h-4 w-4 text-purple-600" />
+              <Clock className="h-3 w-3 shrink-0 text-purple-600" />
               <div className="flex-1 min-w-0">
                 <div className="text-muted-foreground truncate">Standby</div>
               </div>
-              <span className="font-medium">{monthStateCounts.standby}</span>
+              <span className="font-medium tabular-nums shrink-0">{monthStateCounts.standby}</span>
             </div>
           </div>
         </CardContent>
@@ -1880,41 +1904,41 @@ export default function CalendarPage() {
               <div className="flex flex-wrap items-center gap-4 text-sm">
                 {/* Part of Active Passage - shown for all users */}
                 <div className="flex items-center gap-2">
-                  <div 
-                    className="h-8 w-8 rounded border-[3px] border-blue-600 bg-transparent"
-                  />
-                  <span>Part of Active Passage (blue outline)</span>
+                  <div className="h-8 w-8 rounded-[6px] border border-border bg-muted/40 relative overflow-hidden shrink-0">
+                    <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-blue-600" />
+                  </div>
+                  <span>Part of Active Passage (blue bottom bar)</span>
                 </div>
                 {!isVesselAccount && (
                   <>
                     <div className="flex items-center gap-2">
-                      <div 
-                        className="h-8 w-8 rounded border-[3px] border-yellow-400 bg-transparent"
-                      />
-                      <span>On Watch (yellow outline)</span>
+                      <div className="h-8 w-8 rounded-[6px] border border-border bg-muted/40 relative overflow-hidden shrink-0">
+                        <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-yellow-400" />
+                      </div>
+                      <span>On Watch (yellow bottom bar)</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div 
-                        className="h-8 w-8 rounded border-[3px] border-purple-600 bg-transparent"
-                      />
-                      <span>Counted as Standby (purple outline)</span>
+                      <div className="h-8 w-8 rounded-[6px] border border-border bg-muted/40 relative overflow-hidden shrink-0">
+                        <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-purple-600" />
+                      </div>
+                      <span>Counted as Standby (purple bottom bar)</span>
                     </div>
                   </>
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
                 {isVesselAccount 
-                  ? 'Dates marked as part of active passage count as "at sea" and are shown with a blue outline border. The primary state color remains visible.'
-                  : 'Dates marked as watch (officers only) are shown with a yellow outline border. Dates marked as part of active passage count as "at sea" and are shown with a blue outline border. Dates counted as standby are shown with a purple outline border. The primary state color remains visible.'}
+                  ? 'Dates marked as part of active passage count as "at sea" and are shown with a blue bar along the bottom (~20% of the cell). The primary state fill remains visible above.'
+                  : 'Dates marked as watch (officers only) show a yellow bottom bar. Part of active passage shows a blue bottom bar. Standby shows a purple bottom bar. Each bar uses about 20% of the cell height; the primary state color fills the rest.'}
               </p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Calendar Grid - 3 columns on large screens, 2 on medium, 1 on small */}
+      {/* Calendar Grid: 3 cols from lg until 1700px; 4 cols at min-width 1701px */}
       <TooltipProvider delayDuration={100}>
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 min-[1701px]:grid-cols-4">
         {months.map(renderMonth)}
       </div>
       </TooltipProvider>
@@ -1988,11 +2012,11 @@ export default function CalendarPage() {
                     )}
                     style={{
                       backgroundColor: isSelected 
-                        ? `hsl(var(--${getStateColorVar(state.value)}) / 0.15)` 
-                        : `hsl(var(--${getStateColorVar(state.value)}) / 0.08)`,
+                        ? calendarStateWash(state.value, 22) 
+                        : calendarStateWash(state.value, 12),
                       borderColor: isSelected 
                         ? state.color 
-                        : `hsl(var(--${getStateColorVar(state.value)}) / 0.3)`,
+                        : calendarStateWash(state.value, 52),
                     }}
                   >
                     <div

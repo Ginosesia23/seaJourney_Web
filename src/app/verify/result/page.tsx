@@ -536,7 +536,7 @@ function VerificationResultContent() {
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
                     <div><span className="text-muted-foreground block">Total</span><span className="font-semibold">{posData.total_days}</span></div>
                     <div><span className="text-muted-foreground block">At sea</span><span className="font-semibold">{posData.at_sea_days}</span></div>
-                    <div><span className="text-muted-foreground block">Standby</span><span className="font-semibold">{posData.standby_days}</span></div>
+                    <div><span className="text-muted-foreground block">Standby</span><span className="font-semibold text-purple-600 dark:text-purple-400">{posData.standby_days}</span></div>
                     <div><span className="text-muted-foreground block">Yard</span><span className="font-semibold">{posData.yard_days}</span></div>
                     <div><span className="text-muted-foreground block">At anchor</span><span className="font-semibold">{posData.leave_days}</span></div>
                   </div>

@@ -199,7 +199,7 @@ export default function ProofOfServicePage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Proof of Service</h1>
           <p className="text-muted-foreground mt-1">
-            Your saved proof of service entries from vessels you have worked on. Download one PDF per entry or choose which entries to include in a single PDF.
+            Your saved proof of service entries from vessels you have worked on. Download one file per entry or choose which entries to include in a single download.
           </p>
         </div>
         {entries.length > 0 && (
@@ -208,7 +208,7 @@ export default function ProofOfServicePage() {
             onClick={() => setDownloadDialogOpen(true)}
           >
             <Download className="h-4 w-4 mr-2" />
-            Download selected as PDF
+            Download selected
           </Button>
         )}
       </div>
@@ -267,7 +267,7 @@ export default function ProofOfServicePage() {
                     ) : (
                       <Download className="h-4 w-4 mr-2" />
                     )}
-                    Download PDF
+                    Download
                   </Button>
                 </div>
               </CardHeader>
@@ -283,7 +283,7 @@ export default function ProofOfServicePage() {
                   </div>
                   <div>
                     <span className="text-muted-foreground">Standby</span>
-                    <p className="font-semibold">{entry.standbyDays}</p>
+                    <p className="font-semibold text-purple-600 dark:text-purple-400">{entry.standbyDays}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Yard</span>
@@ -309,7 +309,7 @@ export default function ProofOfServicePage() {
           <DialogHeader>
             <DialogTitle>Download Proof of Service</DialogTitle>
             <DialogDescription>
-              Select which entries to include in the PDF. You can download all or choose specific vessels.
+              Select which entries to include. You can download all or choose specific vessels.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 text-sm text-muted-foreground border-b pb-2">
@@ -370,7 +370,7 @@ export default function ProofOfServicePage() {
               ) : (
                 <Download className="h-4 w-4 mr-2" />
               )}
-              Download PDF
+              Download
             </Button>
           </DialogFooter>
         </DialogContent>

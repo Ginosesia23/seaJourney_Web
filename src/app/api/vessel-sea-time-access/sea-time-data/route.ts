@@ -128,7 +128,7 @@ export async function GET(req: NextRequest) {
             userId: log.user_id,
             vesselId: log.vessel_id,
             date: log.date || log.log_date,
-            state: log.state,
+              state: log.state,
             isPartOfActivePassage: log.is_part_of_active_passage || false,
             createdAt: log.created_at,
             updatedAt: log.updated_at,

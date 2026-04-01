@@ -440,7 +440,11 @@ export default function DocumentsGeneratorPage() {
         filteredLogs,
         watchDates.size ? watchDates : undefined,
         partOfActivePassageDates.size ? partOfActivePassageDates : undefined,
-        { rangeStart: startDateStr, rangeEnd: endDateStr }
+        {
+          rangeStart: startDateStr,
+          rangeEnd: endDateStr,
+          vesselManagerSeaTime: !useCrewLogs,
+        }
       );
       const logMap = new Map(filteredLogs.map((l) => [l.date, l]));
       const startDateObj = parse(startDateStr, 'yyyy-MM-dd', new Date());
@@ -509,7 +513,9 @@ export default function DocumentsGeneratorPage() {
             continue;
           }
           const state = effectiveState.get(dateStr) ?? logMap.get(dateStr)?.state;
-          if (state === 'in-port' || state === 'at-anchor') {
+          const standbyEligible =
+            state === 'in-port' || (useCrewLogs && state === 'at-anchor');
+          if (standbyEligible) {
             if (!watchDates.has(dateStr) && !partOfActivePassageDates.has(dateStr)) {
               standbyDatesSet.add(dateStr);
               counted++;
@@ -571,6 +577,10 @@ export default function DocumentsGeneratorPage() {
           return;
         }
         if (partOfActivePassageDates.has(dateStr) && state !== 'underway') {
+          finalSeaDays++;
+          return;
+        }
+        if (!useCrewLogs && state === 'at-anchor') {
           finalSeaDays++;
           return;
         }
@@ -1100,7 +1110,7 @@ export default function DocumentsGeneratorPage() {
             </CardTitle>
             <CardDescription>
               {documentType === 'proof_of_service'
-                ? 'Set the date range and calculate sea time, then save to the crew member’s profile or download PDF.'
+                ? 'Set the date range and calculate sea time, then save to the crew member’s profile or download.'
                 : 'Set the date range, choose data source if the crew member has given access, then calculate sea time and save or generate.'}
             </CardDescription>
           </CardHeader>
@@ -1314,8 +1324,8 @@ export default function DocumentsGeneratorPage() {
                         <SelectValue placeholder="Version" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="seajourney">SeaJourney PDF</SelectItem>
-                        <SelectItem value="mca">MCA PDF</SelectItem>
+                        <SelectItem value="seajourney">SeaJourney</SelectItem>
+                        <SelectItem value="mca">MCA</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button
@@ -1332,7 +1342,7 @@ export default function DocumentsGeneratorPage() {
                       ) : (
                         <>
                           <Download className="mr-2 h-4 w-4" />
-                          Download PDF
+                          Download
                         </>
                       )}
                     </Button>
@@ -1411,7 +1421,7 @@ export default function DocumentsGeneratorPage() {
                       ) : (
                         <>
                           <Download className="mr-2 h-4 w-4" />
-                          Proof of Service (PDF)
+                          Proof of Service
                         </>
                       )}
                     </Button>

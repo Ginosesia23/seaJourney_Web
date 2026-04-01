@@ -63,6 +63,7 @@ import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
 import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
 import { buildAndGenerateNavWatchApplication, navWatchApplicationDefaultValues, navWatchApplicationSchema, type NavWatchApplicationFormValues } from '@/lib/nav-watch-application';
+import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 import { MCAApplicationDetailsCard } from '@/components/dashboard/mca-application-details';
 
 
@@ -145,13 +146,16 @@ function SortableRow({
     const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
     const displayName = fullName || profile.username;
     
-    // Check if user has a paid subscription (not free tier) - required for requesting sea time access
+    // Crew member must have paid entitlement (not free) for vessel manager to request sea time access
     const hasPaidTier = useMemo(() => {
-        if (!currentUserProfile) return false;
-        const tier = (currentUserProfile.subscriptionTier || '').toLowerCase();
-        const status = (currentUserProfile.subscriptionStatus || '').toLowerCase();
-        return tier !== 'free' && status === 'active';
-    }, [currentUserProfile?.subscriptionTier, currentUserProfile?.subscriptionStatus]);
+        const tier = (
+            (profile as { subscription_tier?: string }).subscription_tier ||
+            profile.subscriptionTier ||
+            ''
+        ).toLowerCase();
+        if (tier === 'free') return false;
+        return hasActiveSubscription(profile);
+    }, [profile]);
     
     const {
         attributes,
@@ -286,7 +290,7 @@ function SortableRow({
                     <Badge 
                             variant="secondary"
                             className={
-                                profile.subscriptionStatus === 'active'
+                                hasActiveSubscription(profile)
                                     ? 'bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400'
                                     : 'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:bg-gray-500/20 dark:text-gray-400'
                             }
@@ -587,11 +591,11 @@ export default function CrewPage() {
     const allVessels = currentUserProfile?.role === 'admin' ? allVesselsForAdmin : allVesselsFromCollection;
 
     // Get crew limit based on vessel subscription tier
-    const getCrewLimit = (tier: string | undefined, status: string | undefined): number => {
-        if (!tier || (status || '').toLowerCase() !== 'active') {
-            return 0; // No active subscription = no access
+    const getCrewLimit = (tier: string | undefined, profileRow: any): number => {
+        if (!tier || !profileRow || !hasActiveSubscription(profileRow)) {
+            return 0;
         }
-        
+
         const tierLower = tier.toLowerCase();
         switch (tierLower) {
             case 'vessel_lite':
@@ -611,18 +615,21 @@ export default function CrewPage() {
         if (currentUserProfile?.role !== 'vessel') {
             return Infinity; // Admins and captains see all
         }
-        return getCrewLimit(currentUserProfile.subscriptionTier, currentUserProfile.subscriptionStatus);
-    }, [currentUserProfile?.role, currentUserProfile?.subscriptionTier, currentUserProfile?.subscriptionStatus]);
+        return getCrewLimit(currentUserProfile.subscriptionTier, currentUserProfileRaw);
+    }, [currentUserProfile?.role, currentUserProfile?.subscriptionTier, currentUserProfileRaw]);
 
     // Check if vessel has Pro tier subscription (required for document generation and crew member details)
     const hasProTier = useMemo(() => {
         if (currentUserProfile?.role !== 'vessel') {
             return true; // Admins always have access
         }
+        if (!currentUserProfileRaw) return false;
         const tier = (currentUserProfile.subscriptionTier || '').toLowerCase();
-        const status = (currentUserProfile.subscriptionStatus || '').toLowerCase();
-        return (tier === 'vessel_pro' || tier === 'vessel_fleet') && status === 'active';
-    }, [currentUserProfile?.role, currentUserProfile?.subscriptionTier, currentUserProfile?.subscriptionStatus]);
+        return (
+            (tier === 'vessel_pro' || tier === 'vessel_fleet') &&
+            hasActiveSubscription(currentUserProfileRaw)
+        );
+    }, [currentUserProfile?.role, currentUserProfile?.subscriptionTier, currentUserProfileRaw]);
 
     // Check if captain has pending captaincy request
     useEffect(() => {
@@ -2260,6 +2267,58 @@ export default function CrewPage() {
         return { vesselGeneratedTestimonials: vg, testimonials: test, proofOfServiceEntries: pos, leavePeriods: lp, leavePeriodsFromLogs: lpLogs };
     }, [effectiveMember]);
 
+    /** Vessel account: which Documents sub-tab to open first (most recently useful content). */
+    const vesselDocumentsDefaultTab = useMemo((): 'testimonials' | 'proof' => {
+        if (currentUserProfile?.role !== 'vessel') return 'testimonials';
+        const approved = effectiveMember?.accessRequest?.status === 'approved';
+        const nOfficial = approved ? effectivePeriodFiltered.testimonials.length : 0;
+        const nDraft = effectivePeriodFiltered.vesselGeneratedTestimonials.length;
+        const nProof = effectivePeriodFiltered.proofOfServiceEntries.length;
+        if (nOfficial + nDraft > 0) return 'testimonials';
+        if (nProof > 0) return 'proof';
+        return 'testimonials';
+    }, [
+        currentUserProfile?.role,
+        effectiveMember?.accessRequest?.status,
+        effectivePeriodFiltered.testimonials.length,
+        effectivePeriodFiltered.proofOfServiceEntries.length,
+        effectivePeriodFiltered.vesselGeneratedTestimonials.length,
+    ]);
+
+    /** Vessel Documents tab: official testimonials (when access approved) + generator drafts, newest period first. */
+    const vesselMergedTestimonialRows = useMemo(() => {
+        if (currentUserProfile?.role !== 'vessel') {
+            return [] as Array<{ kind: 'official'; t: Testimonial } | { kind: 'vessel_draft'; t: VesselGeneratedTestimonial }>;
+        }
+        const rows: Array<{ kind: 'official'; t: Testimonial } | { kind: 'vessel_draft'; t: VesselGeneratedTestimonial }> = [];
+        if (effectiveMember?.accessRequest?.status === 'approved') {
+            for (const t of effectivePeriodFiltered.testimonials) rows.push({ kind: 'official', t });
+        }
+        for (const t of effectivePeriodFiltered.vesselGeneratedTestimonials) rows.push({ kind: 'vessel_draft', t });
+        rows.sort((a, b) => {
+            const endA = new Date(a.kind === 'official' ? a.t.end_date : a.t.end_date).getTime();
+            const endB = new Date(b.kind === 'official' ? b.t.end_date : b.t.end_date).getTime();
+            return endB - endA;
+        });
+        return rows;
+    }, [
+        currentUserProfile?.role,
+        effectiveMember?.accessRequest?.status,
+        effectivePeriodFiltered.testimonials,
+        effectivePeriodFiltered.vesselGeneratedTestimonials,
+    ]);
+
+    const vesselTestimonialsTabCount = useMemo(() => {
+        if (currentUserProfile?.role !== 'vessel') return 0;
+        const approved = effectiveMember?.accessRequest?.status === 'approved';
+        return (approved ? effectivePeriodFiltered.testimonials.length : 0) + effectivePeriodFiltered.vesselGeneratedTestimonials.length;
+    }, [
+        currentUserProfile?.role,
+        effectiveMember?.accessRequest?.status,
+        effectivePeriodFiltered.testimonials.length,
+        effectivePeriodFiltered.vesselGeneratedTestimonials.length,
+    ]);
+
     // Check if selected crew member's MCA information is complete
     const isMCAInfoComplete = useMemo(() => {
         if (!selectedMemberData?.profile) return true;
@@ -3369,7 +3428,7 @@ export default function CrewPage() {
         }
     };
 
-    // Preview PDF from Document breakdown dialog (finds full testimonial by id and opens in new tab)
+    // Preview document from Document breakdown dialog (finds full testimonial by id and opens in new tab)
     const handlePreviewFromBreakdown = async () => {
         if (!viewDocumentBreakdown || !selectedMemberData) return;
         const vesselGen = selectedMemberData.vesselGeneratedTestimonials?.find(t => t.id === viewDocumentBreakdown.id);
@@ -5174,7 +5233,7 @@ export default function CrewPage() {
                                                                                 onClick={() => handlePreviewNavWatch(app)}
                                                                                 disabled={downloadingNavWatchId === app.id || previewingNavWatchId === app.id || deletingNavWatchId === app.id}
                                                                                 className="rounded-xl"
-                                                                                title="Preview PDF"
+                                                                                title="Preview"
                                                                             >
                                                                                 {previewingNavWatchId === app.id ? (
                                                                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -5188,7 +5247,7 @@ export default function CrewPage() {
                                                                                 onClick={() => handleDownloadNavWatch(app)}
                                                                                 disabled={downloadingNavWatchId === app.id || previewingNavWatchId === app.id || deletingNavWatchId === app.id}
                                                                                 className="rounded-xl"
-                                                                                title="Download PDF"
+                                                                                title="Download"
                                                                             >
                                                                                 {downloadingNavWatchId === app.id ? (
                                                                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -5220,8 +5279,323 @@ export default function CrewPage() {
                                             </div>
                                         )}
 
-                                        {/* Proof of Service - entries saved from Generator → Proof of Service */}
-                                        {effectivePeriodFiltered.proofOfServiceEntries.length > 0 && (
+                                        {currentUserProfile?.role === 'vessel' ? (
+                                            <Tabs
+                                                key={`${selectedMemberData.profile.id}-${viewingServicePeriod}`}
+                                                defaultValue={vesselDocumentsDefaultTab}
+                                                className="w-full"
+                                            >
+                                            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-xl bg-muted/60 p-1 sm:gap-0">
+                                                <TabsTrigger value="testimonials" className="flex flex-col items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs data-[state=active]:shadow-sm sm:flex-row sm:text-sm">
+                                                    <span className="truncate">Testimonials</span>
+                                                    <Badge variant="secondary" className="ml-1 h-5 min-w-[1.25rem] shrink-0 px-1 text-[10px] tabular-nums sm:text-xs">
+                                                        {vesselTestimonialsTabCount}
+                                                    </Badge>
+                                                </TabsTrigger>
+                                                <TabsTrigger value="proof" className="flex flex-col items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs data-[state=active]:shadow-sm sm:flex-row sm:text-sm">
+                                                    <span className="truncate">Proof of service</span>
+                                                    <Badge variant="secondary" className="ml-1 h-5 min-w-[1.25rem] shrink-0 px-1 text-[10px] tabular-nums sm:text-xs">
+                                                        {effectivePeriodFiltered.proofOfServiceEntries.length}
+                                                    </Badge>
+                                                </TabsTrigger>
+                                            </TabsList>
+                                            <TabsContent value="testimonials" className="mt-4 space-y-4 focus-visible:outline-none">
+                                                {isLoadingTestimonials ? (
+                                                    <div className="flex items-center justify-center py-12">
+                                                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        {effectiveMember?.accessRequest?.status !== 'approved' ? (
+                                                            <Alert className="border-amber-500/40 bg-amber-50/80 dark:bg-amber-950/25">
+                                                                <AlertTriangle className="h-4 w-4" />
+                                                                <AlertTitle>Sea time access not approved</AlertTitle>
+                                                                <AlertDescription>
+                                                                    Official crew testimonials from shared logs appear here once this crew member has approved sea time sharing. Drafts you create in the generator still appear below until the captain approves them.
+                                                                </AlertDescription>
+                                                            </Alert>
+                                                        ) : null}
+                                                        {vesselMergedTestimonialRows.length === 0 ? (
+                                                            <Card className="border-dashed">
+                                                                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                                                                    <FileText className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+                                                                    <h4 className="font-semibold mb-2">No testimonials yet</h4>
+                                                                    <p className="text-sm text-muted-foreground max-w-md">
+                                                                        No generator drafts or official testimonials for this assignment period. Create a testimonial from{' '}
+                                                                        <Link href="/dashboard/documents" className="text-primary underline underline-offset-2 font-medium">Generator → Documents</Link>
+                                                                        — drafts show here as &quot;Not approved yet&quot; until sent to the captain for approval.
+                                                                    </p>
+                                                                </CardContent>
+                                                            </Card>
+                                                        ) : (
+                                                            <div className="space-y-4 mb-6">
+                                                                <div className="flex items-center justify-between">
+                                                                    <h4 className="font-semibold">Testimonials</h4>
+                                                                    <Badge variant="outline" className="text-xs">
+                                                                        {vesselMergedTestimonialRows.length}{' '}
+                                                                        {vesselMergedTestimonialRows.length !== 1 ? 'entries' : 'entry'}
+                                                                    </Badge>
+                                                                </div>
+                                                                <div className="grid gap-3">
+                                                                    {vesselMergedTestimonialRows.map((row) => {
+                                                                        if (row.kind === 'official') {
+                                                                            const testimonial = row.t;
+                                                                            const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
+                                                                            const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
+                                                                            const statusLabel = testimonial.status === 'approved' ? 'Approved' : testimonial.status === 'pending_captain' ? 'Pending captain' : testimonial.status === 'rejected' ? 'Rejected' : testimonial.status === 'draft' ? 'Draft' : testimonial.status;
+                                                                            return (
+                                                                                <Card key={`official-${testimonial.id}`} className="hover:shadow-md transition-shadow">
+                                                                                    <CardContent className="p-4">
+                                                                                        <div className="flex items-start justify-between">
+                                                                                            <div className="flex-1 space-y-2 min-w-0 cursor-pointer" onClick={() => setViewDocumentBreakdown(testimonial as any)}>
+                                                                                                <div className="flex items-center gap-2">
+                                                                                                    <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                                                                                                    <span className="font-semibold text-sm">
+                                                                                                        {startDate} - {endDate}
+                                                                                                    </span>
+                                                                                                </div>
+                                                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                                                    <Badge
+                                                                                                        variant="outline"
+                                                                                                        className={cn(
+                                                                                                            'text-xs',
+                                                                                                            testimonial.status === 'approved' && 'border-green-500/40 bg-green-500/15 text-green-800 dark:text-green-200 dark:bg-green-500/20 dark:border-green-500/30'
+                                                                                                        )}
+                                                                                                    >
+                                                                                                        {statusLabel}
+                                                                                                    </Badge>
+                                                                                                    {(testimonial as any).data_source && (
+                                                                                                        <Badge variant="outline" className="text-xs border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
+                                                                                                            {(testimonial as any).data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
+                                                                                                        </Badge>
+                                                                                                    )}
+                                                                                                    {testimonial.testimonial_code && (
+                                                                                                        <Badge variant="secondary" className="text-xs">{testimonial.testimonial_code}</Badge>
+                                                                                                    )}
+                                                                                                    <span className="text-sm text-muted-foreground">
+                                                                                                        {testimonial.total_days} days
+                                                                                                    </span>
+                                                                                                    {testimonial.created_at && (
+                                                                                                        <span className="text-xs text-muted-foreground">
+                                                                                                            Generated {formatDate(new Date(testimonial.created_at), 'MMM d, yyyy')}
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                    {testimonial.status === 'approved' && testimonial.approved_at && (
+                                                                                                        <span className="text-xs text-muted-foreground">
+                                                                                                            Approved {formatDate(new Date(testimonial.approved_at), 'MMM d, yyyy')}
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                                                                <Button
+                                                                                                    variant="ghost"
+                                                                                                    size="sm"
+                                                                                                    onClick={() => setViewDocumentBreakdown({ ...testimonial, data_source: (testimonial as any).data_source, pdf_format: 'mca' })}
+                                                                                                    className="rounded-lg"
+                                                                                                    title="View breakdown"
+                                                                                                >
+                                                                                                    <Eye className="h-4 w-4" />
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                    variant="ghost"
+                                                                                                    size="sm"
+                                                                                                    onClick={() => handleGeneratePDF(testimonial, selectedTestimonialFormat[testimonial.id] ?? 'mca', 'newtab')}
+                                                                                                    disabled={generatingPDF === testimonial.id}
+                                                                                                    className="rounded-lg"
+                                                                                                    title="Preview"
+                                                                                                >
+                                                                                                    {generatingPDF === testimonial.id ? (
+                                                                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                                    ) : (
+                                                                                                        <FileText className="h-4 w-4" />
+                                                                                                    )}
+                                                                                                </Button>
+                                                                                                <Select
+                                                                                                    value={selectedTestimonialFormat[testimonial.id] ?? 'mca'}
+                                                                                                    onValueChange={(format) => setSelectedTestimonialFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
+                                                                                                    disabled={generatingPDF === testimonial.id}
+                                                                                                >
+                                                                                                    <SelectTrigger className="w-[140px] rounded-xl">
+                                                                                                        <SelectValue placeholder="Version" />
+                                                                                                    </SelectTrigger>
+                                                                                                    <SelectContent>
+                                                                                                        <SelectItem value="seajourney">SeaJourney</SelectItem>
+                                                                                                        <SelectItem value="mca">MCA</SelectItem>
+                                                                                                    </SelectContent>
+                                                                                                </Select>
+                                                                                                <Button
+                                                                                                    variant="outline"
+                                                                                                    size="sm"
+                                                                                                    onClick={() => handleGeneratePDF(testimonial, selectedTestimonialFormat[testimonial.id] ?? 'mca')}
+                                                                                                    disabled={generatingPDF === testimonial.id}
+                                                                                                    className="rounded-xl"
+                                                                                                    title="Download"
+                                                                                                >
+                                                                                                    {generatingPDF === testimonial.id ? (
+                                                                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                                    ) : (
+                                                                                                        <Download className="h-4 w-4" />
+                                                                                                    )}
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                    variant="ghost"
+                                                                                                    size="sm"
+                                                                                                    onClick={() => setCrewTestimonialToDelete(testimonial)}
+                                                                                                    disabled={generatingPDF === testimonial.id || isDeletingCrewTestimonial}
+                                                                                                    className="rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                                                                    title="Delete testimonial"
+                                                                                                >
+                                                                                                    <Trash2 className="h-4 w-4" />
+                                                                                                </Button>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </CardContent>
+                                                                                </Card>
+                                                                            );
+                                                                        }
+                                                                        const testimonial = row.t;
+                                                                        const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
+                                                                        const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
+                                                                        return (
+                                                                            <Card key={`vessel-draft-${testimonial.id}`} className="hover:shadow-md transition-shadow">
+                                                                                <CardContent className="p-4">
+                                                                                    <div className="flex items-start justify-between">
+                                                                                        <div className="flex-1 space-y-2 min-w-0 cursor-pointer" onClick={() => setViewDocumentBreakdown(testimonial)}>
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                                                                                                <span className="font-semibold text-sm">
+                                                                                                    {startDate} - {endDate}
+                                                                                                </span>
+                                                                                            </div>
+                                                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                                                <Badge
+                                                                                                    variant="outline"
+                                                                                                    className={cn(
+                                                                                                        'text-xs border-amber-500/50 bg-amber-500/10 text-amber-950 dark:text-amber-100 dark:bg-amber-500/15 dark:border-amber-500/40'
+                                                                                                    )}
+                                                                                                >
+                                                                                                    Not approved yet
+                                                                                                </Badge>
+                                                                                                <Badge variant="outline" className="text-xs border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
+                                                                                                    {testimonial.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
+                                                                                                </Badge>
+                                                                                                <Badge variant="outline" className="text-xs">
+                                                                                                    {testimonial.pdf_format === 'mca' ? 'MCA' : 'SeaJourney'}
+                                                                                                </Badge>
+                                                                                                <span className="text-sm text-muted-foreground">
+                                                                                                    {testimonial.total_days} days
+                                                                                                </span>
+                                                                                                {testimonial.created_at && (
+                                                                                                    <span className="text-xs text-muted-foreground">
+                                                                                                        Generated {formatDate(new Date(testimonial.created_at), 'MMM d, yyyy')}
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                                                            <Button
+                                                                                                variant="ghost"
+                                                                                                size="sm"
+                                                                                                onClick={() => setViewDocumentBreakdown(testimonial)}
+                                                                                                className="rounded-lg"
+                                                                                                title="View breakdown"
+                                                                                            >
+                                                                                                <Eye className="h-4 w-4" />
+                                                                                            </Button>
+                                                                                            <Button
+                                                                                                variant="ghost"
+                                                                                                size="sm"
+                                                                                                onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca', 'newtab')}
+                                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                                className="rounded-lg"
+                                                                                                title="Preview"
+                                                                                            >
+                                                                                                {generatingPDF === testimonial.id ? (
+                                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                                ) : (
+                                                                                                    <FileText className="h-4 w-4" />
+                                                                                                )}
+                                                                                            </Button>
+                                                                                            <Select
+                                                                                                value={selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca'}
+                                                                                                onValueChange={(format) => setSelectedVesselDocFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
+                                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                            >
+                                                                                                <SelectTrigger className="w-[140px] rounded-xl">
+                                                                                                    <SelectValue placeholder="Version" />
+                                                                                                </SelectTrigger>
+                                                                                                <SelectContent>
+                                                                                                    <SelectItem value="seajourney">SeaJourney</SelectItem>
+                                                                                                    <SelectItem value="mca">MCA</SelectItem>
+                                                                                                </SelectContent>
+                                                                                            </Select>
+                                                                                            <Button
+                                                                                                variant="outline"
+                                                                                                size="sm"
+                                                                                                onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca')}
+                                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                                className="rounded-xl"
+                                                                                                title="Download"
+                                                                                            >
+                                                                                                {generatingPDF === testimonial.id ? (
+                                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                                ) : (
+                                                                                                    <Download className="h-4 w-4" />
+                                                                                                )}
+                                                                                            </Button>
+                                                                                            <Button
+                                                                                                variant="ghost"
+                                                                                                size="sm"
+                                                                                                onClick={() => {
+                                                                                                    setVesselDocToSendToCaptain(testimonial);
+                                                                                                    setSendTestimonialByEmailValue('');
+                                                                                                    setSendTestimonialByEmailOpen(true);
+                                                                                                }}
+                                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                                className="rounded-lg"
+                                                                                                title="Send to captain for approval"
+                                                                                            >
+                                                                                                <Send className="h-4 w-4" />
+                                                                                            </Button>
+                                                                                            <Button
+                                                                                                variant="ghost"
+                                                                                                size="sm"
+                                                                                                onClick={() => setVesselTestimonialToDeleteId(testimonial.id)}
+                                                                                                disabled={deletingTestimonial === testimonial.id || generatingPDF === testimonial.id}
+                                                                                                className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg"
+                                                                                                title="Delete testimonial"
+                                                                                            >
+                                                                                                {deletingTestimonial === testimonial.id ? (
+                                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                                ) : (
+                                                                                                    <Trash2 className="h-4 w-4" />
+                                                                                                )}
+                                                                                            </Button>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </CardContent>
+                                                                            </Card>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </TabsContent>
+                                            <TabsContent value="proof" className="mt-4 focus-visible:outline-none">
+                                            {effectivePeriodFiltered.proofOfServiceEntries.length === 0 ? (
+                                                <Card className="border-dashed">
+                                                    <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                                                    <ShieldCheck className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+                                                    <h4 className="font-semibold mb-2">No proof of service</h4>
+                                                    <p className="text-sm text-muted-foreground">
+                                                    No proof of service entries for this assignment period yet. Create them from Generator → Proof of Service.
+                                                    </p>
+                                                    </CardContent>
+                                                </Card>
+                                            ) : (
                                             <div className="space-y-4 mb-6">
                                                 <div className="flex items-center justify-between">
                                                     <h4 className="font-semibold flex items-center gap-2">
@@ -5259,7 +5633,7 @@ export default function CrewPage() {
                                                                         ) : (
                                                                             <Download className="h-4 w-4 mr-2" />
                                                                         )}
-                                                                        Download PDF
+                                                                        Download
                                                                     </Button>
                                                                 </div>
                                                             </CardContent>
@@ -5267,287 +5641,341 @@ export default function CrewPage() {
                                                     ))}
                                                 </div>
                                             </div>
-                                        )}
-
-                                        {/* Testimonials (all) - only when crew has given permission */}
-                                        {effectiveMember?.accessRequest?.status === 'approved' && effectivePeriodFiltered.testimonials.length > 0 && (
-                                            <div className="space-y-4 mb-6">
-                                                <div className="flex items-center justify-between">
-                                                    <h4 className="font-semibold">Testimonials</h4>
-                                                    <Badge variant="outline" className="text-xs">
-                                                        {effectivePeriodFiltered.testimonials.length} testimonial{effectivePeriodFiltered.testimonials.length !== 1 ? 's' : ''}
-                                                    </Badge>
-                                                </div>
-                                                <div className="grid gap-3">
-                                                    {effectivePeriodFiltered.testimonials.map((testimonial) => {
-                                                        const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
-                                                        const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
-                                                        const statusLabel = testimonial.status === 'approved' ? 'Approved' : testimonial.status === 'pending_captain' ? 'Pending captain' : testimonial.status === 'rejected' ? 'Rejected' : testimonial.status === 'draft' ? 'Draft' : testimonial.status;
-                                                        return (
-                                                            <Card key={testimonial.id} className="hover:shadow-md transition-shadow">
+                                            )}
+                                            </TabsContent>
+                                            </Tabs>
+                                        ) : (
+                                            <>
+                                            {/* Proof of Service - entries saved from Generator → Proof of Service */}
+                                            {effectivePeriodFiltered.proofOfServiceEntries.length > 0 && (
+                                                <div className="space-y-4 mb-6">
+                                                    <div className="flex items-center justify-between">
+                                                        <h4 className="font-semibold flex items-center gap-2">
+                                                            <ShieldCheck className="h-4 w-4 text-primary" />
+                                                            Proof of Service
+                                                        </h4>
+                                                        <Badge variant="outline" className="text-xs">
+                                                            {effectivePeriodFiltered.proofOfServiceEntries.length} entry{effectivePeriodFiltered.proofOfServiceEntries.length !== 1 ? 's' : ''}
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="grid gap-3">
+                                                        {effectivePeriodFiltered.proofOfServiceEntries.map((entry) => (
+                                                            <Card key={entry.id} className="hover:shadow-md transition-shadow">
                                                                 <CardContent className="p-4">
-                                                                    <div className="flex items-start justify-between">
-                                                                        <div className="flex-1 space-y-2 min-w-0 cursor-pointer" onClick={() => setViewDocumentBreakdown(testimonial as any)}>
-                                                                            <div className="flex items-center gap-2">
-                                                                                <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                                                                                <span className="font-semibold text-sm">
-                                                                                    {startDate} - {endDate}
-                                                                                </span>
-                                                                            </div>
-                                                                            <div className="flex items-center gap-2 flex-wrap">
-                                                                                <Badge
-                                                                                    variant={testimonial.status === 'approved' ? 'outline' : 'outline'}
-                                                                                    className={cn(
-                                                                                        'text-xs',
-                                                                                        testimonial.status === 'approved' && 'border-green-500/40 bg-green-500/15 text-green-800 dark:text-green-200 dark:bg-green-500/20 dark:border-green-500/30'
-                                                                                    )}
-                                                                                >
-                                                                                    {statusLabel}
-                                                                                </Badge>
-                                                                                {(testimonial as any).data_source && (
-                                                                                    <Badge variant="outline" className="text-xs border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
-                                                                                        {(testimonial as any).data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
-                                                                                    </Badge>
-                                                                                )}
-                                                                                {testimonial.testimonial_code && (
-                                                                                    <Badge variant="secondary" className="text-xs">{testimonial.testimonial_code}</Badge>
-                                                                                )}
-                                                                                <span className="text-sm text-muted-foreground">
-                                                                                    {testimonial.total_days} days
-                                                                                </span>
-                                                                                {testimonial.created_at && (
-                                                                                    <span className="text-xs text-muted-foreground">
-                                                                                        Generated {formatDate(new Date(testimonial.created_at), 'MMM d, yyyy')}
-                                                                                    </span>
-                                                                                )}
-                                                                                {testimonial.status === 'approved' && testimonial.approved_at && (
-                                                                                    <span className="text-xs text-muted-foreground">
-                                                                                        Approved {formatDate(new Date(testimonial.approved_at), 'MMM d, yyyy')}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
+                                                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                                                        <div className="space-y-1">
+                                                                            <p className="font-medium text-sm">{entry.vesselName}</p>
+                                                                            <p className="text-sm text-muted-foreground">
+                                                                                {format(new Date(entry.startDate), 'dd MMM yyyy')} – {format(new Date(entry.endDate), 'dd MMM yyyy')}
+                                                                            </p>
+                                                                            <p className="text-xs text-muted-foreground">
+                                                                                {entry.totalDays} days total · {entry.atSeaDays} at sea
+                                                                                {entry.createdAt && ` · Generated ${format(new Date(entry.createdAt), 'dd MMM yyyy')}`}
+                                                                            </p>
                                                                         </div>
-                                                                        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="sm"
-                                                                                onClick={() => setViewDocumentBreakdown({ ...testimonial, data_source: (testimonial as any).data_source, pdf_format: 'mca' })}
-                                                                                className="rounded-lg"
-                                                                                title="View breakdown"
-                                                                            >
-                                                                                <Eye className="h-4 w-4" />
-                                                                            </Button>
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="sm"
-                                                                                onClick={() => handleGeneratePDF(testimonial, selectedTestimonialFormat[testimonial.id] ?? 'mca', 'newtab')}
-                                                                                disabled={generatingPDF === testimonial.id}
-                                                                                className="rounded-lg"
-                                                                                title="Preview PDF"
-                                                                            >
-                                                                                {generatingPDF === testimonial.id ? (
-                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                                                ) : (
-                                                                                    <FileText className="h-4 w-4" />
-                                                                                )}
-                                                                            </Button>
-                                                                            <Select
-                                                                                value={selectedTestimonialFormat[testimonial.id] ?? 'mca'}
-                                                                                onValueChange={(format) => setSelectedTestimonialFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
-                                                                                disabled={generatingPDF === testimonial.id}
-                                                                            >
-                                                                                <SelectTrigger className="w-[140px] rounded-xl">
-                                                                                    <SelectValue placeholder="Version" />
-                                                                                </SelectTrigger>
-                                                                                <SelectContent>
-                                                                                    <SelectItem value="seajourney">SeaJourney PDF</SelectItem>
-                                                                                    <SelectItem value="mca">MCA PDF</SelectItem>
-                                                                                </SelectContent>
-                                                                            </Select>
-                                                                            <Button
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                onClick={() => handleGeneratePDF(testimonial, selectedTestimonialFormat[testimonial.id] ?? 'mca')}
-                                                                                disabled={generatingPDF === testimonial.id}
-                                                                                className="rounded-xl"
-                                                                                title="Download"
-                                                                            >
-                                                                                {generatingPDF === testimonial.id ? (
-                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                                                ) : (
-                                                                                    <Download className="h-4 w-4" />
-                                                                                )}
-                                                                            </Button>
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="sm"
-                                                                                onClick={() => setCrewTestimonialToDelete(testimonial)}
-                                                                                disabled={generatingPDF === testimonial.id || isDeletingCrewTestimonial}
-                                                                                className="rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10"
-                                                                                title="Delete testimonial"
-                                                                            >
-                                                                                <Trash2 className="h-4 w-4" />
-                                                                            </Button>
-                                                                        </div>
-                                                                    </div>
-                                                                </CardContent>
-                                                            </Card>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Generated Documents (vessel-generated; when no approved access this is the only doc section) */}
-                                        {isLoadingTestimonials ? (
-                                            <div className="flex items-center justify-center py-12">
-                                                <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                                            </div>
-                                        ) : effectivePeriodFiltered.vesselGeneratedTestimonials.length > 0 ? (
-                                            <div className="space-y-4">
-                                                <div className="flex items-center justify-between">
-                                                    <h4 className="font-semibold">Generated Documents</h4>
-                                                    <Badge variant="outline" className="text-xs">
-                                                        {effectivePeriodFiltered.vesselGeneratedTestimonials.length} document{effectivePeriodFiltered.vesselGeneratedTestimonials.length !== 1 ? 's' : ''}
-                                                    </Badge>
-                                                </div>
-                                                <div className="grid gap-3">
-                                                    {effectivePeriodFiltered.vesselGeneratedTestimonials.map((testimonial) => {
-                                                        const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
-                                                        const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
-                                                        
-                                                        return (
-                                                            <Card key={testimonial.id} className="hover:shadow-md transition-shadow">
-                                                                <CardContent className="p-4">
-                                                                    <div className="flex items-start justify-between">
-                                                                        <div className="flex-1 space-y-2 min-w-0 cursor-pointer" onClick={() => setViewDocumentBreakdown(testimonial)}>
-                                                                            <div className="flex items-center gap-2">
-                                                                                <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                                                                                <span className="font-semibold text-sm">
-                                                                                    {startDate} - {endDate}
-                                                                                </span>
-                                                                            </div>
-                                                                            <div className="flex items-center gap-2 flex-wrap">
-                                                                                <Badge variant="outline" className="text-xs border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
-                                                                                    {testimonial.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
-                                                                                </Badge>
-                                                                                <Badge variant="outline" className="text-xs">
-                                                                                    {testimonial.pdf_format === 'mca' ? 'MCA' : 'SeaJourney'}
-                                                                                </Badge>
-                                                                                <span className="text-sm text-muted-foreground">
-                                                                                    {testimonial.total_days} days
-                                                                                </span>
-                                                                                {testimonial.created_at && (
-                                                                                    <span className="text-xs text-muted-foreground">
-                                                                                        Generated {formatDate(new Date(testimonial.created_at), 'MMM d, yyyy')}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="sm"
-                                                                                onClick={() => setViewDocumentBreakdown(testimonial)}
-                                                                                className="rounded-lg"
-                                                                                title="View breakdown"
-                                                                            >
-                                                                                <Eye className="h-4 w-4" />
-                                                                            </Button>
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="sm"
-                                                                                onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca', 'newtab')}
-                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
-                                                                                className="rounded-lg"
-                                                                                title="Preview PDF"
-                                                                            >
-                                                                                {generatingPDF === testimonial.id ? (
-                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                                                ) : (
-                                                                                    <FileText className="h-4 w-4" />
-                                                                                )}
-                                                                            </Button>
-                                                                            <Select
-                                                                                value={selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca'}
-                                                                                onValueChange={(format) => setSelectedVesselDocFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
-                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
-                                                                            >
-                                                                                <SelectTrigger className="w-[140px] rounded-xl">
-                                                                                    <SelectValue placeholder="Version" />
-                                                                                </SelectTrigger>
-                                                                                <SelectContent>
-                                                                                    <SelectItem value="seajourney">SeaJourney</SelectItem>
-                                                                                    <SelectItem value="mca">MCA</SelectItem>
-                                                                                </SelectContent>
-                                                                            </Select>
-                                                                            <Button
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca')}
-                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
-                                                                                className="rounded-xl"
-                                                                                title="Download"
-                                                                            >
-                                                                                {generatingPDF === testimonial.id ? (
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            onClick={() => handleDownloadProofOfService(entry)}
+                                                                            disabled={downloadingProofOfServiceId === entry.id}
+                                                                            className="rounded-xl shrink-0"
+                                                                        >
+                                                                            {downloadingProofOfServiceId === entry.id ? (
                                                                                 <Loader2 className="h-4 w-4 animate-spin" />
-                                                                                ) : (
-                                                                                    <Download className="h-4 w-4" />
-                                                                                )}
-                                                                            </Button>
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="sm"
-                                                                                onClick={() => {
-                                                                                    setVesselDocToSendToCaptain(testimonial);
-                                                                                    setSendTestimonialByEmailValue('');
-                                                                                    setSendTestimonialByEmailOpen(true);
-                                                                                }}
-                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
-                                                                                className="rounded-lg"
-                                                                                title="Send to captain for approval"
-                                                                            >
-                                                                                <Send className="h-4 w-4" />
-                                                                            </Button>
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="sm"
-                                                                                onClick={() => setVesselTestimonialToDeleteId(testimonial.id)}
-                                                                                disabled={deletingTestimonial === testimonial.id || generatingPDF === testimonial.id}
-                                                                                className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg"
-                                                                                title="Delete testimonial"
-                                                                            >
-                                                                                {deletingTestimonial === testimonial.id ? (
-                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                                                ) : (
-                                                                                    <Trash2 className="h-4 w-4" />
-                                                                                )}
-                                                                            </Button>
-                                                                        </div>
+                                                                            ) : (
+                                                                                <Download className="h-4 w-4 mr-2" />
+                                                                            )}
+                                                                            Download
+                                                                        </Button>
                                                                     </div>
                                                                 </CardContent>
                                                             </Card>
-                                                        );
-                                                    })}
+                                                        ))}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ) : (() => {
-                                            const hasVesselGenerated = effectivePeriodFiltered.vesselGeneratedTestimonials.length > 0;
-                                            const hasTestimonials = effectiveMember?.accessRequest?.status === 'approved' && effectivePeriodFiltered.testimonials.length > 0;
-                                            const hasProofOfService = effectivePeriodFiltered.proofOfServiceEntries.length > 0;
-                                            const hasAnyDocuments = hasVesselGenerated || hasTestimonials || hasProofOfService;
-                                            return !hasAnyDocuments ? (
-                                            <Card className="border-dashed">
-                                                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                                                    <FileText className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                                                    <h4 className="font-semibold mb-2">No Documents Generated</h4>
-                                                    <p className="text-sm text-muted-foreground mb-4">
-                                                        No documents have been generated for this crew member yet.
-                                                    </p>
-                                                </CardContent>
-                                            </Card>
-                                            ) : null;
-                                        })()}
+                                            )}
+
+                                            {/* Testimonials (all) - only when crew has given permission */}
+                                            {effectiveMember?.accessRequest?.status === 'approved' && effectivePeriodFiltered.testimonials.length > 0 && (
+                                                <div className="space-y-4 mb-6">
+                                                    <div className="flex items-center justify-between">
+                                                        <h4 className="font-semibold">Testimonials</h4>
+                                                        <Badge variant="outline" className="text-xs">
+                                                            {effectivePeriodFiltered.testimonials.length} testimonial{effectivePeriodFiltered.testimonials.length !== 1 ? 's' : ''}
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="grid gap-3">
+                                                        {effectivePeriodFiltered.testimonials.map((testimonial) => {
+                                                            const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
+                                                            const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
+                                                            const statusLabel = testimonial.status === 'approved' ? 'Approved' : testimonial.status === 'pending_captain' ? 'Pending captain' : testimonial.status === 'rejected' ? 'Rejected' : testimonial.status === 'draft' ? 'Draft' : testimonial.status;
+                                                            return (
+                                                                <Card key={testimonial.id} className="hover:shadow-md transition-shadow">
+                                                                    <CardContent className="p-4">
+                                                                        <div className="flex items-start justify-between">
+                                                                            <div className="flex-1 space-y-2 min-w-0 cursor-pointer" onClick={() => setViewDocumentBreakdown(testimonial as any)}>
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                                                                                    <span className="font-semibold text-sm">
+                                                                                        {startDate} - {endDate}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                                    <Badge
+                                                                                        variant={testimonial.status === 'approved' ? 'outline' : 'outline'}
+                                                                                        className={cn(
+                                                                                            'text-xs',
+                                                                                            testimonial.status === 'approved' && 'border-green-500/40 bg-green-500/15 text-green-800 dark:text-green-200 dark:bg-green-500/20 dark:border-green-500/30'
+                                                                                        )}
+                                                                                    >
+                                                                                        {statusLabel}
+                                                                                    </Badge>
+                                                                                    {(testimonial as any).data_source && (
+                                                                                        <Badge variant="outline" className="text-xs border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
+                                                                                            {(testimonial as any).data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
+                                                                                        </Badge>
+                                                                                    )}
+                                                                                    {testimonial.testimonial_code && (
+                                                                                        <Badge variant="secondary" className="text-xs">{testimonial.testimonial_code}</Badge>
+                                                                                    )}
+                                                                                    <span className="text-sm text-muted-foreground">
+                                                                                        {testimonial.total_days} days
+                                                                                    </span>
+                                                                                    {testimonial.created_at && (
+                                                                                        <span className="text-xs text-muted-foreground">
+                                                                                            Generated {formatDate(new Date(testimonial.created_at), 'MMM d, yyyy')}
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {testimonial.status === 'approved' && testimonial.approved_at && (
+                                                                                        <span className="text-xs text-muted-foreground">
+                                                                                            Approved {formatDate(new Date(testimonial.approved_at), 'MMM d, yyyy')}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="sm"
+                                                                                    onClick={() => setViewDocumentBreakdown({ ...testimonial, data_source: (testimonial as any).data_source, pdf_format: 'mca' })}
+                                                                                    className="rounded-lg"
+                                                                                    title="View breakdown"
+                                                                                >
+                                                                                    <Eye className="h-4 w-4" />
+                                                                                </Button>
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="sm"
+                                                                                    onClick={() => handleGeneratePDF(testimonial, selectedTestimonialFormat[testimonial.id] ?? 'mca', 'newtab')}
+                                                                                    disabled={generatingPDF === testimonial.id}
+                                                                                    className="rounded-lg"
+                                                                                    title="Preview"
+                                                                                >
+                                                                                    {generatingPDF === testimonial.id ? (
+                                                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                    ) : (
+                                                                                        <FileText className="h-4 w-4" />
+                                                                                    )}
+                                                                                </Button>
+                                                                                <Select
+                                                                                    value={selectedTestimonialFormat[testimonial.id] ?? 'mca'}
+                                                                                    onValueChange={(format) => setSelectedTestimonialFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
+                                                                                    disabled={generatingPDF === testimonial.id}
+                                                                                >
+                                                                                    <SelectTrigger className="w-[140px] rounded-xl">
+                                                                                        <SelectValue placeholder="Version" />
+                                                                                    </SelectTrigger>
+                                                                                    <SelectContent>
+                                                                                        <SelectItem value="seajourney">SeaJourney</SelectItem>
+                                                                                        <SelectItem value="mca">MCA</SelectItem>
+                                                                                    </SelectContent>
+                                                                                </Select>
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    onClick={() => handleGeneratePDF(testimonial, selectedTestimonialFormat[testimonial.id] ?? 'mca')}
+                                                                                    disabled={generatingPDF === testimonial.id}
+                                                                                    className="rounded-xl"
+                                                                                    title="Download"
+                                                                                >
+                                                                                    {generatingPDF === testimonial.id ? (
+                                                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                    ) : (
+                                                                                        <Download className="h-4 w-4" />
+                                                                                    )}
+                                                                                </Button>
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="sm"
+                                                                                    onClick={() => setCrewTestimonialToDelete(testimonial)}
+                                                                                    disabled={generatingPDF === testimonial.id || isDeletingCrewTestimonial}
+                                                                                    className="rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                                                    title="Delete testimonial"
+                                                                                >
+                                                                                    <Trash2 className="h-4 w-4" />
+                                                                                </Button>
+                                                                            </div>
+                                                                        </div>
+                                                                    </CardContent>
+                                                                </Card>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Generated Documents (vessel-generated; when no approved access this is the only doc section) */}
+                                            {isLoadingTestimonials ? (
+                                                <div className="flex items-center justify-center py-12">
+                                                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                                </div>
+                                            ) : effectivePeriodFiltered.vesselGeneratedTestimonials.length > 0 ? (
+                                                <div className="space-y-4">
+                                                    <div className="flex items-center justify-between">
+                                                        <h4 className="font-semibold">Generated Documents</h4>
+                                                        <Badge variant="outline" className="text-xs">
+                                                            {effectivePeriodFiltered.vesselGeneratedTestimonials.length} document{effectivePeriodFiltered.vesselGeneratedTestimonials.length !== 1 ? 's' : ''}
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="grid gap-3">
+                                                        {effectivePeriodFiltered.vesselGeneratedTestimonials.map((testimonial) => {
+                                                            const startDate = formatDate(new Date(testimonial.start_date), 'MMM dd, yyyy');
+                                                            const endDate = formatDate(new Date(testimonial.end_date), 'MMM dd, yyyy');
+                                                        
+                                                            return (
+                                                                <Card key={testimonial.id} className="hover:shadow-md transition-shadow">
+                                                                    <CardContent className="p-4">
+                                                                        <div className="flex items-start justify-between">
+                                                                            <div className="flex-1 space-y-2 min-w-0 cursor-pointer" onClick={() => setViewDocumentBreakdown(testimonial)}>
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                                                                                    <span className="font-semibold text-sm">
+                                                                                        {startDate} - {endDate}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                                    <Badge variant="outline" className="text-xs border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
+                                                                                        {testimonial.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
+                                                                                    </Badge>
+                                                                                    <Badge variant="outline" className="text-xs">
+                                                                                        {testimonial.pdf_format === 'mca' ? 'MCA' : 'SeaJourney'}
+                                                                                    </Badge>
+                                                                                    <span className="text-sm text-muted-foreground">
+                                                                                        {testimonial.total_days} days
+                                                                                    </span>
+                                                                                    {testimonial.created_at && (
+                                                                                        <span className="text-xs text-muted-foreground">
+                                                                                            Generated {formatDate(new Date(testimonial.created_at), 'MMM d, yyyy')}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="sm"
+                                                                                    onClick={() => setViewDocumentBreakdown(testimonial)}
+                                                                                    className="rounded-lg"
+                                                                                    title="View breakdown"
+                                                                                >
+                                                                                    <Eye className="h-4 w-4" />
+                                                                                </Button>
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="sm"
+                                                                                    onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca', 'newtab')}
+                                                                                    disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                    className="rounded-lg"
+                                                                                    title="Preview"
+                                                                                >
+                                                                                    {generatingPDF === testimonial.id ? (
+                                                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                    ) : (
+                                                                                        <FileText className="h-4 w-4" />
+                                                                                    )}
+                                                                                </Button>
+                                                                                <Select
+                                                                                    value={selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca'}
+                                                                                    onValueChange={(format) => setSelectedVesselDocFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
+                                                                                    disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                >
+                                                                                    <SelectTrigger className="w-[140px] rounded-xl">
+                                                                                        <SelectValue placeholder="Version" />
+                                                                                    </SelectTrigger>
+                                                                                    <SelectContent>
+                                                                                        <SelectItem value="seajourney">SeaJourney</SelectItem>
+                                                                                        <SelectItem value="mca">MCA</SelectItem>
+                                                                                    </SelectContent>
+                                                                                </Select>
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca')}
+                                                                                    disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                    className="rounded-xl"
+                                                                                    title="Download"
+                                                                                >
+                                                                                    {generatingPDF === testimonial.id ? (
+                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                    ) : (
+                                                                                        <Download className="h-4 w-4" />
+                                                                                    )}
+                                                                                </Button>
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="sm"
+                                                                                    onClick={() => {
+                                                                                        setVesselDocToSendToCaptain(testimonial);
+                                                                                        setSendTestimonialByEmailValue('');
+                                                                                        setSendTestimonialByEmailOpen(true);
+                                                                                    }}
+                                                                                    disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
+                                                                                    className="rounded-lg"
+                                                                                    title="Send to captain for approval"
+                                                                                >
+                                                                                    <Send className="h-4 w-4" />
+                                                                                </Button>
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="sm"
+                                                                                    onClick={() => setVesselTestimonialToDeleteId(testimonial.id)}
+                                                                                    disabled={deletingTestimonial === testimonial.id || generatingPDF === testimonial.id}
+                                                                                    className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg"
+                                                                                    title="Delete testimonial"
+                                                                                >
+                                                                                    {deletingTestimonial === testimonial.id ? (
+                                                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                    ) : (
+                                                                                        <Trash2 className="h-4 w-4" />
+                                                                                    )}
+                                                                                </Button>
+                                                                            </div>
+                                                                        </div>
+                                                                    </CardContent>
+                                                                </Card>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            ) : (() => {
+                                                const hasVesselGenerated = effectivePeriodFiltered.vesselGeneratedTestimonials.length > 0;
+                                                const hasTestimonials = effectiveMember?.accessRequest?.status === 'approved' && effectivePeriodFiltered.testimonials.length > 0;
+                                                const hasProofOfService = effectivePeriodFiltered.proofOfServiceEntries.length > 0;
+                                                const hasAnyDocuments = hasVesselGenerated || hasTestimonials || hasProofOfService;
+                                                return !hasAnyDocuments ? (
+                                                <Card className="border-dashed">
+                                                    <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                                                        <FileText className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+                                                        <h4 className="font-semibold mb-2">No Documents Generated</h4>
+                                                        <p className="text-sm text-muted-foreground mb-4">
+                                                            No documents have been generated for this crew member yet.
+                                                        </p>
+                                                    </CardContent>
+                                                </Card>
+                                                ) : null;
+                                            })()}
+                                            </>
+                                        )}
                                     </>
                                 ) : (
                                     <Card className="border-dashed">
@@ -5673,7 +6101,7 @@ export default function CrewPage() {
                                     </div>
                                     <div className="rounded-lg border bg-muted/40 p-3">
                                         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Standby</div>
-                                        <div className="text-lg font-semibold">{viewDocumentBreakdown.standby_days}</div>
+                                        <div className="text-lg font-semibold text-purple-600 dark:text-purple-400">{viewDocumentBreakdown.standby_days}</div>
                                     </div>
                                     <div className="rounded-lg border bg-muted/40 p-3">
                                         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">In yard</div>
@@ -5715,7 +6143,7 @@ export default function CrewPage() {
                                         ) : (
                                             <Eye className="h-4 w-4 mr-2" />
                                         )}
-                                        Preview PDF
+                                        Preview
                                     </Button>
                                 </div>
                             </div>

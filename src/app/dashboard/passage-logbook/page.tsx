@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, differenceInHours, parse, startOfDay, endOfDay, isAfter, isBefore, eachDayOfInterval } from 'date-fns';
+import { format, differenceInHours, parse, startOfDay, endOfDay, isAfter, isBefore, eachDayOfInterval, parseISO, addYears } from 'date-fns';
 import { PlusCircle, Loader2, Ship, MapPin, Calendar, Clock, ArrowRight, Edit, Trash2, CheckCircle2, CalendarDays, Navigation, Wind, Waves, Route, TrendingUp, Download, AlertTriangle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -24,16 +24,18 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
-import { 
-  getPassageLogs, 
-  createPassageLog, 
-  updatePassageLog, 
+import {
+  getPassageLogs,
+  getPassageLogsByVessel,
+  createPassageLog,
+  updatePassageLog,
   deletePassageLog,
   getVesselStateLogs,
   updateStateLogsBatch,
   getVesselAssignments,
 } from '@/supabase/database/queries';
-import type { Vessel, UserProfile, PassageLog, StateLog } from '@/lib/types';
+import type { Vessel, UserProfile, PassageLog, StateLog, VesselAssignment } from '@/lib/types';
+import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 import { cn } from '@/lib/utils';
 import { generatePassageLogPDF, type PassageLogExportData } from '@/lib/pdf-generator';
 
@@ -79,6 +81,25 @@ const seaStateOptions = [
   { value: 'phenomenal', label: 'Phenomenal (10+)' },
 ];
 
+/** Paid crew tiers that can use the passage log (excludes free and crew_limited). */
+const PASSAGE_LOG_CREW_TIERS = new Set(['standard', 'premium', 'pro', 'professional']);
+
+function passageOverlapsAssignment(passage: PassageLog, a: VesselAssignment): boolean {
+  if (a.vesselId !== passage.vessel_id) return false;
+  const assignStart = startOfDay(parse(a.startDate, 'yyyy-MM-dd', new Date()));
+  const assignEnd = a.endDate
+    ? endOfDay(parse(a.endDate, 'yyyy-MM-dd', new Date()))
+    : endOfDay(addYears(new Date(), 50));
+  const pStart = startOfDay(parseISO(passage.start_time));
+  const pEnd = endOfDay(parseISO(passage.end_time));
+  return pStart.getTime() <= assignEnd.getTime() && pEnd.getTime() >= assignStart.getTime();
+}
+
+function filterPassagesForCrewAssignments(passages: PassageLog[], assignments: VesselAssignment[]): PassageLog[] {
+  if (assignments.length === 0) return [];
+  return passages.filter((p) => assignments.some((a) => passageOverlapsAssignment(p, a)));
+}
+
 export default function PassageLogbookPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -93,7 +114,7 @@ export default function PassageLogbookPage() {
   const [exportEndDate, setExportEndDate] = useState<Date | undefined>(undefined);
   const [stateLogsByVessel, setStateLogsByVessel] = useState<Record<string, StateLog[]>>({});
   const [syncingPassageId, setSyncingPassageId] = useState<string | null>(null);
-  const [vesselAssignments, setVesselAssignments] = useState<{ vesselId: string }[]>([]);
+  const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -118,22 +139,78 @@ export default function PassageLogbookPage() {
     } as UserProfile & { activeVesselId?: string | null };
   }, [userProfileRaw]);
 
+  const isVesselAccount = (userProfile?.role as string) === 'vessel';
+
   // Query vessels
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
     user?.id ? 'vessels' : null,
     user?.id ? { orderBy: 'created_at', ascending: false } : undefined
   );
 
-  // Fetch vessel assignments for crew (to limit vessel dropdown to past/current vessels)
+  const loadPassagesData = useCallback(async () => {
+    if (!user?.id || !userProfile) return;
+
+    const role = (userProfile.role as string) || 'crew';
+    const activeVesselId =
+      (userProfile as any).active_vessel_id ?? (userProfile as any).activeVesselId ?? null;
+
+    let assignments: VesselAssignment[] = [];
+    if (role !== 'vessel' && role !== 'admin') {
+      try {
+        assignments = await getVesselAssignments(supabase, user.id);
+      } catch {
+        assignments = [];
+      }
+    }
+    setVesselAssignments(assignments);
+
+    let data: PassageLog[];
+    if (role === 'vessel') {
+      if (!activeVesselId) {
+        setPassages([]);
+        return;
+      }
+      data = await getPassageLogsByVessel(supabase, activeVesselId);
+    } else {
+      data = await getPassageLogs(supabase, user.id);
+      if (role !== 'admin' && role !== 'vessel') {
+        data = filterPassagesForCrewAssignments(data, assignments);
+      }
+    }
+    setPassages(data);
+  }, [user?.id, userProfile, supabase]);
+
   useEffect(() => {
-    if (!user?.id || (userProfile?.role as string) === 'vessel') {
+    if (!user?.id || !userProfile) {
       setVesselAssignments([]);
+      setIsLoadingPassages(false);
       return;
     }
-    getVesselAssignments(supabase, user.id)
-      .then((assignments) => setVesselAssignments(assignments.map((a) => ({ vesselId: a.vesselId }))))
-      .catch(() => setVesselAssignments([]));
-  }, [user?.id, userProfile?.role, supabase]);
+
+    let cancelled = false;
+    (async () => {
+      try {
+        setIsLoadingPassages(true);
+        await loadPassagesData();
+      } catch (error: any) {
+        console.error('Error loading passages:', error);
+        if (!cancelled) {
+          toast({
+            title: 'Error',
+            description: 'Failed to load passages. Please refresh the page.',
+            variant: 'destructive',
+          });
+          setPassages([]);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingPassages(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, userProfile, loadPassagesData, toast]);
 
   // Vessel options for passage form: vessel account = single active vessel (no dropdown); crew = only assigned vessels
   const vesselsForPassageForm = useMemo(() => {
@@ -159,33 +236,6 @@ export default function PassageLogbookPage() {
       }
     }
   }, [isExportDialogOpen, userProfile]);
-
-  // Fetch passages from database
-  useEffect(() => {
-    if (!user?.id) {
-      setIsLoadingPassages(false);
-      return;
-    }
-
-    const loadPassages = async () => {
-      try {
-        setIsLoadingPassages(true);
-        const data = await getPassageLogs(supabase, user.id);
-        setPassages(data);
-      } catch (error: any) {
-        console.error('Error loading passages:', error);
-        toast({
-          title: 'Error',
-          description: 'Failed to load passages. Please refresh the page.',
-          variant: 'destructive',
-        });
-      } finally {
-        setIsLoadingPassages(false);
-      }
-    };
-
-    loadPassages();
-  }, [user?.id, supabase, toast]);
 
   // Load state logs for all vessels that have passages (to detect calendar conflicts)
   useEffect(() => {
@@ -231,29 +281,38 @@ export default function PassageLogbookPage() {
     },
   });
 
-  // Check if user has access (premium/pro for crew, any active tier for vessels)
+  // Standard+ crew (not crew_limited), all active vessel tiers, admin
   const hasAccess = useMemo(() => {
-    if (!userProfile) return false;
-    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
-    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
+    if (!userProfile || !userProfileRaw) return false;
+    const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toLowerCase();
     const role = (userProfile as any).role || userProfile.role || 'crew';
-    
-    // Vessel accounts: allow all active vessel tiers
+    const entitled = hasActiveSubscription(userProfileRaw);
+
+    if (role === 'admin') return true;
+
     if (role === 'vessel') {
-      const tierLower = tier.toLowerCase();
-      return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && status === 'active';
+      return (
+        (tier.startsWith('vessel_') ||
+          tier === 'vessel_lite' ||
+          tier === 'vessel_basic' ||
+          tier === 'vessel_pro' ||
+          tier === 'vessel_fleet') &&
+        entitled
+      );
     }
-    
-    // Crew accounts: premium or pro only
-    return (tier === 'premium' || tier === 'pro') && status === 'active';
-  }, [userProfile]);
+
+    if (tier === 'crew_limited' && entitled) return false;
+
+    return PASSAGE_LOG_CREW_TIERS.has(tier) && entitled;
+  }, [userProfile, userProfileRaw]);
 
   const onSubmit = async (data: PassageFormValues) => {
     if (!user?.id || !hasAccess) {
       const role = (userProfile as any)?.role || userProfile?.role || 'crew';
-      const message = role === 'vessel' 
-        ? 'Passage Log Book requires an active vessel subscription.'
-        : 'Passage Log Book is available for Premium and Pro subscribers.';
+      const message =
+        role === 'vessel'
+          ? 'Passage Log Book requires an active vessel subscription.'
+          : 'Passage Log Book is available on Standard tier and above (not Crew Limited).';
       toast({
         title: 'Subscription Required',
         description: message,
@@ -325,9 +384,7 @@ export default function PassageLogbookPage() {
         });
       }
 
-      // Reload passages
-      const updatedPassages = await getPassageLogs(supabase, user.id);
-      setPassages(updatedPassages);
+      await loadPassagesData();
 
       // Sync passage date range to Underway in the calendar
       const start = startOfDay(data.startTime);
@@ -659,10 +716,11 @@ export default function PassageLogbookPage() {
 
   if (!hasAccess) {
     const role = (userProfile as any)?.role || userProfile?.role || 'crew';
-    const message = role === 'vessel' 
-      ? 'The Passage Log Book requires an active vessel subscription. Please subscribe to a plan to access this feature.'
-      : 'The Passage Log Book is available for Premium and Pro subscribers. Upgrade your plan to access this feature.';
-    const buttonText = role === 'vessel' ? 'View Plans' : 'Upgrade to Premium';
+    const message =
+      role === 'vessel'
+        ? 'The Passage Log Book requires an active vessel subscription. Please subscribe to a plan to access this feature.'
+        : 'The Passage Log Book is available on Standard tier and above. Upgrade your plan to access this feature.';
+    const buttonText = role === 'vessel' ? 'View Plans' : 'View plans';
     
     return (
       <div className="flex flex-col gap-6">
@@ -915,7 +973,7 @@ export default function PassageLogbookPage() {
                   ) : (
                     <>
                       <Download className="h-4 w-4 mr-2" />
-                      Export PDF
+                      Export
                     </>
                   )}
                 </Button>
@@ -1347,7 +1405,7 @@ export default function PassageLogbookPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Vessel</TableHead>
+                  {!isVesselAccount && <TableHead>Vessel</TableHead>}
                   <TableHead>Route</TableHead>
                   <TableHead>Dates</TableHead>
                   <TableHead>Duration</TableHead>
@@ -1366,12 +1424,14 @@ export default function PassageLogbookPage() {
                   const isSyncing = syncingPassageId === passage.id;
                   return (
                     <TableRow key={passage.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          <Ship className="h-4 w-4 text-muted-foreground" />
-                          {getVesselName(passage.vessel_id)}
-                        </div>
-                      </TableCell>
+                      {!isVesselAccount && (
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <Ship className="h-4 w-4 text-muted-foreground" />
+                            {getVesselName(passage.vessel_id)}
+                          </div>
+                        </TableCell>
+                      )}
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <div>

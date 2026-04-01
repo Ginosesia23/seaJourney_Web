@@ -5,7 +5,7 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import { timestampToISO } from './helpers';
-import type { StateLog, PassageLog, BridgeWatchLog, VesselAssignment } from '@/lib/types';
+import type { StateLog, PassageLog, BridgeWatchLog, VesselAssignment, DailyStatus } from '@/lib/types';
 
 /**
  * Get user profile by user ID
@@ -77,29 +77,49 @@ export async function getVesselSeaService(
     id: record.id,
     userId: record.user_id,
     vesselId: record.vessel_id,
-    date: record.date,
-    state: record.state,
+    date: normalizeStateLogDate(record.date ?? record.log_date) ?? '',
+    state: record.state as DailyStatus,
   }));
+}
+
+/**
+ * Normalize a daily_state_logs date from the DB to `yyyy-MM-dd` so it matches
+ * calendar keys from `format(day, 'yyyy-MM-dd')`. Some clients/rows return ISO
+ * timestamps (e.g. `2024-03-15T00:00:00.000Z`), which would otherwise miss lookups.
+ */
+export function normalizeStateLogDate(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return null;
 }
 
 /**
  * Transform database state log record to TypeScript interface
  */
-function transformStateLog(dbLog: any): StateLog {
-  // Handle both 'date' and 'log_date' field names for compatibility
-  const dateValue = dbLog.date || dbLog.log_date;
-  
+function transformStateLog(dbLog: any): StateLog | null {
+  const dateValue = dbLog.date ?? dbLog.log_date;
+  const date = normalizeStateLogDate(dateValue);
+  if (!date) {
+    console.warn('[transformStateLog] Skipping row with missing or invalid date', dbLog?.id);
+    return null;
+  }
+
   return {
     id: dbLog.id,
     userId: dbLog.user_id,
     vesselId: dbLog.vessel_id,
-    state: dbLog.state,
-    date: dateValue,
+    state: dbLog.state as DailyStatus,
+    date,
     isPartOfActivePassage: dbLog.is_part_of_active_passage || false,
     notes: dbLog.notes || undefined,
     createdAt: dbLog.created_at,
     updatedAt: dbLog.updated_at,
   };
+}
+
+function mapRowsToStateLogs(rows: any[] | null): StateLog[] {
+  return (rows || []).map(transformStateLog).filter((log): log is StateLog => log !== null);
 }
 
 /**
@@ -138,12 +158,43 @@ export async function getVesselStateLogs(
       const { data: retryData, error: retryError } = await retryQuery.order('log_date', { ascending: true });
       
       if (retryError) throw retryError;
-      return (retryData || []).map(transformStateLog);
+      return mapRowsToStateLogs(retryData);
     }
     throw error;
   }
 
-  return (data || []).map(transformStateLog);
+  return mapRowsToStateLogs(data);
+}
+
+/**
+ * All state logs for a user across every vessel (RLS permitting).
+ * Use to merge with per-vessel fetches so rows are not dropped when assignments
+ * are missing or a vessel was never added to vessel_assignments.
+ */
+export async function getAllStateLogsForUser(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<StateLog[]> {
+  const { data, error } = await supabase
+    .from('daily_state_logs')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: true });
+
+  if (error) {
+    if (error.message?.includes('column "date"') || error.code === '42703') {
+      const { data: retryData, error: retryError } = await supabase
+        .from('daily_state_logs')
+        .select('*')
+        .eq('user_id', userId)
+        .order('log_date', { ascending: true });
+      if (retryError) throw retryError;
+      return mapRowsToStateLogs(retryData);
+    }
+    throw error;
+  }
+
+  return mapRowsToStateLogs(data);
 }
 
 /**
@@ -910,6 +961,24 @@ export async function getPassageLogs(
     .from('passage_logs')
     .select('*')
     .eq('crew_id', userId)
+    .order('start_time', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || []).map(transformPassageLog);
+}
+
+/**
+ * Get all passage logs for a vessel (vessel manager view — any crew member’s logs on this vessel).
+ */
+export async function getPassageLogsByVessel(
+  supabase: SupabaseClient,
+  vesselId: string
+): Promise<PassageLog[]> {
+  const { data, error } = await supabase
+    .from('passage_logs')
+    .select('*')
+    .eq('vessel_id', vesselId)
     .order('start_time', { ascending: false });
 
   if (error) throw error;

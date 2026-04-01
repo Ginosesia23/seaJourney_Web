@@ -64,7 +64,7 @@ export const VESSEL_CALCULATION_CATEGORY_LABELS: Record<
 > = {
   yacht_class: {
     label: 'Yacht class',
-    shortDescription: 'MCA/PYA rules: at sea, standby, yard and leave are calculated separately. Standby is limited by preceding voyage sea days.',
+    shortDescription: 'MCA-style rules: at sea, standby, yard and leave are calculated separately. Standby is limited by preceding voyage sea days.',
   },
   commercial_class: {
     label: 'Commercial class',

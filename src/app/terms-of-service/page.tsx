@@ -120,7 +120,7 @@ export default function TermsOfServicePage() {
                       </li>
                       <li className="flex items-start gap-2">
                         <span className="text-blue-400 mt-1">•</span>
-                        <span>Acceptance by MCA, PYA, or other authorities is not guaranteed</span>
+                        <span>Acceptance by the MCA or other authorities is not guaranteed</span>
                       </li>
                     </ul>
                   </CardContent>

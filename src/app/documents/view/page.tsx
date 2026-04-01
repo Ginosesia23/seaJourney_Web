@@ -39,7 +39,8 @@ function DocumentViewContent() {
           pdfFormat: TestimonialPDFFormat;
         };
 
-        const format = pdfFormat === 'mca' ? 'mca' : 'seajourney';
+        const rawFmt = pdfFormat as string;
+        const format = rawFmt === 'mca' || rawFmt === 'pya' ? 'mca' : 'seajourney';
 
         if (format === 'mca') {
           const position = (testimonialData.userProfile.position || '').toLowerCase();

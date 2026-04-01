@@ -110,7 +110,7 @@ export function DateComparisonView({
       }
     });
     
-    // Calculate MCA/PYA compliant standby days for crew member's logs (needed for standby dates)
+    // Calculate MCA-compliant standby days for crew member's logs (needed for standby dates)
     // Extract part of active passage dates from crew member's logs
     const partOfActivePassageDates = new Set<string>();
     actualLogs.forEach(log => {
@@ -126,7 +126,7 @@ export function DateComparisonView({
       return logDate >= startDate && logDate <= endDate;
     });
 
-    // Calculate standby periods using MCA/PYA compliant logic
+    // Calculate standby periods using MCA-compliant logic
     const { standbyPeriods } = calculateStandbyDays(
       crewLogsInRange,
       watchDates,
@@ -151,10 +151,11 @@ export function DateComparisonView({
     const { standbyPeriods: vesselStandbyPeriods } = calculateStandbyDays(
       vesselLogsInRange,
       undefined, // No watch dates for vessel (watch is crew-specific)
-      vesselPartOfActivePassageDates
+      vesselPartOfActivePassageDates,
+      { vesselManagerSeaTime: true }
     );
     
-    // Create a set of vessel dates that are counted as standby (using MCA/PYA compliant logic)
+    // Create a set of vessel dates that are counted as standby (vessel account: in-port only after passage)
     const vesselStandbyDatesSet = new Set<string>();
     vesselStandbyPeriods.forEach(period => {
       let currentDate = period.startDate;
@@ -166,7 +167,7 @@ export function DateComparisonView({
         const logDate = parse(dateStr, 'yyyy-MM-dd', new Date());
         if (logDate >= startDate && logDate <= endDate && log) {
           const isPartOfPassage = vesselPartOfActivePassageDates.has(dateStr);
-          if (!isPartOfPassage && (log.state === 'in-port' || log.state === 'at-anchor')) {
+          if (!isPartOfPassage && log.state === 'in-port') {
             vesselStandbyDatesSet.add(dateStr);
             counted++;
           }
@@ -224,7 +225,7 @@ export function DateComparisonView({
       // Check if vessel also has the same indicators
       const vesselIsPartOfActivePassage = vesselLog?.isPartOfActivePassage || false;
       
-      // Vessel standby: use MCA/PYA compliant calculation (dates that are actually counted as standby)
+      // Vessel standby: use MCA-compliant calculation (dates that are actually counted as standby)
       const vesselIsStandbyDay = vesselStandbyDatesSet.has(dateStr);
       
       // Both part of passage: both crew and vessel marked as part of passage
@@ -235,7 +236,7 @@ export function DateComparisonView({
         ((crewIsPartOfActivePassage && !vesselIsPartOfActivePassage) || 
          (!crewIsPartOfActivePassage && vesselIsPartOfActivePassage));
       
-      // Both standby: crew is standby AND vessel is standby (using MCA/PYA compliant calculation)
+      // Both standby: crew is standby AND vessel is standby (using MCA-compliant calculation)
       // Note: Standby is NOT included in match rate as it's automatically calculated
       // Watch days take priority and are NOT counted as standby
       const bothStandby = crewIsStandbyDay && vesselIsStandbyDay && !crewIsPartOfActivePassage && !vesselIsPartOfActivePassage && !isWatchDay;
@@ -262,7 +263,7 @@ export function DateComparisonView({
         isMissingVessel: !isOnLeave && hasRequested && !hasVesselLog,
         isPartOfActivePassage: crewIsPartOfActivePassage, // Whether crew member marked as part of active passage
         vesselIsPartOfActivePassage, // Whether vessel marked as part of active passage
-        vesselIsStandbyDay, // Whether vessel day is counted as standby (MCA/PYA compliant)
+        vesselIsStandbyDay, // Whether vessel day is counted as standby (MCA-compliant)
         bothPartOfPassage, // Whether both crew and vessel have part of passage
         partOfPassageMismatch, // Whether part of passage doesn't match
         isWatchDay, // Whether this day is a watch day (for officers)
@@ -290,22 +291,23 @@ export function DateComparisonView({
       ? Math.round((matchingDays / crewLoggedDays) * 100) 
       : 0;
     
-    // Calculate vessel standby days using MCA/PYA compliant logic (reuse already calculated periods)
+    // Calculate vessel standby days using MCA-compliant logic (reuse already calculated periods)
     // This ensures standby days don't exceed sea days
     const { totalStandbyDays: vesselStandbyDays, totalSeaDays: vesselSeaDays } = calculateStandbyDays(
       vesselLogsInRange,
       undefined, // No watch dates for vessel (watch is crew-specific)
-      vesselPartOfActivePassageDates
+      vesselPartOfActivePassageDates,
+      { vesselManagerSeaTime: true }
     );
     
-    // At sea includes 'underway', 'at-anchor', and any days marked as 'part of active passage'
+    // At sea includes underway + at-anchor + passage/watch extras (vessel manager rules via calculateStandbyDays)
     // Use the calculated sea days from calculateStandbyDays for consistency
     const vesselAtSeaDays = vesselSeaDays;
     const vesselYardDays = vesselLogsInRange.filter(log => log.state === 'in-yard').length;
     const vesselLeaveDays = vesselLogsInRange.filter(log => log.state === 'on-leave').length;
     const vesselPartOfActivePassageDays = vesselPartOfActivePassageDates.size;
     
-    // Calculate standby days using MCA/PYA compliant logic (reuse already calculated values)
+    // Calculate standby days using MCA-compliant logic (reuse already calculated values)
     const { totalStandbyDays: crewStandbyDays, totalSeaDays: crewSeaDays } = calculateStandbyDays(
       crewLogsInRange,
       watchDates,
@@ -336,7 +338,7 @@ export function DateComparisonView({
       vesselPartOfActivePassageDays,
       hasVesselLogs: vesselLogsInRange.length > 0,
       hasIssues: discrepancies.length > 0 || missingCrewDays.length > 0 || missingVesselDays.length > 0,
-      // MCA/PYA compliant calculations for crew member
+      // MCA-compliant calculations for crew member
       crewStandbyDays,
       crewSeaDays,
       crewYardDays,
@@ -378,7 +380,7 @@ export function DateComparisonView({
                 </div>
                 <div>
                   <div className="text-muted-foreground">Standby</div>
-                  <div className="font-semibold">{comparison.crewStandbyDays}</div>
+                  <div className="font-semibold text-purple-600 dark:text-purple-400">{comparison.crewStandbyDays}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Yard</div>
@@ -414,7 +416,7 @@ export function DateComparisonView({
                 </div>
                 <div>
                   <div className="text-muted-foreground">Standby</div>
-                  <div className="font-semibold">{comparison.vesselStandbyDays}</div>
+                  <div className="font-semibold text-purple-600 dark:text-purple-400">{comparison.vesselStandbyDays}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Yard</div>
@@ -556,7 +558,7 @@ export function DateComparisonView({
                                     ? 'bg-purple-500/20 text-purple-800 border-purple-600 dark:bg-purple-500/30 dark:text-purple-300' 
                                     : 'bg-red-500/20 text-red-800 border-red-600 dark:bg-red-500/30 dark:text-red-300'
                                 }`}
-                                title="Crew: Standby (MCA/PYA Compliant)"
+                                title="Crew: Standby (MCA-compliant)"
                               >
                                 Standby
                               </Badge>
@@ -608,7 +610,7 @@ export function DateComparisonView({
                                     ? 'bg-purple-500/20 text-purple-800 border-purple-600 dark:bg-purple-500/30 dark:text-purple-300' 
                                     : 'bg-red-500/20 text-red-800 border-red-600 dark:bg-red-500/30 dark:text-red-300'
                                 }`}
-                                title="Vessel: Standby (MCA/PYA Compliant Calculations)"
+                                title="Vessel: Standby (MCA-compliant)"
                               >
                                 Standby
                               </Badge>
@@ -703,7 +705,7 @@ export function DateComparisonView({
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Standby:</span>
-              <span className="font-medium">{testimonial?.standby_days || 0}</span>
+              <span className="font-medium text-purple-600 dark:text-purple-400">{testimonial?.standby_days || 0}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Yard:</span>
@@ -715,9 +717,9 @@ export function DateComparisonView({
             </div>
           </div>
           
-          {/* MCA/PYA Compliant Calculation Comparison */}
+          {/* MCA-compliant calculation comparison */}
           <div className="border-t pt-4">
-            <h5 className="text-xs font-semibold mb-3">MCA/PYA Compliant Calculation Methods</h5>
+            <h5 className="text-xs font-semibold mb-3">MCA-compliant calculation methods</h5>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">At Sea:</span>
@@ -725,7 +727,7 @@ export function DateComparisonView({
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Standby:</span>
-                <span className="font-medium text-orange-600 dark:text-orange-400">{comparison.crewStandbyDays}</span>
+                <span className="font-medium text-purple-600 dark:text-purple-400">{comparison.crewStandbyDays}</span>
               </div>
               {comparison.crewPartOfActivePassageDays > 0 && (
                 <div className="flex justify-between">
@@ -736,12 +738,12 @@ export function DateComparisonView({
               {comparison.crewWatchDays > 0 && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Watch Days:</span>
-                  <span className="font-medium text-purple-600 dark:text-purple-400">{comparison.crewWatchDays}</span>
+                  <span className="font-medium text-yellow-600 dark:text-yellow-400">{comparison.crewWatchDays}</span>
                 </div>
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-3">
-              These calculations use MCA/PYA compliant calculation methods, accounting for watch days and part of active passage days.
+              These calculations use MCA-compliant methods, accounting for watch days and part of active passage days.
             </p>
           </div>
         </CardContent>

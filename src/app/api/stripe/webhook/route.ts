@@ -6,6 +6,11 @@ import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendSubscriptionEmail as sendSubscriptionEmailUtil, formatTierName } from "@/lib/subscription-emails";
 import { EMAIL_PRIMARY_BLUE } from "@/lib/email-colors";
+import {
+  extractTierFromSubscription,
+  mapStripeSubscriptionStatusToDb,
+  normalizeTier,
+} from "@/lib/stripe-subscription-helpers";
 
 export const runtime = "nodejs";
 
@@ -113,26 +118,6 @@ async function ensureVesselActiveVesselId(userId: string | null) {
     console.error('[ENSURE VESSEL ACTIVE] Unexpected error:', error);
   }
 }
-function normalizeTier(raw: string | undefined | null) {
-  const t = (raw || "").toLowerCase().trim();
-  return t || "standard";
-}
-
-function mapStripeStatusToAppStatus(
-  stripeStatus: StripeType.Subscription.Status,
-): "active" | "past_due" | "canceled" | "inactive" {
-  if (stripeStatus === "active" || stripeStatus === "trialing") return "active";
-  if (
-    stripeStatus === "past_due" ||
-    stripeStatus === "unpaid" ||
-    stripeStatus === "incomplete"
-  )
-    return "past_due";
-  if (stripeStatus === "canceled" || stripeStatus === "incomplete_expired")
-    return "canceled";
-  return "inactive";
-}
-
 async function lookupUserIdByCustomer(customerId: string) {
   const { data, error } = await supabaseAdmin
     .from("users")
@@ -148,49 +133,6 @@ async function lookupUserIdByCustomer(customerId: string) {
     return null;
   }
   return data?.id ?? null;
-}
-
-/**
- * Prefer price.metadata.tier (best), fallback to nickname, fallback to sub.metadata.tier
- */
-function extractTierFromSubscription(sub: StripeType.Subscription) {
-  const items = sub.items?.data ?? [];
-
-  const crewProductId = (process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID || "").trim();
-  const vesselProductId = (process.env.STRIPE_VESSEL_SUBSCRIPTION_PRODUCT_ID || "").trim();
-
-  // Pick the "main" item by product match first
-  const picked =
-    items.find((it) => {
-      const price = it.price as StripeType.Price;
-      const prod = price.product as any;
-      const prodId = typeof prod === "string" ? prod : prod?.id;
-      return prodId === vesselProductId || prodId === crewProductId;
-    }) ||
-    // Or any item with metadata.tier
-    items.find((it) => ((it.price as any)?.metadata?.tier)) ||
-    // fallback
-    items[0];
-
-  const price = picked?.price as StripeType.Price | undefined;
-
-  const tierFromPriceMeta = (price?.metadata as any)?.tier as string | undefined;
-  const tierFromNickname = price?.nickname || undefined;
-  const tierFromSubMeta = (sub.metadata as any)?.tier as string | undefined;
-
-  // Debug (keep for now)
-  console.log("[TIER] picked item:", {
-    subId: sub.id,
-    pickedPriceId: price?.id,
-    pickedNickname: price?.nickname,
-    pickedMetaTier: tierFromPriceMeta,
-    pickedProduct:
-      typeof (price?.product as any) === "string"
-        ? (price?.product as any)
-        : (price?.product as any)?.id,
-  });
-
-  return normalizeTier(tierFromPriceMeta || tierFromNickname || tierFromSubMeta);
 }
 
 /**
@@ -273,7 +215,7 @@ async function syncUserFromSubscription(
   }
 
   const tier = extractTierFromSubscription(sub);
-  const appStatus = mapStripeStatusToAppStatus(sub.status);
+  const appStatus = mapStripeSubscriptionStatusToDb(sub.status);
 
   const currentPeriodEndIso = sub.current_period_end
     ? new Date(sub.current_period_end * 1000).toISOString()
@@ -530,7 +472,7 @@ export async function POST(req: NextRequest) {
 
         // Use syncResult data if available, otherwise use what we fetched
         const beforeStatus = syncResult?.before?.subscription_status;
-        const afterStatus = syncResult?.after?.subscription_status || mapStripeStatusToAppStatus(full.status);
+        const afterStatus = syncResult?.after?.subscription_status || mapStripeSubscriptionStatusToDb(full.status);
         const beforeTier = syncResult?.before?.subscription_tier || userTier;
         const afterTier = syncResult?.after?.subscription_tier || extractTierFromSubscription(full);
         const finalEmail = syncResult?.after?.email || userEmail;

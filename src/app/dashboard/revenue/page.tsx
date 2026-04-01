@@ -7,22 +7,33 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { 
-  CreditCard, 
-  TrendingUp, 
-  TrendingDown, 
-  Users, 
-  Ship, 
-  DollarSign, 
+import {
+  CreditCard,
+  TrendingUp,
+  TrendingDown,
+  Users,
+  Ship,
+  DollarSign,
   Calendar,
   Loader2,
-  BarChart3,
   PieChart,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Megaphone,
 } from 'lucide-react';
 import type { UserProfile } from '@/lib/types';
 import { format, subMonths, startOfMonth, endOfMonth, eachMonthOfInterval } from 'date-fns';
+
+/** Matches Ads tracking: `false` = No-Ads purchase. */
+function normalizeAdsFlag(value: unknown): boolean | null {
+  if (value === true || value === false) return value;
+  if (value === 'true' || value === 't') return true;
+  if (value === 'false' || value === 'f') return false;
+  return null;
+}
+
+/** One-time No-Ads purchase price (GBP), for admin dashboard total only. */
+const NO_ADS_ONE_TIME_GBP = 3.99;
 
 interface RevenueStats {
   monthlyRevenue: number;
@@ -37,6 +48,10 @@ interface RevenueStats {
     vessel: number;
   };
   monthlyTrend: Array<{ month: string; revenue: number; subscriptions: number }>;
+  /** Non-admin users with No-Ads (`users.ads === false`), same scope as Ads tracking. */
+  noAdsUserCount: number;
+  /** Lifetime total: noAdsUserCount × NO_ADS_ONE_TIME_GBP (one-time purchase each). */
+  noAdsLifetimeGbp: number;
 }
 
 export default function RevenuePage() {
@@ -85,25 +100,38 @@ export default function RevenuePage() {
     const fetchRevenueData = async () => {
       setIsLoading(true);
       try {
-        // Fetch all crew users
-        const { data: allUsers, error: usersError } = await supabase
-          .from('users')
-          .select('id, subscription_status, subscription_tier, created_at, role')
-          .neq('role', 'vessel');
+        const [crewRes, vesselRes, noAdsRes] = await Promise.all([
+          supabase
+            .from('users')
+            .select('id, subscription_status, subscription_tier, created_at, role')
+            .neq('role', 'vessel'),
+          supabase
+            .from('users')
+            .select('id, subscription_status, subscription_tier, created_at, role')
+            .eq('role', 'vessel'),
+          supabase.from('users').select('ads').neq('role', 'admin'),
+        ]);
+
+        const allUsers = crewRes.data;
+        const usersError = crewRes.error;
+        const allVesselAccounts = vesselRes.data;
+        const vesselAccountsError = vesselRes.error;
 
         if (usersError) {
           console.error('[REVENUE PAGE] Error fetching users:', usersError);
         }
 
-        // Fetch all vessel accounts
-        const { data: allVesselAccounts, error: vesselAccountsError } = await supabase
-          .from('users')
-          .select('id, subscription_status, subscription_tier, created_at, role')
-          .eq('role', 'vessel');
-
         if (vesselAccountsError) {
           console.error('[REVENUE PAGE] Error fetching vessel accounts:', vesselAccountsError);
         }
+
+        if (noAdsRes.error) {
+          console.error('[REVENUE PAGE] Error fetching ads flags:', noAdsRes.error);
+        }
+
+        const noAdsUserCount =
+          noAdsRes.data?.filter((u: { ads?: unknown }) => normalizeAdsFlag(u.ads) === false).length ?? 0;
+        const noAdsLifetimeGbp = noAdsUserCount * NO_ADS_ONE_TIME_GBP;
 
         // Calculate current revenue
         const crewSubscriptionsByTier: Record<string, { count: number; revenue: number }> = {};
@@ -217,6 +245,8 @@ export default function RevenuePage() {
             vessel: vesselRevenue,
           },
           monthlyTrend,
+          noAdsUserCount,
+          noAdsLifetimeGbp,
         });
       } catch (error) {
         console.error('[REVENUE PAGE] Error fetching revenue data:', error);
@@ -361,20 +391,25 @@ export default function RevenuePage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-xl border shadow-sm">
+        <Card className="rounded-xl border shadow-sm border-emerald-500/25 bg-gradient-to-br from-emerald-500/[0.07] via-background to-background dark:from-emerald-500/[0.11] dark:via-background">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Average Revenue per User</CardTitle>
-            <div className="h-8 w-8 rounded-xl bg-orange-500/10 flex items-center justify-center">
-              <BarChart3 className="h-4 w-4 text-orange-500" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">No-Ads (lifetime)</CardTitle>
+            <div className="h-8 w-8 rounded-xl bg-emerald-500/15 flex items-center justify-center ring-1 ring-emerald-500/20">
+              <Megaphone className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">
-              £{revenueStats.totalActiveSubscriptions > 0
-                ? (revenueStats.monthlyRevenue / revenueStats.totalActiveSubscriptions).toFixed(2)
-                : '0.00'}
+            <div className="text-3xl font-bold tabular-nums tracking-tight">
+              £
+              {revenueStats.noAdsLifetimeGbp.toLocaleString('en-GB', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Per active subscription</p>
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              {revenueStats.noAdsUserCount} user{revenueStats.noAdsUserCount === 1 ? '' : 's'} × £
+              {NO_ADS_ONE_TIME_GBP.toFixed(2)} one-time · same scope as Ads tracking
+            </p>
           </CardContent>
         </Card>
       </div>

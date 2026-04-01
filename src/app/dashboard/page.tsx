@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { format, getYear, subDays, startOfDay, isWithinInterval, parse, startOfMonth, endOfMonth, isSameMonth, isBefore, isAfter, endOfDay, addDays } from 'date-fns';
+import { format, getYear, subDays, startOfDay, isWithinInterval, parse, startOfMonth, endOfMonth, isSameMonth, isBefore, isAfter, endOfDay, addDays, differenceInDays } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser, useSupabase } from '@/supabase';
 import { useToast } from '@/hooks/use-toast';
@@ -24,6 +24,7 @@ import { findMissingDays } from '@/lib/fill-missing-days';
 import { calculateVisaCompliance, detectVisaRules } from '@/lib/visa-compliance';
 import { cn } from '@/lib/utils';
 import { StatePill } from '@/components/state-pill';
+import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
   { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
@@ -32,6 +33,24 @@ const vesselStates: { value: DailyStatus; label: string; color: string, icon: Re
   { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: LifeBuoy },
   { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Wrench },
 ];
+
+/** Only count logs that fall within a vessel_assignment interval for that vessel (matches Vessel History). */
+function isStateLogWithinVesselAssignments(
+  log: StateLog,
+  assignments: VesselAssignment[]
+): boolean {
+  const forVessel = assignments.filter((a) => a.vesselId === log.vesselId);
+  if (forVessel.length === 0) return true;
+  const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+  return forVessel.some((a) => {
+    const start = parse(a.startDate, 'yyyy-MM-dd', new Date());
+    const end = a.endDate ? parse(a.endDate, 'yyyy-MM-dd', new Date()) : new Date();
+    return isWithinInterval(logDate, {
+      start: startOfDay(start),
+      end: endOfDay(end),
+    });
+  });
+}
 
 export default function DashboardPage() {
   const { user } = useUser();
@@ -190,7 +209,9 @@ export default function DashboardPage() {
         // Fetch all users (crew members)
         const { data: allUsers, error: usersError } = await supabase
           .from('users')
-          .select('id, email, first_name, last_name, subscription_status, subscription_tier, created_at, role')
+          .select(
+            'id, email, first_name, last_name, subscription_status, subscription_tier, current_period_end, cancel_at_period_end, created_at, role'
+          )
           .neq('role', 'vessel');
 
         if (usersError) {
@@ -200,7 +221,9 @@ export default function DashboardPage() {
         // Fetch all vessel accounts
         const { data: allVesselAccounts, error: vesselAccountsError } = await supabase
           .from('users')
-          .select('id, email, first_name, last_name, subscription_status, subscription_tier, created_at, role, active_vessel_id')
+          .select(
+            'id, email, first_name, last_name, subscription_status, subscription_tier, current_period_end, cancel_at_period_end, created_at, role, active_vessel_id'
+          )
           .eq('role', 'vessel');
 
         if (vesselAccountsError) {
@@ -254,15 +277,15 @@ export default function DashboardPage() {
         // Calculate statistics
         const totalUsers = allUsers?.length || 0;
         const activeSubscriptions = allUsers?.filter(u => {
-          const status = (u.subscription_status || '').toLowerCase();
           const tier = (u.subscription_tier || 'free').toLowerCase();
           // Exclude crew_limited and free from active subscription counts
-          return status === 'active' && tier !== 'crew_limited' && tier !== 'free';
+          return (
+            hasActiveSubscription(u) && tier !== 'crew_limited' && tier !== 'free'
+          );
         }).length || 0;
-        
-        const activeVesselSubscriptions = allVesselAccounts?.filter(u => 
-          (u.subscription_status || '').toLowerCase() === 'active'
-        ).length || 0;
+
+        const activeVesselSubscriptions =
+          allVesselAccounts?.filter((u) => hasActiveSubscription(u)).length || 0;
         
         const officialVessels = allVesselsData?.filter(v => {
           const isOfficial = (v as any).is_official;
@@ -292,33 +315,29 @@ export default function DashboardPage() {
         let crewRevenue = 0;
         let vesselRevenue = 0;
 
-        // Calculate revenue from crew subscriptions
-        allUsers?.forEach(user => {
-          if ((user.subscription_status || '').toLowerCase() === 'active') {
-            const tier = (user.subscription_tier || 'free').toLowerCase();
-            crewSubscriptionsByTier[tier] = (crewSubscriptionsByTier[tier] || 0) + 1;
-            
-            // Add to revenue if tier has pricing > 0
-            const price = tierPricing[tier] || 0;
-            if (price > 0) {
-              monthlyRevenue += price;
-              crewRevenue += price;
-            }
+        // Calculate revenue from crew subscriptions (include cancel-at-period-end until period ends)
+        allUsers?.forEach((user) => {
+          if (!hasActiveSubscription(user)) return;
+          const tier = (user.subscription_tier || 'free').toLowerCase();
+          crewSubscriptionsByTier[tier] = (crewSubscriptionsByTier[tier] || 0) + 1;
+
+          const price = tierPricing[tier] || 0;
+          if (price > 0) {
+            monthlyRevenue += price;
+            crewRevenue += price;
           }
         });
 
         // Calculate revenue from vessel subscriptions
-        allVesselAccounts?.forEach(vessel => {
-          if ((vessel.subscription_status || '').toLowerCase() === 'active') {
-            const tier = (vessel.subscription_tier || 'free').toLowerCase();
-            vesselSubscriptionsByTier[tier] = (vesselSubscriptionsByTier[tier] || 0) + 1;
-            
-            // Add to revenue if tier has pricing > 0
-            const price = tierPricing[tier] || 0;
-            if (price > 0) {
-              monthlyRevenue += price;
-              vesselRevenue += price;
-            }
+        allVesselAccounts?.forEach((vessel) => {
+          if (!hasActiveSubscription(vessel)) return;
+          const tier = (vessel.subscription_tier || 'free').toLowerCase();
+          vesselSubscriptionsByTier[tier] = (vesselSubscriptionsByTier[tier] || 0) + 1;
+
+          const price = tierPricing[tier] || 0;
+          if (price > 0) {
+            monthlyRevenue += price;
+            vesselRevenue += price;
           }
         });
 
@@ -498,7 +517,9 @@ export default function DashboardPage() {
         });
         
         // Calculate sea time (vessel stats use all vessel logs, not user-specific, so no watch dates)
-        const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(stateLogs, undefined, partOfActivePassageDates);
+        const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(stateLogs, undefined, partOfActivePassageDates, {
+          vesselManagerSeaTime: true,
+        });
 
         // State breakdown
         const stateBreakdown: Record<string, number> = {};
@@ -519,7 +540,9 @@ export default function DashboardPage() {
           const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
           return isWithinInterval(logDate, { start: monthStart, end: monthEnd });
         });
-        const { totalSeaDays: monthSeaDays } = calculateStandbyDays(currentMonthLogs);
+        const { totalSeaDays: monthSeaDays } = calculateStandbyDays(currentMonthLogs, undefined, undefined, {
+          vesselManagerSeaTime: true,
+        });
 
         // Fetch pending testimonials for this vessel
         // Use the same approach as inbox page - filter by vessel_id and status
@@ -641,7 +664,9 @@ export default function DashboardPage() {
     filtered.forEach(log => {
       if (log.isPartOfActivePassage) partOfActivePassageDates.add(log.date);
     });
-    const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(filtered, undefined, partOfActivePassageDates);
+    const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(filtered, undefined, partOfActivePassageDates, {
+      vesselManagerSeaTime: true,
+    });
     return {
       totalDays: filtered.length,
       atSeaDays: totalSeaDays,
@@ -1067,11 +1092,14 @@ export default function DashboardPage() {
       logs.forEach(log => {
         const logYear = getYear(new Date(log.date));
         const yearMatch = selectedYear === 'all' || logYear === parseInt(selectedYear, 10);
-        if (yearMatch) filteredLogs.push(log);
+        if (!yearMatch) return;
+        if (!isStateLogWithinVesselAssignments(log, vesselAssignments)) return;
+        filteredLogs.push(log);
       });
     });
 
-    const totalDays = filteredLogs.length;
+    // Days on board with a logged state, excluding leave (still scoped to assignments + year filter)
+    const totalDays = filteredLogs.filter((l) => l.state !== 'on-leave').length;
     if (filteredLogs.length === 0) return { totalDays: 0, atSeaDays: 0, standbyDays: 0 };
 
     const vesselsById = new Map<string, Vessel>(vessels?.map(v => [v.id, v]) ?? []);
@@ -1098,7 +1126,8 @@ export default function DashboardPage() {
         const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(
           logs,
           watchDates,
-          partOfActivePassageV
+          partOfActivePassageV,
+          { vesselManagerSeaTime: isVesselManager }
         );
         atSeaSum += totalSeaDays;
         standbySum += totalStandbyDays;
@@ -1106,7 +1135,7 @@ export default function DashboardPage() {
     });
 
     return { totalDays, atSeaDays: atSeaSum, standbyDays: standbySum };
-  }, [allStateLogs, selectedVessel, selectedYear, watchDates, vessels]);
+  }, [allStateLogs, selectedVessel, selectedYear, watchDates, vessels, isVesselManager, vesselAssignments]);
 
   const [visaEntries, setVisaEntries] = useState<VisaEntry[]>([]);
 
@@ -1329,8 +1358,10 @@ export default function DashboardPage() {
       }
     });
     
-    // Calculate MCA/PYA compliant standby days and sea days for the past 7 days
-    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(past7DaysLogs, watchDates, partOfActivePassageDates);
+    // Calculate MCA-compliant standby days and sea days for the past 7 days
+    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(past7DaysLogs, watchDates, partOfActivePassageDates, {
+      vesselManagerSeaTime: isVesselManager,
+    });
     
     // Calculate stats with state breakdown
     // At sea = underway days + part of active passage days (from calculation)
@@ -1351,7 +1382,7 @@ export default function DashboardPage() {
       inYardDays,
       standbyDays,
     };
-  }, [allStateLogs, watchDates]);
+  }, [allStateLogs, watchDates, isVesselManager]);
 
   // Calculate stats for this month
   const thisMonthStats = useMemo(() => {
@@ -1379,8 +1410,10 @@ export default function DashboardPage() {
       }
     });
     
-    // Calculate MCA/PYA compliant standby days and sea days for this month
-    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(thisMonthLogs, watchDates, partOfActivePassageDates);
+    // Calculate MCA-compliant standby days and sea days for this month
+    const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(thisMonthLogs, watchDates, partOfActivePassageDates, {
+      vesselManagerSeaTime: isVesselManager,
+    });
     
     // Calculate stats with state breakdown
     // At sea = underway days + part of active passage days (from calculation)
@@ -1401,7 +1434,7 @@ export default function DashboardPage() {
       inYardDays,
       standbyDays,
     };
-  }, [allStateLogs, watchDates]);
+  }, [allStateLogs, watchDates, isVesselManager]);
 
   // Get today's status for current vessel
   const todayStatus = useMemo(() => {
@@ -1416,6 +1449,7 @@ export default function DashboardPage() {
     if (!currentVesselLogs || currentVesselLogs.length === 0) {
       return { 
         totalDays: 0, 
+        loggedDaysCount: 0,
         atSeaDays: 0, 
         standbyDays: 0,
         stateBreakdown: {},
@@ -1424,17 +1458,25 @@ export default function DashboardPage() {
       };
     }
 
-    // Find assignment start date for current vessel (most recent assignment)
-    const currentVesselAssignments = currentVessel 
+    // Match Vessel History: prefer active assignment (no end date), else most recent by start date
+    const currentVesselAssignments = currentVessel
       ? vesselAssignments.filter(a => a.vesselId === currentVessel.id)
       : [];
-    
-    const mostRecentAssignment = currentVesselAssignments.length > 0
-      ? currentVesselAssignments.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())[0]
-      : null;
-    
-    const assignmentStartDate = mostRecentAssignment
-      ? parse(mostRecentAssignment.startDate, 'yyyy-MM-dd', new Date())
+
+    const activeAssignment =
+      currentVesselAssignments.find(a => !a.endDate || String(a.endDate).trim() === '') ?? null;
+
+    const mostRecentAssignment =
+      currentVesselAssignments.length > 0
+        ? [...currentVesselAssignments].sort(
+            (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
+          )[0]
+        : null;
+
+    const assignmentForWindow = activeAssignment ?? mostRecentAssignment;
+
+    const assignmentStartDate = assignmentForWindow
+      ? parse(assignmentForWindow.startDate, 'yyyy-MM-dd', new Date())
       : null;
 
     // Filter logs to since joining the vessel (assignment start date) or all logs if no assignment date
@@ -1453,20 +1495,15 @@ export default function DashboardPage() {
     }
 
     const stateBreakdown: Record<string, number> = {};
-    let earliestDate: Date | null = null;
-
     filteredLogs.forEach(log => {
-      // Count by state
       stateBreakdown[log.state] = (stateBreakdown[log.state] || 0) + 1;
-      
-      // Find earliest date
-      const logDate = new Date(log.date);
-      if (earliestDate === null) {
-        earliestDate = logDate;
-      } else if (logDate < earliestDate) {
-        earliestDate = logDate;
-      }
     });
+
+    const earliestDate = filteredLogs.reduce<Date | null>((min, log) => {
+      const logDate = new Date(log.date);
+      if (min === null || logDate < min) return logDate;
+      return min;
+    }, null);
 
     // Extract part of active passage dates from ALL logs (for proper voyage context)
     const partOfActivePassageDates = new Set<string>();
@@ -1476,9 +1513,11 @@ export default function DashboardPage() {
       }
     });
 
-    // Calculate MCA/PYA compliant standby days using ALL logs (for proper voyage context)
+    // Calculate MCA-compliant standby days using ALL logs (for proper voyage context)
     // Then filter standby periods to only count those since joining the vessel
-    const { totalStandbyDays, standbyPeriods } = calculateStandbyDays(currentVesselLogs, watchDates, partOfActivePassageDates);
+    const { totalStandbyDays, standbyPeriods } = calculateStandbyDays(currentVesselLogs, watchDates, partOfActivePassageDates, {
+      vesselManagerSeaTime: isVesselManager,
+    });
     
     // Filter standby periods to only count days since joining the vessel
     let standby = 0;
@@ -1520,7 +1559,7 @@ export default function DashboardPage() {
     // Calculate at sea days from filtered logs
     let atSea = 0;
     filteredLogs.forEach(log => {
-      if (log.state === 'underway') atSea++;
+      if (log.state === 'underway' || (isVesselManager && log.state === 'at-anchor')) atSea++;
     });
 
     // Add part of active passage days to at-sea count (these count as "at sea" regardless of state)
@@ -1551,24 +1590,36 @@ export default function DashboardPage() {
       atSea += watchDaysInRange;
     }
 
-    // Calculate service duration
+    // "Since" + duration: same source as Vessel History (assignment start/end), not first log date
+    let serviceStartDate: Date | null = null;
     let serviceDuration = 0;
-    if (earliestDate) {
-      const now = new Date();
-      const startDate = earliestDate as Date;
-      const diffTime = now.getTime() - startDate.getTime();
+    if (assignmentForWindow) {
+      const start = startOfDay(parse(assignmentForWindow.startDate, 'yyyy-MM-dd', new Date()));
+      serviceStartDate = start;
+      const end = assignmentForWindow.endDate
+        ? startOfDay(parse(assignmentForWindow.endDate, 'yyyy-MM-dd', new Date()))
+        : startOfDay(new Date());
+      serviceDuration = Math.max(0, differenceInDays(end, start) + 1);
+    } else if (earliestDate) {
+      const fallbackStart = startOfDay(earliestDate);
+      serviceStartDate = fallbackStart;
+      const diffTime = new Date().getTime() - fallbackStart.getTime();
       serviceDuration = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1);
     }
 
+    const loggedDaysCount = filteredLogs.length;
+
     return { 
-      totalDays: filteredLogs.length,
+      // Assignment calendar span (same as Vessel History / "days on vessel"), not count of log rows
+      totalDays: serviceDuration,
+      loggedDaysCount,
       atSeaDays: atSea,
       standbyDays: standby,
       stateBreakdown,
-      serviceStartDate: earliestDate,
+      serviceStartDate,
       serviceDuration
     };
-  }, [currentVesselLogs, currentVessel, vesselAssignments, watchDates]);
+  }, [currentVesselLogs, currentVessel, vesselAssignments, watchDates, isVesselManager]);
 
   const longestPassage = useMemo(() => {
     // With new structure, each record is for one date, so "longest passage" 
@@ -1703,7 +1754,7 @@ export default function DashboardPage() {
             <CardContent>
               <div className="text-3xl font-bold">{(vesselStats.stateBreakdown['underway'] || 0) + (vesselStats.stateBreakdown['at-anchor'] || 0)}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {vesselStats.totalStandbyDays} standby • {vesselStats.totalDays} total
+                <span className="font-medium text-purple-600 dark:text-purple-400">{vesselStats.totalStandbyDays}</span> standby • {vesselStats.totalDays} total
               </p>
               <Button asChild variant="ghost" size="sm" className="mt-2 h-7 text-xs">
                 <Link href="/dashboard/calendar">View Details →</Link>
@@ -1808,7 +1859,7 @@ export default function DashboardPage() {
           <Card className="rounded-xl border shadow-sm">
             <CardHeader>
               <CardTitle className="text-lg font-semibold">Sea Time Summary</CardTitle>
-              <CardDescription>MCA/PYA compliant calculation methods</CardDescription>
+              <CardDescription>MCA-compliant calculation methods</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -1824,17 +1875,17 @@ export default function DashboardPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">Days underway and at anchor</p>
                 </div>
-                <div className="p-4 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800">
+                <div className="p-4 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <Anchor className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                      <Anchor className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                       <span className="text-sm font-semibold">Standby</span>
                     </div>
-                    <span className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                    <span className="text-2xl font-bold text-purple-600 dark:text-purple-400">
                       {vesselStats.totalStandbyDays}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground">MCA/PYA compliant calculations</p>
+                  <p className="text-xs text-muted-foreground">MCA-compliant calculations</p>
                 </div>
                 <div className="pt-2 border-t">
                   <div className="flex items-center justify-between">
@@ -1943,7 +1994,7 @@ export default function DashboardPage() {
           <Card className="rounded-xl border shadow-sm">
             <CardHeader>
               <CardTitle className="text-lg font-semibold">Quick Sea Time Calculator</CardTitle>
-              <CardDescription>Select a date range to see sea time (MCA/PYA compliant) for this vessel</CardDescription>
+              <CardDescription>Select a date range to see sea time (MCA-compliant) for this vessel</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -1985,12 +2036,12 @@ export default function DashboardPage() {
                       </div>
                       <span className="text-xl font-bold text-blue-600 dark:text-blue-400">{vesselSeaTimeInRange.atSeaDays}</span>
                     </div>
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800">
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
                       <div className="flex items-center gap-2">
-                        <Anchor className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                        <Anchor className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                         <span className="text-sm font-medium">Standby</span>
                       </div>
-                      <span className="text-xl font-bold text-orange-600 dark:text-orange-400">{vesselSeaTimeInRange.standbyDays}</span>
+                      <span className="text-xl font-bold text-purple-600 dark:text-purple-400">{vesselSeaTimeInRange.standbyDays}</span>
                     </div>
                     <div className="flex items-center justify-between p-3 rounded-lg bg-primary/10 border border-primary/20">
                       <div className="flex items-center gap-2">
@@ -2557,7 +2608,7 @@ export default function DashboardPage() {
                     )}
                     {past7DaysStats.standbyDays > 0 && (
                       <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
+                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-purple))' }} />
                         <span className="text-muted-foreground">
                           <span className="font-semibold text-foreground">{past7DaysStats.standbyDays}</span> standby day{past7DaysStats.standbyDays !== 1 ? 's' : ''}
                         </span>
@@ -2680,7 +2731,9 @@ export default function DashboardPage() {
             <CardContent>
             <div className="text-3xl font-bold">{totalDays}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {selectedYear === 'all' && selectedVessel === 'all' ? 'All time' : 'Filtered results'}
+              {selectedYear === 'all' && selectedVessel === 'all'
+                ? 'Logged days on board (assignments), excluding leave'
+                : 'Filtered — on board days logged, excluding leave'}
             </p>
             </CardContent>
         </Card>
@@ -2701,12 +2754,12 @@ export default function DashboardPage() {
         <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Standby Days</CardTitle>
-            <div className="h-8 w-8 rounded-xl bg-orange-500/10 flex items-center justify-center">
-              <Anchor className="h-4 w-4 text-orange-500" />
+            <div className="h-8 w-8 rounded-xl bg-purple-500/10 flex items-center justify-center">
+              <Anchor className="h-4 w-4 text-purple-600 dark:text-purple-400" />
             </div>
             </CardHeader>
             <CardContent>
-            <div className="text-3xl font-bold">{standbyDays}</div>
+            <div className="text-3xl font-bold text-purple-700 dark:text-purple-300">{standbyDays}</div>
             <p className="text-xs text-muted-foreground mt-1">In port or at anchor</p>
             </CardContent>
         </Card>
@@ -2806,7 +2859,7 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-3 gap-4">
                   <div className="text-center p-4 rounded-xl bg-background/50 border">
                     <p className="text-2xl font-bold text-foreground">{currentVesselStats.totalDays}</p>
-                    <p className="text-xs text-muted-foreground mt-1.5">Total days</p>
+                    <p className="text-xs text-muted-foreground mt-1.5">Total days (assignment)</p>
                   </div>
                   <div className="text-center p-4 rounded-xl bg-background/50 border">
                     <div className="flex items-center justify-center gap-1.5 mb-1">
@@ -2817,7 +2870,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="text-center p-4 rounded-xl bg-background/50 border">
                     <div className="flex items-center justify-center gap-1.5 mb-1">
-                      <Anchor className="h-4 w-4 text-orange-500" />
+                      <Anchor className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                       <p className="text-2xl font-bold text-foreground">{currentVesselStats.standbyDays}</p>
                     </div>
                     <p className="text-xs text-muted-foreground">Standby</p>
@@ -2825,7 +2878,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* State distribution */}
-                {currentVesselStats.totalDays > 0 && (
+                {currentVesselStats.loggedDaysCount > 0 && (
                   <>
                     <Separator className="my-2" />
                     <div>
@@ -2834,7 +2887,7 @@ export default function DashboardPage() {
                         {vesselStates.map(state => {
                           const count = currentVesselStats.stateBreakdown[state.value] || 0;
                           if (count === 0) return null;
-                          const percentage = (count / currentVesselStats.totalDays) * 100;
+                          const percentage = (count / currentVesselStats.loggedDaysCount) * 100;
                           const StateIcon = state.icon;
                           return (
                             <div key={state.value} className="space-y-1.5">
@@ -3101,13 +3154,13 @@ export default function DashboardPage() {
               <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Standby</CardTitle>
-                  <div className="h-8 w-8 rounded-xl bg-orange-500/10 flex items-center justify-center">
-                    <Anchor className="h-4 w-4 text-orange-500" />
+                  <div className="h-8 w-8 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                    <Anchor className="h-4 w-4 text-purple-600 dark:text-purple-400" />
           </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-bold">{thisMonthStats.standbyDays}</div>
-                  <p className="text-xs text-muted-foreground mt-1">MCA/PYA compliant</p>
+                  <div className="text-3xl font-bold text-purple-700 dark:text-purple-300">{thisMonthStats.standbyDays}</div>
+                  <p className="text-xs text-muted-foreground mt-1">MCA-compliant</p>
                 </CardContent>
             </Card>
 

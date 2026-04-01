@@ -26,7 +26,13 @@ import { getVesselAssignments, updateVesselAssignment, getVesselStateLogs } from
 import { format, parse, differenceInDays, isAfter, startOfDay, isBefore, getYear, getMonth, setMonth, setYear, startOfMonth, addDays } from 'date-fns';
 import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit, Shield, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Target, Award } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
+import { vesselTypes } from '@/lib/vessel-types';
+import {
+  vesselDetailsSchema,
+  type VesselDetailsFormValues,
+  vesselToFormDefaults,
+  buildVesselUpdatePayloadFromForm,
+} from '@/lib/vessel-details-form';
 import { cn } from '@/lib/utils';
 import type { VesselAssignment, Vessel, UserProfile, PositionHistory, StateLog } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
@@ -1473,57 +1479,6 @@ function CareerTab({ userId }: { userId?: string }) {
   );
 }
 
-const vesselDetailsSchema = z.object({
-  name: z.string().min(1, 'Vessel name is required'),
-  type: z.enum(vesselTypeValues, { required_error: 'Vessel type is required' }),
-  imo: z.string().optional().or(z.literal('')),
-  length_m: z.string().optional().or(z.literal('')),
-  beam: z.string().optional().or(z.literal('')),
-  draft: z.string().optional().or(z.literal('')),
-  gross_tonnage: z.string().optional().or(z.literal('')),
-  number_of_crew: z.string().optional().or(z.literal('')),
-  build_year: z.string().optional().or(z.literal('')),
-  flag_state: z.string().optional().or(z.literal('')),
-  call_sign: z.string().optional().or(z.literal('')),
-  mmsi: z.string().optional().or(z.literal('')),
-  description: z.string().optional().or(z.literal('')),
-  management_company: z.string().optional().or(z.literal('')),
-  company_address: z.string().optional().or(z.literal('')),
-  company_email: z.string().optional().or(z.literal('')),
-  company_phone: z.string().optional().or(z.literal('')),
-});
-
-type VesselDetailsFormValues = z.infer<typeof vesselDetailsSchema>;
-
-// Helper function to parse company_contact into email and phone
-function parseCompanyContact(contact: string | null | undefined): { email: string; phone: string } {
-  if (!contact) return { email: '', phone: '' };
-  
-  // Try to extract email and phone using common patterns
-  const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
-  const phoneRegex = /(\+?[\d\s\-\(\)]{10,})/g;
-  
-  const emailMatch = contact.match(emailRegex);
-  const phoneMatch = contact.match(phoneRegex);
-  
-  // If we find structured patterns like "Tel: xxx Email: yyy" or "Phone: xxx, Email: yyy"
-  const telMatch = contact.match(/Tel[:\s]+([^\s,]+)/i) || contact.match(/Phone[:\s]+([^\s,]+)/i);
-  const emailMatchStructured = contact.match(/Email[:\s]+([^\s,]+)/i);
-  
-  return {
-    email: emailMatchStructured ? emailMatchStructured[1] : (emailMatch ? emailMatch[0] : ''),
-    phone: telMatch ? telMatch[1] : (phoneMatch ? phoneMatch[0] : ''),
-  };
-}
-
-// Helper function to combine email and phone into company_contact
-function combineCompanyContact(email: string, phone: string): string | null {
-  const parts: string[] = [];
-  if (phone.trim()) parts.push(`Tel: ${phone.trim()}`);
-  if (email.trim()) parts.push(`Email: ${email.trim()}`);
-  return parts.length > 0 ? parts.join(', ') : null;
-}
-
 function VesselStartDateCard({ userProfile }: { userProfile: UserProfile | null }) {
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -1715,32 +1670,9 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  // Parse company_contact into email and phone
-  const parsedContact = useMemo(() => {
-    return parseCompanyContact(vesselData?.company_contact);
-  }, [vesselData?.company_contact]);
-
   const form = useForm<VesselDetailsFormValues>({
     resolver: zodResolver(vesselDetailsSchema),
-    defaultValues: {
-      name: vesselData?.name || '',
-      type: (vesselData?.type as any) || '',
-      imo: vesselData?.imo || vesselData?.officialNumber || '',
-      length_m: vesselData?.length_m?.toString() || '',
-      beam: vesselData?.beam?.toString() || '',
-      draft: vesselData?.draft?.toString() || '',
-      gross_tonnage: vesselData?.gross_tonnage?.toString() || '',
-      number_of_crew: vesselData?.number_of_crew?.toString() || '',
-      build_year: vesselData?.build_year?.toString() || '',
-      flag_state: vesselData?.flag || vesselData?.flag_state || '',
-      call_sign: vesselData?.call_sign || '',
-      mmsi: vesselData?.mmsi || '',
-      description: vesselData?.description || '',
-      management_company: vesselData?.management_company || '',
-      company_address: vesselData?.company_address || '',
-      company_email: parsedContact.email,
-      company_phone: parsedContact.phone,
-    },
+    defaultValues: vesselToFormDefaults((vesselData || vessel || {}) as Partial<Vessel> & Record<string, unknown>),
   });
 
   // Watch the type value to ensure Select component updates
@@ -1749,26 +1681,7 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
   // Reset form when vessel data changes
   useEffect(() => {
     if (vesselData) {
-      const parsedContact = parseCompanyContact(vesselData.company_contact);
-      form.reset({
-        name: vesselData.name || '',
-        type: vesselData.type || '',
-        imo: vesselData.imo || '',
-        length_m: vesselData.length_m?.toString() || '',
-        beam: vesselData.beam?.toString() || '',
-        draft: vesselData.draft?.toString() || '',
-        gross_tonnage: vesselData.gross_tonnage?.toString() || '',
-        number_of_crew: vesselData.number_of_crew?.toString() || '',
-        build_year: vesselData.build_year?.toString() || '',
-        flag_state: vesselData?.flag || vesselData?.flag_state || '',
-        call_sign: vesselData.call_sign || '',
-        mmsi: vesselData.mmsi || '',
-        description: vesselData.description || '',
-        management_company: vesselData.management_company || '',
-        company_address: vesselData.company_address || '',
-        company_email: parsedContact.email,
-        company_phone: parsedContact.phone,
-      }, { keepDefaultValues: false });
+      form.reset(vesselToFormDefaults(vesselData as Partial<Vessel> & Record<string, unknown>), { keepDefaultValues: false });
     }
   }, [vesselData, form]);
 
@@ -1777,30 +1690,8 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
 
     setIsSaving(true);
     try {
-      // Combine email and phone into company_contact for backward compatibility
-      const company_contact = combineCompanyContact(data.company_email || '', data.company_phone || '');
-
-      // Transform empty strings to null for optional numeric fields
-      const updates = {
-        ...data,
-        length_m: data.length_m === '' ? null : data.length_m,
-        beam: data.beam === '' ? null : data.beam,
-        draft: data.draft === '' ? null : data.draft,
-        gross_tonnage: data.gross_tonnage === '' ? null : data.gross_tonnage,
-        number_of_crew: data.number_of_crew === '' ? null : data.number_of_crew,
-        build_year: data.build_year === '' ? null : data.build_year,
-        imo: data.imo === '' ? null : data.imo,
-        flag: data.flag_state === '' ? null : data.flag_state,
-        call_sign: data.call_sign === '' ? null : data.call_sign,
-        mmsi: data.mmsi === '' ? null : data.mmsi,
-        description: data.description === '' ? null : data.description,
-        management_company: data.management_company === '' ? null : data.management_company,
-        company_address: data.company_address === '' ? null : data.company_address,
-        company_contact: company_contact,
-        // Remove company_email and company_phone from updates (not in database schema yet)
-        company_email: undefined,
-        company_phone: undefined,
-      };
+      const updates = buildVesselUpdatePayloadFromForm(data);
+      const company_contact = updates.company_contact ?? null;
 
       console.log('[VESSEL PROFILE] Sending update request:', {
         vesselId: vessel.id,
@@ -2352,6 +2243,10 @@ export default function ProfilePage() {
       addressCountyState: (userProfileRaw as any).address_county_state || (userProfileRaw as any).addressCountyState || undefined,
       addressPostCode: (userProfileRaw as any).address_post_code || (userProfileRaw as any).addressPostCode || undefined,
       addressCountry: (userProfileRaw as any).address_country || (userProfileRaw as any).addressCountry || undefined,
+      ads: (() => {
+        const a = (userProfileRaw as any).ads;
+        return a === true || a === false ? a : null;
+      })(),
     } as UserProfile;
   }, [userProfileRaw]);
 

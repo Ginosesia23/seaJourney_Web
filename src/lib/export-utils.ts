@@ -7,7 +7,33 @@ import type { SeaTimeReportData } from '@/app/actions';
 import { format, parse, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
+import { calendarStateExcelSolidArgb } from '@/lib/calendar-state-colors';
 import { calculateStandbyDays } from './standby-calculation';
+
+/** Blend AARRGGBB fill toward white (simulates translucent color on white, like calendar washes). */
+function mixArgbTowardWhite(argb: string, colorWeight: number): string {
+  if (!argb || argb.length !== 8) return argb;
+  const r = parseInt(argb.slice(2, 4), 16);
+  const g = parseInt(argb.slice(4, 6), 16);
+  const b = parseInt(argb.slice(6, 8), 16);
+  const w = Math.max(0, Math.min(1, colorWeight));
+  const mix = (c: number) => Math.round(c * w + 255 * (1 - w));
+  const nr = mix(r);
+  const ng = mix(g);
+  const nb = mix(b);
+  return `FF${[nr, ng, nb]
+    .map((x) => x.toString(16).padStart(2, '0').toUpperCase())
+    .join('')}`;
+}
+
+/** Readable label color on a solid fill (light pastel → dark text). */
+function fontArgbForFill(fillArgb: string): string {
+  const r = parseInt(fillArgb.slice(2, 4), 16) / 255;
+  const g = parseInt(fillArgb.slice(4, 6), 16) / 255;
+  const b = parseInt(fillArgb.slice(6, 8), 16) / 255;
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.62 ? 'FF0F172A' : 'FFFFFFFF';
+}
 
 /**
  * Export sea time data to CSV format
@@ -89,7 +115,10 @@ export function exportToCSV(data: SeaTimeReportData): void {
       }
     });
     
-    const { standbyPeriods } = calculateStandbyDays(data.stateLogs.filter(log => !!log.state), watchDates, partOfActivePassageDates);
+    const vesselManagerSeaTime = data.userProfile?.role === 'vessel';
+    const { standbyPeriods } = calculateStandbyDays(data.stateLogs.filter(log => !!log.state), watchDates, partOfActivePassageDates, {
+      vesselManagerSeaTime,
+    });
     const standbyDates = new Set<string>();
     standbyPeriods.forEach(period => {
       const periodDays = eachDayOfInterval({ start: period.startDate, end: period.endDate });
@@ -199,7 +228,10 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
     }
   });
   
-  const { standbyPeriods } = calculateStandbyDays(stateLogs.filter(log => !!log.state), watchDates, partOfActivePassageDates);
+  const vesselManagerSeaTime = data.userProfile?.role === 'vessel';
+  const { standbyPeriods } = calculateStandbyDays(stateLogs.filter(log => !!log.state), watchDates, partOfActivePassageDates, {
+    vesselManagerSeaTime,
+  });
   const standbyDates = new Set<string>();
   
   // Create a map of which dates are actually counted as standby
@@ -214,18 +246,17 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
     });
   });
 
-  // Define color scheme for states (standby = in-port & at-anchor = purple)
-  const stateColors: Record<string, string> = {
-    'underway': 'FF4A90E2',      // Blue
-    'in-port': 'FF9370DB',      // Purple (standby)
-    'at-anchor': 'FF9370DB',    // Purple (standby)
-    'on-leave': 'FFFF69B4',     // Hot Pink
-    'in-yard': 'FFFFA500',      // Orange
-  };
-
-  // Define colors for Yes/No indicators
-  const yesColor = 'FF90EE90';   // Light Green
-  const noColor = 'FFFFF0F0';    // Very Light Red/Pink
+  /** "No" / neutral fill for indicator columns (Part of Passage, On Watch, Standby). */
+  const indicatorNoArgb = 'FFFFF5F5';
+  /**
+   * Base hues match calendar strips (blue-600, yellow-400, purple-600); blended toward white for softer cells.
+   * @see src/app/dashboard/calendar/page.tsx
+   */
+  const passageYesFill = mixArgbTowardWhite('FF2563EB', 0.34);
+  const watchYesFill = mixArgbTowardWhite('FFFACC15', 0.62);
+  const standbyYesFill = mixArgbTowardWhite('FF9333EA', 0.32);
+  /** State column: tinted like calendarStateWash-style chips on a white ground */
+  const stateFillColorWeight = 0.38;
 
   // Create a sheet for each month
   for (const monthKey of sortedMonths) {
@@ -302,8 +333,13 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
           notes,
         ]);
 
-        // Apply styling to each cell
+        // Apply styling to each cell (all centered; tints mimic calendar washes on white)
         row.eachCell((cell, colNumber) => {
+          const centered: ExcelJS.Alignment = {
+            horizontal: 'center' as const,
+            vertical: 'middle' as const,
+          };
+
           // Default cell style with borders
           cell.style = {
             border: {
@@ -312,60 +348,79 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
               bottom: { style: 'thin' as const, color: { argb: 'FFD0D0D0' } },
               right: { style: 'thin' as const, color: { argb: 'FFD0D0D0' } },
             },
-            alignment: { vertical: 'middle' as const },
+            alignment: centered,
             font: { size: 10 },
           };
 
-          // Color code State column (column 3)
+          // State column (column 3)
           if (colNumber === 3) {
-            const stateColor = stateColors[log.state] || 'FFFFFFFF';
+            const solid = calendarStateExcelSolidArgb(log.state);
+            const fillArgb = solid === 'FFFFFFFF' ? solid : mixArgbTowardWhite(solid, stateFillColorWeight);
             cell.fill = {
               type: 'pattern' as const,
               pattern: 'solid' as const,
-              fgColor: { argb: stateColor },
+              fgColor: { argb: fillArgb },
             };
-            cell.font = { ...cell.font, bold: true };
+            cell.font = {
+              ...cell.font,
+              bold: true,
+              ...(fillArgb !== 'FFFFFFFF' ? { color: { argb: fontArgbForFill(fillArgb) } } : {}),
+            };
           }
 
-          // Color code Part of Passage column (column 4)
+          // Part of Passage (column 4)
           if (colNumber === 4) {
-            const bgColor = partOfPassage === 'Yes' ? yesColor : noColor;
+            const yes = partOfPassage === 'Yes';
+            const fillArgb = yes ? passageYesFill : indicatorNoArgb;
             cell.fill = {
               type: 'pattern' as const,
               pattern: 'solid' as const,
-              fgColor: { argb: bgColor },
+              fgColor: { argb: fillArgb },
             };
-            cell.alignment = { ...cell.alignment, horizontal: 'center' as const };
+            cell.font = {
+              ...cell.font,
+              bold: yes,
+              ...(yes ? { color: { argb: fontArgbForFill(fillArgb) } } : {}),
+            };
           }
 
-          // Color code On Watch column (column 5)
+          // On Watch (column 5)
           if (colNumber === 5) {
-            const bgColor = onWatch === 'Yes' ? yesColor : noColor;
+            const yes = onWatch === 'Yes';
+            const fillArgb = yes ? watchYesFill : indicatorNoArgb;
             cell.fill = {
               type: 'pattern' as const,
               pattern: 'solid' as const,
-              fgColor: { argb: bgColor },
+              fgColor: { argb: fillArgb },
             };
-            cell.alignment = { ...cell.alignment, horizontal: 'center' as const };
+            cell.font = {
+              ...cell.font,
+              bold: yes,
+              ...(yes ? { color: { argb: fontArgbForFill(fillArgb) } } : {}),
+            };
           }
 
-          // Color code Standby column (column 6)
+          // Standby (column 6)
           if (colNumber === 6) {
-            const bgColor = isStandby === 'Yes' ? yesColor : noColor;
+            const yes = isStandby === 'Yes';
+            const fillArgb = yes ? standbyYesFill : indicatorNoArgb;
             cell.fill = {
               type: 'pattern' as const,
               pattern: 'solid' as const,
-              fgColor: { argb: bgColor },
+              fgColor: { argb: fillArgb },
             };
-            cell.alignment = { ...cell.alignment, horizontal: 'center' as const };
+            cell.font = {
+              ...cell.font,
+              bold: yes,
+              ...(yes ? { color: { argb: fontArgbForFill(fillArgb) } } : {}),
+            };
           }
 
-          // Style Notes column (column 8) - enable word wrap
+          // Notes (column 8): centered + wrap for long text
           if (colNumber === 8) {
-            cell.alignment = { 
-              ...cell.alignment, 
+            cell.alignment = {
+              ...centered,
               wrapText: true,
-              vertical: 'top' as const,
             };
           }
         });

@@ -4,7 +4,7 @@
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Ship, Anchor, Calendar, Waves, Building, Briefcase, Wrench, PlayCircle, Loader2, Trash2, ShieldCheck } from 'lucide-react';
+import { Ship, Anchor, Calendar, Waves, Building, Briefcase, Wrench, PlayCircle, Loader2, Trash2, ShieldCheck, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
@@ -37,6 +37,8 @@ type VesselSummaryCardProps = {
     onDelete?: (vesselId: string, vesselName: string) => void;
     showDeleteButton?: boolean;
     isActivelyManaged?: boolean;
+    /** Admin: open full vessel edit dialog */
+    onAdminEdit?: () => void;
 };
 
 export function VesselSummaryCard({ 
@@ -46,7 +48,8 @@ export function VesselSummaryCard({
     isResuming = false,
     onDelete,
     showDeleteButton = false,
-    isActivelyManaged = false
+    isActivelyManaged = false,
+    onAdminEdit,
 }: VesselSummaryCardProps) {
     return (
         <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow flex flex-col h-full">
@@ -114,6 +117,18 @@ export function VesselSummaryCard({
                 </div>
             </CardContent>
             <CardFooter className="flex flex-col gap-2">
+                {onAdminEdit && (
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        className="w-full rounded-lg"
+                        size="sm"
+                        onClick={onAdminEdit}
+                    >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit vessel details
+                    </Button>
+                )}
                 {vesselSummary.isCurrent ? (
                     <p className="text-xs text-muted-foreground w-full">This is your currently active vessel.</p>
                 ) : (

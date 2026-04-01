@@ -24,6 +24,7 @@ import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, Certificate } from '@/lib/types';
+import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -117,20 +118,20 @@ export default function CertificatesPage() {
 
   // Check if user has premium access
   const hasPremiumAccess = useMemo(() => {
-    if (!userProfile) return false;
+    if (!userProfile || !userProfileRaw) return false;
     const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
-    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
     const role = (userProfile as any).role || userProfile.role || 'crew';
-    
+    const entitled = hasActiveSubscription(userProfileRaw);
+
     // Vessel accounts: allow all active vessel tiers
     if (role === 'vessel') {
       const tierLower = tier.toLowerCase();
-      return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && status === 'active';
+      return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && entitled;
     }
-    
+
     // Crew accounts: premium or pro only
-    return (tier === 'premium' || tier === 'pro') && status === 'active';
-  }, [userProfile]);
+    return (tier === 'premium' || tier === 'pro') && entitled;
+  }, [userProfile, userProfileRaw]);
 
   // Redirect non-premium users to dashboard
   useEffect(() => {

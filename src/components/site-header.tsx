@@ -82,7 +82,7 @@ export function SiteHeader({ className, userProfile, ...props }: SiteHeaderProps
       case 'captain':
         return 'Captain';
       case 'vessel':
-        return 'Vessel Manager';
+        return 'Vessel';
       case 'admin':
         return 'Admin';
       default:

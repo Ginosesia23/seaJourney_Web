@@ -1,11 +1,13 @@
 /**
- * MCA/PYA Standby Days Calculation
+ * MCA-style standby days calculation
  *
  * Rules:
  * 1. Voyages = consecutive 'underway' days (or 'at-anchor' days that are part of an active passage)
  *    Note: 'at-anchor' days AFTER a voyage ends are counted as standby, not part of the voyage
  * 2. Standby = time immediately following a voyage while in 'in-port' or 'at-anchor' state only.
  *    (at-anchor can be both sea time when part of voyage, and standby when after voyage ends)
+ *    Vessel manager accounts (`vesselManagerSeaTime`): 'underway' and 'at-anchor' always count as sea;
+ *    standby after a voyage is only 'in-port' (at-anchor after a voyage is sea, not standby).
  * 3. In-yard and on-leave are NEVER standby: they end the standby period. Example: 4 days passage,
  *    then 1 day at anchor, then yard → 4 at sea, 1 standby, rest are in-yard only.
  * 4. Max 14 consecutive days of standby can be counted from any single period
@@ -36,14 +38,19 @@ export interface CalculateStandbyDaysOptions {
   rangeStart?: string;
   /** When set with rangeStart, only logs and counted days within this range (inclusive) are used. YYYY-MM-DD. */
   rangeEnd?: string;
+  /**
+   * Vessel manager (`role === 'vessel'`): count every logged 'underway' and 'at-anchor' day as sea time;
+   * do not count post-voyage 'at-anchor' as standby (only 'in-port' after a voyage can be standby).
+   */
+  vesselManagerSeaTime?: boolean;
 }
 
 /**
- * Calculate MCA/PYA compliant standby days from state logs
+ * Calculate MCA-compliant standby days from state logs
  * @param stateLogs - Array of state logs
  * @param watchDates - Set of dates (YYYY-MM-DD format) where officer was on watch (these count as "at sea" instead of standby)
  * @param partOfActivePassageDates - Set of dates (YYYY-MM-DD format) where user marked part of active passage (these count as "at sea" instead of standby)
- * @param options - Optional rangeStart/rangeEnd (YYYY-MM-DD). When provided, only logs within the range are used and only days within the range are counted (for testimonials/document date ranges).
+ * @param options - Optional rangeStart/rangeEnd (YYYY-MM-DD), and vesselManagerSeaTime for vessel accounts (`role === 'vessel'`).
  */
 export function calculateStandbyDays(
   stateLogs: StateLog[],
@@ -69,6 +76,8 @@ export function calculateStandbyDays(
   let sortedLogs = [...stateLogs].sort((a, b) => {
     return new Date(a.date).getTime() - new Date(b.date).getTime();
   });
+
+  const vesselManagerSeaTime = options?.vesselManagerSeaTime === true;
 
   // Restrict to date range when provided (e.g. testimonial start_date / end_date)
   const rangeStart = options?.rangeStart;
@@ -177,31 +186,48 @@ export function calculateStandbyDays(
   });
 
   // Calculate total sea days
-  // At sea = underway days + any days marked as part of active passage (regardless of state)
-  // Note: at-anchor days are NOT counted as sea days unless marked as part of active passage
-  let totalSeaDays = voyages.reduce((sum, voyage) => sum + voyage.days, 0);
-  
-  // Add watch days (watch days count as "at sea" even if vessel is at anchor)
-  if (watchDates && watchDates.size > 0) {
-    const watchDaysCount = Array.from(watchDates).filter(dateStr => {
-      const log = logMap.get(dateStr);
-      // Only count watch days that are in standby states (in-port or at-anchor)
-      // Watch days during voyages are already counted in voyages
-      return log && (log.state === 'in-port' || log.state === 'at-anchor');
-    }).length;
-    totalSeaDays += watchDaysCount;
-  }
+  let totalSeaDays: number;
+  if (vesselManagerSeaTime) {
+    const seaDates = new Set<string>();
+    sortedLogs.forEach((log) => {
+      if (log.state === 'underway' || log.state === 'at-anchor') {
+        seaDates.add(log.date);
+      }
+    });
+    if (partOfActivePassageDates && partOfActivePassageDates.size > 0) {
+      partOfActivePassageDates.forEach((d) => {
+        if (logMap.has(d)) seaDates.add(d);
+      });
+    }
+    if (watchDates && watchDates.size > 0) {
+      watchDates.forEach((d) => {
+        const log = logMap.get(d);
+        if (log && (log.state === 'in-port' || log.state === 'at-anchor')) {
+          seaDates.add(d);
+        }
+      });
+    }
+    totalSeaDays = seaDates.size;
+  } else {
+    // MCA-style: at sea = underway days in voyages + part of active passage + watch on in-port/at-anchor
+    // Note: at-anchor days are NOT counted as sea days unless marked as part of active passage (or watch)
+    totalSeaDays = voyages.reduce((sum, voyage) => sum + voyage.days, 0);
 
-  // Add all part of active passage days to total sea days (regardless of state)
-  // These count as "at sea" even if the state is at-anchor, in-port, etc.
-  if (partOfActivePassageDates && partOfActivePassageDates.size > 0) {
-    const partOfActivePassageDaysCount = Array.from(partOfActivePassageDates).filter(dateStr => {
-      const log = logMap.get(dateStr);
-      // Count all part of active passage days, but exclude those already counted in voyages (underway days)
-      // This ensures we don't double-count underway days that are also marked as part of active passage
-      return log && log.state !== 'underway';
-    }).length;
-    totalSeaDays += partOfActivePassageDaysCount;
+    if (watchDates && watchDates.size > 0) {
+      const watchDaysCount = Array.from(watchDates).filter((dateStr) => {
+        const log = logMap.get(dateStr);
+        return log && (log.state === 'in-port' || log.state === 'at-anchor');
+      }).length;
+      totalSeaDays += watchDaysCount;
+    }
+
+    if (partOfActivePassageDates && partOfActivePassageDates.size > 0) {
+      const partOfActivePassageDaysCount = Array.from(partOfActivePassageDates).filter((dateStr) => {
+        const log = logMap.get(dateStr);
+        return log && log.state !== 'underway';
+      }).length;
+      totalSeaDays += partOfActivePassageDaysCount;
+    }
   }
   
   // Debug logging
@@ -270,10 +296,13 @@ export function calculateStandbyDays(
         // Watch day or part of active passage - skip this day but continue the standby period
         console.log(`[Standby Calculation] Skipping ${currentDateStr} (watch/part of active passage), continuing standby period`);
         currentDate = addDays(currentDate, 1); // Move to next day without counting this one
-      } else if (log.state === 'in-port' || log.state === 'at-anchor') {
-        // Valid standby day - count it (only in-port and at-anchor after voyage count as standby)
+      } else if (log.state === 'in-port') {
         standbyDays++;
-        currentDate = addDays(currentDate, 1); // Move to next day
+        currentDate = addDays(currentDate, 1);
+      } else if (log.state === 'at-anchor') {
+        // MCA: at-anchor after voyage can be standby. Vessel manager: at-anchor is sea only — skip without ending period.
+        if (!vesselManagerSeaTime) standbyDays++;
+        currentDate = addDays(currentDate, 1);
       } else {
         // in-yard, on-leave, underway, or any other state - end standby period; never count as standby
         console.log(`[Standby Calculation] Non-standby state '${log.state}' found for ${currentDateStr}, ending standby period`);

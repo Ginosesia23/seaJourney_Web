@@ -24,12 +24,14 @@ import {
   Globe,
   LogIn,
   DollarSign,
+  CreditCard,
   PenTool,
   MessageSquare,
   ClipboardList,
   Database,
   UserCog,
   ShieldCheck,
+  Megaphone,
 } from "lucide-react"
 
 import {
@@ -69,6 +71,7 @@ import { LogOut, Sparkles, Sun, Moon, Laptop } from "lucide-react"
 import { useTheme } from "next-themes"
 import type { UserProfile } from "@/lib/types"
 import { signOutLocal } from "@/lib/auth-utils"
+import { hasActiveSubscription as hasActiveSubscriptionEntitlement } from "@/supabase/database/subscription-helpers"
 
 type NavItem = {
   href: string;
@@ -77,6 +80,10 @@ type NavItem = {
   disabled?: boolean;
   requiredRole?: 'captain' | 'vessel' | 'admin';
   hideForRoles?: ('vessel' | 'admin' | 'captain')[]; // Roles for which this item should be hidden
+  /** Only show for crew_limited (active) crew — e.g. vessel-generated documents viewer */
+  crewLimitedOnly?: boolean;
+  /** Hide for crew_limited users (full Documents features they should not use) */
+  hideForCrewLimited?: boolean;
 };
 
 const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vessel' | 'admin' | 'captain' | 'crew')[] }> = [
@@ -112,14 +119,15 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     title: "Documents",
     hideForRoles: ['admin', 'vessel'], // Hide entire section for admin and vessel manager users
     items: [
-      { href: "/dashboard/applications", label: "Documents", icon: FileText, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'] },
-      { href: "/dashboard/certificates", label: "Certificates", icon: Award, disabled: false },
-      { href: "/dashboard/proof-of-service", label: "Proof of Service", icon: ShieldCheck, disabled: false },
+      { href: "/dashboard/applications", label: "Documents", icon: FileText, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true },
+      { href: "/dashboard/vessel-documents", label: "Documents", icon: FileText, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], crewLimitedOnly: true },
+      { href: "/dashboard/certificates", label: "Certificates", icon: Award, disabled: false, hideForCrewLimited: true },
+      { href: "/dashboard/proof-of-service", label: "Proof of Service", icon: ShieldCheck, disabled: false, hideForCrewLimited: true },
     ]
   },
   {
     title: "Generator",
-    hideForRoles: ['crew', 'captain'],
+    hideForRoles: ['crew', 'captain', 'admin'],
     items: [
       { href: "/dashboard/documents", label: "Documents", icon: FileText, disabled: false, requiredRole: "vessel" },
     ]
@@ -150,12 +158,20 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     ]
   },
   {
+    title: "Subscriptions",
+    hideForRoles: ['crew', 'vessel'],
+    items: [
+      { href: "/dashboard/revenue", label: "Revenue overview", icon: DollarSign, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/crew-subscriptions", label: "Crew subscriptions", icon: CreditCard, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/vessel-subscriptions", label: "Vessel subscriptions", icon: Ship, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/ad-revenue-tracking", label: "Ads tracking", icon: Megaphone, requiredRole: "admin", disabled: false },
+    ]
+  },
+  {
     title: "Analytics",
     hideForRoles: ['crew', 'vessel'], // Hide entire section for crew members and vessel managers
     items: [
       { href: "/dashboard/platform-analytics", label: "Platform Overview", icon: BarChart3, requiredRole: "admin", disabled: false },
-      { href: "/dashboard/revenue", label: "Revenue & Subscriptions", icon: DollarSign, requiredRole: "admin", disabled: false },
-      { href: "/dashboard/vessel-subscriptions", label: "Vessel Subscriptions", icon: Ship, requiredRole: "admin", disabled: false },
       { href: "/dashboard/crew-analytics", label: "Crew Analytics", icon: Users, requiredRole: "admin", disabled: false },
       { href: "/dashboard/login-activity", label: "Login Activity", icon: LogIn, requiredRole: "admin", disabled: false },
     ]
@@ -210,29 +226,62 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const isCrewLimited = React.useMemo(() => {
     if (!userProfile) return false;
     const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
-    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
     const role = (userProfile as any).role || userProfile.role || 'crew';
-    
+    const entitled = hasActiveSubscriptionEntitlement(userProfile);
+
     // Only crew members can have crew_limited tier
-    return role === 'crew' && tier === 'crew_limited' && status === 'active';
+    return role === 'crew' && tier === 'crew_limited' && entitled;
   }, [userProfile]);
 
   // Check if user has premium/pro subscription for visa tracker access
   const hasPremiumAccess = React.useMemo(() => {
     if (!userProfile) return false;
     const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
-    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
     const role = (userProfile as any).role || userProfile.role || 'crew';
-    
+    const entitled = hasActiveSubscriptionEntitlement(userProfile);
+
     // Vessel accounts: allow all active vessel tiers
     if (role === 'vessel') {
       const tierLower = tier.toLowerCase();
-      return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && status === 'active';
+      return (
+        (tierLower.startsWith('vessel_') ||
+          tierLower === 'vessel_lite' ||
+          tierLower === 'vessel_basic' ||
+          tierLower === 'vessel_pro' ||
+          tierLower === 'vessel_fleet') &&
+        entitled
+      );
     }
-    
+
     // Crew accounts: premium or pro only (but not crew_limited)
-    return (tier === 'premium' || tier === 'pro') && status === 'active';
+    return (tier === 'premium' || tier === 'pro') && entitled;
   }, [userProfile]);
+
+  /** Passage log: Standard+ crew (not crew_limited), vessel tiers, admin */
+  const hasPassageLogAccess = React.useMemo(() => {
+    if (!userProfile) return false;
+    const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toLowerCase();
+    const role = (userProfile as any).role || userProfile.role || 'crew';
+    const entitled = hasActiveSubscriptionEntitlement(userProfile);
+
+    if (role === 'admin') return true;
+
+    if (role === 'vessel') {
+      return (
+        (tier.startsWith('vessel_') ||
+          tier === 'vessel_lite' ||
+          tier === 'vessel_basic' ||
+          tier === 'vessel_pro' ||
+          tier === 'vessel_fleet') &&
+        entitled
+      );
+    }
+
+    if (isCrewLimited) return false;
+
+    const passageCrewTiers = ['standard', 'premium', 'pro', 'professional'];
+    return passageCrewTiers.includes(tier) && entitled;
+  }, [userProfile, isCrewLimited]);
 
   // Check if user is an officer (for bridge watch log access)
   const isOfficer = React.useMemo(() => {
@@ -668,11 +717,6 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           // Hide entire group if user role matches hideForRoles
           const userRole = userProfile?.role?.toLowerCase() || '';
           
-          // Hide Documents section for crew_limited users
-          if (group.title === 'Documents' && isCrewLimited) {
-            return null;
-          }
-          
           if (group.hideForRoles && userProfile?.role) {
             // Check if user role is in the hideForRoles array
             const shouldHide = group.hideForRoles.some(role => {
@@ -738,7 +782,14 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     return null
                   }
 
-                  // For crew_limited tier, only show: Home, Recent Activity, Current, Calendar, Profile, Feedback, Inbox
+                  if ('crewLimitedOnly' in item && item.crewLimitedOnly && !isCrewLimited) {
+                    return null
+                  }
+                  if ('hideForCrewLimited' in item && item.hideForCrewLimited && isCrewLimited) {
+                    return null
+                  }
+
+                  // For crew_limited tier, only show: Home, Recent Activity, Current, Calendar, Profile, Feedback, Inbox, Documents (vessel-documents)
                   if (isCrewLimited) {
                     const allowedHrefs = [
                       '/dashboard', 
@@ -747,14 +798,16 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                       '/dashboard/calendar', 
                       '/dashboard/profile',
                       '/dashboard/feedback',
-                      '/dashboard/inbox'
+                      '/dashboard/inbox',
+                      '/dashboard/vessel-documents',
                     ];
                     if (!allowedHrefs.includes(item.href)) {
                       return null;
                     }
                   }
 
-                  // Check if feature requires premium access (visa tracker, passage log, bridge watch, export, request sea time, certificates)
+                  // Check if feature requires premium access (visa tracker, bridge watch, export, request sea time, certificates)
+                  // Passage log uses hasPassageLogAccess (Standard+ crew, vessel tiers)
                   // Note: Applications page is accessible to all users (testimonials are free), but Nav Watch/OOW are premium-only
                   // Note: Export is accessible to crew_limited users, so we exclude it from premium requirement for them
                   const isVisaTracker = item.href === '/dashboard/visa-tracker';
@@ -764,7 +817,11 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const isSeaTimeRequest = item.href === '/dashboard/sea-time-request';
                   const isCertificates = item.href === '/dashboard/certificates';
                   // Export is accessible to crew_limited users, so don't require premium for them
-                  const requiresPremium = (isVisaTracker || isPassageLog || isBridgeWatch || isSeaTimeRequest || isCertificates || (isExport && !isCrewLimited)) && !hasPremiumAccess && !isCrewLimited;
+                  const requiresPremium =
+                    (isVisaTracker || isBridgeWatch || isSeaTimeRequest || isCertificates || (isExport && !isCrewLimited)) &&
+                    !hasPremiumAccess &&
+                    !isCrewLimited;
+                  const passageNavLocked = isPassageLog && !hasPassageLogAccess && !isCrewLimited;
                   
                   // Hide bridge watch log for non-officers
                   if (isBridgeWatch && !isOfficer) {
@@ -791,7 +848,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   
                   return (
                     <SidebarMenuItem key={uniqueKey}>
-                      {requiresPremium ? (
+                      {requiresPremium || passageNavLocked ? (
                         <Tooltip delayDuration={200}>
                           <TooltipTrigger asChild>
                             <div className="w-full">
@@ -811,7 +868,9 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                             <div className="space-y-1">
                               <p className="font-semibold">{item.label}</p>
                               <p className="text-xs text-muted-foreground">
-                                This feature requires a Premium or Pro subscription. Upgrade to unlock advanced features.
+                                {passageNavLocked
+                                  ? 'Passage Log is available on Standard tier and above (not Crew Limited), or with an active vessel subscription.'
+                                  : 'This feature requires a Premium or Pro subscription. Upgrade to unlock advanced features.'}
                               </p>
                             </div>
                           </TooltipContent>

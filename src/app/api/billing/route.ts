@@ -1,9 +1,17 @@
 // app/api/billing/route.ts
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import {
   getStripeProducts,
   getUserStripeSubscription,
 } from '@/app/actions';
+import { syncSupabaseUserFromStripeSubscription } from '@/lib/sync-user-stripe-billing';
+import { extractTierFromSubscription } from '@/lib/stripe-subscription-helpers';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
 
 export async function GET(req: Request) {
   console.log(
@@ -30,13 +38,41 @@ export async function GET(req: Request) {
     const subscriptionData = await getUserStripeSubscription(email);
     const stripePrices = await getStripeProducts(isVesselAccount);
 
+    const auth = req.headers.get('authorization') || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (token && subscriptionData?.subscription) {
+      const {
+        data: { user },
+        error: authErr,
+      } = await supabaseAdmin.auth.getUser(token);
+      if (
+        !authErr &&
+        user?.id &&
+        user.email?.toLowerCase() === email.trim().toLowerCase()
+      ) {
+        try {
+          await syncSupabaseUserFromStripeSubscription(
+            user.id,
+            subscriptionData.subscription,
+          );
+        } catch (syncErr) {
+          console.error('[API /api/billing] Profile sync from Stripe failed:', syncErr);
+        }
+      }
+    }
+
+    const stripeTierLive = subscriptionData?.subscription
+      ? extractTierFromSubscription(subscriptionData.subscription)
+      : null;
+
     console.log('[API /api/billing] Successfully fetched:', {
       hasSubscriptionData: !!subscriptionData,
       pricesCount: stripePrices.length,
+      stripeTierLive,
     });
 
     return NextResponse.json(
-      { subscriptionData, stripePrices },
+      { subscriptionData, stripePrices, stripeTierLive },
       { status: 200 },
     );
   } catch (err: any) {

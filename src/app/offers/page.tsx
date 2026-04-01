@@ -40,6 +40,10 @@ import {
 } from '@/app/actions';
 import type { UserProfile } from '@/lib/types';
 import { motion } from 'framer-motion';
+import {
+  CREW_TRIAL_DISPLAY_LABEL,
+  VESSEL_TRIAL_DISPLAY_LABEL,
+} from '@/lib/stripe-checkout-trials';
 
 interface Plan {
   name: string;
@@ -54,6 +58,8 @@ interface Plan {
   priceId?: string; // Stripe price ID
   comingSoon?: boolean; // Coming soon flag
   availableDate?: string; // Available date
+  /** Shown on plan cards for new checkouts (Stripe Checkout includes matching trial) */
+  trialLabel?: string;
 }
 
 // Crew plan templates - for individual crew members
@@ -62,6 +68,7 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
     name: 'Standard',
     price: '£4.99',
     priceSuffix: '/ month',
+    trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description: 'Essential sea time tracking for maritime professionals.',
     features: [
       'Unlimited sea time logging',
@@ -78,6 +85,7 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
     name: 'Premium',
     price: '£9.99',
     priceSuffix: '/ month',
+    trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description: 'Advanced logging and documentation for career progression.',
     features: [
       'All Standard features',
@@ -97,6 +105,7 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
     name: 'Pro',
     price: '£14.99',
     priceSuffix: '/ month',
+    trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description:
       'Complete maritime career management and certification tracking.',
     features: [
@@ -120,6 +129,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
     name: 'Vessel Lite',
     price: '£24.99',
     priceSuffix: '/ month',
+    trialLabel: VESSEL_TRIAL_DISPLAY_LABEL,
     description: 'Essential vessel management for small operations.',
     features: [
       'Single vessel',
@@ -138,6 +148,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
     name: 'Vessel Basic',
     price: '£49.99',
     priceSuffix: '/ month',
+    trialLabel: VESSEL_TRIAL_DISPLAY_LABEL,
     description: 'Advanced vessel management for growing operations.',
     features: [
       'Single vessel',
@@ -155,6 +166,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
     name: 'Vessel Pro',
     price: '£99.99',
     priceSuffix: '/ month',
+    trialLabel: VESSEL_TRIAL_DISPLAY_LABEL,
     description: 'Complete vessel management solution.',
     features: [
       'Single vessel',
@@ -172,6 +184,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
     name: 'Vessel Fleet',
     price: '£249.99',
     priceSuffix: '/ month',
+    trialLabel: VESSEL_TRIAL_DISPLAY_LABEL,
     description: 'Enterprise fleet management for large operations.',
     features: [
       'Up to 3 vessels (included)',
@@ -832,6 +845,14 @@ export default function OffersPage() {
                             {plan.priceSuffix}
                               </span>
                         </div>
+                        {plan.trialLabel &&
+                          plan.priceId &&
+                          !plan.comingSoon &&
+                          !(hasActiveSub && user) && (
+                            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400 mb-1">
+                              {plan.trialLabel}
+                            </p>
+                          )}
                         <CardDescription className="text-gray-600 dark:text-blue-100/80 text-base mt-4">
                           {plan.description}
                         </CardDescription>

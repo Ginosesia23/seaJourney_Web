@@ -68,7 +68,7 @@ export default function DashboardHeader({ userProfile }: { userProfile: UserProf
       case 'captain':
         return 'Captain';
       case 'vessel':
-        return 'Vessel Manager';
+        return 'Vessel';
       case 'admin':
         return 'Admin';
       default:

@@ -96,7 +96,7 @@ export interface TestimonialPDFData {
   }>; // Standby service periods for Table A
 }
 
-export type TestimonialPDFFormat = 'mca' | 'mlc' | 'pya' | 'seajourney';
+export type TestimonialPDFFormat = 'mca' | 'mlc' | 'seajourney';
 export type TestimonialPDFOutput = 'download' | 'newtab' | 'blob';
 
 /** Data for one Proof of Service entry (one vessel + period). Multiple entries = multiple boxes on the PDF. */
@@ -460,6 +460,10 @@ export async function generateTestimonialPDF(
   const debug = options?.debug ?? false;
   const positions: Record<string, { x?: number; y?: number; w?: number; h?: number }> = {};
 
+  // Legacy stored value `pya` (removed from product copy) maps to MCA layout
+  const resolvedPdfFormat: TestimonialPDFFormat =
+    (pdfFormat as string) === 'pya' ? 'mca' : pdfFormat;
+
   const doc = new jsPDF();
   const { testimonial, userProfile, vessel, captainProfile } = data;
 
@@ -484,7 +488,7 @@ export async function generateTestimonialPDF(
     : null;
 
   // Color scheme based on format
-  const isMCATemplate = pdfFormat === 'mca';
+  const isMCATemplate = resolvedPdfFormat === 'mca';
   const textDark: RGB = [20, 20, 20];
   const textGray: RGB = [80, 80, 80];
   const primaryBlue: RGB = isMCATemplate ? [0, 0, 0] : [0, 29, 55];
@@ -971,7 +975,7 @@ export async function generateTestimonialPDF(
     'I hereby certify that the details of service stated above are, to the best of my ' +
     "knowledge and belief, a true and accurate record of this seafarer's onboard service, " +
     'based on vessel records and official log information. This testimonial is issued to ' +
-    'support applications for sea service verification by recognised bodies (e.g. PYA, ' +
+    'support applications for sea service verification by recognised bodies (e.g. ' +
     'Nautilus International) and, where applicable, submission to the Maritime and Coastguard Agency (MCA).';
 
   const declarationLines = doc.splitTextToSize(declarationText, pageWidth - 36);
@@ -1161,7 +1165,7 @@ export async function generateTestimonialPDF(
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
     setTextColor(primaryBlue);
-    doc.text('PART 4 – OFFICIAL VERIFICATION (PYA / NAUTILUS / OTHER)', 18, currentY + 2);
+    doc.text('PART 4 – OFFICIAL VERIFICATION (NAUTILUS / OTHER)', 18, currentY + 2);
     
     setDrawColor(primaryBlue);
     doc.setLineWidth(0.5);
@@ -1244,7 +1248,7 @@ export async function generateTestimonialPDF(
 
   const crewName = cleanName(fullName);
   const vesselName = cleanName(vessel.name || 'UnknownVessel');
-  const formatName = pdfFormat.toUpperCase();
+    const formatName = resolvedPdfFormat.toUpperCase();
 
   const filename = `${startDateFilename} - ${endDateFilename} ${crewName} ${vesselName} testimonial ${formatName}.pdf`;
 

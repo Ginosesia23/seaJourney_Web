@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS public.proof_of_service (
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
 
-  -- Sea time breakdown (MCA/PYA style)
+  -- Sea time breakdown (MCA-style)
   total_days INTEGER NOT NULL,
   at_sea_days INTEGER NOT NULL,
   standby_days INTEGER NOT NULL,

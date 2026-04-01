@@ -1,7 +1,10 @@
 // src/app/api/billing/resume/route.ts
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { stripe } from "@/lib/stripe";
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import {
+  resumeStripeSubscriptionForUser,
+  ResumeSubscriptionError,
+} from '@/lib/resume-stripe-subscription-for-user';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,32 +12,30 @@ const supabaseAdmin = createClient(
 );
 
 export async function POST(req: Request) {
-  const auth = req.headers.get("authorization") || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  const auth = req.headers.get('authorization') || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
 
   if (!token) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  const {
+    data: { user },
+    error,
+  } = await supabaseAdmin.auth.getUser(token);
   if (error || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { data: row, error: dbErr } = await supabaseAdmin
-    .from("users")
-    .select("stripe_subscription_id")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (dbErr) return NextResponse.json({ error: dbErr.message }, { status: 500 });
-  if (!row?.stripe_subscription_id) {
-    return NextResponse.json({ error: "No subscription found" }, { status: 400 });
+  try {
+    const sub = await resumeStripeSubscriptionForUser(user.id);
+    return NextResponse.json({ success: true, subscriptionId: sub.id });
+  } catch (e: unknown) {
+    if (e instanceof ResumeSubscriptionError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
+    const message = e instanceof Error ? e.message : 'Failed to resume subscription';
+    console.error('[API /api/billing/resume]', e);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  const sub = await stripe.subscriptions.update(row.stripe_subscription_id, {
-    cancel_at_period_end: false,
-  });
-
-  return NextResponse.json({ success: true, subscriptionId: sub.id });
 }

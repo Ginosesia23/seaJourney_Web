@@ -13,6 +13,7 @@ import { format } from 'date-fns';
 import { Skeleton } from '../ui/skeleton';
 import { UserProfile, Vessel } from '@/lib/types';
 import { getVesselStateLogs, getPassageLogs, getBridgeWatchLogs } from '@/supabase/database/queries';
+import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 
 function SubscriptionSkeleton() {
     return (
@@ -193,14 +194,32 @@ export function SubscriptionCard() {
     fetchUsageData();
   }, [user?.id, allVessels, supabase, isVesselAccount, userProfileRaw, userProfile, userProfile?.subscriptionTier]);
 
+  // Keep users row aligned with Stripe (tier + current_period_end) when the dashboard loads
+  useEffect(() => {
+    const email = user?.email;
+    if (!email || isProfileLoading) return;
+    void (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) return;
+      const headers: HeadersInit = { Authorization: `Bearer ${token}` };
+      await fetch(
+        `/api/billing?email=${encodeURIComponent(email)}&isVesselAccount=${isVesselAccount}`,
+        { headers },
+      ).catch(() => {});
+    })();
+  }, [user?.email, isVesselAccount, isProfileLoading, supabase]);
+
   if (isProfileLoading) {
     return <SubscriptionSkeleton />;
   }
 
   const subscriptionStatus = userProfile?.subscriptionStatus || 'inactive';
   const subscriptionTier = userProfile?.subscriptionTier || 'free';
-  const nextRenewalDate = null; // This would need to come from Stripe via webhook
-  
+  const periodEndRaw = (userProfileRaw as { current_period_end?: string | null })?.current_period_end;
+  const cancelAtPeriodEnd =
+    (userProfileRaw as { cancel_at_period_end?: boolean | null })?.cancel_at_period_end === true;
+
   // Format subscription tier for display
   const formatTierName = (tier: string) => {
     // Remove common prefixes
@@ -212,8 +231,15 @@ export function SubscriptionCard() {
   };
 
   const displayTier = formatTierName(subscriptionTier);
-  const isActive = subscriptionStatus === 'active';
-  const isPastDue = subscriptionStatus === 'past-due';
+  const isActive = hasActiveSubscription(userProfileRaw ?? userProfile);
+  const nextRenewalDate =
+    periodEndRaw && isActive ? new Date(periodEndRaw) : null;
+  const statusBadgeLabel =
+    isActive && cancelAtPeriodEnd
+      ? 'Cancelling'
+      : subscriptionStatus;
+  const statusLower = String(subscriptionStatus || '').toLowerCase().replace(/-/g, '_');
+  const isPastDue = statusLower === 'past_due';
 
   // Determine limits based on tier and account type
   const tierLower = subscriptionTier.toLowerCase();
@@ -270,14 +296,16 @@ export function SubscriptionCard() {
                 <Badge 
                     className={cn(
               "rounded-xl capitalize text-xs font-medium",
-              isActive
-                ? 'bg-green-500/20 text-green-700 border-green-500/30 dark:text-green-400' 
-                : isPastDue
+              isPastDue
                 ? 'bg-orange-500/20 text-orange-700 border-orange-500/30 dark:text-orange-400'
+                : isActive && cancelAtPeriodEnd
+                ? 'bg-yellow-500/20 text-yellow-900 border-yellow-500/30 dark:text-yellow-200'
+                : isActive
+                ? 'bg-green-500/20 text-green-700 border-green-500/30 dark:text-green-400' 
                 : 'bg-muted text-muted-foreground border-border'
                     )}
                 >
-                    {subscriptionStatus}
+                    {statusBadgeLabel}
                 </Badge>
             </div>
         </CardHeader>
@@ -292,7 +320,9 @@ export function SubscriptionCard() {
             </div>
             {nextRenewalDate && isActive && (
                         <p className="text-sm text-muted-foreground">
-                            Renews on {format(nextRenewalDate, 'PPP')}
+                            {cancelAtPeriodEnd
+                              ? `Access until ${format(nextRenewalDate, 'PPP')}`
+                              : `Renews on ${format(nextRenewalDate, 'PPP')}`}
                         </p>
                     )}
             {!isActive && (

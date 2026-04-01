@@ -27,6 +27,7 @@ import { getVesselAssignments } from '@/supabase/database/queries';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import type { Vessel, UserProfile, VesselAssignment } from '@/lib/types';
+import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 
 interface WatchLog {
   id: string;
@@ -148,19 +149,23 @@ export default function BridgeWatchLogPage() {
     return role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
   }, [userProfile]);
 
-  // Check premium access
+  // Premium / Pro entitlement (includes cancel-at-period-end until current_period_end)
   const hasAccess = useMemo(() => {
-    if (!userProfile) return false;
+    if (!userProfile || !userProfileRaw) return false;
     const role = (userProfile as any)?.role || userProfile?.role || 'crew';
-    const subscriptionTier = (userProfile as any)?.subscription_tier || userProfile?.subscriptionTier || 'free';
-    const subscriptionStatus = (userProfile as any)?.subscription_status || userProfile?.subscriptionStatus || 'inactive';
-    
-    // Vessel accounts always have access
+    const subscriptionTier = (
+      (userProfile as any)?.subscription_tier ||
+      userProfile?.subscriptionTier ||
+      'free'
+    )
+      .toString()
+      .toLowerCase();
+
     if (role === 'vessel') return true;
-    
-    // Premium and Pro subscribers have access
-    return subscriptionTier === 'premium' || subscriptionTier === 'pro';
-  }, [userProfile]);
+
+    const tierOk = subscriptionTier === 'premium' || subscriptionTier === 'pro';
+    return tierOk && hasActiveSubscription(userProfileRaw);
+  }, [userProfile, userProfileRaw]);
 
   const form = useForm<PastWatchFormValues>({
     resolver: zodResolver(pastWatchSchema),

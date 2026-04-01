@@ -54,6 +54,8 @@
     --chart-green: 142 76% 36%;
     --chart-gray: 213 15% 50%;
     --chart-red: 0 84% 60%;
+    /* Standby (MCA-style counted days) — distinct from at-anchor state (orange) */
+    --chart-purple: 270 55% 48%;
   }
  
   .dark {
@@ -106,6 +108,7 @@
     --chart-green: 142 76% 46%;
     --chart-gray: 215 14% 54%;
     --chart-red: 0 84% 70%;
+    --chart-purple: 270 50% 68%;
   }
 
   .theme-dashboard {

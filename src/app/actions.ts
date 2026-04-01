@@ -4,10 +4,13 @@ import { createSupabaseServerClient } from '@/supabase/server';
 import type { SeaServiceRecord, UserProfile, Vessel, StateLog } from '@/lib/types';
 import { isWithinInterval, startOfDay, endOfDay, parse, differenceInDays, format, eachDayOfInterval } from 'date-fns';
 import { stripe } from '@/lib/stripe';
+import { pickCanonicalStripeSubscription } from '@/lib/stripe-subscription-helpers';
+import { resumeStripeSubscriptionForUser } from '@/lib/resume-stripe-subscription-for-user';
 import type { Stripe } from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
+import { getSubscriptionTrialPeriodDaysForProduct } from '@/lib/stripe-checkout-trials';
 
 //
 // SUPABASE ADMIN CLIENT (server-only)
@@ -153,6 +156,15 @@ export async function createCheckoutSession(
     else if (nick.includes('pro')) tier = 'pro';
   }
 
+  const trialPeriodDays = getSubscriptionTrialPeriodDaysForProduct(product.id);
+
+  const subscriptionData: Stripe.Checkout.SessionCreateParams.SubscriptionData = {
+    metadata: { userId, tier },
+  };
+  if (trialPeriodDays != null && trialPeriodDays > 0) {
+    subscriptionData.trial_period_days = trialPeriodDays;
+  }
+
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
     line_items: [{ price: priceId, quantity: 1 }],
@@ -167,10 +179,11 @@ export async function createCheckoutSession(
       tier,
       productId: product.id,
       productName: product.name,
+      ...(trialPeriodDays != null && trialPeriodDays > 0
+        ? { trialPeriodDays: String(trialPeriodDays) }
+        : {}),
     },
-    subscription_data: {
-      metadata: { userId, tier },
-    },
+    subscription_data: subscriptionData,
   });
 
   return { sessionId: session.id, url: session.url };
@@ -191,13 +204,20 @@ export async function getUserStripeSubscription(
 
     const customer = customers.data[0];
 
-    const subscriptions = await stripe.subscriptions.list({
+    const { data: subs } = await stripe.subscriptions.list({
       customer: customer.id,
       status: 'all',
-      limit: 1,
+      limit: 30,
     });
 
-    const subscription = subscriptions.data.length > 0 ? subscriptions.data[0] : null;
+    const picked =
+      subs.length > 0 ? pickCanonicalStripeSubscription(subs) : null;
+
+    const subscription = picked
+      ? await stripe.subscriptions.retrieve(picked.id, {
+          expand: ['items.data.price.product'],
+        })
+      : null;
 
     return { subscription, customer };
   } catch (error: any) {
@@ -270,7 +290,6 @@ export async function cancelSubscription(
  * - Resumes in Stripe by setting cancel_at_period_end=false
  */
 export async function resumeMySubscription(): Promise<Stripe.Subscription> {
-  // 1) Identify user (cookie session)
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -283,26 +302,7 @@ export async function resumeMySubscription(): Promise<Stripe.Subscription> {
     throw e;
   }
 
-  // 2) Load subscription id from DB (server-trusted)
-  const { data: row, error } = await supabaseAdmin
-    .from('users')
-    .select('stripe_subscription_id')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-
-  const subscriptionId = row?.stripe_subscription_id;
-  if (!subscriptionId) {
-    const e: any = new Error('No subscription found for this user.');
-    e.status = 400;
-    throw e;
-  }
-
-  // 3) Resume in Stripe
-  return await stripe.subscriptions.update(subscriptionId, {
-    cancel_at_period_end: false,
-  });
+  return resumeStripeSubscriptionForUser(user.id);
 }
 
 //
@@ -626,7 +626,11 @@ export async function generateSeaTimeReportData(
           period.logs,
           undefined,
           partOfActivePassageDates,
-          { rangeStart: period.startDate, rangeEnd: period.endDate }
+          {
+            rangeStart: period.startDate,
+            rangeEnd: period.endDate,
+            vesselManagerSeaTime: userProfile.role === 'vessel',
+          }
         );
         atSeaDays = totalSeaDays;
         standbyDays = totalStandbyDays;

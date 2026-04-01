@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/supabase/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { normalizeStateLogDate } from '@/supabase/database/queries';
 import type { StateLog } from '@/lib/types';
 
-function transformStateLog(dbLog: Record<string, unknown>): StateLog {
-  const dateValue = (dbLog.date as string) || (dbLog.log_date as string);
+function transformStateLog(dbLog: Record<string, unknown>): StateLog | null {
+  const date =
+    normalizeStateLogDate(dbLog.date ?? dbLog.log_date) ?? null;
+  if (!date) return null;
   return {
     id: dbLog.id as string,
     userId: dbLog.user_id as string,
     vesselId: dbLog.vessel_id as string,
     state: dbLog.state as StateLog['state'],
-    date: dateValue,
+    date,
     isPartOfActivePassage: (dbLog.is_part_of_active_passage as boolean) ?? false,
     notes: dbLog.notes as string | undefined,
     createdAt: dbLog.created_at as string | undefined,
@@ -122,7 +125,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const logs: StateLog[] = logsData.map((row) => transformStateLog(row));
+    const logs: StateLog[] = logsData
+      .map((row) => transformStateLog(row))
+      .filter((log): log is StateLog => log !== null);
     return NextResponse.json({ logs });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Internal server error';

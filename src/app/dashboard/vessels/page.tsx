@@ -22,9 +22,11 @@ import { createVessel, getVesselStateLogs, getVesselSeaService, updateUserProfil
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import type { Vessel, StateLog, UserProfile, SeaServiceRecord, DailyStatus, VesselAssignment } from '@/lib/types';
+import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { cn } from '@/lib/utils';
 import { VesselSummaryCard, VesselSummarySkeleton } from '@/components/dashboard/vessel-summary-card';
+import { AdminVesselEditDialog } from '@/components/dashboard/admin-vessel-edit-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -95,14 +97,17 @@ export default function VesselsPage() {
   const [isVesselSearchOpen, setIsVesselSearchOpen] = useState(false);
   const [isAddVesselDialogOpen, setIsAddVesselDialogOpen] = useState(false);
   const [isSavingVessel, setIsSavingVessel] = useState(false);
-  const [vesselSigningAuthorities, setVesselSigningAuthorities] = useState<Map<string, boolean>>(new Map()); // vesselId -> hasActiveCaptain
   const [vesselAssignments, setVesselAssignments] = useState<Map<string, { startDate: string; endDate: string | null; assignmentId?: string }>>(new Map()); // vesselId -> assignment dates
   const [allVesselAssignments, setAllVesselAssignments] = useState<VesselAssignment[]>([]); // Full assignment objects for editing
   const [activelyManagedVessels, setActivelyManagedVessels] = useState<Set<string>>(new Set()); // vesselId -> is actively managed
   const [vesselCrewCounts, setVesselCrewCounts] = useState<Map<string, number>>(new Map()); // vesselId -> crew count (for admin)
+  /** Distinct non–vessel-account users with an ended assignment on this vessel (tracked as past). */
+  const [vesselPastPeopleCounts, setVesselPastPeopleCounts] = useState<Map<string, number>>(new Map());
   const [isEditStartDateDialogOpen, setIsEditStartDateDialogOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState<{ vesselId: string; assignment: VesselAssignment } | null>(null);
   const [isUpdatingStartDate, setIsUpdatingStartDate] = useState(false);
+  const [adminEditVesselOpen, setAdminEditVesselOpen] = useState(false);
+  const [adminEditVessel, setAdminEditVessel] = useState<Vessel | null>(null);
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -189,13 +194,12 @@ export default function VesselsPage() {
 
   // Check if user has crew_limited tier (restricted access - block vessels page)
   const isCrewLimited = useMemo(() => {
-    if (!currentUserProfile) return false;
+    if (!currentUserProfile || !userProfileRaw) return false;
     const tier = (currentUserProfile as any).subscription_tier || currentUserProfile.subscriptionTier || 'free';
-    const status = (currentUserProfile as any).subscription_status || currentUserProfile.subscriptionStatus || 'inactive';
     const role = (currentUserProfile as any).role || currentUserProfile.role || 'crew';
-    
-    return role === 'crew' && tier === 'crew_limited' && status === 'active';
-  }, [currentUserProfile]);
+
+    return role === 'crew' && tier === 'crew_limited' && hasActiveSubscription(userProfileRaw);
+  }, [currentUserProfile, userProfileRaw]);
 
   // Redirect crew_limited users away from vessels page
   useEffect(() => {
@@ -297,6 +301,7 @@ export default function VesselsPage() {
       if (isAdmin) {
         setVesselCrewCounts(new Map());
       }
+      setVesselPastPeopleCounts(new Map());
       return;
     }
 
@@ -466,6 +471,47 @@ export default function VesselsPage() {
       console.log('[VESSELS] Setting crew counts:', Array.from(crewCounts.entries()));
       setVesselCrewCounts(crewCounts);
       console.log('[VESSELS] Crew counts set, map size:', crewCounts.size);
+
+      // Past tracking: distinct people (non-vessel accounts) with end_date set on this vessel
+      const pastPeopleCounts = new Map<string, number>();
+      allVessels.forEach((v) => pastPeopleCounts.set(v.id, 0));
+      try {
+        const { data: pastRows, error: pastErr } = await supabase
+          .from('vessel_assignments')
+          .select('vessel_id, user_id')
+          .not('end_date', 'is', null);
+
+        if (pastErr) {
+          console.error('[VESSELS] Error fetching past vessel assignments:', pastErr);
+        } else if (pastRows && pastRows.length > 0) {
+          const pastUserIds = [...new Set(pastRows.map((r: { user_id: string }) => r.user_id))];
+          const { data: pastUsersData, error: pastUsersErr } = await supabase
+            .from('users')
+            .select('id, role')
+            .in('id', pastUserIds);
+
+          if (pastUsersErr) {
+            console.error('[VESSELS] Error fetching roles for past assignments:', pastUsersErr);
+          } else {
+            const pastRoleMap = new Map<string, string>();
+            (pastUsersData || []).forEach((u: { id: string; role: string }) => pastRoleMap.set(u.id, u.role));
+            const distinctByVessel = new Map<string, Set<string>>();
+            pastRows.forEach((row: { vessel_id: string; user_id: string }) => {
+              if (pastRoleMap.get(row.user_id) === 'vessel') return;
+              if (!distinctByVessel.has(row.vessel_id)) {
+                distinctByVessel.set(row.vessel_id, new Set());
+              }
+              distinctByVessel.get(row.vessel_id)!.add(row.user_id);
+            });
+            distinctByVessel.forEach((set, vesselId) => {
+              pastPeopleCounts.set(vesselId, set.size);
+            });
+          }
+        }
+      } catch (e) {
+        console.error('[VESSELS] Past assignment counts:', e);
+      }
+      setVesselPastPeopleCounts(pastPeopleCounts);
     };
 
     console.log('[VESSELS] Calling fetchActivelyManagedVessels');
@@ -541,45 +587,6 @@ export default function VesselsPage() {
       fetchCaptaincyRequests();
     }
   }, [allVessels, isCaptain, fetchCaptaincyRequests]);
-
-  // For vessel role users, check for active signing authorities (approved captains) for their active vessel
-  useEffect(() => {
-    const checkActiveCaptains = async () => {
-      if (!allVessels || !user?.id || currentUserProfile?.role !== 'vessel' || !currentUserProfile?.activeVesselId) {
-        return;
-      }
-
-      const activeVesselId = currentUserProfile.activeVesselId;
-      const activeVessel = allVessels.find(v => v.id === activeVesselId);
-      
-      if (!activeVessel) return;
-
-      try {
-        // Check if vessel has an active signing authority (approved captain)
-        const { data: signingAuthority, error } = await supabase
-          .from('vessel_signing_authorities')
-          .select('id')
-          .eq('vessel_id', activeVesselId)
-          .eq('is_primary', true)
-          .is('end_date', null)
-          .limit(1)
-          .maybeSingle();
-
-        if (!error) {
-          const hasActiveCaptain = !!signingAuthority;
-          setVesselSigningAuthorities(prev => {
-            const newMap = new Map(prev);
-            newMap.set(activeVesselId, hasActiveCaptain);
-            return newMap;
-          });
-        }
-      } catch (error) {
-        console.error('[VESSELS PAGE] Error checking signing authorities:', error);
-      }
-    };
-
-    checkActiveCaptains();
-  }, [allVessels, user?.id, currentUserProfile?.role, currentUserProfile?.activeVesselId, supabase]);
 
   // Search vessels when search term changes
   useEffect(() => {
@@ -738,11 +745,10 @@ export default function VesselsPage() {
 
   // Check vessel limit based on subscription tier
   const hasUnlimitedVessels = useMemo(() => {
-    if (!currentUserProfile) return false;
+    if (!currentUserProfile || !userProfileRaw) return false;
     const tier = currentUserProfile.subscriptionTier?.toLowerCase() || 'free';
-    const status = currentUserProfile.subscriptionStatus?.toLowerCase() || 'inactive';
-    return (tier === 'premium' || tier === 'pro') && status === 'active';
-  }, [currentUserProfile]);
+    return (tier === 'premium' || tier === 'pro') && hasActiveSubscription(userProfileRaw);
+  }, [currentUserProfile, userProfileRaw]);
 
   const vesselLimit = hasUnlimitedVessels ? Infinity : 3;
   const canAddVessel = hasUnlimitedVessels || vesselCount < vesselLimit;
@@ -1265,14 +1271,14 @@ export default function VesselsPage() {
                       <TableHead>Vessel Name</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Crew Count</TableHead>
+                      <TableHead className="whitespace-nowrap">Past (people)</TableHead>
                       {isAdmin && <TableHead>Official</TableHead>}
-                      <TableHead>Status</TableHead>
-                      {isCaptain && <TableHead>Actions</TableHead>}
+                      <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     <TableRow>
-                      <TableCell colSpan={5 + (isAdmin ? 1 : 0) + (isCaptain ? 1 : 0)} className="h-24 text-center">
+                      <TableCell colSpan={6 + (isAdmin ? 1 : 0)} className="h-24 text-center">
                         <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                       </TableCell>
                     </TableRow>
@@ -1289,18 +1295,29 @@ export default function VesselsPage() {
       })() ? (
         layout === 'card' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {vesselSummaries.map(vessel => (
-              <VesselSummaryCard 
-                key={vessel.id} 
-                vesselSummary={vessel}
-                onResumeService={handleResumeVessel}
-                showResumeButton={!isAdmin && !vessel.isCurrent && canResumeVessel}
-                isResuming={resumingVesselId === vessel.id}
-                onDelete={(vesselId, vesselName) => setVesselToDelete({ id: vesselId, name: vesselName })}
-                showDeleteButton={true}
-                isActivelyManaged={activelyManagedVessels.has(vessel.id)}
-              />
-            ))}
+            {vesselSummaries.map((vessel) => {
+              const fullVessel = allVessels?.find((v) => v.id === vessel.id) ?? null;
+              return (
+                <VesselSummaryCard
+                  key={vessel.id}
+                  vesselSummary={vessel}
+                  onResumeService={handleResumeVessel}
+                  showResumeButton={!isAdmin && !vessel.isCurrent && canResumeVessel}
+                  isResuming={resumingVesselId === vessel.id}
+                  onDelete={(vesselId, vesselName) => setVesselToDelete({ id: vesselId, name: vesselName })}
+                  showDeleteButton={true}
+                  isActivelyManaged={activelyManagedVessels.has(vessel.id)}
+                  onAdminEdit={
+                    isAdmin && fullVessel
+                      ? () => {
+                          setAdminEditVessel(fullVessel);
+                          setAdminEditVesselOpen(true);
+                        }
+                      : undefined
+                  }
+                />
+              );
+            })}
           </div>
         ) : (
       <Card className="rounded-xl border dark:shadow-md transition-shadow dark:hover:shadow-lg">
@@ -1313,8 +1330,8 @@ export default function VesselsPage() {
                         <TableHead>Vessel Name</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Crew Count</TableHead>
+                        <TableHead className="whitespace-nowrap">Past (people)</TableHead>
                         {isAdmin && <TableHead>Official</TableHead>}
-                        <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -1345,6 +1362,7 @@ export default function VesselsPage() {
                       }
                       // Use crew count from vessel_assignments for all users
                       const crewCount = vesselCrewCounts.get(vessel.id) ?? 0;
+                      const pastPeopleCount = vesselPastPeopleCounts.get(vessel.id) ?? 0;
                       if (isAdmin && vessel.id === '5ae35be5-d0dc-4666-9114-bb08e5bdfb12') {
                         console.log('[VESSELS TABLE] Crew count for Flying Fox:', {
                           vesselId: vessel.id,
@@ -1363,11 +1381,7 @@ export default function VesselsPage() {
                       const hasPendingRequest = requestStatus === 'pending';
                       const hasApprovedRequest = requestStatus === 'approved';
                       const hasRejectedRequest = requestStatus === 'rejected';
-                      
-                      // For vessel role users, check if vessel has an active signing authority (approved captain)
-                      const isVesselRole = currentUserProfile?.role === 'vessel';
-                      const hasActiveCaptain = isVesselRole ? vesselSigningAuthorities.get(vessel.id) || false : false;
-                      
+
                       // Debug logging for captains - always log to help debug
                       if (isCaptain) {
                         console.log('[VESSEL ROW]', {
@@ -1429,6 +1443,9 @@ export default function VesselsPage() {
                                             <TableCell className="text-muted-foreground">
                                               {crewCount > 0 ? `${crewCount} ${crewCount === 1 ? 'crew member' : 'crew members'}` : '—'}
                                             </TableCell>
+                                            <TableCell className="text-muted-foreground tabular-nums">
+                                              {pastPeopleCount > 0 ? pastPeopleCount : '—'}
+                                            </TableCell>
                                             {isAdmin && (
                                               <TableCell>
                                                 {(() => {
@@ -1446,73 +1463,23 @@ export default function VesselsPage() {
                                                 })()}
                                               </TableCell>
                                             )}
-                                    <TableCell>
-                                        <div className="flex flex-col gap-1">
-                                          {(() => {
-                                            // For vessel role: if active vessel and has approved captain, show "Active Captain"
-                                            // For captain role: if active vessel and has approved request, show "Active Captain"
-                                            if (isCurrent && ((isVesselRole && hasActiveCaptain) || (isCaptain && hasApprovedRequest))) {
-                                              return (
-                                                <Badge variant="default" className="bg-green-600 hover:bg-green-700 text-white border-0 w-fit">
-                                                  <ShieldCheck className="mr-1 h-3 w-3" />
-                                                  Active Captain
-                                                </Badge>
-                                              );
-                                            }
-                                            
-                                            // Regular active status (no approved captain)
-                                            if (isCurrent) {
-                                              return (
-                                                <Badge variant="default" className="bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400 w-fit">
-                                                  Active
-                                                </Badge>
-                                              );
-                                            }
-                                            
-                                            // Past status (no request)
-                                            if (!request) {
-                                              return (
-                                                <Badge variant="secondary" className="font-normal w-fit">
-                                                  Past
-                                                </Badge>
-                                              );
-                                            }
-                                            
-                                            return null;
-                                          })()}
-                                          
-                                          {/* Captain-specific request statuses */}
-                                          {isCaptain && hasPendingRequest && (
-                                            <Badge variant="secondary" className="text-xs w-fit">
-                                              <ShieldCheck className="mr-1 h-3 w-3" />
-                                              Request Pending
-                                            </Badge>
-                                          )}
-                                          {isCaptain && hasApprovedRequest && !isCurrent && (
-                                            // Only show "Captaincy Approved" if vessel is NOT active (to avoid duplicate with "Active Captain")
-                                            <Badge variant="default" className="text-xs w-fit bg-green-600 hover:bg-green-700 text-white border-0">
-                                              <ShieldCheck className="mr-1 h-3 w-3" />
-                                              Captaincy Approved
-                                            </Badge>
-                                          )}
-                                          {isCaptain && hasRejectedRequest && (
-                                            <Badge variant="destructive" className="text-xs w-fit">
-                                              <ShieldCheck className="mr-1 h-3 w-3" />
-                                              Request Rejected
-                                            </Badge>
-                                          )}
-                                          
-                                          {/* Vessel role: show if vessel has active captain but vessel is not current */}
-                                          {isVesselRole && !isCurrent && hasActiveCaptain && (
-                                            <Badge variant="default" className="text-xs w-fit bg-blue-600 hover:bg-blue-700 text-white border-0">
-                                              <ShieldCheck className="mr-1 h-3 w-3" />
-                                              Has Active Captain
-                                            </Badge>
-                                          )}
-                                        </div>
-                                    </TableCell>
                             <TableCell onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {isAdmin && vesselRaw ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="rounded-lg"
+                                    onClick={() => {
+                                      setAdminEditVessel(vesselRaw);
+                                      setAdminEditVesselOpen(true);
+                                    }}
+                                  >
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    Edit
+                                  </Button>
+                                ) : null}
                                 {!isAdmin && !isCurrent && canResumeVessel && !request && (
                                   <Button
                                     onClick={() => handleResumeVessel(vessel.id)}
@@ -1560,7 +1527,7 @@ export default function VesselsPage() {
                                         </TableRow>
                                         {isExpanded && (
                                             <TableRow>
-                              <TableCell colSpan={7} className="bg-background/40 p-0">
+                              <TableCell colSpan={6 + (isAdmin ? 1 : 0)} className="bg-background/40 p-0">
                                                     <div className="px-6 py-6">
                                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                                                             {/* Identification Section */}
@@ -2124,6 +2091,15 @@ export default function VesselsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AdminVesselEditDialog
+        open={adminEditVesselOpen}
+        onOpenChange={(open) => {
+          setAdminEditVesselOpen(open);
+          if (!open) setAdminEditVessel(null);
+        }}
+        vessel={adminEditVessel}
+      />
 
       {/* Edit Start Date Dialog */}
       <EditStartDateDialog

@@ -1,12 +1,12 @@
 
 'use client';
 
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInDays, eachDayOfInterval, isSameDay, startOfDay, endOfDay, parse, isWithinInterval, startOfMonth, endOfMonth, getDaysInMonth, getDay, isSameMonth, isToday, isAfter, isBefore, addDays, subMonths, startOfYear, endOfYear } from 'date-fns';
-import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, Wrench, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, Check, XCircle, User, Play, Square, ShieldCheck } from 'lucide-react';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, Wrench, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, ChevronDown, Check, XCircle, User, Play, Square, ShieldCheck } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -19,6 +19,13 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -31,6 +38,7 @@ import {
   deleteStateLogsForDates,
   updateUserProfile,
   getVesselStateLogs,
+  getAllStateLogsForUser,
   createVesselAssignment,
   endVesselAssignment,
   getVesselAssignments,
@@ -42,9 +50,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { DateRange } from 'react-day-picker';
 import type { UserProfile, Vessel, SeaServiceRecord, StateLog, DailyStatus, VesselAssignment } from '@/lib/types';
+import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
+import { calendarStateSolid, calendarStateWash } from '@/lib/calendar-state-colors';
 
 const startServiceSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
@@ -133,24 +143,12 @@ const POSITION_OPTIONS = [
 ] as const;
 
 const vesselStates: { value: DailyStatus; label: string; color: string; icon: React.FC<any> }[] = [
-  { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
-  { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
-  { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
-  { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
-  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Wrench },
+  { value: 'underway', label: 'Underway', color: calendarStateSolid('underway'), icon: Waves },
+  { value: 'at-anchor', label: 'At Anchor', color: calendarStateSolid('at-anchor'), icon: Anchor },
+  { value: 'in-port', label: 'In Port', color: calendarStateSolid('in-port'), icon: Building },
+  { value: 'on-leave', label: 'On Leave', color: calendarStateSolid('on-leave'), icon: Briefcase },
+  { value: 'in-yard', label: 'In Yard', color: calendarStateSolid('in-yard'), icon: Wrench },
 ];
-
-// Helper function to get CSS variable name for a state
-const getStateColorVar = (state: DailyStatus): string => {
-  const colorMap: Record<DailyStatus, string> = {
-    'underway': 'chart-blue',
-    'at-anchor': 'chart-orange',
-    'in-port': 'chart-green',
-    'on-leave': 'chart-gray',
-    'in-yard': 'chart-red',
-  };
-  return colorMap[state];
-};
 
 export default function CurrentPage() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
@@ -272,11 +270,10 @@ export default function CurrentPage() {
 
   // Check vessel limit based on subscription tier
   const hasUnlimitedVessels = useMemo(() => {
-    if (!userProfile) return false;
+    if (!userProfile || !userProfileRaw) return false;
     const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
-    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
-    return (tier === 'premium' || tier === 'pro') && status === 'active';
-  }, [userProfile]);
+    return (tier === 'premium' || tier === 'pro') && hasActiveSubscription(userProfileRaw);
+  }, [userProfile, userProfileRaw]);
 
   const vesselLimit = hasUnlimitedVessels ? Infinity : 3;
   const canAddVessel = hasUnlimitedVessels || actualVesselCount < vesselLimit;
@@ -576,9 +573,26 @@ export default function CurrentPage() {
         }
 
         // Remove duplicates (same date + vessel combination)
-        const uniqueLogs = Array.from(
+        let uniqueLogs = Array.from(
           new Map(allLogs.map(log => [`${log.date}-${log.vesselId}`, log])).values()
         );
+
+        const isCaptainVesselView = userProfile?.role === 'captain' && captainViewMode === 'vessel';
+        if (!isCaptainVesselView) {
+          try {
+            const userWide = await getAllStateLogsForUser(supabase, user.id);
+            const seen = new Set(uniqueLogs.map(log => `${log.date}-${log.vesselId}`));
+            for (const log of userWide) {
+              const k = `${log.date}-${log.vesselId}`;
+              if (!seen.has(k)) {
+                seen.add(k);
+                uniqueLogs.push(log);
+              }
+            }
+          } catch (mergeErr) {
+            console.error('[CURRENT PAGE] Error merging user-wide state logs:', mergeErr);
+          }
+        }
 
         console.log('[CURRENT PAGE] Total logs fetched from all vessels:', {
           totalLogs: uniqueLogs.length,
@@ -597,7 +611,7 @@ export default function CurrentPage() {
     };
     
     fetchAllLogs();
-  }, [user?.id, vessels, vesselAssignments, currentVessel, userProfile?.role, captainViewMode, supabase]);
+  }, [user?.id, vessels, vesselAssignments, currentVessel?.id, userProfile?.role, captainViewMode, supabase]);
 
   // Fetch vessel assignments for date validation
   useEffect(() => {
@@ -1088,9 +1102,11 @@ export default function CurrentPage() {
     if (!stateLogs || stateLogs.length === 0) {
       return { standbyPeriods: [] };
     }
-    const result = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates);
+    const result = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates, {
+      vesselManagerSeaTime: isVesselAccount,
+    });
     return { standbyPeriods: result.standbyPeriods };
-  }, [stateLogs, watchDates, partOfActivePassageDates]);
+  }, [stateLogs, watchDates, partOfActivePassageDates, isVesselAccount]);
 
   // Create a Set of dates that are counted as standby
   // Exclude watch dates and part of active passage dates (these count as "at sea", not standby)
@@ -1365,6 +1381,15 @@ export default function CurrentPage() {
   const handleTogglePartOfActivePassage = async () => {
     if (!user?.id || !currentVessel?.id) return;
 
+    if (isCaptain && captainViewMode === 'vessel') {
+      toast({
+        title: 'Cannot Edit',
+        description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsTogglingPartOfActivePassage(true);
     const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -1443,6 +1468,15 @@ export default function CurrentPage() {
   // Toggle watch for today (only allowed when vessel is at anchor)
   const handleToggleWatch = async () => {
     if (!user?.id || !currentVessel?.id || !isOfficer) return;
+
+    if (isCaptain && captainViewMode === 'vessel') {
+      toast({
+        title: 'Cannot Edit',
+        description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     // Check if vessel is at anchor today
     const todayKey = format(new Date(), 'yyyy-MM-dd');
@@ -2768,6 +2802,14 @@ export default function CurrentPage() {
                 const hasNoState = !stateInfo;
                 const shouldShowOutline = isInAssignmentRange && hasNoState && !isFuture;
 
+                // Bottom strip for watch / passage / standby (watch > passage > standby)
+                let secondaryIndicatorBar: 'watch' | 'passage' | 'standby' | null = null;
+                if (!isRangeStartOnly) {
+                  if (hasWatch) secondaryIndicatorBar = 'watch';
+                  else if (isPartOfActivePassage) secondaryIndicatorBar = 'passage';
+                  else if (isCountedStandby) secondaryIndicatorBar = 'standby';
+                }
+
                 // Determine styling for dates
                 let backgroundStyle: React.CSSProperties | undefined = undefined;
 
@@ -2807,7 +2849,7 @@ export default function CurrentPage() {
                             <div className="whitespace-pre-wrap">{notes}</div>
                           </div>
                         )}
-                        {currentVessel && (
+                        {!isVesselAccount && currentVessel && (
                           <div className="text-muted-foreground text-xs pt-1 border-t border-border/50">
                             Vessel: {currentVessel.name}
                           </div>
@@ -2825,12 +2867,13 @@ export default function CurrentPage() {
                 return (
                   <Tooltip key={dateKey}>
                     <TooltipTrigger asChild>
-                      <div className="aspect-square">
+                      <div className="aspect-square rounded-[6px] overflow-hidden">
                         <button
                           onClick={() => handleDateClick(day)}
                           disabled={isFuture}
                           className={cn(
-                            "w-full h-full rounded-xl text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                            "w-full h-full rounded-[6px] text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                            secondaryIndicatorBar && "relative overflow-hidden",
                             !isFuture && "hover:scale-105 hover:shadow-md",
                             !isCurrentMonth && "opacity-40",
                             isFuture && "opacity-30 cursor-not-allowed",
@@ -2841,13 +2884,7 @@ export default function CurrentPage() {
                             isInRange && !hasOverride && !isCountedStandby && !isRangeStartOnly && "border-2 border-blue-500 border-solid",
                             // Range start/end dates when both are selected
                             (isRangeStart || isRangeEnd) && !isRangeStartOnly && !hasOverride && !isCountedStandby && !hasWatch && !isPartOfActivePassage && "border-2 border-blue-600 border-solid ring-2 ring-blue-500/30 ring-offset-1",
-                            isCurrentDay && !isInRange && !hasOverride && !isCountedStandby && !isRangeStartOnly && "ring-2 ring-primary ring-offset-2",
-                            // Watch outline (yellow) - takes priority unless range start only
-                            hasWatch && !isRangeStartOnly && "border-[3px] border-yellow-400",
-                            // Part of active passage outline (blue) - unless range start only
-                            isPartOfActivePassage && !hasWatch && !isRangeStartOnly && "border-[3px] border-blue-600",
-                            // Standby outline (purple) - only if not watch or part of active passage
-                            isCountedStandby && !hasOverride && !hasWatch && !isPartOfActivePassage && !isRangeStartOnly && "border-[3px] border-purple-600",
+                            isCurrentDay && !isInRange && !isRangeStartOnly && "ring-2 ring-primary ring-offset-2",
                             // Outline for dates in assignment range without state - only show if not in selected range or start
                             shouldShowOutline && !hasOverride && !isCountedStandby && !hasWatch && !isPartOfActivePassage && !isInRange && !isRangeStartOnly && "border-2 border-dashed border-muted-foreground/40",
                             stateInfo 
@@ -2855,7 +2892,7 @@ export default function CurrentPage() {
                               : "bg-muted/50 text-muted-foreground hover:bg-muted"
                           )}
                           style={
-                            // Always show the primary state color, with outlines for secondary indicators
+                            // Primary state fill; watch/passage/standby use bottom strip
                             backgroundStyle
                               ? backgroundStyle
                               : stateInfo 
@@ -2871,13 +2908,27 @@ export default function CurrentPage() {
                                     : undefined
                           }
                         >
-                          <div className="flex flex-col items-center justify-center h-full relative">
+                          <div className="flex flex-col items-center justify-center h-full relative z-[1]">
                             <span className="relative z-10 text-center">{format(day, 'd')}</span>
-                            {/* State icon centered (for all dates) */}
-                            {stateInfo && (
-                              <stateInfo.icon className="h-2 w-2 mt-0.5 opacity-90 relative z-10" />
-                            )}
                           </div>
+                          {secondaryIndicatorBar === 'watch' && (
+                            <div
+                              className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-yellow-400"
+                              aria-hidden
+                            />
+                          )}
+                          {secondaryIndicatorBar === 'passage' && (
+                            <div
+                              className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-blue-600"
+                              aria-hidden
+                            />
+                          )}
+                          {secondaryIndicatorBar === 'standby' && (
+                            <div
+                              className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-purple-600"
+                              aria-hidden
+                            />
+                          )}
                         </button>
                       </div>
                     </TooltipTrigger>
@@ -2891,32 +2942,32 @@ export default function CurrentPage() {
           </div>
           
           {/* Month Summary Section */}
-          <Separator className="mt-6 mb-4" />
-          <div className="grid grid-cols-3 gap-3 text-sm">
+          <Separator className="mt-4 mb-2" />
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-[10px] sm:text-xs leading-tight">
             {vesselStates.map((state) => {
               const count = monthStateCounts[state.value] || 0;
               const StateIcon = state.icon;
               return (
                 <div 
                   key={state.value} 
-                  className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"
+                  className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 rounded-md bg-muted/50"
                 >
-                  <StateIcon className="h-4 w-4" style={{ color: state.color }} />
+                  <StateIcon className="h-3 w-3 shrink-0" style={{ color: state.color }} />
                   <div className="flex-1 min-w-0">
                     <div className="text-muted-foreground truncate">{state.label}</div>
                   </div>
-                  <span className="font-medium">{count}</span>
+                  <span className="font-medium tabular-nums shrink-0">{count}</span>
                 </div>
               );
             })}
             <div 
-              className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"
+              className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 rounded-md bg-muted/50"
             >
-              <Clock className="h-4 w-4 text-purple-600" />
+              <Clock className="h-3 w-3 shrink-0 text-purple-600" />
               <div className="flex-1 min-w-0">
                 <div className="text-muted-foreground truncate">Standby</div>
               </div>
-              <span className="font-medium">{monthStateCounts.standby}</span>
+              <span className="font-medium tabular-nums shrink-0">{monthStateCounts.standby}</span>
             </div>
           </div>
         </CardContent>
@@ -2924,14 +2975,14 @@ export default function CurrentPage() {
     );
   };
 
-  // Get last 3 months
-  const lastThreeMonths = useMemo(() => {
+  // Recent months for mini calendar strip (4th month fills row at min-width 1701px)
+  const recentCalendarMonths = useMemo(() => {
     const today = new Date();
     const months: Date[] = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       months.push(subMonths(today, i));
     }
-    return months.reverse(); // Show oldest to newest (2 months ago, 1 month ago, current)
+    return months.reverse(); // Oldest → newest
   }, []);
 
 
@@ -3101,49 +3152,53 @@ export default function CurrentPage() {
     });
     
     let atSea = 0;
-    const underwayOrAtAnchorDates = new Set<string>();
     const stateCounts = filteredLogs.reduce((acc, log) => {
-        acc[log.state] = (acc[log.state] || 0) + 1;
-        // At sea = underway + at-anchor days
+      acc[log.state] = (acc[log.state] || 0) + 1;
+      return acc;
+    }, {} as Record<DailyStatus, number>);
+
+    const inServiceWindow = (dateStr: string) => {
+      const d = parse(dateStr, 'yyyy-MM-dd', new Date());
+      if (assignmentStartDate) {
+        return isWithinInterval(d, { start: assignmentStartDate, end: endOfDay(new Date()) });
+      }
+      return true;
+    };
+
+    if (isVesselAccount) {
+      // Vessel card: underway + at-anchor only (no passage / watch overlays)
+      for (const log of filteredLogs) {
         if (log.state === 'underway' || log.state === 'at-anchor') {
           atSea++;
-          underwayOrAtAnchorDates.add(log.date);
         }
-        return acc;
-    }, {} as Record<DailyStatus, number>);
-    
-    // Add part of active passage days to at-sea count (in-port etc. marked as passage — avoid double-counting underway/at-anchor)
-    if (partOfActivePassageDates.size > 0) {
-      const partOfActivePassageDaysInRange = Array.from(partOfActivePassageDates).filter(dateStr => {
-        const passageDate = parse(dateStr, 'yyyy-MM-dd', new Date());
-        if (assignmentStartDate) {
-          const filterStartDate = assignmentStartDate;
-          const filterEndDate = endOfDay(new Date());
-          if (!isWithinInterval(passageDate, { start: filterStartDate, end: filterEndDate })) return false;
+      }
+    } else {
+      // Crew card: underway + part of active passage + watch (officers); at-anchor is standby, not this total
+      const crewAtSeaDates = new Set<string>();
+      for (const log of filteredLogs) {
+        if (log.state === 'underway') {
+          atSea++;
+          crewAtSeaDates.add(log.date);
         }
-        return !underwayOrAtAnchorDates.has(dateStr);
-      }).length;
-      atSea += partOfActivePassageDaysInRange;
-    }
-    
-    // Add watch days to at-sea count (only if not already counted as underway/at-anchor)
-    if (watchDates.size > 0) {
-      const watchDaysInRange = Array.from(watchDates).filter(dateStr => {
-        const watchDate = parse(dateStr, 'yyyy-MM-dd', new Date());
-        if (assignmentStartDate) {
-          const filterStartDate = assignmentStartDate;
-          const filterEndDate = endOfDay(new Date());
-          if (!isWithinInterval(watchDate, { start: filterStartDate, end: filterEndDate })) return false;
-        }
-        return !underwayOrAtAnchorDates.has(dateStr);
-      }).length;
-      atSea += watchDaysInRange;
+      }
+      for (const dateStr of partOfActivePassageDates) {
+        if (!inServiceWindow(dateStr) || crewAtSeaDates.has(dateStr)) continue;
+        atSea++;
+        crewAtSeaDates.add(dateStr);
+      }
+      for (const dateStr of watchDates) {
+        if (!inServiceWindow(dateStr) || crewAtSeaDates.has(dateStr)) continue;
+        atSea++;
+        crewAtSeaDates.add(dateStr);
+      }
     }
 
-    // Calculate MCA/PYA compliant standby days using ALL logs (for proper voyage context)
+    // Calculate MCA-compliant standby days using ALL logs (for proper voyage context)
     // Then filter standby periods to only count those since joining the vessel
     // Exclude watch dates and part of active passage dates from standby calculation (these count as "at sea")
-    const { totalStandbyDays, standbyPeriods } = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates);
+    const { totalStandbyDays, standbyPeriods } = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates, {
+      vesselManagerSeaTime: isVesselAccount,
+    });
     
     // Filter standby periods to only count days since joining the vessel
     let standby = 0;
@@ -3196,7 +3251,7 @@ export default function CurrentPage() {
     })).filter(item => item.days > 0);
 
     return { totalDaysByState: chartData, atSeaDays: atSea, standbyDays: standby };
-  }, [stateLogs, assignmentStartDate, watchDates, partOfActivePassageDates]);
+  }, [stateLogs, assignmentStartDate, watchDates, partOfActivePassageDates, isVesselAccount]);
 
   const todayKey = format(new Date(), 'yyyy-MM-dd');
   const todayStatusValue = stateLogs?.find(log => log.date === todayKey)?.state;
@@ -3348,257 +3403,352 @@ export default function CurrentPage() {
                     </CardContent>
                 </Card>
 
-                {/* Right: Watch Logging (Officers Only, Not Vessel Accounts) */}
+                {/* Right: Watch today — same compact layout as Today's vessel state */}
                 {isOfficer && (
-                    <Card className="rounded-xl border shadow-sm bg-gradient-to-r from-blue-500/5 to-blue-500/10">
-                        <CardContent className="pt-6">
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="h-12 w-12 rounded-xl bg-blue-500/20 flex items-center justify-center">
-                                        <Clock className="h-6 w-6 text-blue-500" />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-xl font-bold">On Watch Today</h3>
-                                        <p className="text-sm text-muted-foreground">Mark yourself on watch for {format(new Date(), 'MMMM d, yyyy')}</p>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-3">
-                                    {!canLogWatch ? (
-                                        <div className="p-4 rounded-lg bg-orange-500/10 border-2 border-orange-500/30">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-sm font-medium text-orange-700 dark:text-orange-300">Watch Logging Unavailable</span>
-                                                <Anchor className="h-4 w-4 text-orange-500" />
-                                            </div>
-                                            <p className="text-xs text-muted-foreground mb-1">Date: {format(new Date(), 'PPP')}</p>
-                                            <p className="text-sm text-muted-foreground mt-2">
-                                                Watch logging is only available when the vessel is at anchor. Please update today's vessel state to "At Anchor" to enable watch logging.
-                                            </p>
-                                        </div>
-                                    ) : isOnWatchToday ? (
-                                        <div className="p-4 rounded-lg bg-green-500/10 border-2 border-green-500/30">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-sm font-medium text-green-700 dark:text-green-300">Day Recorded as Watch</span>
-                                                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
-                                            </div>
-                                            <p className="text-xs text-muted-foreground mb-1">Date: {format(new Date(), 'PPP')}</p>
-                                            <p className="text-sm text-muted-foreground mt-2">
-                                                This date counts as a sea day. Status resets automatically at midnight.
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <div className="p-4 rounded-lg bg-muted/50 border border-border">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-sm font-medium text-muted-foreground">Day Not Recorded as Watch</span>
-                                                <div className="h-2 w-2 rounded-full bg-muted-foreground/50"></div>
-                                            </div>
-                                            <p className="text-xs text-muted-foreground mb-1">Date: {format(new Date(), 'PPP')}</p>
-                                            <p className="text-sm text-muted-foreground mt-2">
-                                                Record this day as watch to count it as a sea day.
-                                            </p>
-                                        </div>
-                                    )}
-                                    
-                                    <Button
-                                        onClick={handleToggleWatch}
-                                        disabled={isTogglingWatch || !canLogWatch}
-                                        className={cn(
-                                            "w-full rounded-xl transition-all",
-                                            !canLogWatch && "opacity-50 cursor-not-allowed",
-                                            isOnWatchToday 
-                                                ? "bg-red-600 hover:bg-red-700 text-white" 
-                                                : "bg-blue-600 hover:bg-blue-700 text-white"
-                                        )}
+                  <Card className="rounded-xl border shadow-sm">
+                    <CardContent className="p-4 sm:p-5">
+                      {(() => {
+                        const canEditLogbookExtras = !(isCaptain && captainViewMode === 'vessel');
+                        return (
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+                            <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border bg-primary/10 border-primary/20">
+                                <Clock className="h-6 w-6 text-primary" />
+                              </div>
+                              <div className="min-w-0 flex-1 space-y-1.5">
+                                <div className="flex flex-wrap items-center gap-2 gap-y-1">
+                                  <h3 className="text-lg font-semibold tracking-tight">On watch today</h3>
+                                  {!canEditLogbookExtras && (
+                                    <Badge variant="secondary" className="text-[10px] font-medium uppercase">
+                                      View only
+                                    </Badge>
+                                  )}
+                                  {canEditLogbookExtras && !canLogWatch && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="border-orange-500/30 bg-orange-500/10 text-[10px] font-medium uppercase text-orange-800 dark:text-orange-300"
                                     >
-                                        {isTogglingWatch ? (
-                                            <>
-                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                {isOnWatchToday ? 'Removing...' : 'Recording...'}
-                                            </>
-                                        ) : (
-                                            <>
-                                                {isOnWatchToday ? (
-                                                    <>
-                                                        <Square className="mr-2 h-4 w-4" />
-                                                        Remove Day on Watch
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Play className="mr-2 h-4 w-4" />
-                                                        Record Day as Watch
-                                                    </>
-                                                )}
-                                            </>
-                                        )}
-                                    </Button>
+                                      At anchor required
+                                    </Badge>
+                                  )}
+                                  {canEditLogbookExtras && canLogWatch && isOnWatchToday && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="border-green-500/25 bg-green-500/10 text-[10px] font-medium uppercase text-green-800 dark:text-green-300"
+                                    >
+                                      On watch
+                                    </Badge>
+                                  )}
                                 </div>
+                                <p className="text-sm text-muted-foreground">
+                                  <span className="font-medium text-foreground/80">
+                                    {format(new Date(), 'EEEE')}
+                                  </span>
+                                  {' · '}
+                                  {format(new Date(), 'MMMM d, yyyy')}
+                                  <span className="text-muted-foreground/80"> · </span>
+                                  {currentVessel.name}
+                                </p>
+                              </div>
                             </div>
-                        </CardContent>
-                    </Card>
+                            <div className="w-full shrink-0 sm:w-auto sm:pt-1">
+                              <Button
+                                onClick={handleToggleWatch}
+                                disabled={isTogglingWatch || !canLogWatch || !canEditLogbookExtras}
+                                title={
+                                  !canEditLogbookExtras
+                                    ? 'You can only view vessel logs in this mode.'
+                                    : !canLogWatch
+                                      ? 'Set today’s vessel state to At Anchor to log watch.'
+                                      : undefined
+                                }
+                                className={cn(
+                                  'h-11 w-full justify-center gap-2 rounded-xl px-4 font-medium sm:min-w-[220px]',
+                                  !canLogWatch || !canEditLogbookExtras
+                                    ? 'cursor-not-allowed opacity-60'
+                                    : isOnWatchToday
+                                      ? 'bg-red-600 text-white hover:bg-red-700'
+                                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                                )}
+                              >
+                                {isTogglingWatch ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                                    {isOnWatchToday ? 'Removing…' : 'Recording…'}
+                                  </>
+                                ) : !canLogWatch ? (
+                                  <>
+                                    <Anchor className="h-4 w-4 shrink-0" />
+                                    Needs at anchor
+                                  </>
+                                ) : isOnWatchToday ? (
+                                  <>
+                                    <Square className="h-4 w-4 shrink-0" />
+                                    Remove watch
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play className="h-4 w-4 shrink-0" />
+                                    Record watch
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </CardContent>
+                  </Card>
                 )}
             </div>
             )}
 
             {/* Second Row: Update Today's Status (half) and Part of Active Passage (half) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Left: Update Today's Status */}
+                {/* Left: Today's status — compact row + dropdown */}
                 <Card className="rounded-xl border shadow-sm">
-                    <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <CardTitle className="text-xl">Update Today's Status</CardTitle>
-                            <CardDescription className="mt-1">
-                                Change the current state for {format(new Date(), 'PPP')} • Active vessel: {currentVessel.name}
-                            </CardDescription>
-                        </div>
-                        {todayStatusValue && (
-                            <div className="hidden sm:flex items-center gap-3 px-4 py-2 bg-primary/10 rounded-xl border border-primary/20">
-                                <div 
-                                    className="h-4 w-4 rounded-full" 
-                                    style={{ backgroundColor: vesselStates.find(s => s.value === todayStatusValue)?.color }}
-                                />
-                                <div>
-                                    <p className="text-xs text-muted-foreground">Current</p>
-                                    <p className="text-sm font-semibold text-primary">
-                                        {vesselStates.find(s => s.value === todayStatusValue)?.label || 'No status'}
-                                    </p>
-                                </div>
+                  <CardContent className="p-4 sm:p-5">
+                    {(() => {
+                      const todayStatesForPicker = vesselStates.filter(
+                        (s) => !isVesselAccount || s.value !== 'on-leave'
+                      );
+                      const cur = todayStatusValue
+                        ? vesselStates.find((s) => s.value === todayStatusValue)
+                        : undefined;
+                      const TodayTriggerIcon = cur?.icon;
+                      const canEditTodayState = !(isCaptain && captainViewMode === 'vessel');
+
+                      return (
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+                          <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border bg-primary/10 border-primary/20">
+                              <CalendarDays className="h-6 w-6 text-primary" />
                             </div>
-                        )}
-                    </div>
-                    </CardHeader>
-                <CardContent>
-                    {isLoadingLogs ? (
-                        <div className="flex items-center justify-center py-8">
-                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                        </div>
-                    ) : (
-                        <>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                                {vesselStates
-                                  .filter(state => !isVesselAccount || state.value !== 'on-leave')
-                                  .map(state => {
-                                const isActive = todayStatusValue === state.value;
-                                return (
-                                    <button
-                                        key={state.value}
-                                        onClick={() => handleTodayStateChange(state.value)}
-                                        className={cn(
-                                                "flex flex-col items-center gap-3 p-4 rounded-xl text-center transition-all border-2",
-                                            isActive 
-                                                    ? 'bg-primary/10 text-primary border-primary shadow-md scale-105'
-                                                    : 'hover:bg-muted/50 border-transparent hover:border-muted'
-                                            )}
+                            <div className="min-w-0 flex-1 space-y-1.5">
+                              <div className="flex flex-wrap items-center gap-2 gap-y-1">
+                                <h3 className="text-lg font-semibold tracking-tight">
+                                  Today&apos;s vessel state
+                                </h3>
+                                {!canEditTodayState && (
+                                  <Badge variant="secondary" className="text-[10px] font-medium uppercase">
+                                    View only
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted-foreground">
+                                <span className="font-medium text-foreground/80">
+                                  {format(new Date(), 'EEEE')}
+                                </span>
+                                {' · '}
+                                {format(new Date(), 'MMMM d, yyyy')}
+                                <span className="text-muted-foreground/80"> · </span>
+                                {currentVessel.name}
+                              </p>
+                            </div>
+                          </div>
+                          {isLoadingLogs ? (
+                            <div className="flex h-11 items-center justify-center sm:justify-end sm:min-w-[200px] sm:pt-1">
+                              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            </div>
+                          ) : (
+                            <div className="w-full shrink-0 sm:w-auto sm:pt-1">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild disabled={!canEditTodayState}>
+                                <Button
+                                  variant="outline"
+                                  className={cn(
+                                    'h-11 w-full sm:w-auto sm:min-w-[220px] justify-between gap-2 rounded-xl border-2 px-3 font-medium shadow-none',
+                                    !canEditTodayState && 'cursor-not-allowed opacity-60'
+                                  )}
+                                  style={
+                                    cur
+                                      ? {
+                                          borderColor: cur.color,
+                                          backgroundColor: calendarStateWash(cur.value, 14),
+                                        }
+                                      : undefined
+                                  }
+                                  title={
+                                    !canEditTodayState
+                                      ? 'You can only view vessel logs in this mode.'
+                                      : undefined
+                                  }
+                                >
+                                  <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                                    {cur && TodayTriggerIcon ? (
+                                      <>
+                                        <span
+                                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
+                                          style={{ backgroundColor: cur.color }}
                                         >
-                                            <span 
-                                                className={cn(
-                                                    "flex h-12 w-12 items-center justify-center rounded-xl transition-colors",
-                                                    isActive ? 'ring-2 ring-primary ring-offset-2' : ''
-                                                )} 
-                                                style={{ backgroundColor: isActive ? state.color : 'hsl(var(--muted))' }}
-                                            >
-                                                <state.icon className={cn("h-6 w-6", isActive ? 'text-primary-foreground' : 'text-muted-foreground')} />
+                                          <TodayTriggerIcon className="h-4 w-4 text-white" />
                                         </span>
-                                            <span className={cn("font-medium text-sm", isActive ? 'text-primary' : 'text-foreground')}>
-                                                {state.label}
+                                        <span className="min-w-0 truncate" style={{ color: cur.color }}>
+                                          {cur.label}
                                         </span>
-                                            {isActive && (
-                                                <span className="text-xs text-primary font-semibold">Selected</span>
-                                            )}
-                                    </button>
-                                );
-                            })}
-                            </div>
-                            {/* Remove State Button for Today - only show if today has a state */}
-                            {todayStatusValue && (
-                                <div className="mt-4 pt-4 border-t">
-                                    <Button
-                                        variant="destructive"
-                                        onClick={handleRemoveTodayState}
-                                        className="w-full rounded-xl"
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted">
+                                          <Ship className="h-4 w-4 text-muted-foreground" />
+                                        </span>
+                                        <span className="truncate text-muted-foreground">Set state for today</span>
+                                      </>
+                                    )}
+                                  </span>
+                                  <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                align="end"
+                                className="w-[min(100vw-2rem,var(--radix-dropdown-menu-trigger-width))] sm:min-w-[240px]"
+                              >
+                                {todayStatesForPicker.map((state) => {
+                                  const StateIcon = state.icon;
+                                  const isActive = todayStatusValue === state.value;
+                                  return (
+                                    <DropdownMenuItem
+                                      key={state.value}
+                                      className="gap-2 py-2.5"
+                                      onSelect={() => {
+                                        void handleTodayStateChange(state.value);
+                                      }}
                                     >
-                                        <XCircle className="mr-2 h-4 w-4" />
-                                        Remove Today's State
-                                    </Button>
-                                </div>
-                            )}
-                        </>
-                    )}
-                    </CardContent>
+                                      <StateIcon className="h-4 w-4 shrink-0" style={{ color: state.color }} />
+                                      <span className="flex-1">{state.label}</span>
+                                      {isActive && <Check className="h-4 w-4 shrink-0" style={{ color: state.color }} />}
+                                    </DropdownMenuItem>
+                                  );
+                                })}
+                                {todayStatusValue && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="gap-2 py-2.5 text-destructive focus:text-destructive"
+                                      onSelect={() => {
+                                        void handleRemoveTodayState();
+                                      }}
+                                    >
+                                      <XCircle className="h-4 w-4 shrink-0" />
+                                      <span>Remove today&apos;s state</span>
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </CardContent>
                 </Card>
 
-                {/* Right: Part of Active Passage Toggle (All Users) */}
-                <Card className="rounded-xl border shadow-sm bg-gradient-to-r from-green-500/5 to-green-500/10">
-                  <CardContent className="pt-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-12 w-12 rounded-xl bg-green-500/20 flex items-center justify-center">
-                          <Ship className="h-6 w-6 text-green-500" />
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-bold">Part of Active Passage</h3>
-                          <p className="text-sm text-muted-foreground">Mark passage interruption as "at sea" for {format(new Date(), 'MMMM d, yyyy')}</p>
-                        </div>
-                      </div>
+                {/* Right: Part of active passage — same compact layout */}
+                <Card className="rounded-xl border shadow-sm">
+                  <CardContent className="p-4 sm:p-5">
+                    {(() => {
+                      const canEditLogbookExtras = !(isCaptain && captainViewMode === 'vessel');
+                      const hasTodayState = !!todayStatusValue;
+                      const isUnderwayToday = todayStatusValue === 'underway';
+                      const passageDisabled =
+                        isTogglingPartOfActivePassage ||
+                        !canEditLogbookExtras ||
+                        !hasTodayState ||
+                        (!isPartOfActivePassageToday && isUnderwayToday);
 
-                      <div className="space-y-3">
-                        {isPartOfActivePassageToday ? (
-                          <div className="p-4 rounded-lg bg-green-500/10 border-2 border-green-500/30">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-medium text-green-700 dark:text-green-300">Day Marked as Part of Active Passage</span>
-                              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
+                      return (
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+                          <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10">
+                              <Ship className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
                             </div>
-                            <p className="text-xs text-muted-foreground mb-1">Date: {format(new Date(), 'PPP')}</p>
-                            <p className="text-sm text-muted-foreground mt-2">
-                              This date counts as a sea day. Use this for passage interruptions (e.g., bad weather, refueling) that should count as "at sea".
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="p-4 rounded-lg bg-muted/50 border border-border">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-medium text-muted-foreground">Day Not Marked as Part of Active Passage</span>
-                              <div className="h-2 w-2 rounded-full bg-muted-foreground/50"></div>
+                            <div className="min-w-0 flex-1 space-y-1.5">
+                              <div className="flex flex-wrap items-center gap-2 gap-y-1">
+                                <h3 className="text-lg font-semibold tracking-tight">Part of active passage</h3>
+                                {!canEditLogbookExtras && (
+                                  <Badge variant="secondary" className="text-[10px] font-medium uppercase">
+                                    View only
+                                  </Badge>
+                                )}
+                                {canEditLogbookExtras && isPartOfActivePassageToday && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="border-emerald-500/25 bg-emerald-500/10 text-[10px] font-medium uppercase text-emerald-800 dark:text-emerald-300"
+                                  >
+                                    Marked
+                                  </Badge>
+                                )}
+                                {canEditLogbookExtras && hasTodayState && isUnderwayToday && !isPartOfActivePassageToday && (
+                                  <Badge variant="secondary" className="text-[10px] font-medium uppercase">
+                                    Underway — not needed
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted-foreground">
+                                <span className="font-medium text-foreground/80">
+                                  {format(new Date(), 'EEEE')}
+                                </span>
+                                {' · '}
+                                {format(new Date(), 'MMMM d, yyyy')}
+                                <span className="text-muted-foreground/80"> · </span>
+                                {currentVessel.name}
+                              </p>
                             </div>
-                            <p className="text-xs text-muted-foreground mb-1">Date: {format(new Date(), 'PPP')}</p>
-                            <p className="text-sm text-muted-foreground mt-2">
-                              Mark this day as part of active passage to count it as a sea day during passage interruptions.
-                            </p>
                           </div>
-                        )}
-                        
-                        <Button
-                          onClick={handleTogglePartOfActivePassage}
-                          disabled={isTogglingPartOfActivePassage}
-                          className={cn(
-                            "w-full rounded-xl transition-all",
-                            isPartOfActivePassageToday 
-                              ? "bg-red-600 hover:bg-red-700 text-white" 
-                              : "bg-green-600 hover:bg-green-700 text-white"
-                          )}
-                        >
-                          {isTogglingPartOfActivePassage ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              {isPartOfActivePassageToday ? 'Removing...' : 'Recording...'}
-                            </>
-                          ) : (
-                            <>
-                              {isPartOfActivePassageToday ? (
+                          <div className="w-full shrink-0 sm:w-auto sm:pt-1">
+                            <Button
+                              onClick={handleTogglePartOfActivePassage}
+                              disabled={passageDisabled}
+                              title={
+                                !canEditLogbookExtras
+                                  ? 'You can only view vessel logs in this mode.'
+                                  : !hasTodayState
+                                    ? 'Set today’s vessel state first.'
+                                    : !isPartOfActivePassageToday && isUnderwayToday
+                                      ? 'Underway already counts as at sea.'
+                                      : undefined
+                              }
+                              className={cn(
+                                'h-11 w-full justify-center gap-2 rounded-xl px-4 font-medium sm:min-w-[220px]',
+                                passageDisabled && 'cursor-not-allowed opacity-60',
+                                !passageDisabled &&
+                                  (isPartOfActivePassageToday
+                                    ? 'bg-red-600 text-white hover:bg-red-700'
+                                    : 'bg-emerald-600 text-white hover:bg-emerald-700')
+                              )}
+                            >
+                              {isTogglingPartOfActivePassage ? (
                                 <>
-                                  <Square className="mr-2 h-4 w-4" />
-                                  Remove Part of Active Passage
+                                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                                  {isPartOfActivePassageToday ? 'Removing…' : 'Recording…'}
+                                </>
+                              ) : !hasTodayState ? (
+                                <>
+                                  <Ship className="h-4 w-4 shrink-0" />
+                                  Set state first
+                                </>
+                              ) : isPartOfActivePassageToday ? (
+                                <>
+                                  <Square className="h-4 w-4 shrink-0" />
+                                  Remove passage mark
+                                </>
+                              ) : isUnderwayToday ? (
+                                <>
+                                  <Ship className="h-4 w-4 shrink-0" />
+                                  Not applicable
                                 </>
                               ) : (
                                 <>
-                                  <Play className="mr-2 h-4 w-4" />
-                                  Mark as Part of Active Passage
+                                  <Play className="h-4 w-4 shrink-0" />
+                                  Mark passage day
                                 </>
                               )}
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    </div>
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
             </div>
@@ -3615,22 +3765,21 @@ export default function CurrentPage() {
                     <CardContent>
                         <div className="text-3xl font-bold">{atSeaDays}</div>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {userProfile?.role === 'vessel' 
-                            ? `days logged since ${userProfile?.startDate ? 'vessel start date' : 'vessel launch'}`
-                            : `days logged since joining ${currentVessel.name}`
-                          }
+                          {isVesselAccount
+                            ? `Underway and at-anchor days since ${userProfile?.startDate ? 'vessel start date' : 'vessel launch'}`
+                            : `Underway, passage, and watch days since joining ${currentVessel.name}`}
                         </p>
                     </CardContent>
                 </Card>
                 <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium text-muted-foreground">Standby</CardTitle>
-                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                            <Anchor className="h-4 w-4 text-primary" />
+                        <div className="h-8 w-8 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                            <Anchor className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-bold">{standbyDays}</div>
+                        <div className="text-3xl font-bold text-purple-700 dark:text-purple-300">{standbyDays}</div>
                         <p className="text-xs text-muted-foreground mt-1">
                           {userProfile?.role === 'vessel' 
                             ? `days logged since ${userProfile?.startDate ? 'vessel start date' : 'vessel launch'}`
@@ -3705,10 +3854,10 @@ export default function CurrentPage() {
                 <Separator />
                         </div>
 
-              {/* Calendar Months Grid - Last 3 months */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Calendar months: 3 cols up to 1700px, 4 cols when wider */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 min-[1701px]:grid-cols-4 gap-6">
                 <TooltipProvider delayDuration={100}>
-                  {lastThreeMonths.map((month) => renderMonth(month))}
+                  {recentCalendarMonths.map((month) => renderMonth(month))}
                 </TooltipProvider>
               </div>
             </div>
@@ -3746,18 +3895,21 @@ export default function CurrentPage() {
                                                     key={state.value} 
                         variant="outline"
                                                     className={cn(
-                                                      "h-auto py-4 px-4 flex flex-col items-center gap-3 rounded-xl transition-all relative border-2",
+                                                      "h-auto py-4 px-4 flex flex-col items-center gap-3 rounded-xl transition-all relative border-2 ring-offset-background",
                                                       isSelected 
-                                                        ? "shadow-md scale-[1.02]" 
+                                                        ? "shadow-md scale-[1.02] focus-visible:ring-2 focus-visible:ring-offset-2" 
                                                         : "hover:scale-[1.01]"
                                                     )}
                                                     style={{
                                                       backgroundColor: isSelected 
-                                                        ? `hsl(var(--${getStateColorVar(state.value)}) / 0.15)` 
-                                                        : `hsl(var(--${getStateColorVar(state.value)}) / 0.08)`,
+                                                        ? calendarStateWash(state.value, 22) 
+                                                        : calendarStateWash(state.value, 12),
                                                       borderColor: isSelected 
                                                         ? state.color 
-                                                        : `hsl(var(--${getStateColorVar(state.value)}) / 0.3)`,
+                                                        : calendarStateWash(state.value, 52),
+                                                      ...(isSelected
+                                                        ? ({ '--tw-ring-color': state.color } as CSSProperties)
+                                                        : {}),
                                                     }}
                         onClick={() => {
                           setSelectedState(state.value);
@@ -3981,7 +4133,11 @@ export default function CurrentPage() {
                                     <div>
                                         <p className="text-sm font-medium text-muted-foreground mb-1">At Sea Days</p>
                                         <p className="text-3xl font-bold text-blue-700 dark:text-blue-400">{atSeaDays}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">Underway + At Anchor + Watch + Active Passage</p>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                          {isVesselAccount
+                                            ? 'Underway + at anchor'
+                                            : 'Underway + active passage + watch (when applicable)'}
+                                        </p>
                                     </div>
                                     <div className="h-12 w-12 rounded-lg bg-blue-500/20 flex items-center justify-center">
                                         <Waves className="h-6 w-6 text-blue-600 dark:text-blue-400" />
@@ -3996,7 +4152,7 @@ export default function CurrentPage() {
                                     <div>
                                         <p className="text-sm font-medium text-muted-foreground mb-1">Standby Days</p>
                                         <p className="text-3xl font-bold text-purple-700 dark:text-purple-400">{standbyDays}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">MCA/PYA compliant calculation methods</p>
+                                        <p className="text-xs text-muted-foreground mt-1">MCA-compliant calculation methods</p>
                                     </div>
                                     <div className="h-12 w-12 rounded-lg bg-purple-500/20 flex items-center justify-center">
                                         <Clock className="h-6 w-6 text-purple-600 dark:text-purple-400" />

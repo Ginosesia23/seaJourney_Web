@@ -27,10 +27,12 @@ import {
 import { motion } from 'framer-motion';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
+import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/lib/types';
 import { format } from 'date-fns';
 import { createCheckoutSession } from '@/app/actions';
+import { CREW_TRIAL_DISPLAY_LABEL } from '@/lib/stripe-checkout-trials';
 import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog,
@@ -63,6 +65,7 @@ interface Plan {
   priceId?: string;
   comingSoon?: boolean;
   availableDate?: string;
+  trialLabel?: string;
 }
 
 // Minimal shape of Stripe price coming from /api/billing
@@ -100,6 +103,7 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
     name: 'Standard',
     price: '£4.99',
     priceSuffix: '/ month',
+    trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description: 'Essential sea time tracking for maritime professionals.',
     features: [
       'Unlimited sea time logging',
@@ -128,11 +132,13 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
     highlighted: true,
     icon: Zap,
     color: 'purple',
+    trialLabel: CREW_TRIAL_DISPLAY_LABEL,
   },
   {
     name: 'Pro',
     price: '£14.99',
     priceSuffix: '/ month',
+    trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description:
       'Complete maritime career management and certification tracking.',
     features: [
@@ -229,6 +235,8 @@ export default function ManageSubscriptionPage() {
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [stripeSubscription, setStripeSubscription] =
     useState<StripeSubscriptionData | null>(null);
+  /** Tier from Stripe price metadata (matches Stripe Dashboard); synced to profile when billing loads with auth. */
+  const [stripeTierLive, setStripeTierLive] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<Array<{
     id: string;
     number: string | null;
@@ -273,14 +281,16 @@ export default function ManageSubscriptionPage() {
   
   // Check if user has crew_limited tier (restricted access - can create new subscription)
   const isCrewLimited = useMemo(() => {
-    if (!userProfile) return false;
+    if (!userProfile || !userProfileRaw) return false;
     const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
-    const status = (userProfile as any).subscription_status || userProfile.subscriptionStatus || 'inactive';
     const role = (userProfile as any).role || userProfile.role || 'crew';
-    
-    // Only crew members can have crew_limited tier
-    return role === 'crew' && tier === 'crew_limited' && status === 'active';
-  }, [userProfile]);
+
+    return (
+      role === 'crew' &&
+      tier === 'crew_limited' &&
+      hasActiveSubscription(userProfileRaw)
+    );
+  }, [userProfile, userProfileRaw]);
   
   // Log for debugging
   useEffect(() => {
@@ -313,13 +323,16 @@ export default function ManageSubscriptionPage() {
       .join(' ');
   };
 
-  const currentTier = userProfile
-    ? formatTierName(
-        (userProfile as any).subscription_tier ||
-          (userProfile as any).subscriptionTier ||
-          'free',
-      )
-    : 'Free';
+  const profileTierRaw = userProfile
+    ? (userProfile as any).subscription_tier ||
+      (userProfile as any).subscriptionTier ||
+      'free'
+    : 'free';
+
+  const currentTier = formatTierName(profileTierRaw);
+
+  /** Prefer live Stripe tier when present so UI matches Stripe Dashboard before realtime profile updates. */
+  const displayedPlanName = formatTierName(stripeTierLive ?? profileTierRaw);
 
   // Check if a plan is the current active plan
   const isCurrentPlan = (planName: string) => {
@@ -400,8 +413,16 @@ export default function ManageSubscriptionPage() {
       try {
         setIsLoading(true);
 
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        const billingHeaders: HeadersInit = {};
+        if (token) {
+          billingHeaders.Authorization = `Bearer ${token}`;
+        }
+
         const res = await fetch(
           `/api/billing?email=${encodeURIComponent(user.email)}&isVesselAccount=${isVesselAccount}`,
+          { headers: billingHeaders },
         );
 
         if (!res.ok) {
@@ -414,10 +435,16 @@ export default function ManageSubscriptionPage() {
         const {
           subscriptionData,
           stripePrices,
+          stripeTierLive: tierFromStripe,
         }: {
           subscriptionData: StripeSubscriptionData | null;
           stripePrices: StripePrice[];
+          stripeTierLive?: string | null;
         } = await res.json();
+
+        setStripeTierLive(
+          typeof tierFromStripe === 'string' ? tierFromStripe : null,
+        );
 
         // Log detailed tier information
         console.log(`\n========================================`);
@@ -598,7 +625,7 @@ export default function ManageSubscriptionPage() {
     };
 
     fetchData();
-  }, [user?.email, toast, isVesselAccount, isProfileLoading, userProfile]);
+  }, [user?.email, toast, isVesselAccount, isProfileLoading, userProfile, supabase]);
 
   const handleChangePlan = async (plan: Plan) => {
     if (!plan.priceId) {
@@ -703,15 +730,23 @@ export default function ManageSubscriptionPage() {
         });
       }
       
-      // Refresh subscription data
+      // Refresh subscription data (auth header syncs profile tier/period from Stripe)
       if (user?.email) {
+        const { data: s } = await supabase.auth.getSession();
+        const h: HeadersInit = {};
+        if (s.session?.access_token) {
+          h.Authorization = `Bearer ${s.session.access_token}`;
+        }
         const refreshed = await fetch(
-          `/api/billing?email=${encodeURIComponent(user.email)}`,
+          `/api/billing?email=${encodeURIComponent(user.email)}&isVesselAccount=${isVesselAccount}`,
+          { headers: h },
         );
         if (refreshed.ok) {
-          const { subscriptionData }: { subscriptionData: StripeSubscriptionData | null } =
-            await refreshed.json();
-          setStripeSubscription(subscriptionData || null);
+          const body = await refreshed.json();
+          setStripeSubscription(body.subscriptionData || null);
+          setStripeTierLive(
+            typeof body.stripeTierLive === 'string' ? body.stripeTierLive : null,
+          );
         }
       }
 
@@ -767,15 +802,23 @@ export default function ManageSubscriptionPage() {
           'Your subscription has been cancelled. You will retain access until the end of your billing period.',
       });
 
-      // Refresh subscription data
+      // Refresh subscription data (auth header syncs profile tier/period from Stripe)
       if (user?.email) {
+        const { data: s } = await supabase.auth.getSession();
+        const h: HeadersInit = {};
+        if (s.session?.access_token) {
+          h.Authorization = `Bearer ${s.session.access_token}`;
+        }
         const refreshed = await fetch(
-          `/api/billing?email=${encodeURIComponent(user.email)}`,
+          `/api/billing?email=${encodeURIComponent(user.email)}&isVesselAccount=${isVesselAccount}`,
+          { headers: h },
         );
         if (refreshed.ok) {
-          const { subscriptionData }: { subscriptionData: StripeSubscriptionData | null } =
-            await refreshed.json();
-          setStripeSubscription(subscriptionData || null);
+          const body = await refreshed.json();
+          setStripeSubscription(body.subscriptionData || null);
+          setStripeTierLive(
+            typeof body.stripeTierLive === 'string' ? body.stripeTierLive : null,
+          );
         }
       }
 
@@ -836,15 +879,21 @@ export default function ManageSubscriptionPage() {
         description: "Your subscription has been resumed.",
       });
   
-      // Refresh subscription data
+      // Refresh subscription data (auth header syncs profile tier/period from Stripe)
       if (user?.email) {
+        const h: HeadersInit = {
+          Authorization: `Bearer ${token}`,
+        };
         const refreshed = await fetch(
           `/api/billing?email=${encodeURIComponent(user.email)}&isVesselAccount=${isVesselAccount}`,
+          { headers: h },
         );
         if (refreshed.ok) {
-          const { subscriptionData }: { subscriptionData: StripeSubscriptionData | null } =
-            await refreshed.json();
-          setStripeSubscription(subscriptionData || null);
+          const body = await refreshed.json();
+          setStripeSubscription(body.subscriptionData || null);
+          setStripeTierLive(
+            typeof body.stripeTierLive === 'string' ? body.stripeTierLive : null,
+          );
         }
       }
   
@@ -901,7 +950,7 @@ export default function ManageSubscriptionPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium">Plan</p>
-                <p className="text-sm text-muted-foreground">{currentTier}</p>
+                <p className="text-sm text-muted-foreground">{displayedPlanName}</p>
               </div>
               <div>
                 <p className="font-medium">Status</p>
@@ -1171,6 +1220,14 @@ export default function ManageSubscriptionPage() {
                         {plan.priceSuffix}
                       </span>
                     </div>
+                    {plan.trialLabel &&
+                      isCrewLimited &&
+                      plan.priceId &&
+                      !plan.comingSoon && (
+                        <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400 mb-1">
+                          {plan.trialLabel}
+                        </p>
+                      )}
                     <CardDescription className="text-gray-600 dark:text-blue-100/80 text-base mt-4">
                       {plan.description}
                     </CardDescription>
