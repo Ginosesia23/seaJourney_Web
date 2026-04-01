@@ -736,7 +736,9 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           const groupLabel = (group.title === "Account" && userProfile?.role === "vessel") ? "Vessel Management" : group.title;
           return (
           <SidebarGroup key={group.title}>
-            <SidebarGroupLabel>{groupLabel}</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-blue-300/40">
+              {groupLabel}
+            </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => {

@@ -60,6 +60,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateMCAWatchRatingForm, generateProofOfServicePDF, type TestimonialPDFFormat, type TestimonialPDFOutput, type MCACertificateType } from '@/lib/pdf-generator';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
+import { computeSeaTimeInDateRange } from '@/lib/sea-time-in-range';
 import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
 import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
 import { buildAndGenerateNavWatchApplication, navWatchApplicationDefaultValues, navWatchApplicationSchema, type NavWatchApplicationFormValues } from '@/lib/nav-watch-application';
@@ -494,6 +495,8 @@ export default function CrewPage() {
     const [showGenerateForm, setShowGenerateForm] = useState(false);
     const [deletingTestimonial, setDeletingTestimonial] = useState<string | null>(null);
     const [vesselTestimonialToDeleteId, setVesselTestimonialToDeleteId] = useState<string | null>(null);
+    const [proofOfServiceToDeleteId, setProofOfServiceToDeleteId] = useState<string | null>(null);
+    const [deletingProofOfServiceId, setDeletingProofOfServiceId] = useState<string | null>(null);
     const [crewTestimonialToDelete, setCrewTestimonialToDelete] = useState<Testimonial | null>(null);
     const [deleteCrewPassword, setDeleteCrewPassword] = useState('');
     const [deleteCrewPasswordError, setDeleteCrewPasswordError] = useState('');
@@ -1285,9 +1288,21 @@ export default function CrewPage() {
 
         try {
             // Use API endpoint that verifies access and fetches data with admin privileges
-            const response = await fetch(
-                `/api/vessel-sea-time-access/sea-time-data?crewUserId=${crewMember.profile.id}&vesselUserId=${user.id}`
-            );
+            const rangeStart = crewMember.assignment.startDate;
+            const rangeEnd =
+                crewMember.assignment.endDate ?? format(new Date(), 'yyyy-MM-dd');
+            if (!rangeStart || !currentUserProfile.activeVesselId) {
+                console.error('[CREW PAGE] Missing assignment start or active vessel for sea time API');
+                return;
+            }
+            const params = new URLSearchParams({
+                crewUserId: crewMember.profile.id,
+                vesselUserId: user.id,
+                rangeStart,
+                rangeEnd,
+                vesselId: currentUserProfile.activeVesselId,
+            });
+            const response = await fetch(`/api/vessel-sea-time-access/sea-time-data?${params.toString()}`);
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
@@ -1355,7 +1370,17 @@ export default function CrewPage() {
                 const err = await res.json().catch(() => ({}));
                 throw new Error((err as { error?: string }).error || 'Failed to fetch vessel logs');
             }
-            const { logs: vesselLogs } = (await res.json()) as { logs: StateLog[] };
+            const { logs: allVesselLogs } = (await res.json()) as { logs: StateLog[] };
+            const vesselMeta = getVesselDetails(vesselId) as
+                | (Vessel & { vessel_manager_id?: string })
+                | undefined;
+            const managerId =
+                vesselMeta?.vessel_manager_id ||
+                vesselMeta?.vesselManagerId ||
+                user?.id;
+            const vesselLogs = managerId
+                ? allVesselLogs.filter((l) => l.userId === managerId)
+                : allVesselLogs;
             const leavePeriods = member.leavePeriods || [];
             const isDateOnLeave = (dateStr: string) => {
                 const d = parse(dateStr, 'yyyy-MM-dd', new Date());
@@ -1387,26 +1412,49 @@ export default function CrewPage() {
                 if (d !== 0) return d;
                 return (a.id || '').localeCompare(b.id || '');
             });
-            // One log per date: keep first after stable sort so result is deterministic across refetches
-            const byDate = new Map<string, StateLog>();
-            filtered.forEach(log => { if (!byDate.has(log.date)) byDate.set(log.date, log); });
-            const effectiveLogs = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+            const rangeStart = format(startDate, 'yyyy-MM-dd');
+            const rangeEnd = format(effectiveEnd, 'yyyy-MM-dd');
 
-            const partOfActivePassageDates = new Set<string>();
-            effectiveLogs.forEach(log => {
-                if (log.isPartOfActivePassage) partOfActivePassageDates.add(log.date);
+            let watchDates = new Set<string>();
+            const position = (member.profile.position || '').toLowerCase();
+            const role = (member.profile.role || '').toLowerCase();
+            const officerPositions = [
+                'captain', 'master', 'chief officer', 'first officer', 'first mate',
+                'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+                'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer',
+            ];
+            const isOfficer = role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+            if (isOfficer && member.profile.id) {
+                const { data: watchLogs } = await supabase
+                    .from('watch_logs')
+                    .select('watch_start')
+                    .eq('user_id', member.profile.id)
+                    .eq('vessel_id', vesselId)
+                    .gte('watch_start', `${rangeStart}T00:00:00`)
+                    .lte('watch_start', `${rangeEnd}T23:59:59`);
+                watchLogs?.forEach(log => {
+                    watchDates.add(formatDate(new Date(log.watch_start), 'yyyy-MM-dd'));
+                });
+            }
+
+            const vesselForType = getVesselDetails(vesselId);
+            const computed = computeSeaTimeInDateRange({
+                filteredLogs: filtered,
+                rangeStart,
+                rangeEnd,
+                useCrewLogs: false,
+                vesselType: vesselForType?.type ?? null,
+                watchDates,
             });
-            const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(effectiveLogs, new Set(), partOfActivePassageDates);
-
             const seaTimeData = {
-                totalDays: effectiveLogs.length,
-                atSeaDays: totalSeaDays,
-                standbyDays: totalStandbyDays,
-                underwayDays: effectiveLogs.filter(l => l.state === 'underway').length,
-                atAnchorDays: effectiveLogs.filter(l => l.state === 'at-anchor').length,
-                inPortDays: effectiveLogs.filter(l => l.state === 'in-port').length,
-                onLeaveDays: effectiveLogs.filter(l => l.state === 'on-leave').length,
-                inYardDays: effectiveLogs.filter(l => l.state === 'in-yard').length,
+                totalDays: computed.totalDays,
+                atSeaDays: computed.atSeaDays,
+                standbyDays: computed.standbyDays,
+                underwayDays: computed.underwayDays,
+                atAnchorDays: computed.atAnchorDays,
+                inPortDays: computed.inPortDays,
+                onLeaveDays: computed.onLeaveDays,
+                inYardDays: computed.inYardDays,
             };
 
             setCrewMembers(prev => prev.map(m =>
@@ -1457,7 +1505,17 @@ export default function CrewPage() {
                 const err = await res.json().catch(() => ({}));
                 throw new Error((err as { error?: string }).error || 'Failed to fetch vessel logs');
             }
-            const { logs: vesselLogs } = (await res.json()) as { logs: StateLog[] };
+            const { logs: allVesselLogs } = (await res.json()) as { logs: StateLog[] };
+            const vesselMeta = getVesselDetails(vesselId) as
+                | (Vessel & { vessel_manager_id?: string })
+                | undefined;
+            const managerId =
+                vesselMeta?.vessel_manager_id ||
+                vesselMeta?.vesselManagerId ||
+                user?.id;
+            const vesselLogs = managerId
+                ? allVesselLogs.filter((l) => l.userId === managerId)
+                : allVesselLogs;
             const leavePeriods = member.leavePeriods || [];
             const isDateOnLeave = (dateStr: string) => {
                 const d = parse(dateStr, 'yyyy-MM-dd', new Date());
@@ -1483,24 +1541,52 @@ export default function CrewPage() {
                     if (d !== 0) return d;
                     return (a.id || '').localeCompare(b.id || '');
                 });
-            const byDate = new Map<string, StateLog>();
-            filtered.forEach(log => { if (!byDate.has(log.date)) byDate.set(log.date, log); });
-            const effectiveLogs = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
-            const partOfActivePassageDates = new Set<string>();
-            effectiveLogs.forEach(log => { if (log.isPartOfActivePassage) partOfActivePassageDates.add(log.date); });
-            const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(effectiveLogs, new Set(), partOfActivePassageDates);
+            const rangeStart = format(startDate, 'yyyy-MM-dd');
+            const rangeEnd = format(effectiveEnd, 'yyyy-MM-dd');
+
+            let watchDates = new Set<string>();
+            const position = (member.profile.position || '').toLowerCase();
+            const role = (member.profile.role || '').toLowerCase();
+            const officerPositions = [
+                'captain', 'master', 'chief officer', 'first officer', 'first mate',
+                'second officer', 'third officer', 'officer of the watch', 'oow', 'deck officer',
+                'chief engineer', 'first engineer', 'second engineer', 'third engineer', 'fourth engineer',
+            ];
+            const isOfficer = role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
+            if (isOfficer && member.profile.id) {
+                const { data: watchLogs } = await supabase
+                    .from('watch_logs')
+                    .select('watch_start')
+                    .eq('user_id', member.profile.id)
+                    .eq('vessel_id', vesselId)
+                    .gte('watch_start', `${rangeStart}T00:00:00`)
+                    .lte('watch_start', `${rangeEnd}T23:59:59`);
+                watchLogs?.forEach(log => {
+                    watchDates.add(formatDate(new Date(log.watch_start), 'yyyy-MM-dd'));
+                });
+            }
+
+            const vesselForType = getVesselDetails(vesselId);
+            const computed = computeSeaTimeInDateRange({
+                filteredLogs: filtered,
+                rangeStart,
+                rangeEnd,
+                useCrewLogs: false,
+                vesselType: vesselForType?.type ?? null,
+                watchDates,
+            });
             const data = {
-                totalDays: effectiveLogs.length,
-                atSeaDays: totalSeaDays,
-                standbyDays: totalStandbyDays,
-                underwayDays: effectiveLogs.filter(l => l.state === 'underway').length,
-                atAnchorDays: effectiveLogs.filter(l => l.state === 'at-anchor').length,
-                inPortDays: effectiveLogs.filter(l => l.state === 'in-port').length,
-                onLeaveDays: effectiveLogs.filter(l => l.state === 'on-leave').length,
-                inYardDays: effectiveLogs.filter(l => l.state === 'in-yard').length,
+                totalDays: computed.totalDays,
+                atSeaDays: computed.atSeaDays,
+                standbyDays: computed.standbyDays,
+                underwayDays: computed.underwayDays,
+                atAnchorDays: computed.atAnchorDays,
+                inPortDays: computed.inPortDays,
+                onLeaveDays: computed.onLeaveDays,
+                inYardDays: computed.inYardDays,
             };
             const startDateStr = member.assignment.startDate;
-            const endDateStr = member.assignment.endDate ?? new Date().toISOString().split('T')[0];
+            const endDateStr = member.assignment.endDate ?? rangeEnd;
             setVesselBreakdownForView({ memberId: member.profile.id, startDate: startDateStr, endDate: endDateStr, data });
         } catch (error: any) {
             console.error('[CREW PAGE] Error loading vessel breakdown for view:', error);
@@ -1665,14 +1751,13 @@ export default function CrewPage() {
         }
     };
     
-    // Active = no end date or end date in the future (still on vessel)
+    // Active = no end date, or end date is strictly after today (still on vessel).
+    // End date on or before today → past members (matches "last day on board" including today).
     const isAssignmentActive = (a: VesselAssignment) => {
         if (!a.endDate) return true;
-        const end = new Date(a.endDate);
-        const today = new Date();
-        end.setHours(0, 0, 0, 0);
-        today.setHours(0, 0, 0, 0);
-        return end >= today;
+        const end = startOfDay(parse(a.endDate, 'yyyy-MM-dd', new Date()));
+        const today = startOfDay(new Date());
+        return end > today;
     };
 
     // Initialize ordered crew members when crewMembers changes (vessel: active only; admin: all)
@@ -1774,7 +1859,7 @@ export default function CrewPage() {
         return filtered;
     }, [orderedCrewMembers, searchTerm, crewLimit]);
 
-    // Past members (vessel only): assignment has end_date and it's in the past
+    // Past members (vessel only): assignment has end_date on or before today (or not active)
     const pastCrewMembers = useMemo(() => {
         if (currentUserProfile?.role !== 'vessel') return [];
         return crewMembers.filter((m) => !isAssignmentActive(m.assignment));
@@ -2517,6 +2602,44 @@ export default function CrewPage() {
         }
     };
 
+    const canDeleteProofOfService = (entry: ProofOfService) => {
+        if (!user?.id) return false;
+        if (currentUserProfile?.role === 'admin') return true;
+        return currentUserProfile?.role === 'vessel' && entry.vesselUserId === user.id;
+    };
+
+    const handleDeleteProofOfService = async (proofId: string) => {
+        if (!selectedCrewMemberId) return;
+        setDeletingProofOfServiceId(proofId);
+        try {
+            const { error } = await supabase.from('proof_of_service').delete().eq('id', proofId);
+            if (error) throw error;
+            toast({
+                title: 'Proof of Service deleted',
+                description: 'The record has been removed.',
+            });
+            setCrewMembers(prev =>
+                prev.map(m =>
+                    m.profile.id === selectedCrewMemberId
+                        ? {
+                              ...m,
+                              proofOfServiceEntries: (m.proofOfServiceEntries || []).filter(p => p.id !== proofId),
+                          }
+                        : m
+                )
+            );
+        } catch (err: unknown) {
+            console.error('[CREW PAGE] Error deleting proof of service:', err);
+            toast({
+                title: 'Error',
+                description: err instanceof Error ? err.message : 'Failed to delete proof of service.',
+                variant: 'destructive',
+            });
+        } finally {
+            setDeletingProofOfServiceId(null);
+        }
+    };
+
     // Delete a vessel-generated testimonial
     const handleDeleteVesselTestimonial = async (testimonialId: string) => {
         if (!user?.id || !selectedCrewMemberId || !currentUserProfile?.activeVesselId) {
@@ -2871,18 +2994,10 @@ export default function CrewPage() {
                         selectedMemberData.profile.id
                     );
                 } else {
-                    // For vessel logs, fetch the vessel's own logs (vessel_manager_id)
-                    const vessel = getVesselDetails(testimonial.vessel_id);
                     const vesselManagerId = vessel ? (vessel as any).vessel_manager_id : null;
-                    
-                    // If vessel_manager_id is not set, use current user (vessel manager)
-                    const targetUserId = vesselManagerId || currentUserProfile?.id;
-                    
-                    logs = await getVesselStateLogs(
-                        supabase,
-                        testimonial.vessel_id,
-                        targetUserId // Fetch logs for the vessel manager's account
-                    );
+                    const targetUserId =
+                        vesselManagerId || testimonial.vessel_user_id || currentUserProfile?.id;
+                    logs = await getVesselStateLogs(supabase, testimonial.vessel_id, targetUserId);
                 }
                 
                 const filteredLogs = logs.filter(log => {
@@ -2924,11 +3039,16 @@ export default function CrewPage() {
                     }
                 }
                 
+                const useCrewLogsForStandby = hasApprovedAccess && testimonial.data_source === 'crew';
                 const { standbyPeriods: calculatedPeriods, voyages } = calculateStandbyDays(
                     filteredLogs,
                     watchDates.size > 0 ? watchDates : undefined,
                     partOfActivePassageDates.size > 0 ? partOfActivePassageDates : undefined,
-                    { rangeStart: testimonial.start_date, rangeEnd: testimonial.end_date }
+                    {
+                        rangeStart: testimonial.start_date,
+                        rangeEnd: testimonial.end_date,
+                        vesselManagerSeaTime: !useCrewLogsForStandby,
+                    },
                 );
 
                 const logMapByDate = new Map<string, string>();
@@ -3188,24 +3308,16 @@ export default function CrewPage() {
                 testimonial.notes.toLowerCase().includes('awaiting captain approval')
             ) ? null : testimonial.notes;
 
-            // Fetch logs and calculate standby periods
+            // Fetch logs and calculate standby periods (match documents page: crew logs only when access + non-vessel source)
             let standbyPeriods: Array<{ passageStartDate: string; passageEndDate: string; standbyDays: number }> = [];
             try {
                 const hasApprovedAccess = selectedMemberData.accessRequest?.status === 'approved';
-                let logs: StateLog[] = [];
-                
-                if (hasApprovedAccess) {
-                    logs = await getVesselStateLogs(
-                        supabase,
-                        testimonial.vessel_id,
-                        selectedMemberData.profile.id
-                    );
-                } else {
-                    logs = await getVesselStateLogs(
-                        supabase,
-                        testimonial.vessel_id
-                    );
-                }
+                const useCrewLogs = hasApprovedAccess && testimonial.data_source !== 'vessel';
+                const vesselManagerId = (vessel as any)?.vessel_manager_id ?? null;
+                const targetUserId = useCrewLogs
+                    ? selectedMemberData.profile.id
+                    : vesselManagerId || testimonial.generated_by_user_id || currentUserProfile?.id;
+                const logs = await getVesselStateLogs(supabase, testimonial.vessel_id, targetUserId);
                 
                 const filteredLogs = logs.filter(log => {
                     const logDate = log.date;
@@ -3250,7 +3362,11 @@ export default function CrewPage() {
                     filteredLogs,
                     watchDates.size > 0 ? watchDates : undefined,
                     partOfActivePassageDates.size > 0 ? partOfActivePassageDates : undefined,
-                    { rangeStart: testimonial.start_date, rangeEnd: testimonial.end_date }
+                    {
+                        rangeStart: testimonial.start_date,
+                        rangeEnd: testimonial.end_date,
+                        vesselManagerSeaTime: !useCrewLogs,
+                    },
                 );
 
                 const logMapByDate = new Map<string, string>();
@@ -5621,20 +5737,38 @@ export default function CrewPage() {
                                                                             {entry.createdAt && ` · Generated ${format(new Date(entry.createdAt), 'dd MMM yyyy')}`}
                                                                         </p>
                                                                     </div>
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        onClick={() => handleDownloadProofOfService(entry)}
-                                                                        disabled={downloadingProofOfServiceId === entry.id}
-                                                                        className="rounded-xl shrink-0"
-                                                                    >
-                                                                        {downloadingProofOfServiceId === entry.id ? (
-                                                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                                                        ) : (
-                                                                            <Download className="h-4 w-4 mr-2" />
+                                                                    <div className="flex items-center gap-2 shrink-0">
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            onClick={() => handleDownloadProofOfService(entry)}
+                                                                            disabled={downloadingProofOfServiceId === entry.id || deletingProofOfServiceId === entry.id}
+                                                                            className="rounded-xl"
+                                                                        >
+                                                                            {downloadingProofOfServiceId === entry.id ? (
+                                                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                                            ) : (
+                                                                                <Download className="h-4 w-4 mr-2" />
+                                                                            )}
+                                                                            Download
+                                                                        </Button>
+                                                                        {canDeleteProofOfService(entry) && (
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                onClick={() => setProofOfServiceToDeleteId(entry.id)}
+                                                                                disabled={deletingProofOfServiceId === entry.id || downloadingProofOfServiceId === entry.id}
+                                                                                className="rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                                                title="Delete proof of service"
+                                                                            >
+                                                                                {deletingProofOfServiceId === entry.id ? (
+                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                ) : (
+                                                                                    <Trash2 className="h-4 w-4" />
+                                                                                )}
+                                                                            </Button>
                                                                         )}
-                                                                        Download
-                                                                    </Button>
+                                                                    </div>
                                                                 </div>
                                                             </CardContent>
                                                         </Card>
@@ -5673,20 +5807,38 @@ export default function CrewPage() {
                                                                                 {entry.createdAt && ` · Generated ${format(new Date(entry.createdAt), 'dd MMM yyyy')}`}
                                                                             </p>
                                                                         </div>
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            onClick={() => handleDownloadProofOfService(entry)}
-                                                                            disabled={downloadingProofOfServiceId === entry.id}
-                                                                            className="rounded-xl shrink-0"
-                                                                        >
-                                                                            {downloadingProofOfServiceId === entry.id ? (
-                                                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                                            ) : (
-                                                                                <Download className="h-4 w-4 mr-2" />
+                                                                        <div className="flex items-center gap-2 shrink-0">
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                onClick={() => handleDownloadProofOfService(entry)}
+                                                                                disabled={downloadingProofOfServiceId === entry.id || deletingProofOfServiceId === entry.id}
+                                                                                className="rounded-xl"
+                                                                            >
+                                                                                {downloadingProofOfServiceId === entry.id ? (
+                                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                ) : (
+                                                                                    <Download className="h-4 w-4 mr-2" />
+                                                                                )}
+                                                                                Download
+                                                                            </Button>
+                                                                            {canDeleteProofOfService(entry) && (
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="sm"
+                                                                                    onClick={() => setProofOfServiceToDeleteId(entry.id)}
+                                                                                    disabled={deletingProofOfServiceId === entry.id || downloadingProofOfServiceId === entry.id}
+                                                                                    className="rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                                                    title="Delete proof of service"
+                                                                                >
+                                                                                    {deletingProofOfServiceId === entry.id ? (
+                                                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                                                    ) : (
+                                                                                        <Trash2 className="h-4 w-4" />
+                                                                                    )}
+                                                                                </Button>
                                                                             )}
-                                                                            Download
-                                                                        </Button>
+                                                                        </div>
                                                                     </div>
                                                                 </CardContent>
                                                             </Card>
@@ -6171,6 +6323,36 @@ export default function CrewPage() {
                                     if (vesselTestimonialToDeleteId) {
                                         handleDeleteVesselTestimonial(vesselTestimonialToDeleteId);
                                         setVesselTestimonialToDeleteId(null);
+                                    }
+                                }}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                                Delete
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+
+                {/* Delete proof of service confirmation */}
+                <AlertDialog open={!!proofOfServiceToDeleteId} onOpenChange={(open) => !open && setProofOfServiceToDeleteId(null)}>
+                    <AlertDialogContent className="rounded-xl">
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Proof of Service?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                {proofOfServiceToDeleteId && selectedMemberData?.proofOfServiceEntries && (() => {
+                                    const e = selectedMemberData.proofOfServiceEntries.find(x => x.id === proofOfServiceToDeleteId);
+                                    if (!e) return 'This proof of service record will be permanently deleted.';
+                                    return `Delete the proof for ${e.vesselName} (${format(new Date(e.startDate), 'dd MMM yyyy')} – ${format(new Date(e.endDate), 'dd MMM yyyy')})? This cannot be undone.`;
+                                })()}
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={() => {
+                                    if (proofOfServiceToDeleteId) {
+                                        handleDeleteProofOfService(proofOfServiceToDeleteId);
+                                        setProofOfServiceToDeleteId(null);
                                     }
                                 }}
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"

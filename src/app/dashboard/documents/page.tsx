@@ -4,8 +4,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { useCollection } from '@/supabase/database';
-import { format as formatDate, parse, addDays, differenceInDays } from 'date-fns';
-import { FileText, Users, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send, ShieldCheck } from 'lucide-react';
+import { format as formatDate, differenceInDays } from 'date-fns';
+import { FileText, Users, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send, ShieldCheck, Table2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -30,9 +30,17 @@ import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import type { UserProfile, VesselAssignment, Vessel, VesselGeneratedTestimonial, StateLog, Testimonial } from '@/lib/types';
 import { getActiveVesselAssignmentsByVessel, getVesselStateLogs } from '@/supabase/database/queries';
-import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
-import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateProofOfServicePDF, type TestimonialPDFFormat, type TestimonialPDFOutput } from '@/lib/pdf-generator';
+import { computeSeaTimeInDateRange } from '@/lib/sea-time-in-range';
+import {
+  generateTestimonialPDF,
+  generateMCADeckhandTestimonial,
+  generateMCAOfficerTestimonial,
+  generateProofOfServicePDF,
+  generateSeaServiceBreakdownPDF,
+  type TestimonialPDFFormat,
+  type TestimonialPDFOutput,
+} from '@/lib/pdf-generator';
 import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
 import { cn } from '@/lib/utils';
 
@@ -44,6 +52,11 @@ interface CrewOption {
 const DOCUMENT_TYPES = [
   { value: 'testimonial', label: 'Sea service testimonial (MCA)', icon: FileText },
   { value: 'proof_of_service', label: 'Proof of Service', icon: ShieldCheck },
+  {
+    value: 'sea_service_breakdown',
+    label: 'Sea service breakdown (reference)',
+    icon: Table2,
+  },
 ] as const;
 
 export default function DocumentsGeneratorPage() {
@@ -80,6 +93,9 @@ export default function DocumentsGeneratorPage() {
     standbyDays: number;
     yardDays: number;
     leaveDays: number;
+    underwayDays: number;
+    atAnchorDays: number;
+    inPortDays: number;
     otherDays?: number;
     isOfficer: boolean;
     standbyPeriodsForPdf?: Array<{ passageStartDate: string; passageEndDate: string; standbyDays: number }>;
@@ -98,6 +114,7 @@ export default function DocumentsGeneratorPage() {
   const [generatingPDF, setGeneratingPDF] = useState<string | null>(null);
   const [isSavingProofOfService, setIsSavingProofOfService] = useState(false);
   const [generatingProofOfServicePDF, setGeneratingProofOfServicePDF] = useState(false);
+  const [generatingBreakdownPDF, setGeneratingBreakdownPDF] = useState(false);
   const [leavePeriods, setLeavePeriods] = useState<Array<{ startDate: string; endDate: string }>>([]);
   const [leavePeriodsFromLogs, setLeavePeriodsFromLogs] = useState<Array<{ startDate: string; endDate: string; notes?: string }>>([]);
 
@@ -226,16 +243,31 @@ export default function DocumentsGeneratorPage() {
 
   // Fetch leave periods from logs when crew has approved access (so we can show presets from their data)
   useEffect(() => {
-    if (accessRequestStatus !== 'approved' || !selectedCrewId || !user?.id || currentUserProfile?.role !== 'vessel') {
+    if (
+      accessRequestStatus !== 'approved' ||
+      !selectedCrewId ||
+      !user?.id ||
+      currentUserProfile?.role !== 'vessel' ||
+      !activeVesselId ||
+      !selectedCrew?.assignment?.startDate
+    ) {
       setLeavePeriodsFromLogs([]);
       return;
     }
+    const rangeStart = selectedCrew.assignment.startDate;
+    const rangeEnd =
+      selectedCrew.assignment.endDate ?? formatDate(new Date(), 'yyyy-MM-dd');
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(
-          `/api/vessel-sea-time-access/sea-time-data?crewUserId=${encodeURIComponent(selectedCrewId)}&vesselUserId=${encodeURIComponent(user.id)}`
-        );
+        const params = new URLSearchParams({
+          crewUserId: selectedCrewId,
+          vesselUserId: user.id,
+          rangeStart,
+          rangeEnd,
+          vesselId: activeVesselId,
+        });
+        const res = await fetch(`/api/vessel-sea-time-access/sea-time-data?${params.toString()}`);
         if (!res.ok || cancelled) return;
         const data = await res.json();
         if (!cancelled && data.leavePeriodsFromLogs?.length) {
@@ -247,8 +279,18 @@ export default function DocumentsGeneratorPage() {
         if (!cancelled) setLeavePeriodsFromLogs([]);
       }
     })();
-    return () => { cancelled = true; };
-  }, [accessRequestStatus, selectedCrewId, user?.id, currentUserProfile?.role]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessRequestStatus,
+    selectedCrewId,
+    selectedCrew?.assignment?.startDate,
+    selectedCrew?.assignment?.endDate,
+    user?.id,
+    currentUserProfile?.role,
+    activeVesselId,
+  ]);
 
   const hasApprovedAccess = accessRequestStatus === 'approved';
   const effectiveDataSource = selectedDataSource ?? 'vessel';
@@ -432,181 +474,35 @@ export default function DocumentsGeneratorPage() {
           .lte('watch_start', `${endDateStr}T23:59:59`);
         watchLogs?.forEach((log: any) => watchDates.add(formatDate(new Date(log.watch_start), 'yyyy-MM-dd')));
       }
-      const partOfActivePassageDates = new Set<string>();
-      filteredLogs.forEach((log) => {
-        if (log.isPartOfActivePassage) partOfActivePassageDates.add(log.date);
-      });
-      const { totalSeaDays, totalStandbyDays, voyages, standbyPeriods } = calculateStandbyDays(
-        filteredLogs,
-        watchDates.size ? watchDates : undefined,
-        partOfActivePassageDates.size ? partOfActivePassageDates : undefined,
-        {
-          rangeStart: startDateStr,
-          rangeEnd: endDateStr,
-          vesselManagerSeaTime: !useCrewLogs,
-        }
-      );
-      const logMap = new Map(filteredLogs.map((l) => [l.date, l]));
-      const startDateObj = parse(startDateStr, 'yyyy-MM-dd', new Date());
-      const endDateObj = parse(endDateStr, 'yyyy-MM-dd', new Date());
-      const dateRangeSet = new Set<string>();
-      let cur = new Date(startDateObj);
-      while (cur <= endDateObj) {
-        dateRangeSet.add(formatDate(cur, 'yyyy-MM-dd'));
-        cur = addDays(cur, 1);
-      }
-      const sortedDates = Array.from(dateRangeSet).sort();
-      let lastState: string | null = null;
-      const firstWithLog = sortedDates.find((d) => logMap.has(d));
-      let firstState = firstWithLog ? (logMap.get(firstWithLog)!.state as string) : 'in-port';
-      const effectiveState = new Map<string, string>();
-      for (const dateStr of sortedDates) {
-        const log = logMap.get(dateStr);
-        if (log) {
-          lastState = log.state as string;
-          effectiveState.set(dateStr, lastState);
-        } else if (lastState !== null) {
-          effectiveState.set(dateStr, lastState);
-        } else {
-          effectiveState.set(dateStr, firstState);
-        }
-      }
       const category = getVesselCalculationCategory(vessel?.type ?? null);
-      if (isAllDaysExceptLeaveCountAsSea(category)) {
-        let leaveCount = 0;
-        dateRangeSet.forEach((dateStr) => {
-          if (effectiveState.get(dateStr) === 'on-leave') leaveCount++;
-        });
-        const totalDays = dateRangeSet.size;
-        setCalculatedSeaTime({
-          totalDays,
-          atSeaDays: totalDays - leaveCount,
-          standbyDays: 0,
-          yardDays: 0,
-          leaveDays: leaveCount,
-          otherDays: 0,
-          isOfficer,
-          dataSource: useCrewLogs ? 'crew' : 'vessel',
-        });
-        toast({ title: 'Calculated', description: 'Sea time calculated for the selected range (commercial rules: all days onboard count except leave).' });
-        setIsCalculating(false);
-        return;
-      }
-      const voyageDatesSet = new Set<string>();
-      voyages.forEach((voyage) => {
-        let d = new Date(voyage.startDate);
-        const end = new Date(voyage.endDate);
-        while (d <= end) {
-          voyageDatesSet.add(formatDate(d, 'yyyy-MM-dd'));
-          d = addDays(d, 1);
-        }
+      const result = computeSeaTimeInDateRange({
+        filteredLogs,
+        rangeStart: startDateStr,
+        rangeEnd: endDateStr,
+        useCrewLogs,
+        vesselType: vessel?.type ?? null,
+        watchDates,
       });
-      const standbyDatesSet = new Set<string>();
-      standbyPeriods.forEach((period) => {
-        let d = new Date(period.startDate);
-        const end = new Date(period.endDate);
-        let counted = 0;
-        while (d <= end && counted < period.countedDays) {
-          const dateStr = formatDate(d, 'yyyy-MM-dd');
-          if (!dateRangeSet.has(dateStr)) {
-            d = addDays(d, 1);
-            continue;
-          }
-          const state = effectiveState.get(dateStr) ?? logMap.get(dateStr)?.state;
-          const standbyEligible =
-            state === 'in-port' || (useCrewLogs && state === 'at-anchor');
-          if (standbyEligible) {
-            if (!watchDates.has(dateStr) && !partOfActivePassageDates.has(dateStr)) {
-              standbyDatesSet.add(dateStr);
-              counted++;
-            }
-          }
-          d = addDays(d, 1);
-        }
-      });
-      const standbyPeriodsForPdf = standbyPeriods
-        .map((period, index) => {
-          const voyage = voyages[index];
-          let passageStartDate: string, passageEndDate: string;
-          if (!voyage) {
-            const voyageEndDate = new Date(period.startDate);
-            voyageEndDate.setDate(voyageEndDate.getDate() - 1);
-            const voyageStartDate = new Date(voyageEndDate);
-            voyageStartDate.setDate(voyageStartDate.getDate() - (period.precedingVoyageDays ?? 0) + 1);
-            passageStartDate = formatDate(voyageStartDate, 'yyyy-MM-dd');
-            passageEndDate = formatDate(voyageEndDate, 'yyyy-MM-dd');
-          } else {
-            passageStartDate = formatDate(voyage.startDate instanceof Date ? voyage.startDate : new Date(voyage.startDate), 'yyyy-MM-dd');
-            passageEndDate = formatDate(voyage.endDate instanceof Date ? voyage.endDate : new Date(voyage.endDate), 'yyyy-MM-dd');
-          }
-          return { passageStartDate, passageEndDate, standbyDays: period.countedDays, period };
-        })
-        .filter(({ period }) => {
-          if (period.countedDays <= 0) return false;
-          for (let i = 0; i < period.countedDays; i++) {
-            const d = addDays(period.startDate, i);
-            const dateStr = formatDate(d, 'yyyy-MM-dd');
-            const state = effectiveState.get(dateStr);
-            if (state === 'in-yard' || state === 'on-leave') return false;
-          }
-          return true;
-        })
-        .map(({ passageStartDate, passageEndDate, standbyDays }) => ({ passageStartDate, passageEndDate, standbyDays }));
-      let finalSeaDays = 0,
-        finalStandbyDays = 0,
-        yardDays = 0,
-        leaveDays = 0,
-        otherDays = 0;
-      dateRangeSet.forEach((dateStr) => {
-        const state = effectiveState.get(dateStr);
-        if (!state) return;
-        if (state === 'in-yard') {
-          yardDays++;
-          return;
-        }
-        if (state === 'on-leave') {
-          leaveDays++;
-          return;
-        }
-        if (voyageDatesSet.has(dateStr)) {
-          finalSeaDays++;
-          return;
-        }
-        if (watchDates.has(dateStr) && (state === 'in-port' || state === 'at-anchor')) {
-          finalSeaDays++;
-          return;
-        }
-        if (partOfActivePassageDates.has(dateStr) && state !== 'underway') {
-          finalSeaDays++;
-          return;
-        }
-        if (!useCrewLogs && state === 'at-anchor') {
-          finalSeaDays++;
-          return;
-        }
-        if (standbyDatesSet.has(dateStr)) {
-          finalStandbyDays++;
-          return;
-        }
-        if (state === 'in-port' || state === 'at-anchor') {
-          otherDays++;
-          return;
-        }
-        if (state === 'underway') finalSeaDays++;
-      });
-      const cappedStandby = Math.min(finalStandbyDays, finalSeaDays);
       setCalculatedSeaTime({
-        totalDays: dateRangeSet.size,
-        atSeaDays: finalSeaDays,
-        standbyDays: cappedStandby,
-        yardDays,
-        leaveDays,
-        otherDays,
+        totalDays: result.totalDays,
+        atSeaDays: result.atSeaDays,
+        standbyDays: result.standbyDays,
+        yardDays: result.yardDays,
+        leaveDays: result.leaveDays,
+        underwayDays: result.underwayDays,
+        atAnchorDays: result.atAnchorDays,
+        inPortDays: result.inPortDays,
+        otherDays: result.otherDays,
         isOfficer,
-        standbyPeriodsForPdf: standbyPeriodsForPdf.length > 0 ? standbyPeriodsForPdf : undefined,
-        dataSource: useCrewLogs ? 'crew' : 'vessel',
+        standbyPeriodsForPdf: result.standbyPeriodsForPdf,
+        dataSource: result.dataSource,
       });
-      toast({ title: 'Calculated', description: 'Sea time calculated for the selected range.' });
+      toast({
+        title: 'Calculated',
+        description: isAllDaysExceptLeaveCountAsSea(category)
+          ? 'Sea time calculated for the selected range (commercial rules: all days onboard count except leave).'
+          : 'Sea time calculated for the selected range.',
+      });
     } catch (e) {
       console.error(e);
       toast({ title: 'Error', description: 'Failed to calculate sea time.', variant: 'destructive' });
@@ -865,6 +761,66 @@ export default function DocumentsGeneratorPage() {
     }
   };
 
+  const handleDownloadSeaServiceBreakdownPDF = async () => {
+    if (!selectedCrew || !documentStartDate || !documentEndDate || !calculatedSeaTime || !vessel || !currentUserProfile) {
+      toast({ title: 'Error', description: 'Please select crew, dates, and calculate sea time first.', variant: 'destructive' });
+      return;
+    }
+    setGeneratingBreakdownPDF(true);
+    try {
+      const startDateStr = formatDate(documentStartDate, 'yyyy-MM-dd');
+      const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
+      const totalDays = calculatedSeaTime.totalDays;
+      const standbyCap = Math.min(calculatedSeaTime.standbyDays, totalDays, calculatedSeaTime.atSeaDays);
+      const crewName =
+        [selectedCrew.profile.firstName, selectedCrew.profile.lastName].filter(Boolean).join(' ').trim() ||
+        selectedCrew.profile.username ||
+        'Crew member';
+      const generatedByName =
+        currentUserProfile.firstName && currentUserProfile.lastName
+          ? `${currentUserProfile.firstName} ${currentUserProfile.lastName}`
+          : currentUserProfile.email || 'Vessel Manager';
+      const dataSourceLabel =
+        calculatedSeaTime.dataSource === 'crew' ? "Crew member's logs" : 'Vessel logs';
+      const category = getVesselCalculationCategory(vessel.type ?? null);
+      const calculationNote = isAllDaysExceptLeaveCountAsSea(category)
+        ? 'Commercial-style counting in SeaJourney: every day in the selected range except days marked on leave counts as sea service. Standby is not calculated separately for this vessel category.'
+        : 'MCA-aligned rules in SeaJourney: sea time from sea passages, officer watch where applicable, and active passage; qualifying standby days (capped by sea days); yard and leave shown separately.';
+
+      await generateSeaServiceBreakdownPDF(
+        {
+          vesselName: vessel.name,
+          vesselType: vessel.type ?? null,
+          vesselImo: (vessel as any).imo ?? (vessel as any).officialNumber ?? null,
+          crewName,
+          crewPosition: selectedCrew.profile.position ?? null,
+          startDate: startDateStr,
+          endDate: endDateStr,
+          totalDays,
+          underwayDays: calculatedSeaTime.underwayDays,
+          atAnchorDays: calculatedSeaTime.atAnchorDays,
+          inPortDays: calculatedSeaTime.inPortDays,
+          standbyDays: standbyCap,
+          yardDays: calculatedSeaTime.yardDays,
+          dataSourceLabel,
+          calculationNote,
+          generatedByName,
+          generatedByEmail: currentUserProfile.email ?? null,
+          standbyPeriods: calculatedSeaTime.standbyPeriodsForPdf,
+        },
+        'download',
+      );
+      toast({
+        title: 'Downloaded',
+        description: 'Reference breakdown PDF generated. It is not saved to the crew profile.',
+      });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message ?? 'Failed to generate PDF.', variant: 'destructive' });
+    } finally {
+      setGeneratingBreakdownPDF(false);
+    }
+  };
+
   const handleSendToCaptain = async () => {
     if (!selectedCrew || !activeVesselId || !documentStartDate || !documentEndDate || !calculatedSeaTime || !activeCaptain) {
       toast({ title: 'Error', description: 'Please select dates, calculate sea time, and ensure a captain is available.', variant: 'destructive' });
@@ -1038,7 +994,12 @@ export default function DocumentsGeneratorPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Generator</h1>
-        <p className="text-muted-foreground">Create documents for your crew. Generated documents are added to each crew member’s page on the Crew screen.</p>
+        <p className="text-muted-foreground">
+          Create documents for your crew. Testimonials and Proof of Service are saved to each crew member’s page on the Crew screen.{' '}
+          <span className="text-foreground/90">
+            Sea service breakdown is a reference PDF only (not stored) — use it to copy figures into other forms.
+          </span>
+        </p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -1101,7 +1062,10 @@ export default function DocumentsGeneratorPage() {
         </Card>
       </div>
 
-      {selectedCrew && (documentType === 'testimonial' || documentType === 'proof_of_service') && (
+      {selectedCrew &&
+        (documentType === 'testimonial' ||
+          documentType === 'proof_of_service' ||
+          documentType === 'sea_service_breakdown') && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1111,11 +1075,14 @@ export default function DocumentsGeneratorPage() {
             <CardDescription>
               {documentType === 'proof_of_service'
                 ? 'Set the date range and calculate sea time, then save to the crew member’s profile or download.'
-                : 'Set the date range, choose data source if the crew member has given access, then calculate sea time and save or generate.'}
+                : documentType === 'sea_service_breakdown'
+                  ? 'Pick the period you need for an external form, calculate, then download a one-page PDF with day counts. Nothing is saved to the crew profile.'
+                  : 'Set the date range, choose data source if the crew member has given access, then calculate sea time and save or generate.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {documentType === 'proof_of_service' && proofOfServiceFullRange && (
+            {(documentType === 'proof_of_service' || documentType === 'sea_service_breakdown') &&
+              proofOfServiceFullRange && (
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Quick select</Label>
                 <p className="text-xs text-muted-foreground">
@@ -1136,7 +1103,8 @@ export default function DocumentsGeneratorPage() {
                 </div>
               </div>
             )}
-            {documentType === 'testimonial' && availablePeriodsBetweenLeave.length > 0 && (
+            {(documentType === 'testimonial' || documentType === 'sea_service_breakdown') &&
+              availablePeriodsBetweenLeave.length > 0 && (
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Quick select: periods between leave</Label>
                 <p className="text-xs text-muted-foreground">
@@ -1247,6 +1215,11 @@ export default function DocumentsGeneratorPage() {
                   <Clock className="mr-2 h-4 w-4" />
                   Calculate
                 </>
+              ) : documentType === 'sea_service_breakdown' ? (
+                <>
+                  <Clock className="mr-2 h-4 w-4" />
+                  Calculate breakdown
+                </>
               ) : (
                 <>
                   <Clock className="mr-2 h-4 w-4" />
@@ -1255,7 +1228,15 @@ export default function DocumentsGeneratorPage() {
               )}
             </Button>
 
-            {calculatedSeaTime && (
+            {calculatedSeaTime && (() => {
+              const standbyCappedForExport = Math.min(
+                calculatedSeaTime.standbyDays,
+                calculatedSeaTime.totalDays,
+                calculatedSeaTime.atSeaDays,
+              );
+              const seaServiceUnderwayPlusStandby =
+                calculatedSeaTime.underwayDays + standbyCappedForExport;
+              return (
               <Card className="bg-muted/50 border-2">
                 <CardHeader>
                   <CardTitle className="text-base">Calculated Sea Time</CardTitle>
@@ -1264,17 +1245,26 @@ export default function DocumentsGeneratorPage() {
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 dark:bg-primary/10 px-4 py-3">
+                    <div className="text-xs font-medium text-muted-foreground">
+                      Sea service (underway + qualifying standby)
+                    </div>
+                    <div className="text-2xl font-bold text-primary">{seaServiceUnderwayPlusStandby} days</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Same total as the sea service breakdown PDF. &quot;At sea (MCA aggregate)&quot; below can be higher when passage, watch, or anchor rules count extra sea days beyond logged underway.
+                    </p>
+                  </div>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div className="space-y-1">
                       <div className="text-xs text-muted-foreground">Total Days</div>
                       <div className="text-2xl font-bold">{calculatedSeaTime.totalDays}</div>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">At Sea Days</div>
+                      <div className="text-xs text-muted-foreground">At sea (MCA aggregate)</div>
                       <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{calculatedSeaTime.atSeaDays}</div>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Standby Days</div>
+                      <div className="text-xs text-muted-foreground">Standby (qualifying)</div>
                       <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{calculatedSeaTime.standbyDays}</div>
                     </div>
                     <div className="space-y-1">
@@ -1292,6 +1282,20 @@ export default function DocumentsGeneratorPage() {
                       </div>
                     )}
                   </div>
+                  <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border/60">
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">Underway (logged)</div>
+                      <div className="text-xl font-semibold">{calculatedSeaTime.underwayDays}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">At anchor (logged)</div>
+                      <div className="text-xl font-semibold">{calculatedSeaTime.atAnchorDays}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">In port (logged)</div>
+                      <div className="text-xl font-semibold">{calculatedSeaTime.inPortDays}</div>
+                    </div>
+                  </div>
 
                   <Separator />
                   <div className="flex flex-wrap gap-2">
@@ -1299,7 +1303,7 @@ export default function DocumentsGeneratorPage() {
                       <>
                     <Button
                       onClick={handleSaveDocument}
-                      disabled={isSaving || generatingPDF === 'date-range'}
+                      disabled={isSaving || generatingPDF === 'date-range' || generatingBreakdownPDF}
                       variant="outline"
                       className="rounded-xl"
                     >
@@ -1318,7 +1322,7 @@ export default function DocumentsGeneratorPage() {
                     <Select
                       value={selectedNewDocFormat}
                       onValueChange={(format) => setSelectedNewDocFormat(format as TestimonialPDFFormat)}
-                      disabled={generatingPDF === 'date-range' || isSaving}
+                      disabled={generatingPDF === 'date-range' || isSaving || generatingBreakdownPDF}
                     >
                       <SelectTrigger className="w-[160px] rounded-xl">
                         <SelectValue placeholder="Version" />
@@ -1331,7 +1335,7 @@ export default function DocumentsGeneratorPage() {
                     <Button
                       variant="outline"
                       onClick={handleDownloadPDF}
-                      disabled={generatingPDF === 'date-range' || isSaving}
+                      disabled={generatingPDF === 'date-range' || isSaving || generatingBreakdownPDF}
                       className="rounded-xl"
                     >
                       {generatingPDF === 'date-range' ? (
@@ -1349,7 +1353,7 @@ export default function DocumentsGeneratorPage() {
                     {activeCaptain && (
                       <Button
                         onClick={handleSendToCaptain}
-                        disabled={isSendingToCaptain}
+                        disabled={isSendingToCaptain || generatingBreakdownPDF}
                         className="rounded-xl"
                       >
                         {isSendingToCaptain ? (
@@ -1368,7 +1372,7 @@ export default function DocumentsGeneratorPage() {
                     {!activeCaptain && (
                       <Button
                         onClick={() => setSendTestimonialByEmailOpen(true)}
-                        disabled={isSendingTestimonialByEmail}
+                        disabled={isSendingTestimonialByEmail || generatingBreakdownPDF}
                         variant="outline"
                         className="rounded-xl"
                       >
@@ -1387,12 +1391,43 @@ export default function DocumentsGeneratorPage() {
                     )}
                       </>
                     )}
+                    {documentType === 'sea_service_breakdown' && (
+                      <div className="flex flex-col gap-2 w-full sm:w-auto">
+                        <Button
+                          variant="default"
+                          onClick={handleDownloadSeaServiceBreakdownPDF}
+                          disabled={
+                            generatingBreakdownPDF ||
+                            generatingPDF === 'date-range' ||
+                            isSaving ||
+                            generatingProofOfServicePDF ||
+                            isSavingProofOfService
+                          }
+                          className="rounded-xl w-full sm:w-auto"
+                        >
+                          {generatingBreakdownPDF ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Generating…
+                            </>
+                          ) : (
+                            <>
+                              <Download className="mr-2 h-4 w-4" />
+                              Download breakdown PDF
+                            </>
+                          )}
+                        </Button>
+                        <p className="text-xs text-muted-foreground max-w-md">
+                          Reference only — not stored on the crew profile. Use the figures to fill other forms manually.
+                        </p>
+                      </div>
+                    )}
                     {documentType === 'proof_of_service' && (
                       <>
                     <Button
                       variant="outline"
                       onClick={handleSaveProofOfService}
-                      disabled={isSavingProofOfService || generatingProofOfServicePDF}
+                      disabled={isSavingProofOfService || generatingProofOfServicePDF || generatingBreakdownPDF}
                       className="rounded-xl"
                     >
                       {isSavingProofOfService ? (
@@ -1410,7 +1445,7 @@ export default function DocumentsGeneratorPage() {
                     <Button
                       variant="outline"
                       onClick={handleDownloadProofOfServicePDF}
-                      disabled={isSavingProofOfService || generatingProofOfServicePDF}
+                      disabled={isSavingProofOfService || generatingProofOfServicePDF || generatingBreakdownPDF}
                       className="rounded-xl"
                     >
                       {generatingProofOfServicePDF ? (
@@ -1430,7 +1465,8 @@ export default function DocumentsGeneratorPage() {
                   </div>
                 </CardContent>
               </Card>
-            )}
+              );
+            })()}
           </CardContent>
         </Card>
       )}

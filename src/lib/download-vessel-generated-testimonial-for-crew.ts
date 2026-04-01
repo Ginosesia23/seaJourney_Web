@@ -61,6 +61,7 @@ export async function downloadVesselGeneratedTestimonialForCrew(
     .maybeSingle();
 
   const hasApprovedAccess = !!accessRow;
+  const useCrewLogs = hasApprovedAccess && testimonial.data_source === 'crew';
 
   let standbyPeriods: Array<{
     passageStartDate: string;
@@ -73,7 +74,7 @@ export async function downloadVesselGeneratedTestimonialForCrew(
   try {
     let logs: StateLog[] = [];
 
-    if (hasApprovedAccess && testimonial.data_source === 'crew') {
+    if (useCrewLogs) {
       logs = await getVesselStateLogs(supabase, testimonial.vessel_id, crewProfile.id);
     } else {
       const vesselManagerId = vessel.vessel_manager_id;
@@ -139,7 +140,11 @@ export async function downloadVesselGeneratedTestimonialForCrew(
       filteredLogs,
       watchDates.size > 0 ? watchDates : undefined,
       partOfActivePassageDates.size > 0 ? partOfActivePassageDates : undefined,
-      { rangeStart: testimonial.start_date, rangeEnd: testimonial.end_date },
+      {
+        rangeStart: testimonial.start_date,
+        rangeEnd: testimonial.end_date,
+        vesselManagerSeaTime: !useCrewLogs,
+      },
     );
 
     const logMapByDate = new Map<string, string>();

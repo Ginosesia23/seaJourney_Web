@@ -125,6 +125,32 @@ export type ProofOfServicePDFInput = ProofOfServicePDFData | ProofOfServicePDFDa
 
 export type ProofOfServicePDFOutput = 'download' | 'newtab' | 'blob';
 
+/** One-page reference PDF for vessel managers — not an official SeaJourney form. */
+export interface SeaServiceBreakdownPDFInput {
+  vesselName: string;
+  vesselType: string | null;
+  vesselImo: string | null;
+  crewName: string;
+  crewPosition: string | null;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  /** Days with logged state "underway" (filled range). */
+  underwayDays: number;
+  atAnchorDays: number;
+  inPortDays: number;
+  /** Qualifying standby (already capped when passed from Documents). */
+  standbyDays: number;
+  yardDays: number;
+  dataSourceLabel: string;
+  calculationNote: string;
+  generatedByName: string;
+  generatedByEmail: string | null;
+  standbyPeriods?: Array<{ passageStartDate: string; passageEndDate: string; standbyDays: number }>;
+}
+
+export type SeaServiceBreakdownPDFOutput = 'download' | 'newtab' | 'blob';
+
 export interface NavWatchApplicationPDFData {
   application: {
     id: string;
@@ -1875,6 +1901,236 @@ export async function generateProofOfServicePDF(
     entries.length === 1
       ? `Proof of Service ${safe(first.vesselName)} ${first.startDate} to ${first.endDate}.pdf`
       : `Proof of Service ${safe(first.crewName)} ${entries.length} entries.pdf`;
+
+  if (output === 'blob') return doc.output('blob');
+  if (output === 'newtab') {
+    doc.output('dataurlnewwindow');
+    return;
+  }
+  doc.save(filename);
+}
+
+/* ========================================================================== */
+/*                    SEA SERVICE BREAKDOWN (REFERENCE PDF)                    */
+/* ========================================================================== */
+
+export async function generateSeaServiceBreakdownPDF(
+  data: SeaServiceBreakdownPDFInput,
+  output: SeaServiceBreakdownPDFOutput = 'download',
+) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const contentWidth = pageWidth - margin * 2;
+
+  const colors = {
+    navy: [15, 23, 42] as [number, number, number],
+    blue: [37, 99, 235] as [number, number, number],
+    purple: [126, 34, 206] as [number, number, number],
+    text: [28, 28, 30] as [number, number, number],
+    muted: [107, 114, 128] as [number, number, number],
+    border: [226, 232, 240] as [number, number, number],
+    softBg: [248, 250, 252] as [number, number, number],
+    lightBlue: [239, 246, 255] as [number, number, number],
+    lightPurple: [245, 243, 255] as [number, number, number],
+    warnBg: [254, 252, 232] as [number, number, number],
+    warnBorder: [250, 204, 21] as [number, number, number],
+    white: [255, 255, 255] as [number, number, number],
+  };
+
+  const setText = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
+  const setDraw = (c: [number, number, number]) => doc.setDrawColor(c[0], c[1], c[2]);
+  const setFill = (c: [number, number, number]) => doc.setFillColor(c[0], c[1], c[2]);
+  const safe = (s: string | null | undefined) => (s && String(s).trim()) || '—';
+
+  const drawRoundedRect = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    fillColor?: [number, number, number],
+    drawColor?: [number, number, number],
+  ) => {
+    if (fillColor) setFill(fillColor);
+    if (drawColor) setDraw(drawColor);
+    doc.setLineWidth(0.25);
+    const hasRoundedRect = typeof (doc as unknown as { roundedRect?: unknown }).roundedRect === 'function';
+    if (hasRoundedRect) {
+      (doc as unknown as {
+        roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, style: string) => void;
+      }).roundedRect(x, y, w, h, 2.5, 2.5, fillColor ? 'FD' : 'S');
+    } else {
+      doc.rect(x, y, w, h, fillColor ? 'FD' : 'S');
+    }
+  };
+
+  const drawSectionLabel = (label: string, x: number, y: number) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    setText(colors.muted);
+    doc.text(label.toUpperCase(), x, y);
+  };
+
+  const drawField = (label: string, value: string, x: number, y: number, width: number) => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    setText(colors.muted);
+    doc.text(label, x, y);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    setText(colors.text);
+    const lines = doc.splitTextToSize(value, width);
+    doc.text(lines, x, y + 4.5);
+    return y + 4.5 + lines.length * 4.2;
+  };
+
+  setFill(colors.navy);
+  doc.rect(0, 0, pageWidth, 34, 'F');
+  try {
+    const { dataURL: logoData, width: imgW, height: imgH } = await loadLogoImageWithDimensions('/logo-seajourney.png');
+    const targetH = 8;
+    const aspect = imgW / imgH;
+    const logoW = aspect * targetH;
+    doc.addImage(logoData, 'PNG', margin, (34 - targetH) / 2, logoW, targetH);
+  } catch {
+    /* optional logo */
+  }
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(17);
+  doc.setTextColor(255, 255, 255);
+  doc.text('Sea Service Breakdown', pageWidth - margin, 13, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(203, 213, 225);
+  doc.text('Reference only — not an official form', pageWidth - margin, 20, { align: 'right' });
+
+  let y = 42;
+
+  drawRoundedRect(margin, y, contentWidth, 22, colors.warnBg, colors.warnBorder);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  setText(colors.text);
+  const disclaimer =
+    'This PDF is a numeric summary from SeaJourney for the period and data source shown below. It is not a testimonial, proof of service, or government form. Use it only to help complete other paperwork manually; verify figures against your own records where required.';
+  doc.text(doc.splitTextToSize(disclaimer, contentWidth - 8), margin + 4, y + 7);
+  y += 28;
+
+  const gap = 6;
+  const halfW = (contentWidth - gap) / 2;
+  drawRoundedRect(margin, y, halfW, 40, colors.white, colors.border);
+  drawSectionLabel('Vessel', margin + 4, y + 6);
+  let ly = y + 12;
+  ly = drawField('Name', safe(data.vesselName), margin + 4, ly, halfW - 8);
+  ly = drawField('Type', safe(data.vesselType), margin + 4, ly + 2, halfW - 8);
+  drawField('IMO / Official No.', safe(data.vesselImo), margin + 4, ly + 2, halfW - 8);
+
+  drawRoundedRect(margin + halfW + gap, y, halfW, 40, colors.white, colors.border);
+  drawSectionLabel('Crew & period', margin + halfW + gap + 4, y + 6);
+  const periodStr = `${format(parse(data.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – ${format(
+    parse(data.endDate, 'yyyy-MM-dd', new Date()),
+    'dd MMM yyyy',
+  )}`;
+  let ry = y + 12;
+  ry = drawField('Crew name', safe(data.crewName), margin + halfW + gap + 4, ry, halfW - 8);
+  ry = drawField('Position', safe(data.crewPosition), margin + halfW + gap + 4, ry + 2, halfW - 8);
+  drawField('Period', periodStr, margin + halfW + gap + 4, ry + 2, halfW - 8);
+  y += 48;
+
+  drawRoundedRect(margin, y, contentWidth, 28, colors.softBg, colors.border);
+  drawSectionLabel('Data source & method', margin + 4, y + 6);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  setText(colors.navy);
+  doc.text(safe(data.dataSourceLabel), margin + 4, y + 14);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  setText(colors.text);
+  doc.text(doc.splitTextToSize(data.calculationNote, contentWidth - 8), margin + 4, y + 19);
+  y += 34;
+
+  drawSectionLabel('Day counts (use for manual forms)', margin, y);
+  y += 4;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  setText(colors.muted);
+  const breakdownNoteLines = doc.splitTextToSize(
+    'Logged daily states across the period (missing dates carry forward the last known state). On-leave days are not listed below; they are included only in the total calendar length. Sea service total is underway plus qualifying standby — the same combination as the SeaJourney crew breakdown.',
+    contentWidth,
+  );
+  doc.text(breakdownNoteLines, margin, y);
+  y += breakdownNoteLines.length * 3.6 + 2;
+
+  const seaServiceTotal = data.underwayDays + data.standbyDays;
+  const breakdownRows: [string, string][] = [
+    ['Total calendar days in period', String(data.totalDays)],
+    ['Underway', String(data.underwayDays)],
+    ['Standby (qualifying days)', String(data.standbyDays)],
+    ['Sea service total (underway + standby)', String(seaServiceTotal)],
+    ['At anchor', String(data.atAnchorDays)],
+    ['In port', String(data.inPortDays)],
+    ['In yard', String(data.yardDays)],
+  ];
+
+  const daysValueColW = 36;
+  autoTable(doc, {
+    startY: y,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    head: [['Metric', 'Days']],
+    body: breakdownRows,
+    styles: { fontSize: 9, cellPadding: 2.5 },
+    headStyles: { fillColor: [15, 23, 42] },
+    columnStyles: {
+      0: { cellWidth: contentWidth - daysValueColW },
+      1: { cellWidth: daysValueColW, halign: 'right', fontStyle: 'bold' },
+    },
+    theme: 'striped',
+  });
+  y = (doc as any).lastAutoTable.finalY + 6;
+
+  if (data.standbyPeriods && data.standbyPeriods.length > 0) {
+    drawSectionLabel('Standby periods (detail)', margin, y);
+    y += 4;
+    const standbyDaysColW = 36;
+    const standbyDatePairW = (contentWidth - standbyDaysColW) / 2;
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      tableWidth: contentWidth,
+      head: [['Passage start', 'Passage end', 'Standby days']],
+      body: data.standbyPeriods.map((p) => [
+        format(parse(p.passageStartDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy'),
+        format(parse(p.passageEndDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy'),
+        String(p.standbyDays),
+      ]),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [15, 23, 42] },
+      columnStyles: {
+        0: { cellWidth: standbyDatePairW },
+        1: { cellWidth: standbyDatePairW },
+        2: { cellWidth: standbyDaysColW, halign: 'right' },
+      },
+      theme: 'striped',
+    });
+  }
+
+  const footerY = pageHeight - 10;
+  setDraw(colors.border);
+  doc.setLineWidth(0.2);
+  doc.line(margin, footerY - 4, pageWidth - margin, footerY - 4);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  setText(colors.muted);
+  doc.text(
+    `Generated ${format(new Date(), 'dd MMM yyyy')} by ${safe(data.generatedByName)}${data.generatedByEmail ? ` (${data.generatedByEmail})` : ''}`,
+    margin,
+    footerY,
+  );
+  doc.text('SeaJourney • Reference breakdown', pageWidth - margin, footerY, { align: 'right' });
+
+  const crewSlug = safe(data.crewName).replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').slice(0, 40);
+  const filename = `Sea-service-breakdown-${crewSlug}-${data.startDate}-to-${data.endDate}.pdf`;
 
   if (output === 'blob') return doc.output('blob');
   if (output === 'newtab') {
@@ -4836,10 +5092,8 @@ export async function generateMCADeckhandTestimonial(
   drawText(page1, base, dateJoining, COORDS.dateJoining.x, COORDS.dateJoining.top);
   drawText(page1, base, dateDischarge, COORDS.dateDischarge.x, COORDS.dateDischarge.top);
 
-  // Service Days - use sum of standby periods when present so displayed count matches Table A
-  const displayStandbyDays = (data.standbyPeriods && data.standbyPeriods.length > 0)
-    ? data.standbyPeriods.reduce((sum, period) => sum + period.standbyDays, 0)
-    : testimonial.standby_days;
+  // Service days: use stored standby_days so page 1 matches crew UI / DB (period rows are illustrative detail)
+  const displayStandbyDays = Math.round(Number(testimonial.standby_days ?? 0));
   drawText(page1, base, testimonial.at_sea_days.toString(), COORDS.actualSeagoingDays.x, COORDS.actualSeagoingDays.top);
   drawText(page1, base, displayStandbyDays.toString(), COORDS.standbyDays.x, COORDS.standbyDays.top);
   drawText(page1, base, testimonial.yard_days.toString(), COORDS.yardDays.x, COORDS.yardDays.top);
@@ -4864,8 +5118,7 @@ export async function generateMCADeckhandTestimonial(
       const rowHeight = COORDS.standbyTableRowHeight;
       const totalRowTop = COORDS.standbyTableTotal.top;
       
-      // Calculate total standby days
-      const totalStandbyDays = data.standbyPeriods.reduce((sum, period) => sum + period.standbyDays, 0);
+      const totalStandbyDays = displayStandbyDays;
       
       // Convert total days to months and days (assuming 30 days per month)
       const months = Math.floor(totalStandbyDays / 30);
@@ -5451,10 +5704,8 @@ export async function generateMCAOfficerTestimonial(
   drawText(page1, base, dateJoining, COORDS.dateJoining.x, COORDS.dateJoining.top);
   drawText(page1, base, dateDischarge, COORDS.dateDischarge.x, COORDS.dateDischarge.top);
 
-  // Service Days - use sum of standby periods when present so displayed count matches Table A
-  const displayStandbyDays = (data.standbyPeriods && data.standbyPeriods.length > 0)
-    ? data.standbyPeriods.reduce((sum, period) => sum + period.standbyDays, 0)
-    : testimonial.standby_days;
+  // Service days: use stored standby_days so page 1 matches crew UI / DB (period rows are illustrative detail)
+  const displayStandbyDays = Math.round(Number(testimonial.standby_days ?? 0));
   drawText(page1, base, testimonial.at_sea_days.toString(), COORDS.actualSeagoingDays.x, COORDS.actualSeagoingDays.top);
   drawText(page1, base, displayStandbyDays.toString(), COORDS.standbyDays.x, COORDS.standbyDays.top);
   drawText(page1, base, testimonial.yard_days.toString(), COORDS.yardDays.x, COORDS.yardDays.top);
@@ -5479,8 +5730,7 @@ export async function generateMCAOfficerTestimonial(
       const rowHeight = COORDS.standbyTableRowHeight;
       const totalRowTop = COORDS.standbyTableTotal.top;
       
-      // Calculate total standby days
-      const totalStandbyDays = data.standbyPeriods.reduce((sum, period) => sum + period.standbyDays, 0);
+      const totalStandbyDays = displayStandbyDays;
       
       // Convert total days to months and days (assuming 30 days per month)
       const months = Math.floor(totalStandbyDays / 30);
