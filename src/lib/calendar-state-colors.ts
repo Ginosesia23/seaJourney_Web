@@ -10,20 +10,22 @@ export const CALENDAR_STATE_CHART_VAR: Record<DailyStatus, string> = {
 };
 
 /**
- * Light theme HSL for each chart token (hue, saturation %, lightness %).
- * Must stay in sync with `:root` chart variables in globals.css.
+ * Light theme HSL for each chart token — must match `:root` chart variables in globals.css.
+ * Excel applies the same black-mix ratio as {@link calendarStateSolid}.
  */
 const LIGHT_THEME_CHART_HSL: Record<DailyStatus, readonly [number, number, number]> = {
-    underway: [213, 60, 55],
-    'at-anchor': [25, 95, 53],
-    'in-port': [142, 76, 36],
-    'on-leave': [213, 15, 50],
-    'in-yard': [0, 84, 60],
+    underway: [213, 60, 60],
+    'at-anchor': [25, 95, 58],
+    'in-port': [142, 76, 41],
+    'on-leave': [213, 15, 55],
+    'in-yard': [0, 84, 65],
 };
 
-const BLACK_MIX = '16%';
-/** Same proportion as BLACK_MIX, for Excel / non-CSS consumers. */
-const BLACK_MIX_RATIO = 0.16;
+/** Same proportion as `:root` `--calendar-state-mix-pct` for Excel parity with color-mix(black). */
+const CALENDAR_SOLID_BLACK_MIX_RATIO = 0.16;
+
+/** Matches `color-mix(..., var(--calendar-state-mix) var(--calendar-state-mix-pct))` in globals. */
+const CALENDAR_SOLID_MIX = 'var(--calendar-state-mix) var(--calendar-state-mix-pct)';
 
 function hslToRgbBytes(h: number, sPercent: number, lPercent: number): { r: number; g: number; b: number } {
     const s = sPercent / 100;
@@ -62,8 +64,7 @@ function byteToHex2(n: number): string {
 }
 
 /**
- * Excel solid fill ARGB (AARRGGBB) matching calendar day cells: light-theme chart color
- * mixed toward black in HSL by the same ratio as {@link calendarStateSolid}.
+ * Excel solid fill ARGB (AARRGGBB) matching calendar day cells: chart color mixed toward black.
  */
 export function calendarStateExcelSolidArgb(state: string | null | undefined): string {
     if (!state || !(state in CALENDAR_STATE_CHART_VAR)) {
@@ -71,17 +72,17 @@ export function calendarStateExcelSolidArgb(state: string | null | undefined): s
     }
     const daily = state as DailyStatus;
     const [h, s, l] = LIGHT_THEME_CHART_HSL[daily];
-    // color-mix(in hsl, base, black 16%): achromatic black → keep hue of the chromatic color.
-    const sMix = s * (1 - BLACK_MIX_RATIO);
-    const lMix = l * (1 - BLACK_MIX_RATIO);
+    const rMix = CALENDAR_SOLID_BLACK_MIX_RATIO;
+    const sMix = s * (1 - rMix);
+    const lMix = l * (1 - rMix);
     const { r, g, b } = hslToRgbBytes(h, sMix, lMix);
     return `FF${byteToHex2(r)}${byteToHex2(g)}${byteToHex2(b)}`;
 }
 
-/** Darker than raw chart colors — day cells, legend tiles, solid borders. */
+/** Day cells, legend tiles, solid borders — theme-aware via `--calendar-state-mix*` in globals.css. */
 export function calendarStateSolid(state: DailyStatus): string {
     const v = CALENDAR_STATE_CHART_VAR[state];
-    return `color-mix(in hsl, hsl(var(--${v})), black ${BLACK_MIX})`;
+    return `color-mix(in hsl, hsl(var(--${v})), ${CALENDAR_SOLID_MIX})`;
 }
 
 /**
@@ -90,7 +91,7 @@ export function calendarStateSolid(state: DailyStatus): string {
  */
 export function calendarStateWash(state: DailyStatus, opacityPercent: number): string {
     const v = CALENDAR_STATE_CHART_VAR[state];
-    const base = `color-mix(in hsl, hsl(var(--${v})), black ${BLACK_MIX})`;
+    const base = `color-mix(in hsl, hsl(var(--${v})), ${CALENDAR_SOLID_MIX})`;
     return `color-mix(in srgb, ${base} ${opacityPercent}%, transparent)`;
 }
 

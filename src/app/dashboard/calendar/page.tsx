@@ -1889,7 +1889,7 @@ export default function CalendarPage() {
               return (
                 <div key={state.value} className="flex items-center gap-2">
                   <div
-                    className="h-8 w-8 rounded-xl flex items-center justify-center"
+                    className="h-8 w-8 rounded-[6px] flex items-center justify-center"
                     style={{ backgroundColor: state.color }}
                   >
                     <StateIcon className="h-4 w-4 text-white" />
@@ -2020,7 +2020,7 @@ export default function CalendarPage() {
                     }}
                   >
                     <div
-                      className="h-12 w-12 rounded-xl flex items-center justify-center shadow-sm"
+                      className="h-12 w-12 rounded-[6px] flex items-center justify-center shadow-sm"
                       style={{ backgroundColor: state.color }}
                     >
                       <StateIcon className="h-6 w-6 text-white" />
@@ -2063,7 +2063,7 @@ export default function CalendarPage() {
                     }}
                   >
                     <div
-                      className="h-12 w-12 rounded-xl flex items-center justify-center shadow-sm bg-destructive"
+                      className="h-12 w-12 rounded-[6px] flex items-center justify-center shadow-sm bg-destructive"
                     >
                       <XCircle className="h-6 w-6 text-white" />
                     </div>

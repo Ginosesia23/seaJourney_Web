@@ -48,14 +48,18 @@
     --sidebar-border: 213 45% 28%;
     --sidebar-ring: 213 90% 60%;
 
-    /* Chart Colors - Harmonized with blue theme */
-    --chart-blue: 213 60% 55%;
-    --chart-orange: 25 95% 53%;
-    --chart-green: 142 76% 36%;
-    --chart-gray: 213 15% 50%;
-    --chart-red: 0 84% 60%;
+    /* Chart Colors — +5% lightness vs previous for calendar / legend */
+    --chart-blue: 213 60% 60%;
+    --chart-orange: 25 95% 58%;
+    --chart-green: 142 76% 41%;
+    --chart-gray: 213 15% 55%;
+    --chart-red: 0 84% 65%;
     /* Standby (MCA-style counted days) — distinct from at-anchor state (orange) */
-    --chart-purple: 270 55% 48%;
+    --chart-purple: 270 55% 53%;
+
+    /* State solids: mix chart toward black (same idea as pre-wash tweak) */
+    --calendar-state-mix: black;
+    --calendar-state-mix-pct: 16%;
   }
  
   .dark {
@@ -109,6 +113,9 @@
     --chart-gray: 215 14% 54%;
     --chart-red: 0 84% 70%;
     --chart-purple: 270 50% 68%;
+
+    --calendar-state-mix: black;
+    --calendar-state-mix-pct: 16%;
   }
 
   .theme-dashboard {
