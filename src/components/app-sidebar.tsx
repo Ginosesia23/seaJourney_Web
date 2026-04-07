@@ -32,6 +32,7 @@ import {
   UserCog,
   ShieldCheck,
   Megaphone,
+  MessagesSquare,
 } from "lucide-react"
 
 import {
@@ -174,6 +175,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
       { href: "/dashboard/platform-analytics", label: "Platform Overview", icon: BarChart3, requiredRole: "admin", disabled: false },
       { href: "/dashboard/crew-analytics", label: "Crew Analytics", icon: Users, requiredRole: "admin", disabled: false },
       { href: "/dashboard/login-activity", label: "Login Activity", icon: LogIn, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/admin-messages", label: "Admin messages", icon: MessagesSquare, requiredRole: "admin", disabled: false },
     ]
   },
   {

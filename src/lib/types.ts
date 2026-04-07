@@ -184,6 +184,14 @@ export interface ProofOfService {
   updatedAt: string;
 }
 
+/** Rows from `app_broadcast_notifications`; edited via dashboard admin-messages page. */
+export interface AdminMessage {
+  id: string;
+  title: string;
+  body: string;
+  created_at: string;
+}
+
 export interface PassageLog {
     id: string;                        // uuid PK
     crew_id: string;                   // uuid FK → profiles.id
