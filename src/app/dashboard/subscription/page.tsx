@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from "@/lib/supabaseClient"; // adjust path to wherever you exported createClient(...)
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -100,7 +101,7 @@ interface StripeSubscriptionData {
 // Crew plan templates - for individual crew members
 const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
   {
-    name: 'Standard',
+    name: 'Crew Standard',
     price: '£4.99',
     priceSuffix: '/ month',
     trialLabel: CREW_TRIAL_DISPLAY_LABEL,
@@ -116,12 +117,12 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
     color: 'blue',
   },
   {
-    name: 'Premium',
+    name: 'Crew Premium',
     price: '£9.99',
     priceSuffix: '/ month',
     description: 'Advanced logging and documentation for career progression.',
     features: [
-      'All Standard features',
+      'All Crew Standard features',
       'Unlimited vessels',
       'Passage log book',
       'Bridge watch log book',
@@ -135,14 +136,14 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
     trialLabel: CREW_TRIAL_DISPLAY_LABEL,
   },
   {
-    name: 'Pro',
+    name: 'Crew Professional',
     price: '£14.99',
     priceSuffix: '/ month',
     trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description:
       'Complete maritime career management and certification tracking.',
     features: [
-      'All Premium features',
+      'All Crew Premium features',
       'Advanced analytics',
       'GPS passage tracking',
       'Automatic vessel state tracking via AIS (additional fee per month)',
@@ -157,13 +158,12 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
 // Vessel plan templates - for vessel accounts
 const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
   {
-    name: 'Vessel Lite',
-    price: '£24.99',
+    name: 'Vessel Standard',
+    price: '£35.99',
     priceSuffix: '/ month',
     description: 'Essential vessel management for small operations.',
     features: [
       'Single vessel',
-      'Up to 15 crew members',
       'Crew management & assignments',
       'Vessel state tracking',
       'Digital testimonial approvals',
@@ -174,15 +174,15 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
     color: 'blue',
   },
   {
-    name: 'Vessel Basic',
-    price: '£49.99',
+    name: 'Vessel Premium',
+    price: '£79.99',
     priceSuffix: '/ month',
     description: 'Advanced vessel management for growing operations.',
     features: [
       'Single vessel',
-      'Up to 30 crew members',
-      'All Lite features',
+      'All Standard features',
       'Advanced crew analytics',
+      'AI form builder',
       'Priority support',
     ],
     highlighted: false,
@@ -190,16 +190,17 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
     color: 'purple',
   },
   {
-    name: 'Vessel Pro',
-    price: '£99.99',
+    name: 'Vessel Professional',
+    price: '£139.99',
     priceSuffix: '/ month',
     description: 'Complete vessel management solution.',
     features: [
       'Single vessel',
-      'Unlimited crew members',
       'Multiple role assignments',
-      'All Basic features',
+      'All Premium features',
       'Generate documents and applications for crew members',
+      'End-to-end sign-off cycle: vessel → captain → crew',
+      'Free crew accounts while actively tracking this vessel',
     ],
     icon: TrendingUp,
     color: 'green',
@@ -214,7 +215,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'Up to 3 vessels (included)',
       'Unlimited crew members',
       '£50 per additional vessel',
-      'All Pro features',
+      'All Professional features',
       'Enterprise-grade analytics',
       'Custom integrations & API access',
       'Dedicated account manager',
@@ -493,11 +494,13 @@ export default function ManageSubscriptionPage() {
           if (lower.includes('vessel')) {
             if (lower.includes('fleet')) return 'vessel_fleet';
             if (lower.includes('pro')) return 'vessel_pro';
-            if (lower.includes('basic')) return 'vessel_basic';
-            if (lower.includes('lite')) return 'vessel_lite';
+            if (lower.includes('premium') || lower.includes('basic')) return 'vessel_basic';
+            if (lower.includes('standard') || lower.includes('lite')) return 'vessel_lite';
           }
-          // Handle crew plans
-          if (lower === 'pro') return 'professional';
+          // Handle crew plans (with or without "crew" prefix)
+          if (lower.includes('professional') || lower === 'pro' || lower === 'crew pro') return 'professional';
+          if (lower.includes('premium')) return 'premium';
+          if (lower.includes('standard')) return 'standard';
           return lower;
         };
 
@@ -839,15 +842,33 @@ export default function ManageSubscriptionPage() {
   };
 
   const handleResumeSubscription = async () => {
-    if (!stripeSubscription?.subscription) {
+    const sub = stripeSubscription?.subscription;
+    if (!sub) {
       toast({
         title: "Error",
-        description: "Unable to resume subscription. Please contact support.",
+        description: "Unable to load subscription details. Refresh the page or contact support.",
         variant: "destructive",
       });
       return;
     }
-  
+
+    const st = String(sub.status ?? '');
+    const canResumeInStripe =
+      sub.cancel_at_period_end === true &&
+      st !== 'canceled' &&
+      st !== 'incomplete_expired' &&
+      ['active', 'trialing', 'past_due'].includes(st);
+
+    if (!canResumeInStripe) {
+      toast({
+        title: "Resume not available",
+        description:
+          'Stripe only allows “resume” while a subscription is still active but scheduled to cancel. If your plan has already ended, start a new subscription from the Offers page.',
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       // ✅ Get access token from Supabase (browser/localStorage)
       const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
@@ -918,8 +939,16 @@ export default function ManageSubscriptionPage() {
   }
 
   const subscription = stripeSubscription?.subscription || null;
-  const isCancelled =
-    subscription?.cancel_at_period_end || subscription?.status === 'canceled';
+  const subStatus = String(subscription?.status ?? '');
+  const isFullyCanceled =
+    subStatus === 'canceled' || subStatus === 'incomplete_expired';
+  /** Still active in Stripe but will cancel at period end — only case where Resume works */
+  const isScheduledToCancelAtPeriodEnd =
+    Boolean(subscription?.cancel_at_period_end) &&
+    !isFullyCanceled &&
+    ['active', 'trialing', 'past_due'].includes(subStatus);
+  /** UI: subscription is “cancelled” in a broad sense (scheduled or already ended) */
+  const isCancelled = isScheduledToCancelAtPeriodEnd || isFullyCanceled;
   const currentPeriodEnd = subscription?.current_period_end
     ? new Date(subscription.current_period_end * 1000)
     : null;
@@ -941,9 +970,11 @@ export default function ManageSubscriptionPage() {
           <CardHeader>
             <CardTitle>Current Subscription</CardTitle>
             <CardDescription>
-              {isCancelled
-                ? 'Your subscription is scheduled to cancel at the end of the billing period.'
-                : 'Your active subscription details'}
+              {isFullyCanceled
+                ? 'This subscription has ended. Start a new plan to continue.'
+                : isScheduledToCancelAtPeriodEnd
+                  ? 'Your subscription is scheduled to cancel at the end of the billing period.'
+                  : 'Your active subscription details'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -964,10 +995,12 @@ export default function ManageSubscriptionPage() {
                   }
                   className="mt-1"
                 >
-                  {isCancelled
-                    ? 'Cancelling'
-                    : subscription.status.charAt(0).toUpperCase() +
-                      subscription.status.slice(1)}
+                  {isFullyCanceled
+                    ? 'Canceled'
+                    : isScheduledToCancelAtPeriodEnd
+                      ? 'Cancelling'
+                      : subscription.status.charAt(0).toUpperCase() +
+                        subscription.status.slice(1)}
                 </Badge>
               </div>
             </div>
@@ -975,7 +1008,7 @@ export default function ManageSubscriptionPage() {
             {currentPeriodEnd && (
               <div>
                 <p className="font-medium">
-                  {isCancelled ? 'Cancels on' : 'Next billing date'}
+                  {isScheduledToCancelAtPeriodEnd ? 'Cancels on' : 'Next billing date'}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {format(currentPeriodEnd, 'PPP')}
@@ -983,24 +1016,43 @@ export default function ManageSubscriptionPage() {
               </div>
             )}
 
-            {isCancelled && currentPeriodEnd && (
-              <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 rounded-lg">
-                <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">
-                    Subscription Cancelled
-                  </p>
-                  <p className="text-xs text-yellow-700 dark:text-yellow-300">
-                    You will retain access until {format(currentPeriodEnd, 'PPP')}
-                  </p>
+            {isScheduledToCancelAtPeriodEnd && currentPeriodEnd && (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-3 bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">
+                      Cancellation scheduled
+                    </p>
+                    <p className="text-xs text-yellow-700 dark:text-yellow-300">
+                      You keep access until {format(currentPeriodEnd, 'PPP')}. You can resume to
+                      keep billing past that date.
+                    </p>
+                  </div>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleResumeSubscription}
-                  className="rounded-xl"
+                  className="rounded-xl shrink-0 self-start sm:self-center"
                 >
                   Resume Subscription
+                </Button>
+              </div>
+            )}
+
+            {isFullyCanceled && (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-3 bg-muted/50 border border-border rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Subscription ended</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Stripe no longer has an active subscription to “resume.” Start a new subscription
+                    to continue. In the Stripe Dashboard, search by customer email or Customer ID
+                    (cus_…), not the old subscription id.
+                  </p>
+                </div>
+                <Button asChild variant="default" size="sm" className="rounded-xl shrink-0">
+                  <Link href="/offers">View plans</Link>
                 </Button>
               </div>
             )}

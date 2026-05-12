@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { parseAmsaReferenceFromDb } from '@/lib/amsa-sea-service-reference';
 
 export async function GET(req: NextRequest) {
   try {
@@ -140,6 +141,9 @@ export async function GET(req: NextRequest) {
       } || null,
       captainProfile: null,
       standbyPeriods: [],
+      amsaReference: parseAmsaReferenceFromDb(
+        (doc as { amsa_reference_data?: unknown }).amsa_reference_data,
+      ),
     };
 
     return NextResponse.json({

@@ -6,15 +6,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import {
   Form,
   FormControl,
@@ -23,18 +14,16 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useSupabase, useUser } from '@/supabase';
-import { Loader2 } from 'lucide-react';
-import LogoOnboarding from '@/components/logo-onboarding';
+import { Loader2, UserPlus, Anchor, Compass, FileCheck } from 'lucide-react';
+import {
+  WkAuthShell,
+  WkAsideHero,
+  WkPrimarySubmit,
+  wkInputCls,
+  wkLabelCls,
+} from '@/components/wk/wk-auth-shell';
 
 const signupSchema = z.object({
   username: z
@@ -44,15 +33,12 @@ const signupSchema = z.object({
   password: z
     .string()
     .min(8, { message: 'Password must be at least 8 characters long.' }),
-  firstName: z
-    .string()
-    .min(1, { message: 'First name is required.' }),
-  lastName: z
-    .string()
-    .min(1, { message: 'Last name is required.' }),
+  firstName: z.string().min(1, { message: 'First name is required.' }),
+  lastName: z.string().min(1, { message: 'Last name is required.' }),
   position: z.string().min(1, { message: 'Position is required.' }),
   agreeToTerms: z.boolean().refine((val) => val === true, {
-    message: 'You must agree to the Terms & Conditions and Privacy Policy to create an account.',
+    message:
+      'You must agree to the Terms & Conditions and Privacy Policy to create an account.',
   }),
 });
 
@@ -118,7 +104,6 @@ const POSITION_OPTIONS = [
   'Other',
 ] as const;
 
-// Inner component that actually uses hooks like useSearchParams
 function SignupPageInner() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingUser, setIsCheckingUser] = useState(true);
@@ -129,20 +114,19 @@ function SignupPageInner() {
   const { toast } = useToast();
   const { user, isUserLoading } = useUser();
 
-  // Optional redirect + plan (e.g. /signup?redirect=/offers&plan=premium)
   const redirectParam = searchParams.get('redirect');
   const planParam = searchParams.get('plan');
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { 
-      username: '', 
-      email: '', 
-      password: '', 
+    defaultValues: {
+      username: '',
+      email: '',
+      password: '',
       firstName: '',
       lastName: '',
       position: '',
-      agreeToTerms: false
+      agreeToTerms: false,
     },
   });
 
@@ -159,7 +143,6 @@ function SignupPageInner() {
   const handleSignup = async (data: SignupFormValues) => {
     setIsLoading(true);
     try {
-      // Local password check (zod also enforces)
       if (data.password.length < 8) {
         toast({
           title: 'Weak Password',
@@ -170,21 +153,19 @@ function SignupPageInner() {
         return;
       }
 
-      // Create auth user
-      const { data: authData, error: authError } =
-        await supabase.auth.signUp({
-          email: data.email,
-          password: data.password,
-          options: {
-            data: {
-              username: data.username,
-              firstName: data.firstName,
-              lastName: data.lastName,
-              position: data.position,
-            },
-            emailRedirectTo: `${window.location.origin}/auth/confirm`,
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+        options: {
+          data: {
+            username: data.username,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            position: data.position,
           },
-        });
+          emailRedirectTo: `${window.location.origin}/auth/confirm`,
+        },
+      });
 
       if (authError) {
         if (
@@ -221,7 +202,6 @@ function SignupPageInner() {
         throw new Error('User creation failed');
       }
 
-      // Create user profile via API (includes full name, position, role)
       try {
         const profileResponse = await fetch('/api/users/create-profile', {
           method: 'POST',
@@ -232,25 +212,28 @@ function SignupPageInner() {
             username: data.username,
             firstName: data.firstName,
             lastName: data.lastName,
-            position: data.position, // Required field - always provided
-            role: 'crew', // Default role for all signups
+            position: data.position,
+            role: 'crew',
           }),
         });
 
         const profileResult = await profileResponse.json();
-        
+
         if (!profileResponse.ok) {
           console.error('[SIGNUP] Profile creation API error:', profileResult);
-          // Don't fail signup - profile will be created by database trigger as fallback
         } else {
-          console.log('[SIGNUP] User profile created successfully with position:', profileResult);
+          console.log(
+            '[SIGNUP] User profile created successfully with position:',
+            profileResult,
+          );
         }
       } catch (profileError: any) {
-        console.error('[SIGNUP] Error calling profile creation API:', profileError);
-        // Don't fail signup - profile will be created by database trigger as fallback
+        console.error(
+          '[SIGNUP] Error calling profile creation API:',
+          profileError,
+        );
       }
 
-      // Email confirmation flow
       if (authData.user && !authData.session) {
         toast({
           title: 'Check Your Email',
@@ -266,7 +249,6 @@ function SignupPageInner() {
             'Welcome to SeaJourney! Your account has been successfully created.',
         });
 
-        // Decide where to send them next
         let redirectUrl = redirectParam || '/offers';
         if (!redirectParam && planParam) {
           redirectUrl = `/offers?plan=${encodeURIComponent(planParam)}`;
@@ -290,234 +272,308 @@ function SignupPageInner() {
 
   if (isCheckingUser) {
     return (
-      <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center">
-        <Loader2 className="h-12 w-12 animate-spin text-white" />
-      </div>
+      <WkAuthShell hideBackLink>
+        <div
+          className="wk-auth-card flex items-center justify-center p-10"
+          style={{ minHeight: 260 }}
+        >
+          <Loader2
+            className="h-8 w-8 animate-spin"
+            style={{ color: 'var(--wk-accent)' }}
+          />
+        </div>
+      </WkAuthShell>
     );
   }
 
   return (
-    <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
-      <div className="mb-8">
-        <LogoOnboarding />
-      </div>
-      <div className="relative w-full max-w-md p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
-        <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
-        <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
-        <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
-        <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
-
-        <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
-          <CardHeader className="text-center">
-            <CardTitle className="font-headline text-2xl">
-              Create an Account
-            </CardTitle>
-            <CardDescription>
-              Join SeaJourney and start tracking your sea time.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(handleSignup)}
-                className="space-y-4"
-              >
-                <FormField
-                  control={form.control}
-                  name="username"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Username</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="yourusername"
-                          {...field}
-                          className="rounded-lg"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="email"
-                          placeholder="you@example.com"
-                          {...field}
-                          className="rounded-lg"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="password"
-                          placeholder="••••••••"
-                          {...field}
-                          className="rounded-lg"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="firstName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>First Name</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="John"
-                            {...field}
-                            className="rounded-lg"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="lastName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Last Name</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="Doe"
-                            {...field}
-                            className="rounded-lg"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <FormField
-                  control={form.control}
-                  name="position"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Position/Role</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger className="rounded-lg">
-                            <SelectValue placeholder="Select your position" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent className="rounded-lg">
-                          {POSITION_OPTIONS.map((position) => (
-                            <SelectItem key={position} value={position}>
-                              {position}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="agreeToTerms"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                          className="rounded-sm"
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel className="text-sm font-normal cursor-pointer">
-                          I agree to the{' '}
-                          <Link
-                            href="/terms-of-service"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            Terms & Conditions
-                          </Link>
-                          {' '}and{' '}
-                          <Link
-                            href="/privacy-policy"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            Privacy Policy
-                          </Link>
-                        </FormLabel>
-                        <FormMessage />
-                      </div>
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="submit"
-                  className="w-full rounded-lg"
-                  disabled={isLoading}
-                >
-                  {isLoading && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  Sign Up
-                </Button>
-              </form>
-            </Form>
-            <p className="mt-6 text-center text-sm text-muted-foreground">
-              Already have an account?{' '}
-              <Link
-                href="/login"
-                className="font-medium text-primary hover:underline"
-              >
-                Sign in
-              </Link>
-              {' · '}
-              <Link
-                href="/signup/vessel"
-                className="font-medium text-primary hover:underline"
-              >
-                Register a vessel
-              </Link>
+    <WkAuthShell
+      size="lg"
+      aside={
+        <WkAsideHero
+          eyebrow="Join SeaJourney"
+          title={
+            <>
+              Your maritime career,{' '}
+              <span className="wk-gradient-text">fully documented</span>.
+            </>
+          }
+          description="Create a free account to log voyages, track certificates, and generate verifiable testimonials — trusted by crew, vessels, and maritime authorities."
+          bullets={[
+            {
+              label: 'Log sea time in seconds',
+              sub: 'Automatic day, standby, and at-sea tallies.',
+              icon: <Anchor className="h-4 w-4" />,
+            },
+            {
+              label: 'Official forms, pre-filled',
+              sub: 'MCA, AMSA, and yacht testimonials ready to sign.',
+              icon: <FileCheck className="h-4 w-4" />,
+            },
+            {
+              label: 'Beautifully tracked voyages',
+              sub: 'World map, certificates, and subscriptions in one place.',
+              icon: <Compass className="h-4 w-4" />,
+            },
+          ]}
+        />
+      }
+    >
+      <div className="wk-auth-card p-8 sm:p-10">
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl"
+            style={{
+              backgroundColor: 'var(--wk-accent-soft)',
+              color: 'var(--wk-accent)',
+              border: '1px solid var(--wk-accent-ring)',
+            }}
+          >
+            <UserPlus className="h-5 w-5" />
+          </span>
+          <div>
+            <h1
+              className="text-2xl font-semibold tracking-tight"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              <span className="wk-gradient-text">Create</span> your account
+            </h1>
+            <p className="text-sm" style={{ color: 'var(--wk-text-muted)' }}>
+              Free forever for crew. No credit card required.
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+
+        <div
+          className="my-6 h-px w-full"
+          style={{ backgroundColor: 'var(--wk-line)' }}
+        />
+
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(handleSignup)}
+            className="space-y-4"
+            noValidate
+          >
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="firstName"
+                render={({ field, fieldState }) => (
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className={wkLabelCls}>First name</FormLabel>
+                    <FormControl>
+                      <input
+                        placeholder="John"
+                        autoComplete="given-name"
+                        aria-invalid={fieldState.invalid || undefined}
+                        className={wkInputCls}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage className="wk-error" />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="lastName"
+                render={({ field, fieldState }) => (
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className={wkLabelCls}>Last name</FormLabel>
+                    <FormControl>
+                      <input
+                        placeholder="Doe"
+                        autoComplete="family-name"
+                        aria-invalid={fieldState.invalid || undefined}
+                        className={wkInputCls}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage className="wk-error" />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field, fieldState }) => (
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className={wkLabelCls}>Email</FormLabel>
+                    <FormControl>
+                      <input
+                        type="email"
+                        placeholder="you@example.com"
+                        autoComplete="email"
+                        aria-invalid={fieldState.invalid || undefined}
+                        className={wkInputCls}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage className="wk-error" />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="username"
+                render={({ field, fieldState }) => (
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className={wkLabelCls}>Username</FormLabel>
+                    <FormControl>
+                      <input
+                        placeholder="yourusername"
+                        autoComplete="username"
+                        aria-invalid={fieldState.invalid || undefined}
+                        className={wkInputCls}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage className="wk-error" />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field, fieldState }) => (
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className={wkLabelCls}>Password</FormLabel>
+                    <FormControl>
+                      <input
+                        type="password"
+                        placeholder="At least 8 characters"
+                        autoComplete="new-password"
+                        aria-invalid={fieldState.invalid || undefined}
+                        className={wkInputCls}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage className="wk-error" />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="position"
+                render={({ field, fieldState }) => (
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className={wkLabelCls}>
+                      Position / Role
+                    </FormLabel>
+                    <FormControl>
+                      <select
+                        aria-invalid={fieldState.invalid || undefined}
+                        className={`${wkInputCls} wk-select`}
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
+                      >
+                        <option value="" disabled>
+                          Select your position
+                        </option>
+                        {POSITION_OPTIONS.map((position) => (
+                          <option key={position} value={position}>
+                            {position}
+                          </option>
+                        ))}
+                      </select>
+                    </FormControl>
+                    <FormMessage className="wk-error" />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="agreeToTerms"
+              render={({ field, fieldState }) => (
+                <FormItem className="pt-1">
+                  <label className="flex items-start gap-3 text-sm leading-relaxed">
+                    <input
+                      type="checkbox"
+                      checked={field.value}
+                      onChange={(e) => field.onChange(e.target.checked)}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                      ref={field.ref}
+                      aria-invalid={fieldState.invalid || undefined}
+                      className="mt-0.5 h-4 w-4 cursor-pointer rounded"
+                      style={{ accentColor: 'var(--wk-accent)' }}
+                    />
+                    <span style={{ color: 'var(--wk-text-soft)' }}>
+                      I agree to the{' '}
+                      <Link
+                        href="/terms-of-service"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="wk-link"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Terms &amp; Conditions
+                      </Link>{' '}
+                      and{' '}
+                      <Link
+                        href="/privacy-policy"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="wk-link"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Privacy Policy
+                      </Link>
+                      .
+                    </span>
+                  </label>
+                  <FormMessage className="wk-error" />
+                </FormItem>
+              )}
+            />
+
+            <WkPrimarySubmit type="submit" loading={isLoading}>
+              Create Account
+            </WkPrimarySubmit>
+          </form>
+        </Form>
+
+        <p
+          className="mt-6 text-center text-sm"
+          style={{ color: 'var(--wk-text-muted)' }}
+        >
+          Already have an account?{' '}
+          <Link href="/login" className="wk-link">
+            Sign in
+          </Link>
+          {' · '}
+          <Link href="/signup/vessel" className="wk-link">
+            Register a vessel
+          </Link>
+        </p>
       </div>
-    </div>
+    </WkAuthShell>
   );
 }
 
-// Default export: wrap the inner component in Suspense so useSearchParams is safe
 export default function SignupPage() {
   return (
     <Suspense
       fallback={
-        <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center">
-          <Loader2 className="h-12 w-12 animate-spin text-white" />
-        </div>
+        <WkAuthShell hideBackLink>
+          <div
+            className="wk-auth-card flex items-center justify-center p-10"
+            style={{ minHeight: 260 }}
+          >
+            <Loader2
+              className="h-8 w-8 animate-spin"
+              style={{ color: 'var(--wk-accent)' }}
+            />
+          </div>
+        </WkAuthShell>
       }
     >
       <SignupPageInner />

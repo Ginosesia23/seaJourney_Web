@@ -243,6 +243,40 @@ async function syncUserFromSubscription(
 
   console.log("[SYNC] before:", { before, beforeErr });
 
+  /**
+   * Stale events: Stripe can deliver `customer.subscription.updated` / `deleted` for an *old*
+   * subscription after checkout has already written a *new* `stripe_subscription_id`. Without
+   * this guard, we would overwrite the row back to `canceled` / old tier — the usual cause of
+   * "DB keeps reverting to canceled" after manual fixes. If the DB points at a subscription
+   * that is still live in Stripe, ignore this event payload.
+   */
+  if (before?.stripe_subscription_id && sub.id !== before.stripe_subscription_id) {
+    try {
+      const current = await stripe.subscriptions.retrieve(before.stripe_subscription_id, {
+        expand: ["items.data.price.product"],
+      });
+      const st = current.status;
+      if (st === "active" || st === "trialing" || st === "past_due") {
+        console.warn(
+          "[SYNC] Skipping stale subscription webhook — DB already tracks a different current subscription",
+          {
+            eventSubscriptionId: sub.id,
+            dbSubscriptionId: before.stripe_subscription_id,
+            userId,
+            currentStripeStatus: st,
+          },
+        );
+        return { before, after: before, userId };
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(
+        "[SYNC] Could not retrieve DB subscription id; applying event (may replace ended sub)",
+        { dbSubscriptionId: before.stripe_subscription_id, message: msg },
+      );
+    }
+  }
+
   // Update by userId first
   const { data: updated, error: updateErr } = await supabaseAdmin
     .from("users")
@@ -634,10 +668,17 @@ export async function POST(req: NextRequest) {
         let userId: string | null = null;
 
         // Try to get user info from database using customer ID
+        let userData: {
+          id: string;
+          email: string | null;
+          subscription_tier: string | null;
+          stripe_subscription_id: string | null;
+        } | null = null;
+
         if (customerId) {
-          const { data: userData, error: userError } = await supabaseAdmin
+          const { data: row, error: userError } = await supabaseAdmin
             .from("users")
-            .select("id, email, subscription_tier")
+            .select("id, email, subscription_tier, stripe_subscription_id")
             .eq("stripe_customer_id", customerId)
             .maybeSingle();
 
@@ -645,10 +686,11 @@ export async function POST(req: NextRequest) {
             console.error("[STRIPE WEBHOOK] Error fetching user by customer ID:", userError);
           }
 
-          if (userData) {
-            userId = userData.id;
-            userEmail = userData.email || null;
-            userTier = userData.subscription_tier || null;
+          if (row) {
+            userData = row;
+            userId = row.id;
+            userEmail = row.email || null;
+            userTier = row.subscription_tier || null;
             console.log("[STRIPE WEBHOOK] Found user from database:", {
               userId,
               email: userEmail,
@@ -673,8 +715,13 @@ export async function POST(req: NextRequest) {
           });
         } catch (retrieveError: any) {
           console.warn("[STRIPE WEBHOOK] Could not retrieve deleted subscription:", retrieveError?.message);
-          // If we can't retrieve, update status manually
-          if (userId) {
+          // Only force-canceled if this deletion matches the subscription we still store (avoid
+          // clobbering a newer sub when an old sub's delete event arrives late).
+          if (
+            userId &&
+            userData?.stripe_subscription_id &&
+            userData.stripe_subscription_id === partial.id
+          ) {
             const { error: updateError } = await supabaseAdmin
               .from("users")
               .update({
@@ -686,8 +733,13 @@ export async function POST(req: NextRequest) {
             if (updateError) {
               console.error("[STRIPE WEBHOOK] Failed to update user status:", updateError);
             } else {
-              console.log("[STRIPE WEBHOOK] Updated user status to canceled");
+              console.log("[STRIPE WEBHOOK] Updated user status to canceled (deleted sub matched DB id)");
             }
+          } else if (userId) {
+            console.warn(
+              "[STRIPE WEBHOOK] Skipping forced cancel — deleted subscription id does not match users.stripe_subscription_id (likely stale delete after resubscribe)",
+              { deletedId: partial.id, dbSubId: userData?.stripe_subscription_id },
+            );
           }
         }
 

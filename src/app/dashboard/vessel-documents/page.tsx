@@ -330,7 +330,8 @@ export default function VesselDocumentsPage() {
     if (!userProfile) return;
     setDownloadingId(downloadKey);
     try {
-      const fmt = (row.pdf_format === 'seajourney' ? 'seajourney' : 'mca') as TestimonialPDFFormat;
+      const raw = String(row.pdf_format || 'mca').toLowerCase();
+      const fmt = (raw === 'seajourney' || raw === 'amsa' ? raw : 'mca') as TestimonialPDFFormat;
       await downloadVesselGeneratedTestimonialForCrew(supabase, row, userProfile, fmt, 'download');
       toast({ title: 'Download started', description: 'Your PDF should download shortly.' });
     } catch (e) {

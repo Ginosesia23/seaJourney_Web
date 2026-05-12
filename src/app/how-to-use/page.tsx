@@ -1,212 +1,444 @@
-
 'use client';
 
-import Header from '@/components/layout/header';
-import Footer from '@/components/layout/footer';
-import { User, Ship, CalendarDays, FileSignature, FileText, PlusCircle, ArrowRight, Star, ShieldCheck } from 'lucide-react';
+import Link from 'next/link';
+import {
+  User,
+  Ship,
+  CalendarDays,
+  FileSignature,
+  FileText,
+  PlusCircle,
+  ArrowRight,
+  Star,
+  ShieldCheck,
+  Compass,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { WkPageShell, WkPageHero } from '@/components/wk/wk-page-shell';
 
-const steps = [
-  {
-    icon: <User className="h-8 w-8 text-accent" />,
-    title: '1. Set Up Your Profile',
-    description: "Create your account and fill in your professional details to get started. This information will be used for your official documents.",
-    component: (
-        <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white">
-            <CardHeader>
-                <div className="flex items-center gap-4">
-                    <Avatar className="h-16 w-16">
-                        <AvatarFallback className="bg-primary/80 text-primary-foreground text-xl">JD</AvatarFallback>
-                    </Avatar>
-                    <div>
-                        <CardTitle className="text-white">Jane Doe</CardTitle>
-                        <CardDescription className="text-white/70">@janedoe</CardDescription>
-                    </div>
-                </div>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-                <div className="flex justify-between items-center p-2 rounded-md bg-white/5">
-                    <span className="text-white/70">Email</span>
-                    <span className="font-medium">j.doe@sea.com</span>
-                </div>
-                <div className="flex justify-between items-center p-2 rounded-md bg-white/5">
-                    <span className="text-white/70">Subscription</span>
-                    <Badge variant="secondary" className="bg-accent/20 text-accent border-accent/30">Premium</Badge>
-                </div>
-            </CardContent>
-        </Card>
-    )
-  },
-  {
-    icon: <Ship className="h-8 w-8 text-accent" />,
-    title: '2. Add Your Vessels',
-    description: "Easily add the vessels you've worked on. Include details like the vessel name, type, and official number for accurate record-keeping.",
-     component: (
-        <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white">
-            <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-white text-lg">Your Vessels</CardTitle>
-                <Button variant="ghost" size="icon" className="text-accent h-8 w-8"><PlusCircle className="h-5 w-5" /></Button>
-            </CardHeader>
-            <CardContent>
-                <Table>
-                    <TableHeader>
-                        <TableRow className="border-white/10">
-                            <TableHead className="text-white/80">Vessel</TableHead>
-                            <TableHead className="text-white/80">Status</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        <TableRow className="border-white/10 hover:bg-white/5">
-                            <TableCell className="font-medium text-white">M/Y Odyssey</TableCell>
-                            <TableCell><Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">Current</Badge></TableCell>
-                        </TableRow>
-                        <TableRow className="border-white/10 hover:bg-white/5">
-                            <TableCell className="font-medium text-white">S/Y Wanderer</TableCell>
-                            <TableCell><Badge variant="outline" className="border-white/20 text-white/60">Past</Badge></TableCell>
-                        </TableRow>
-                    </TableBody>
-                </Table>
-            </CardContent>
-        </Card>
-    )
-  },
-  {
-    icon: <CalendarDays className="h-8 w-8 text-accent" />,
-    title: '3. Log Your Sea Time',
-    description: "Log your sea days with our intuitive calendar. Just select the dates, and the app will calculate your time for you.",
-    component: (
-        <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white p-4">
-            <div className="text-center font-bold mb-2">May 2024</div>
-            <div className="grid grid-cols-7 gap-1 text-xs text-center text-white/60 mb-2">
-                <div>Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div>
+// ---------------------------------------------------------------------------
+// Step preview tiles — built with wk theme variables so they auto light/dark
+// ---------------------------------------------------------------------------
+
+function PreviewShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="w-full max-w-sm rounded-2xl p-5"
+      style={{
+        backgroundColor: 'var(--wk-card)',
+        border: '1px solid var(--wk-line)',
+        boxShadow: 'var(--wk-shadow-md)',
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ProfilePreview() {
+  return (
+    <PreviewShell>
+      <div className="flex items-center gap-4">
+        <div
+          className="flex h-14 w-14 items-center justify-center rounded-2xl text-lg font-bold text-white"
+          style={{ background: 'var(--wk-grad-btn)' }}
+        >
+          JD
+        </div>
+        <div>
+          <div className="text-base font-semibold" style={{ color: 'var(--wk-text)' }}>
+            Jane Doe
+          </div>
+          <div className="text-xs" style={{ color: 'var(--wk-text-muted)' }}>
+            @janedoe
+          </div>
+        </div>
+      </div>
+      <div className="mt-5 space-y-2">
+        <div
+          className="flex items-center justify-between rounded-lg px-3 py-2 text-sm"
+          style={{ backgroundColor: 'var(--wk-bg-subtle)' }}
+        >
+          <span style={{ color: 'var(--wk-text-muted)' }}>Email</span>
+          <span className="font-medium" style={{ color: 'var(--wk-text)' }}>
+            j.doe@sea.com
+          </span>
+        </div>
+        <div
+          className="flex items-center justify-between rounded-lg px-3 py-2 text-sm"
+          style={{ backgroundColor: 'var(--wk-bg-subtle)' }}
+        >
+          <span style={{ color: 'var(--wk-text-muted)' }}>Subscription</span>
+          <span className="wk-chip">Premium</span>
+        </div>
+      </div>
+    </PreviewShell>
+  );
+}
+
+function VesselsPreview() {
+  return (
+    <PreviewShell>
+      <div className="flex items-center justify-between">
+        <div className="text-base font-semibold" style={{ color: 'var(--wk-text)' }}>
+          Your vessels
+        </div>
+        <span
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full"
+          style={{
+            backgroundColor: 'var(--wk-accent-soft)',
+            color: 'var(--wk-accent)',
+            border: '1px solid var(--wk-accent-ring)',
+          }}
+          aria-hidden="true"
+        >
+          <PlusCircle className="h-4 w-4" />
+        </span>
+      </div>
+      <div className="mt-4 divide-y" style={{ borderColor: 'var(--wk-line)' }}>
+        {[
+          { name: 'M/Y Odyssey', status: 'Current', tone: 'good' },
+          { name: 'S/Y Wanderer', status: 'Past', tone: 'muted' },
+        ].map((row, i) => (
+          <div
+            key={i}
+            className="flex items-center justify-between py-3 text-sm"
+            style={{ borderColor: 'var(--wk-line)' }}
+          >
+            <span className="font-medium" style={{ color: 'var(--wk-text)' }}>
+              {row.name}
+            </span>
+            <span
+              className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+              style={
+                row.tone === 'good'
+                  ? {
+                      backgroundColor: 'var(--wk-good-soft)',
+                      color: 'var(--wk-good)',
+                      border: '1px solid color-mix(in srgb, var(--wk-good) 35%, transparent)',
+                    }
+                  : {
+                      backgroundColor: 'var(--wk-bg-subtle)',
+                      color: 'var(--wk-text-muted)',
+                      border: '1px solid var(--wk-line)',
+                    }
+              }
+            >
+              {row.status}
+            </span>
+          </div>
+        ))}
+      </div>
+    </PreviewShell>
+  );
+}
+
+function CalendarPreview() {
+  const seaDays = [3, 4, 5, 10, 11, 12, 13, 14, 18, 19, 25, 26, 27];
+  const portDays = [
+    1, 2, 6, 7, 8, 9, 15, 16, 17, 20, 21, 22, 23, 24, 28, 29, 30, 31,
+  ];
+  return (
+    <PreviewShell>
+      <div
+        className="mb-3 text-center text-sm font-semibold"
+        style={{ color: 'var(--wk-text)' }}
+      >
+        May 2024
+      </div>
+      <div
+        className="mb-2 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase"
+        style={{ color: 'var(--wk-text-muted)' }}
+      >
+        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
+          <div key={d}>{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-xs">
+        {Array.from({ length: 31 }).map((_, i) => {
+          const day = i + 1;
+          const isSea = seaDays.includes(day);
+          const isPort = portDays.includes(day);
+          return (
+            <div
+              key={i}
+              className="flex h-7 items-center justify-center rounded-md font-medium"
+              style={{
+                backgroundColor: isSea
+                  ? 'var(--wk-accent)'
+                  : isPort
+                    ? 'var(--wk-good-soft)'
+                    : 'transparent',
+                color: isSea
+                  ? '#fff'
+                  : isPort
+                    ? 'var(--wk-good)'
+                    : 'var(--wk-text-muted)',
+                border: isPort
+                  ? '1px solid color-mix(in srgb, var(--wk-good) 35%, transparent)'
+                  : 'none',
+              }}
+            >
+              {day}
             </div>
-            <div className="grid grid-cols-7 gap-1 text-center text-sm">
-                {Array.from({length: 31}).map((_, i) => {
-                    const day = i + 1;
-                    const isSeaDay = [3,4,5,10,11,12,13,14,18,19,25,26,27].includes(day);
-                    const isPortDay = [1,2,6,7,8,9,15,16,17,20,21,22,23,24,28,29,30,31].includes(day);
-                    return (
-                        <div key={i} className={cn(
-                            "h-8 w-8 flex items-center justify-center rounded-full",
-                            isSeaDay && "bg-accent text-accent-foreground",
-                            isPortDay && "bg-green-500/80 text-white",
-                            !isSeaDay && !isPortDay && "text-white/50"
-                        )}>
-                            {day}
-                        </div>
-                    )
-                })}
-            </div>
-        </Card>
-    )
+          );
+        })}
+      </div>
+      <div
+        className="mt-4 flex items-center justify-center gap-4 text-[11px]"
+        style={{ color: 'var(--wk-text-muted)' }}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: 'var(--wk-accent)' }}
+          />
+          Sea day
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: 'var(--wk-good)' }}
+          />
+          Port day
+        </span>
+      </div>
+    </PreviewShell>
+  );
+}
+
+function SignatureRequestPreview() {
+  return (
+    <PreviewShell>
+      <div className="flex flex-col items-center text-center">
+        <span
+          className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl"
+          style={{
+            backgroundColor: 'var(--wk-accent-soft)',
+            color: 'var(--wk-accent)',
+            border: '1px solid var(--wk-accent-ring)',
+          }}
+        >
+          <FileSignature className="h-6 w-6" />
+        </span>
+        <div className="text-base font-semibold" style={{ color: 'var(--wk-text)' }}>
+          Request signature
+        </div>
+        <p
+          className="mt-2 text-xs leading-relaxed"
+          style={{ color: 'var(--wk-text-soft)' }}
+        >
+          Generate a secure link for Capt. Smith to sign off your sea time on M/Y
+          Odyssey.
+        </p>
+        <button className="wk-btn wk-btn-primary mt-4 w-full" type="button">
+          Generate &amp; send
+          <ArrowRight className="h-4 w-4" />
+        </button>
+      </div>
+    </PreviewShell>
+  );
+}
+
+function ExportPreview() {
+  return (
+    <PreviewShell>
+      <div className="flex items-center gap-2">
+        <FileText className="h-4 w-4" style={{ color: 'var(--wk-accent)' }} />
+        <div className="text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+          Export center
+        </div>
+      </div>
+      <div
+        className="mb-4 mt-1 text-xs"
+        style={{ color: 'var(--wk-text-muted)' }}
+      >
+        One-click professional documents.
+      </div>
+      <div className="space-y-2">
+        {[
+          { Icon: FileText, label: 'Full Sea Time Report.pdf' },
+          { Icon: Star, label: 'Testimonial_Capt_Smith.pdf' },
+        ].map(({ Icon, label }, i) => (
+          <div
+            key={i}
+            className="flex items-center justify-between rounded-lg p-3 text-sm"
+            style={{
+              backgroundColor: 'var(--wk-bg-subtle)',
+              border: '1px solid var(--wk-line)',
+            }}
+          >
+            <span className="inline-flex items-center gap-2.5">
+              <Icon className="h-4 w-4" style={{ color: 'var(--wk-text-muted)' }} />
+              <span style={{ color: 'var(--wk-text)' }}>{label}</span>
+            </span>
+            <ArrowRight className="h-4 w-4" style={{ color: 'var(--wk-text-muted)' }} />
+          </div>
+        ))}
+      </div>
+    </PreviewShell>
+  );
+}
+
+function ApprovalPreview() {
+  return (
+    <PreviewShell>
+      <div className="flex flex-col items-center text-center">
+        <span
+          className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl"
+          style={{
+            backgroundColor: 'var(--wk-accent-soft)',
+            color: 'var(--wk-accent)',
+            border: '1px solid var(--wk-accent-ring)',
+          }}
+        >
+          <ShieldCheck className="h-6 w-6" />
+        </span>
+        <div className="text-base font-semibold" style={{ color: 'var(--wk-text)' }}>
+          Submit to MCA
+        </div>
+        <p
+          className="mt-2 text-xs leading-relaxed"
+          style={{ color: 'var(--wk-text-soft)' }}
+        >
+          Send your verified documents for official review.
+        </p>
+        <button className="wk-btn wk-btn-primary mt-4 w-full opacity-60" disabled>
+          Submit for approval
+        </button>
+      </div>
+    </PreviewShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Step list
+// ---------------------------------------------------------------------------
+
+type Step = {
+  Icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  preview: React.ReactNode;
+  comingSoon?: boolean;
+};
+
+const steps: Step[] = [
+  {
+    Icon: User,
+    title: '1. Set up your profile',
+    description:
+      'Create your account and fill in your professional details to get started. This information will be used for your official documents.',
+    preview: <ProfilePreview />,
   },
   {
-    icon: <FileSignature className="h-8 w-8 text-accent" />,
-    title: '4. Request Digital Testimonials',
-    description: "Generate a sea time testimonial and send a secure link to your captain or superior to get it digitally signed.",
-    component: (
-       <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white">
-            <CardHeader className="text-center items-center">
-                <FileSignature className="h-10 w-10 text-accent mb-2" />
-                <CardTitle className="text-white">Request Signature</CardTitle>
-                <CardDescription className="text-white/70">Generate a secure link for Capt. Smith to sign off on your sea time for M/Y Odyssey.</CardDescription>
-            </CardHeader>
-            <CardContent className="text-center">
-                <Button variant="accent" className="w-full rounded-lg">Generate & Send Request</Button>
-            </CardContent>
-        </Card>
-    )
+    Icon: Ship,
+    title: '2. Add your vessels',
+    description:
+      "Easily add the vessels you've worked on. Include details like the vessel name, type, and official number for accurate record-keeping.",
+    preview: <VesselsPreview />,
   },
   {
-    icon: <FileText className="h-8 w-8 text-accent" />,
-    title: '5. Export Your Documents',
-    description: "When you're ready to apply for a new certificate, export all your logged sea time and signed testimonials into a single, professional PDF.",
-    component: (
-        <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white">
-             <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2 text-white/80">
-                    <FileText className="h-5 w-5" />
-                    Export Center
-                </CardTitle>
-                 <CardDescription className="text-white/50">One-click professional documents.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-                <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer transition-colors">
-                    <div className="flex items-center gap-3">
-                        <FileText className="h-4 w-4 text-white/70" />
-                        <span className="text-white">Full Sea Time Report.pdf</span>
-                    </div>
-                    <ArrowRight className="h-4 w-4 text-white/50" />
-                </div>
-                 <div className="flex items-center justify-between text-sm p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer transition-colors">
-                     <div className="flex items-center gap-3">
-                        <Star className="h-4 w-4 text-white/70" />
-                        <span className="text-white">Testimonial_Capt_Smith.pdf</span>
-                    </div>
-                    <ArrowRight className="h-4 w-4 text-white/50" />
-                </div>
-            </CardContent>
-        </Card>
-    )
+    Icon: CalendarDays,
+    title: '3. Log your sea time',
+    description:
+      'Log your sea days with our intuitive calendar. Just select the dates, and the app will calculate your time for you.',
+    preview: <CalendarPreview />,
   },
   {
-    icon: <ShieldCheck className="h-8 w-8 text-accent" />,
-    title: '6. Request Official Approval',
-    description: "Submit your digitally signed and verified documents to maritime authorities for official review and certificate issuance.",
+    Icon: FileSignature,
+    title: '4. Request digital testimonials',
+    description:
+      'Generate a sea time testimonial and send a secure link to your captain or superior to get it digitally signed.',
+    preview: <SignatureRequestPreview />,
+  },
+  {
+    Icon: FileText,
+    title: '5. Export your documents',
+    description:
+      "When you're ready to apply for a new certificate, export all your logged sea time and signed testimonials into a single, professional PDF.",
+    preview: <ExportPreview />,
+  },
+  {
+    Icon: ShieldCheck,
+    title: '6. Request official approval',
+    description:
+      'Submit your digitally signed and verified documents to maritime authorities for official review and certificate issuance.',
+    preview: <ApprovalPreview />,
     comingSoon: true,
-    component: (
-      <Card className="w-full max-w-sm mx-auto bg-black/20 border-primary/20 backdrop-blur-sm text-white">
-        <CardHeader className="text-center items-center">
-            <ShieldCheck className="h-10 w-10 text-accent mb-2" />
-            <CardTitle className="text-white">Submit to MCA</CardTitle>
-            <CardDescription className="text-white/70">Send your verified documents for official review.</CardDescription>
-        </CardHeader>
-        <CardContent className="text-center">
-            <Button variant="accent" className="w-full rounded-lg" disabled>Submit for Approval</Button>
-        </CardContent>
-      </Card>
-    )
   },
 ];
 
-const StepSection = ({ step, index }: { step: (typeof steps)[0], index: number }) => {
+function StepRow({ step, index }: { step: Step; index: number }) {
   const isOdd = index % 2 === 1;
-  
+  const { Icon } = step;
   return (
-    <div className="py-12" style={{ backgroundColor: '#000b15' }}>
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
-          <div className={cn(
-            "text-center lg:text-left",
-            isOdd ? 'lg:order-2' : 'lg:order-1'
-          )}>
-            <div className="flex items-center justify-center lg:justify-start gap-3 mb-4">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl" style={{ backgroundColor: 'rgba(59, 130, 246, 0.2)' }}>
-              {step.icon}
-              </div>
-              {step.comingSoon && (
-                <Badge className="px-3 py-1 rounded-full text-xs font-semibold border" style={{ backgroundColor: 'rgba(249, 115, 22, 0.2)', borderColor: 'rgba(249, 115, 22, 0.5)', color: '#fb923c' }}>
-                  Coming Soon
-                </Badge>
-              )}
-            </div>
-            <h2 className="font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">{step.title}</h2>
-            <p className="mt-6 text-lg leading-8 text-blue-100">{step.description}</p>
-          </div>
-          <div className={cn(
-            "flex justify-center",
-            isOdd ? 'lg:order-1' : 'lg:order-2'
-          )}>
-            <div className="w-full max-w-md p-2 border rounded-xl backdrop-blur-sm" style={{ borderColor: 'rgba(255, 255, 255, 0.1)', backgroundColor: 'rgba(2, 22, 44, 0.5)' }}>
-                 <div className="relative aspect-[4/3] w-full rounded-lg flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.3)' }}>
-                    {step.component}
-                 </div>
-            </div>
+    <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-2 lg:gap-14">
+      <div
+        className={cn(
+          'text-center lg:text-left',
+          isOdd ? 'lg:order-2' : 'lg:order-1',
+        )}
+      >
+        <div className="mb-4 flex items-center justify-center gap-3 lg:justify-start">
+          <span
+            className="inline-flex h-12 w-12 items-center justify-center rounded-xl"
+            style={{
+              backgroundColor: 'var(--wk-accent-soft)',
+              color: 'var(--wk-accent)',
+              border: '1px solid var(--wk-accent-ring)',
+            }}
+          >
+            <Icon className="h-6 w-6" />
+          </span>
+          {step.comingSoon ? (
+            <span
+              className="inline-flex items-center rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor: 'var(--wk-warn-soft)',
+                color: 'var(--wk-warn)',
+                border:
+                  '1px solid color-mix(in srgb, var(--wk-warn) 40%, transparent)',
+              }}
+            >
+              Coming soon
+            </span>
+          ) : null}
+        </div>
+        <h2
+          className="text-3xl font-bold tracking-tight sm:text-4xl"
+          style={{ color: 'var(--wk-text)' }}
+        >
+          {step.title}
+        </h2>
+        <p
+          className="mt-4 text-base leading-relaxed sm:text-lg"
+          style={{ color: 'var(--wk-text-soft)' }}
+        >
+          {step.description}
+        </p>
+      </div>
+      <div
+        className={cn(
+          'flex justify-center',
+          isOdd ? 'lg:order-1' : 'lg:order-2',
+        )}
+      >
+        <div
+          className="w-full max-w-md rounded-3xl p-3"
+          style={{
+            backgroundColor: 'var(--wk-bg-subtle)',
+            border: '1px solid var(--wk-line)',
+          }}
+        >
+          <div
+            className="flex aspect-[4/3] w-full items-center justify-center rounded-2xl p-4"
+            style={{
+              backgroundColor: 'var(--wk-bg-deep)',
+              border: '1px solid var(--wk-line)',
+            }}
+          >
+            {step.preview}
           </div>
         </div>
       </div>
@@ -215,32 +447,53 @@ const StepSection = ({ step, index }: { step: (typeof steps)[0], index: number }
 }
 
 export default function HowToUsePage() {
-
   return (
-    <div className="flex min-h-screen flex-col" style={{ backgroundColor: '#000b15' }}>
-      <Header />
-      <main className="flex-1">
-        <section className="py-16 sm:py-24 text-center" style={{ backgroundColor: '#000b15' }}>
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-3xl">
-              <h1 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-5xl">
-                How to Use SeaJourney
-              </h1>
-              <p className="mt-4 text-lg leading-8 text-blue-100">
-                Follow these simple steps to start tracking your sea time like a pro and accelerate your career.
-              </p>
+    <WkPageShell>
+      <WkPageHero
+        eyebrow="Guide"
+        icon={<Compass className="h-7 w-7" />}
+        title={
+          <>
+            How to use <span className="wk-gradient-text">SeaJourney</span>
+          </>
+        }
+        description="Follow these simple steps to start tracking your sea time like a pro and accelerate your career."
+      />
+
+      <section className="pb-24">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-6xl space-y-20">
+            {steps.map((step, index) => (
+              <StepRow key={index} step={step} index={index} />
+            ))}
+          </div>
+
+          <div className="mx-auto mt-24 max-w-3xl text-center">
+            <h3
+              className="text-2xl font-bold tracking-tight"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              Ready to start?
+            </h3>
+            <p
+              className="mx-auto mt-3 max-w-xl text-base"
+              style={{ color: 'var(--wk-text-soft)' }}
+            >
+              Create your free account in under a minute and begin logging your
+              sea time today.
+            </p>
+            <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <Link href="/signup" className="wk-btn wk-btn-primary">
+                Create your account
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link href="/login" className="wk-btn wk-btn-ghost">
+                Sign in
+              </Link>
             </div>
           </div>
-        </section>
-
-        <section style={{ backgroundColor: '#000b15', color: '#ffffff' }} className="overflow-hidden">
-             {steps.map((step, index) => (
-               <StepSection key={index} step={step} index={index} />
-             ))}
-        </section>
-
-      </main>
-      <Footer />
-    </div>
+        </div>
+      </section>
+    </WkPageShell>
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createVesselAssignment } from '@/supabase/database/queries';
+import { getVesselManagerCrewLimit } from '@/lib/vessel-crew-limit';
 import { Resend } from 'resend';
 import { sendWelcomeEmail } from '@/lib/welcome-email';
 import { EMAIL_PRIMARY_BLUE } from '@/lib/email-colors';
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
       // Get vessel manager's subscription tier and status
       const { data: vesselUser, error: vesselUserError } = await supabaseAdmin
         .from('users')
-        .select('subscription_tier, subscription_status')
+        .select('subscription_tier, subscription_status, cancel_at_period_end, current_period_end')
         .eq('id', vesselUserId)
         .single();
 
@@ -37,27 +38,7 @@ export async function POST(req: NextRequest) {
         console.error('[INVITE CREW] Error fetching vessel user:', vesselUserError);
         // Continue anyway - worst case they'll hit the limit on the frontend
       } else if (vesselUser) {
-        // Get crew limit based on subscription tier
-        const getCrewLimit = (tier: string | undefined, status: string | undefined): number => {
-          if (!tier || (status || '').toLowerCase() !== 'active') {
-            return 0; // No active subscription = no access
-          }
-          
-          const tierLower = tier.toLowerCase();
-          switch (tierLower) {
-            case 'vessel_lite':
-              return 15;
-            case 'vessel_basic':
-              return 30;
-            case 'vessel_pro':
-            case 'vessel_fleet':
-              return Infinity; // Unlimited
-            default:
-              return 0; // Unknown tier = no access
-          }
-        };
-
-        const crewLimit = getCrewLimit(vesselUser.subscription_tier, vesselUser.subscription_status);
+        const crewLimit = getVesselManagerCrewLimit(vesselUser);
 
         // Only check limit if it's not unlimited
         if (crewLimit !== Infinity) {

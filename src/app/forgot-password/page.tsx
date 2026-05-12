@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -6,14 +5,24 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { useSupabase } from '@/supabase';
-import { Loader2, Mail } from 'lucide-react';
-import LogoOnboarding from '@/components/logo-onboarding';
+import { ArrowLeft, KeyRound, Mail } from 'lucide-react';
+import {
+  WkAuthShell,
+  WkAsideHero,
+  WkPrimarySubmit,
+  wkInputCls,
+  wkLabelCls,
+} from '@/components/wk/wk-auth-shell';
 
 const forgotPasswordSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address.' }),
@@ -24,7 +33,8 @@ type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>;
 export default function ForgotPasswordPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isEmailSent, setIsEmailSent] = useState(false);
-  
+  const [sentTo, setSentTo] = useState<string>('');
+
   const { supabase } = useSupabase();
   const { toast } = useToast();
 
@@ -43,12 +53,15 @@ export default function ForgotPasswordPage() {
       if (error) {
         toast({
           title: 'Error',
-          description: error.message || 'Failed to send password reset email. Please try again.',
+          description:
+            error.message ||
+            'Failed to send password reset email. Please try again.',
           variant: 'destructive',
         });
         return;
       }
 
+      setSentTo(data.email);
       setIsEmailSent(true);
       toast({
         title: 'Email Sent',
@@ -66,88 +79,173 @@ export default function ForgotPasswordPage() {
     }
   };
 
+  const aside = (
+    <WkAsideHero
+      eyebrow="Password help"
+      title={
+        <>
+          Let&apos;s get you{' '}
+          <span className="wk-gradient-text">back on board</span>.
+        </>
+      }
+      description="Forgotten passwords happen. Enter the email you signed up with and we'll send you a secure reset link — it'll expire after one hour for your safety."
+      bullets={[
+        {
+          label: 'Secure one-time link',
+          sub: 'Valid for 60 minutes, from SeaJourney only.',
+          icon: <KeyRound className="h-4 w-4" />,
+        },
+        {
+          label: 'Sent straight to your inbox',
+          sub: 'Check spam if it doesn’t arrive within a minute.',
+          icon: <Mail className="h-4 w-4" />,
+        },
+      ]}
+    />
+  );
+
   if (isEmailSent) {
     return (
-      <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
-        <div className="mb-8">
-          <LogoOnboarding />
+      <WkAuthShell aside={aside}>
+        <div className="wk-auth-card p-8 sm:p-10">
+          <div className="flex flex-col items-center text-center">
+            <span
+              className="inline-flex h-14 w-14 items-center justify-center rounded-2xl"
+              style={{
+                backgroundColor: 'var(--wk-accent-soft)',
+                color: 'var(--wk-accent)',
+                border: '1px solid var(--wk-accent-ring)',
+              }}
+            >
+              <Mail className="h-7 w-7" />
+            </span>
+            <h1
+              className="mt-5 text-2xl font-semibold tracking-tight"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              <span className="wk-gradient-text">Check your email</span>
+            </h1>
+            <p
+              className="mt-2 text-sm"
+              style={{ color: 'var(--wk-text-soft)' }}
+            >
+              We&apos;ve sent password reset instructions to{' '}
+              <strong style={{ color: 'var(--wk-text)' }}>
+                {sentTo || 'your email address'}
+              </strong>
+              .
+            </p>
+            <p
+              className="mt-1 text-xs"
+              style={{ color: 'var(--wk-text-muted)' }}
+            >
+              The link will expire in 1 hour. Didn&apos;t receive it? Check your
+              spam folder, or try again in a minute.
+            </p>
+          </div>
+
+          <div
+            className="my-6 h-px w-full"
+            style={{ backgroundColor: 'var(--wk-line)' }}
+          />
+
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Link href="/login" className="wk-btn wk-btn-ghost flex-1">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Login
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                setIsEmailSent(false);
+                setSentTo('');
+                form.reset();
+              }}
+              className="wk-btn wk-btn-ghost flex-1"
+            >
+              Send again
+            </button>
+          </div>
         </div>
-        <div className="relative w-full max-w-md p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
-          <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
-            <CardHeader className="text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 mb-4">
-                <Mail className="h-6 w-6 text-primary" />
-              </div>
-              <CardTitle className="font-headline text-2xl">Check Your Email</CardTitle>
-              <CardDescription>
-                We've sent password reset instructions to your email address.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground text-center">
-                Click the link in the email to reset your password. The link will expire in 1 hour.
-              </p>
-              <Button asChild variant="outline" className="w-full rounded-lg">
-                <Link href="/login">Back to Login</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      </WkAuthShell>
     );
   }
 
   return (
-    <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
-      <div className="mb-8">
-        <LogoOnboarding />
-      </div>
-      <div className="relative w-full max-w-md p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
-        <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
-        <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
-        <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
-        <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
-        
-        <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
-          <CardHeader className="text-center">
-            <CardTitle className="font-headline text-2xl">Reset Password</CardTitle>
-            <CardDescription>
-              Enter your email address and we'll send you a link to reset your password.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleResetPassword)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input type="email" placeholder="you@example.com" {...field} className="rounded-lg" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" className="w-full rounded-lg" disabled={isLoading} variant="default">
-                  {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Send Reset Link
-                </Button>
-              </form>
-            </Form>
-            
-            <p className="mt-6 text-center text-sm text-muted-foreground">
-              Remember your password?{' '}
-              <Link href="/login" className="font-medium text-primary hover:underline">
-                Sign in
-              </Link>
+    <WkAuthShell aside={aside}>
+      <div className="wk-auth-card p-8 sm:p-10">
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl"
+            style={{
+              backgroundColor: 'var(--wk-accent-soft)',
+              color: 'var(--wk-accent)',
+              border: '1px solid var(--wk-accent-ring)',
+            }}
+          >
+            <KeyRound className="h-5 w-5" />
+          </span>
+          <div>
+            <h1
+              className="text-2xl font-semibold tracking-tight"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              <span className="wk-gradient-text">Reset</span> your password
+            </h1>
+            <p className="text-sm" style={{ color: 'var(--wk-text-muted)' }}>
+              We&apos;ll email you a secure link to choose a new one.
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+
+        <div
+          className="my-6 h-px w-full"
+          style={{ backgroundColor: 'var(--wk-line)' }}
+        />
+
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(handleResetPassword)}
+            className="space-y-5"
+            noValidate
+          >
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field, fieldState }) => (
+                <FormItem className="space-y-1.5">
+                  <FormLabel className={wkLabelCls}>Email</FormLabel>
+                  <FormControl>
+                    <input
+                      type="email"
+                      placeholder="you@example.com"
+                      autoComplete="email"
+                      aria-invalid={fieldState.invalid || undefined}
+                      className={wkInputCls}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage className="wk-error" />
+                </FormItem>
+              )}
+            />
+
+            <WkPrimarySubmit type="submit" loading={isLoading}>
+              Send Reset Link
+            </WkPrimarySubmit>
+          </form>
+        </Form>
+
+        <p
+          className="mt-6 text-center text-sm"
+          style={{ color: 'var(--wk-text-muted)' }}
+        >
+          Remember your password?{' '}
+          <Link href="/login" className="wk-link">
+            Sign in
+          </Link>
+        </p>
       </div>
-    </div>
+    </WkAuthShell>
   );
 }
-

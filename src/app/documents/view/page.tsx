@@ -40,7 +40,12 @@ function DocumentViewContent() {
         };
 
         const rawFmt = pdfFormat as string;
-        const format = rawFmt === 'mca' || rawFmt === 'pya' ? 'mca' : 'seajourney';
+        const format: TestimonialPDFFormat =
+          rawFmt === 'mca' || rawFmt === 'pya'
+            ? 'mca'
+            : rawFmt === 'amsa'
+              ? 'amsa'
+              : 'seajourney';
 
         if (format === 'mca') {
           const position = (testimonialData.userProfile.position || '').toLowerCase();
@@ -66,9 +71,21 @@ function DocumentViewContent() {
             await generateMCADeckhandTestimonial(withReceipt, 'download');
           }
         } else {
-          await generateTestimonialPDF(testimonialData, format, 'download', {
-            debug: process.env.NEXT_PUBLIC_PDF_DEBUG === 'true',
-          });
+          const payload =
+            format === 'amsa'
+              ? {
+                  ...testimonialData,
+                  receiptData: {
+                    documentId: testimonialData.testimonial.id,
+                    sjCode: testimonialData.testimonial.testimonial_code || null,
+                    documentType: 'testimonial' as const,
+                    generatedAt: new Date().toISOString(),
+                    generatedBy: { userId: undefined, email: undefined },
+                  },
+                }
+              : testimonialData;
+
+          await generateTestimonialPDF(payload, format, 'download');
         }
 
         if (!cancelled) {

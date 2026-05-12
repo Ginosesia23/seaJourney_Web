@@ -30,8 +30,14 @@ export function useDoc<T = any>(
     setRefetchTrigger((prev) => prev + 1);
   }, []);
 
+  // Depend on the user id rather than the whole user object, so that a
+  // token refresh (which produces a new user object with the same id) does
+  // NOT trigger a refetch. This is what makes the dashboard appear to
+  // "reload" every time the browser tab regains focus.
+  const userId = user?.id ?? null;
+
   const fetchDoc = useCallback(async () => {
-    if (!tableName || !docId || !user) {
+    if (!tableName || !docId || !userId) {
       setData(null);
       setIsLoading(false);
       setError(null);
@@ -93,7 +99,7 @@ export function useDoc<T = any>(
       setData(null);
     }
     setIsLoading(false);
-  }, [tableName, docId, user, supabase, refetchTrigger]);
+  }, [tableName, docId, userId, supabase, refetchTrigger]);
 
   useEffect(() => {
     fetchDoc();
@@ -129,7 +135,7 @@ export function useDoc<T = any>(
         supabase.removeChannel(channel);
       };
     }
-  }, [tableName, docId, user, fetchDoc, options?.realtime, supabase]);
+  }, [tableName, docId, userId, fetchDoc, options?.realtime, supabase]);
 
   return { data, isLoading, error, forceRefetch };
 }

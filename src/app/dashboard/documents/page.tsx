@@ -5,7 +5,7 @@ import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { useCollection } from '@/supabase/database';
 import { format as formatDate, differenceInDays } from 'date-fns';
-import { FileText, Users, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send, ShieldCheck, Table2 } from 'lucide-react';
+import { FileText, Users, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send, ShieldCheck, Table2, LayoutTemplate } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -43,6 +43,18 @@ import {
 } from '@/lib/pdf-generator';
 import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CustomTemplatesTab } from '@/components/document-scanner/custom-templates-tab';
+import {
+  templateHasDateRangedCalculation,
+  type VesselDocumentTemplate,
+} from '@/lib/vessel-document-templates';
+import {
+  fillScannedDocument,
+  downloadBlob,
+  type FillableField,
+} from '@/lib/fill-scanned-document';
 
 interface CrewOption {
   profile: UserProfile;
@@ -50,7 +62,7 @@ interface CrewOption {
 }
 
 const DOCUMENT_TYPES = [
-  { value: 'testimonial', label: 'Sea service testimonial (MCA)', icon: FileText },
+  { value: 'testimonial', label: 'Sea service testimonial', icon: FileText },
   { value: 'proof_of_service', label: 'Proof of Service', icon: ShieldCheck },
   {
     value: 'sea_service_breakdown',
@@ -117,6 +129,17 @@ export default function DocumentsGeneratorPage() {
   const [generatingBreakdownPDF, setGeneratingBreakdownPDF] = useState(false);
   const [leavePeriods, setLeavePeriods] = useState<Array<{ startDate: string; endDate: string }>>([]);
   const [leavePeriodsFromLogs, setLeavePeriodsFromLogs] = useState<Array<{ startDate: string; endDate: string; notes?: string }>>([]);
+
+  // Top-level page tab. Only two tabs now — the AI Scanner has been
+  // folded into the Form Builder tab (scanning is triggered inline when
+  // the user starts a new form).
+  const [pageTab, setPageTab] = useState<'generator' | 'custom-templates'>('generator');
+
+  // Form-builder templates available on this vessel. We list them alongside
+  // the built-in document types in the Document type dropdown so vessel
+  // managers can generate a custom form straight from the Generator tab.
+  const [formTemplates, setFormTemplates] = useState<VesselDocumentTemplate[]>([]);
+  const [isGeneratingTemplate, setIsGeneratingTemplate] = useState(false);
 
   const selectedCrew = useMemo(
     () => crewList.find((c) => c.profile.id === selectedCrewId) ?? null,
@@ -192,6 +215,71 @@ export default function DocumentsGeneratorPage() {
       cancelled = true;
     };
   }, [supabase, currentUserProfile?.role, activeVesselId]);
+
+  // Pull the list of form-builder templates for this vessel so we can offer
+  // them in the "Document type" dropdown. Silently ignores errors — if
+  // templates can't load we just fall back to the built-in options.
+  useEffect(() => {
+    if (!activeVesselId || !session?.access_token) {
+      setFormTemplates([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/document-templates?vesselId=${encodeURIComponent(activeVesselId)}`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } },
+        );
+        if (!res.ok) {
+          if (!cancelled) setFormTemplates([]);
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled) setFormTemplates(data.templates ?? []);
+      } catch {
+        if (!cancelled) setFormTemplates([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeVesselId, session?.access_token]);
+
+  const activeFormTemplate = useMemo(() => {
+    if (!documentType.startsWith('template:')) return null;
+    const id = documentType.slice('template:'.length);
+    return formTemplates.find((t) => t.id === id) ?? null;
+  }, [documentType, formTemplates]);
+
+  // A template needs a date range (and therefore sea-time calculation)
+  // whenever ANY of:
+  //   - one of its fields is bound to a service-period / day-count
+  //     profile key, OR
+  //   - any calculated field references a date-range-scoped site value
+  //     (totalDays, atSeaDays, etc.) — added with the new "site values"
+  //     calculation source.
+  // Mirrors the logic in the Form Builder tab's Use dialog.
+  const templateNeedsSeaTime = useMemo(() => {
+    if (!activeFormTemplate) return false;
+    const seaTimeKeys = new Set([
+      'servicePeriodStart',
+      'servicePeriodEnd',
+      'totalDays',
+      'atSeaDays',
+      'standbyDays',
+      'yardDays',
+      'leaveDays',
+    ]);
+    if (
+      activeFormTemplate.fields.some(
+        (f) => f.profileKey && seaTimeKeys.has(f.profileKey),
+      )
+    ) {
+      return true;
+    }
+    return templateHasDateRangedCalculation(activeFormTemplate.fields);
+  }, [activeFormTemplate]);
 
   useEffect(() => {
     if (!selectedCrewId || !currentUserProfile?.activeVesselId || !user?.id) {
@@ -620,6 +708,8 @@ export default function DocumentsGeneratorPage() {
           dateOfBirth: (selectedCrew!.profile as any).date_of_birth ?? (selectedCrew!.profile as any).dateOfBirth ?? null,
           position: selectedCrew!.profile.position ?? null,
           dischargeBookNumber: (selectedCrew!.profile as any).discharge_book_number ?? (selectedCrew!.profile as any).dischargeBookNumber ?? null,
+          mobile: (selectedCrew!.profile as any).mobile ?? null,
+          telephone: (selectedCrew!.profile as any).telephone ?? null,
         },
         vessel: {
           name: vessel.name,
@@ -629,6 +719,7 @@ export default function DocumentsGeneratorPage() {
           length_m: (vessel as any).length_m ?? null,
           gross_tonnage: (vessel as any).gross_tonnage ?? null,
           call_sign: (vessel as any).call_sign ?? null,
+          company_contact: (vessel as any).company_contact ?? null,
         },
         captainProfile: null,
         companyDetails: {
@@ -657,7 +748,25 @@ export default function DocumentsGeneratorPage() {
           await generateMCADeckhandTestimonial({ ...testimonialData, receiptData }, 'download' as TestimonialPDFOutput);
         }
       } else {
-        await generateTestimonialPDF(testimonialData, format, 'download', { debug: process.env.NEXT_PUBLIC_PDF_DEBUG === 'true' });
+        const payload =
+          format === 'amsa'
+            ? {
+                ...testimonialData,
+                receiptData: {
+                  documentId: testimonial.id,
+                  sjCode: null,
+                  documentType: 'testimonial' as const,
+                  generatedAt: new Date().toISOString(),
+                  generatedBy: {
+                    userId: currentUserProfile?.id,
+                    email: currentUserProfile?.email || undefined,
+                    name: testimonial.generated_by_name,
+                  },
+                },
+              }
+            : testimonialData;
+
+        await generateTestimonialPDF(payload, format, 'download');
       }
       toast({ title: 'Success', description: 'PDF generated and saved to the crew member\'s page.' });
       setCalculatedSeaTime(null);
@@ -959,6 +1068,137 @@ export default function DocumentsGeneratorPage() {
     }
   };
 
+
+  /**
+   * Resolve values for a form-builder template against the currently
+   * selected crew member (+ optional sea-time), fetch the original PDF,
+   * stamp the values onto it, and trigger a download. Mirrors the Use
+   * dialog inside the Form Builder tab so selecting a template from the
+   * Generator dropdown yields the same filled PDF.
+   */
+  const handleDownloadFormTemplate = async () => {
+    if (!activeFormTemplate) return;
+    if (!selectedCrew || !activeVesselId) {
+      toast({ title: 'Missing info', description: 'Select a crew member first.', variant: 'destructive' });
+      return;
+    }
+    if (!session?.access_token) {
+      toast({ title: 'Not signed in', description: 'Refresh and try again.', variant: 'destructive' });
+      return;
+    }
+    if (templateNeedsSeaTime && !calculatedSeaTime) {
+      toast({
+        title: 'Calculate sea time',
+        description: 'This form needs a date range. Pick dates and run calculate first.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setIsGeneratingTemplate(true);
+    try {
+      const body: Record<string, unknown> = {
+        crewUserId: selectedCrew.profile.id,
+      };
+      if (templateNeedsSeaTime && calculatedSeaTime && documentStartDate && documentEndDate) {
+        const standbyCap = Math.min(
+          calculatedSeaTime.standbyDays,
+          calculatedSeaTime.totalDays,
+          calculatedSeaTime.atSeaDays,
+        );
+        body.startDate = formatDate(documentStartDate, 'yyyy-MM-dd');
+        body.endDate = formatDate(documentEndDate, 'yyyy-MM-dd');
+        body.seaTime = {
+          totalDays: calculatedSeaTime.totalDays,
+          atSeaDays: calculatedSeaTime.atSeaDays,
+          standbyDays: standbyCap,
+          yardDays: calculatedSeaTime.yardDays,
+          leaveDays: calculatedSeaTime.leaveDays,
+          underwayDays: calculatedSeaTime.underwayDays,
+          atAnchorDays: calculatedSeaTime.atAnchorDays,
+          inPortDays: calculatedSeaTime.inPortDays,
+        };
+      }
+      const resolveRes = await fetch(
+        `/api/document-templates/${activeFormTemplate.id}/resolve`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify(body),
+        },
+      );
+      const resolveData = await resolveRes.json();
+      if (!resolveRes.ok) throw new Error(resolveData.error || 'Failed to resolve field values');
+      const values = (resolveData.values ?? {}) as Record<string, string | null>;
+
+      const fileRes = await fetch(
+        `/api/document-templates/${activeFormTemplate.id}/file`,
+        { headers: { Authorization: `Bearer ${session.access_token}` } },
+      );
+      if (!fileRes.ok) {
+        const errJson = await fileRes.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to load template file');
+      }
+      const fileBlob = await fileRes.blob();
+      const fileType =
+        activeFormTemplate.fileType || fileBlob.type || 'application/pdf';
+      const file = new File(
+        [fileBlob],
+        activeFormTemplate.originalFilename || `${activeFormTemplate.name}.pdf`,
+        { type: fileType },
+      );
+
+      const fillable: FillableField[] = activeFormTemplate.fields
+        .filter((f) => values[f.id] != null && values[f.id] !== '')
+        .map((f) => ({
+          id: f.id,
+          label: f.label,
+          value: String(values[f.id] ?? ''),
+          page: f.page,
+          bbox: f.bbox,
+          type: f.type === 'signature' ? 'signature' : 'text',
+        }));
+
+      if (!fillable.length) {
+        toast({
+          title: 'No values to stamp',
+          description:
+            'No fields could be resolved with values. Edit the template to bind fields to data.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const { blob: filled, filledCount } = await fillScannedDocument(
+        file,
+        fillable,
+      );
+      const baseName = activeFormTemplate.name.replace(/\s+/g, '_').toLowerCase();
+      const safeCrew =
+        [selectedCrew.profile.firstName, selectedCrew.profile.lastName]
+          .filter(Boolean)
+          .join('_')
+          .toLowerCase() ||
+        (selectedCrew.profile.username ?? 'crew').toLowerCase();
+      downloadBlob(filled, `${baseName}-${safeCrew}.pdf`);
+      toast({
+        title: 'Generated',
+        description: `Filled ${filledCount} field${filledCount === 1 ? '' : 's'} and downloaded the PDF.`,
+      });
+    } catch (err: any) {
+      console.error('[documents] template generate failed', err);
+      toast({
+        title: 'Generate failed',
+        description: err?.message ?? 'Unexpected error',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGeneratingTemplate(false);
+    }
+  };
+
   const isVessel = currentUserProfile?.role === 'vessel';
   const noVessel = isVessel && !activeVesselId;
 
@@ -995,13 +1235,58 @@ export default function DocumentsGeneratorPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Generator</h1>
         <p className="text-muted-foreground">
-          Create documents for your crew. Testimonials and Proof of Service are saved to each crew member’s page on the Crew screen.{' '}
-          <span className="text-foreground/90">
-            Sea service breakdown is a reference PDF only (not stored) — use it to copy figures into other forms.
-          </span>
+          Pick a <span className="text-foreground/90">document type</span> (including any{' '}
+          <span className="text-foreground/90">Form Builder</span> templates saved for this vessel), then (for sea service testimonials) a{' '}
+          <span className="text-foreground/90">PDF format</span>, then crew member and dates. Or jump to the{' '}
+          <span className="text-foreground/90">Form Builder</span> to scan a document and turn it into a reusable, fillable form.
         </p>
       </div>
 
+      {/* Top-level tabs */}
+      <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'generator' | 'custom-templates')}>
+        <TabsList className="h-10 rounded-xl p-1">
+          <TabsTrigger value="generator" className="rounded-lg px-4 h-8 text-sm gap-2">
+            <FileText className="h-4 w-4" />
+            Generator
+          </TabsTrigger>
+          <TabsTrigger value="custom-templates" className="rounded-lg px-4 h-8 text-sm gap-2">
+            <LayoutTemplate className="h-4 w-4" />
+            Form Builder
+            <Badge variant="outline" className="ml-1 h-5 rounded-md text-[10px] font-semibold border-amber-500/40 text-amber-600 dark:text-amber-400 bg-amber-500/10">
+              BETA
+            </Badge>
+          </TabsTrigger>
+        </TabsList>
+
+        {/*
+          forceMount keeps both panels' component trees alive across
+          switches. Without this, Radix unmounts the inactive panel and
+          all local state inside the Generator / Form Builder is wiped —
+          so users have to re-pick crew, re-calculate, re-upload, etc.
+          every time they toggle tabs. We hide the inactive one with
+          data-attrs.
+        */}
+        <TabsContent
+          value="custom-templates"
+          forceMount
+          className="mt-6 data-[state=inactive]:hidden"
+        >
+          <CustomTemplatesTab
+            supabase={supabase}
+            session={session}
+            activeVesselId={activeVesselId}
+            vessel={vessel as any}
+            currentUserProfile={currentUserProfile}
+            crewList={crewList}
+            loadingCrew={loadingCrew}
+          />
+        </TabsContent>
+
+        <TabsContent
+          value="generator"
+          forceMount
+          className="mt-6 space-y-6 data-[state=inactive]:hidden"
+        >
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -1012,7 +1297,13 @@ export default function DocumentsGeneratorPage() {
             <CardDescription>Choose the type of document to generate.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Select value={documentType} onValueChange={setDocumentType}>
+            <Select
+              value={documentType}
+              onValueChange={(v) => {
+                setDocumentType(v);
+                setCalculatedSeaTime(null);
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select document type" />
               </SelectTrigger>
@@ -1025,6 +1316,32 @@ export default function DocumentsGeneratorPage() {
                     </span>
                   </SelectItem>
                 ))}
+                {formTemplates.length > 0 && (
+                  <div className="mt-1 border-t border-border/60 pt-1">
+                    <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Form Builder
+                    </div>
+                    {formTemplates.map((t) => (
+                      <SelectItem key={t.id} value={`template:${t.id}`}>
+                        <span className="flex w-full items-center gap-2">
+                          <LayoutTemplate className="h-4 w-4 shrink-0" />
+                          <span className="truncate">{t.name}</span>
+                          <span className="ml-auto flex items-center gap-2 shrink-0 pl-2">
+                            <Badge
+                              variant="outline"
+                              className="h-5 rounded-md px-1.5 text-[10px] font-semibold border-amber-500/40 text-amber-600 dark:text-amber-400 bg-amber-500/10"
+                            >
+                              Form Builder
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground">
+                              Added {formatDate(new Date(t.createdAt), 'd MMM yyyy')}
+                            </span>
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </div>
+                )}
               </SelectContent>
             </Select>
           </CardContent>
@@ -1062,10 +1379,40 @@ export default function DocumentsGeneratorPage() {
         </Card>
       </div>
 
+      {selectedCrew && documentType === 'testimonial' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Download className="h-5 w-5" />
+              PDF format
+            </CardTitle>
+            <CardDescription>
+              Choose how the testimonial is laid out. This is saved with the document on the crew profile — downloads from the Crew page use this format (MCA, AMSA, or SeaJourney branded).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select
+              value={selectedNewDocFormat}
+              onValueChange={(v) => setSelectedNewDocFormat(v as TestimonialPDFFormat)}
+            >
+              <SelectTrigger className="w-full max-w-md rounded-xl">
+                <SelectValue placeholder="Select format" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="seajourney">SeaJourney</SelectItem>
+                <SelectItem value="mca">MCA</SelectItem>
+                <SelectItem value="amsa">AMSA (771)</SelectItem>
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      )}
+
       {selectedCrew &&
         (documentType === 'testimonial' ||
           documentType === 'proof_of_service' ||
-          documentType === 'sea_service_breakdown') && (
+          documentType === 'sea_service_breakdown' ||
+          (activeFormTemplate && templateNeedsSeaTime)) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1073,7 +1420,9 @@ export default function DocumentsGeneratorPage() {
               Date range & generate
             </CardTitle>
             <CardDescription>
-              {documentType === 'proof_of_service'
+              {activeFormTemplate
+                ? `This form includes service-period or day-count fields — pick a date range and calculate so we can stamp those values onto "${activeFormTemplate.name}".`
+                : documentType === 'proof_of_service'
                 ? 'Set the date range and calculate sea time, then save to the crew member’s profile or download.'
                 : documentType === 'sea_service_breakdown'
                   ? 'Pick the period you need for an external form, calculate, then download a one-page PDF with day counts. Nothing is saved to the crew profile.'
@@ -1319,19 +1668,6 @@ export default function DocumentsGeneratorPage() {
                         </>
                       )}
                     </Button>
-                    <Select
-                      value={selectedNewDocFormat}
-                      onValueChange={(format) => setSelectedNewDocFormat(format as TestimonialPDFFormat)}
-                      disabled={generatingPDF === 'date-range' || isSaving || generatingBreakdownPDF}
-                    >
-                      <SelectTrigger className="w-[160px] rounded-xl">
-                        <SelectValue placeholder="Version" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="seajourney">SeaJourney</SelectItem>
-                        <SelectItem value="mca">MCA</SelectItem>
-                      </SelectContent>
-                    </Select>
                     <Button
                       variant="outline"
                       onClick={handleDownloadPDF}
@@ -1462,11 +1798,66 @@ export default function DocumentsGeneratorPage() {
                     </Button>
                       </>
                     )}
+                    {activeFormTemplate && (
+                      <Button
+                        onClick={handleDownloadFormTemplate}
+                        disabled={isGeneratingTemplate}
+                        className="rounded-xl"
+                      >
+                        {isGeneratingTemplate ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Generating…
+                          </>
+                        ) : (
+                          <>
+                            <Download className="mr-2 h-4 w-4" />
+                            Download filled form
+                          </>
+                        )}
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
               );
             })()}
+          </CardContent>
+        </Card>
+      )}
+
+      {selectedCrew && activeFormTemplate && !templateNeedsSeaTime && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <LayoutTemplate className="h-5 w-5" />
+              Generate form
+            </CardTitle>
+            <CardDescription>
+              We&apos;ll resolve the fields in &quot;{activeFormTemplate.name}&quot; from the
+              selected crew member&apos;s profile and download a filled PDF. This
+              form doesn&apos;t need a date range.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              onClick={handleDownloadFormTemplate}
+              disabled={isGeneratingTemplate}
+              className="rounded-xl"
+              size="lg"
+            >
+              {isGeneratingTemplate ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download filled form
+                </>
+              )}
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -1523,6 +1914,8 @@ export default function DocumentsGeneratorPage() {
           </CardContent>
         </Card>
       )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

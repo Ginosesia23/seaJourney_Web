@@ -10,6 +10,7 @@ import {
   type TestimonialPDFFormat,
   type TestimonialPDFOutput,
 } from '@/lib/pdf-generator';
+import { parseAmsaReferenceFromDb } from '@/lib/amsa-sea-service-reference';
 
 function mapVesselRow(row: Record<string, unknown>) {
   return {
@@ -257,6 +258,8 @@ export async function downloadVesselGeneratedTestimonialForCrew(
       position: crewProfile.position || null,
       dischargeBookNumber:
         (p.discharge_book_number as string) || (p.dischargeBookNumber as string) || null,
+      mobile: (p.mobile as string) || null,
+      telephone: (p.telephone as string) || null,
     },
     vessel: {
       name: vessel.name,
@@ -266,6 +269,7 @@ export async function downloadVesselGeneratedTestimonialForCrew(
       length_m: vessel.length_m || null,
       gross_tonnage: vessel.gross_tonnage || null,
       call_sign: vessel.call_sign || null,
+      company_contact: vessel.company_contact ?? null,
     },
     captainProfile: null,
     companyDetails: {
@@ -274,6 +278,8 @@ export async function downloadVesselGeneratedTestimonialForCrew(
       contactDetails: vessel.company_contact || null,
     },
     standbyPeriods: standbyPeriods.length > 0 ? standbyPeriods : undefined,
+    amsaReference:
+      format === 'amsa' ? parseAmsaReferenceFromDb(testimonial.amsa_reference_data) ?? null : undefined,
   };
 
   if (format === 'mca') {
@@ -322,8 +328,24 @@ export async function downloadVesselGeneratedTestimonialForCrew(
       await generateMCADeckhandTestimonial(testimonialDataWithReceipt, output);
     }
   } else {
-    await generateTestimonialPDF(testimonialData, format, output, {
-      debug: process.env.NEXT_PUBLIC_PDF_DEBUG === 'true',
-    });
+    const payload =
+      format === 'amsa'
+        ? {
+            ...testimonialData,
+            receiptData: {
+              documentId: testimonial.id,
+              sjCode: null,
+              documentType: 'testimonial' as const,
+              generatedAt: new Date().toISOString(),
+              generatedBy: {
+                userId: testimonial.vessel_user_id,
+                email: testimonial.generated_by_email || undefined,
+                name: testimonial.generated_by_name,
+              },
+            },
+          }
+        : testimonialData;
+
+    await generateTestimonialPDF(payload, format, output);
   }
 }

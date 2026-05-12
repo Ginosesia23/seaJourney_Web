@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 
 const plans = [
     {
-        name: 'Standard',
+        name: 'Crew Standard',
         price: '£5.99',
         priceSuffix: '/ month',
         description: 'For dedicated professionals who need advanced tracking.',
@@ -23,12 +23,12 @@ const plans = [
         href: '/offers'
     },
     {
-        name: 'Premium',
+        name: 'Crew Premium',
         price: '£9.99',
         priceSuffix: '/ month',
         description: 'For career-focused seafarers needing detailed analytics.',
         features: [
-          'All Standard features',
+          'All Crew Standard features',
           'Unlimited vessels',
           'Advanced career analytics',
           'Certification progress tracking',
@@ -38,12 +38,12 @@ const plans = [
         href: '/offers'
     },
     {
-        name: 'Pro',
+        name: 'Crew Professional',
         price: '£14.99',
         priceSuffix: '/ month',
         description: 'The ultimate toolkit for maritime professionals.',
         features: [
-          'All Premium features',
+          'All Crew Premium features',
           'AI Co-pilot for reports',
           'Unlimited document exports',
           'Priority support'

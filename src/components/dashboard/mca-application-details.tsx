@@ -38,7 +38,7 @@ const mcaApplicationSchema = z.object({
 
 type MCAApplicationFormValues = z.infer<typeof mcaApplicationSchema>;
 
-/** Shape used when vessel is editing a crew member's MCA details (from their profile) */
+/** Shape used when vessel is editing a crew member’s details (same as profile “Crew details”) */
 export interface MCAFormProfile {
   title?: string;
   dateOfBirth?: Date | null;
@@ -162,7 +162,7 @@ function transformRawToMCAProfile(raw: any): MCAFormProfile | null {
 }
 
 export interface MCAApplicationDetailsCardProps {
-  /** When set, vessel is editing this crew member's MCA details; form submits via API */
+  /** When set, vessel is editing this crew member’s details; form submits via API */
   targetUserId?: string;
   /** Pre-loaded profile for the crew member (optional; can use initialProfileRaw instead) */
   initialProfile?: MCAFormProfile | null;
@@ -328,8 +328,8 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
           throw new Error(json.error || json.details || 'Failed to update');
         }
         toast({
-          title: 'MCA Details Updated',
-          description: "Crew member's MCA application details have been saved.",
+          title: 'Crew details saved',
+          description: "This crew member’s details have been saved and will be used for generated documents.",
         });
         setIsEditing(false);
         clearDraft();
@@ -337,7 +337,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
       } catch (error: any) {
         toast({
           title: 'Error',
-          description: error?.message || 'Failed to update MCA details. Please try again.',
+          description: error?.message || 'Failed to update crew details. Please try again.',
           variant: 'destructive',
         });
       } finally {
@@ -374,14 +374,14 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
       if (error) throw error;
       setIsEditing(false);
       toast({
-        title: 'MCA Details Updated',
-        description: 'Your MCA application details have been saved successfully.',
+        title: 'Crew details saved',
+        description: 'Your details have been saved and will be used when generating PDFs and applications.',
       });
     } catch (error: any) {
-      console.error('Error updating MCA details:', error);
+      console.error('Error updating crew details:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to update MCA details. Please try again.',
+        description: error.message || 'Failed to update crew details. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -428,12 +428,12 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
           </div>
           <div>
             <CardTitle className="text-xl">
-              {isCrewMode ? 'Crew member MCA details' : 'MCA Application Details'}
+              {isCrewMode ? 'Crew member details' : 'Crew details'}
             </CardTitle>
             <CardDescription className="mt-1">
               {isCrewMode
-                ? 'Add or edit this crew member’s details so they are used when you generate Nav Watch and other MCA documents for them.'
-                : 'Save your details to auto-populate MCA Watch Rating Certificate applications'}
+                ? 'Add or edit this member’s details (e.g. date of birth, address). They are used for AMSA, MCA, Nav Watch, and other generated documents.'
+                : 'Save your details once — we use them to fill PDFs and applications (including date of birth, address, and discharge book number).'}
             </CardDescription>
           </div>
           </div>
@@ -455,8 +455,8 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
               </p>
               <p className="text-xs text-blue-700 dark:text-blue-300">
                 {isCrewMode
-                  ? 'These details will be used when you generate MCA Watch Rating (Nav Watch) and other MCA documents for this crew member.'
-                  : 'These details will be automatically filled in when you generate MCA Watch Rating Certificate applications, saving you time and ensuring accuracy.'}
+                  ? 'These details feed vessel-generated PDFs and applications for this crew member (AMSA, MCA, Nav Watch, and similar).'
+                  : 'These details are used whenever you generate official PDFs and applications from SeaJourney, so keeping them accurate saves time.'}
               </p>
             </div>
           </div>
@@ -839,7 +839,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
             
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-4 border-t">
               <p className="text-xs text-muted-foreground">
-                * Required fields for MCA applications
+                * Required where marked (used for official applications and generated PDFs)
               </p>
               {isEditing ? (
                 <div className="flex gap-2">
@@ -855,7 +855,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     ) : (
                       <>
                         <Save className="mr-2 h-4 w-4" />
-                        Save MCA Details
+                        Save crew details
                       </>
                     )}
                   </Button>

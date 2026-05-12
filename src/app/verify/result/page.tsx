@@ -1,19 +1,27 @@
 'use client';
 
-import { useEffect, useState, Suspense, useMemo } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { createPublicSupabaseClient } from '@/lib/supabase-public';
-import { CheckCircle2, XCircle, AlertTriangle, Loader2 } from 'lucide-react';
-import { format } from 'date-fns';
-
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Button } from '@/components/ui/button';
-import LogoOnboarding from '@/components/logo-onboarding';
-import { ArrowLeft, Search } from 'lucide-react';
+import { useEffect, useMemo, useState, Suspense, type ReactNode } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { format } from 'date-fns';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Calendar,
+  CheckCircle2,
+  ClipboardCheck,
+  Compass,
+  FileSignature,
+  Loader2,
+  Search,
+  Ship,
+  User,
+  XCircle,
+} from 'lucide-react';
+
+import { WkAuthShell } from '@/components/wk/wk-auth-shell';
+import { createPublicSupabaseClient } from '@/lib/supabase-public';
 
 type VerificationStatus = 'verified' | 'voided' | 'not_found';
 type DocumentType = 'testimonial' | 'proof_of_service';
@@ -54,10 +62,209 @@ interface ProofOfServiceData {
   created_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Reusable presentational primitives
+// ---------------------------------------------------------------------------
+
+function StatusBanner({
+  tone,
+  icon,
+  title,
+  description,
+  rightSlot,
+}: {
+  tone: 'good' | 'bad' | 'warn';
+  icon: ReactNode;
+  title: string;
+  description?: ReactNode;
+  rightSlot?: ReactNode;
+}) {
+  return (
+    <div className="wk-status-banner" data-tone={tone}>
+      <span className="wk-status-icon" data-tone={tone}>
+        {icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div
+          className="text-base font-semibold sm:text-lg"
+          style={{ color: 'var(--wk-text)' }}
+        >
+          {title}
+        </div>
+        {description ? (
+          <div
+            className="mt-1 text-sm"
+            style={{ color: 'var(--wk-text-soft)' }}
+          >
+            {description}
+          </div>
+        ) : null}
+      </div>
+      {rightSlot ? <div className="hidden sm:block">{rightSlot}</div> : null}
+    </div>
+  );
+}
+
+function SectionCard({
+  eyebrow,
+  title,
+  icon,
+  children,
+}: {
+  eyebrow?: string;
+  title: string;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="wk-auth-card p-6 sm:p-8"
+      style={{ boxShadow: 'var(--wk-shadow-md)' }}
+    >
+      <div className="flex items-center gap-3">
+        {icon ? (
+          <span
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg"
+            style={{
+              backgroundColor: 'var(--wk-accent-soft)',
+              color: 'var(--wk-accent)',
+              border: '1px solid var(--wk-accent-ring)',
+            }}
+          >
+            {icon}
+          </span>
+        ) : null}
+        <div className="min-w-0">
+          {eyebrow ? (
+            <div className="wk-section-eyebrow">{eyebrow}</div>
+          ) : null}
+          <h2
+            className="text-lg font-semibold tracking-tight sm:text-xl"
+            style={{ color: 'var(--wk-text)' }}
+          >
+            {title}
+          </h2>
+        </div>
+      </div>
+      <div className="mt-5">{children}</div>
+    </div>
+  );
+}
+
+function DataField({
+  label,
+  value,
+  emphasis,
+}: {
+  label: string;
+  value: ReactNode;
+  emphasis?: 'accent' | 'good' | 'warn';
+}) {
+  const valueStyle: React.CSSProperties = {};
+  if (emphasis === 'accent') valueStyle.color = 'var(--wk-accent)';
+  if (emphasis === 'good') valueStyle.color = 'var(--wk-good)';
+  if (emphasis === 'warn') valueStyle.color = 'var(--wk-warn)';
+  return (
+    <div className="space-y-1.5">
+      <div className="wk-data-label">{label}</div>
+      <div className="wk-data-value" style={valueStyle}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: ReactNode;
+  accent?: 'accent' | 'sea' | 'standby' | 'yard' | 'anchor';
+}) {
+  const tone =
+    accent === 'sea'
+      ? 'var(--wk-accent)'
+      : accent === 'standby'
+        ? '#a855f7'
+        : accent === 'yard'
+          ? 'var(--wk-warn)'
+          : accent === 'anchor'
+            ? 'var(--wk-accent-2)'
+            : 'var(--wk-text)';
+  return (
+    <div
+      className="rounded-xl px-4 py-3"
+      style={{
+        backgroundColor: 'var(--wk-bg-subtle)',
+        border: '1px solid var(--wk-line)',
+      }}
+    >
+      <div className="wk-data-label">{label}</div>
+      <div
+        className="mt-1 text-2xl font-bold tabular-nums"
+        style={{ color: tone }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ActionRow({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
+      {children}
+    </div>
+  );
+}
+
+function PrimaryLink({
+  href,
+  children,
+  icon,
+}: {
+  href: string;
+  children: ReactNode;
+  icon?: ReactNode;
+}) {
+  return (
+    <Link href={href} className="wk-btn wk-btn-primary">
+      <span className="inline-flex items-center gap-2">
+        {children}
+        {icon ?? <ArrowRight className="h-4 w-4" />}
+      </span>
+    </Link>
+  );
+}
+
+function GhostLink({
+  href,
+  children,
+  icon,
+}: {
+  href: string;
+  children: ReactNode;
+  icon?: ReactNode;
+}) {
+  return (
+    <Link href={href} className="wk-btn wk-btn-ghost">
+      <span className="inline-flex items-center gap-2">
+        {icon ?? <ArrowLeft className="h-4 w-4" />}
+        {children}
+      </span>
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main content
+// ---------------------------------------------------------------------------
+
 function VerificationResultContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  // Use public client for unauthenticated verification
   const supabase = useMemo(() => createPublicSupabaseClient(), []);
   const [isLoading, setIsLoading] = useState(true);
   const [status, setStatus] = useState<VerificationStatus | null>(null);
@@ -89,14 +296,18 @@ function VerificationResultContent() {
       return;
     }
 
-    const restrictToType = typeParam === 'sj' || typeParam === 'pos' ? typeParam : null;
+    const restrictToType =
+      typeParam === 'sj' || typeParam === 'pos' ? typeParam : null;
 
     const verifyCode = async () => {
       setIsLoading(true);
       setError(null);
 
       try {
-        const userInput = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const userInput = code
+          .trim()
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, '');
         let codePart: string;
         if (userInput.startsWith('POS') && userInput.length >= 11) {
           codePart = userInput.slice(3, 11);
@@ -116,7 +327,9 @@ function VerificationResultContent() {
         const posCode = `POS-${codePart}`;
 
         const tryPos = async (): Promise<boolean> => {
-          const res = await fetch(`/api/verify/proof-of-service?code=${encodeURIComponent(posCode)}`);
+          const res = await fetch(
+            `/api/verify/proof-of-service?code=${encodeURIComponent(posCode)}`,
+          );
           if (!res.ok) return false;
           const json = await res.json();
           if (json.found && json.record) {
@@ -138,22 +351,7 @@ function VerificationResultContent() {
           return r;
         };
 
-        const setTestimonialData = (row: {
-          crew_name: string;
-          rank: string;
-          vessel_name: string;
-          imo: string | null;
-          start_date: string;
-          end_date: string;
-          total_days: number;
-          sea_days: number;
-          standby_days: number;
-          captain_name: string;
-          captain_license: string | null;
-          approved_at: string;
-          testimonial_code: string | null;
-          document_id: string;
-        }) => {
+        const setTestimonialData = (row: VerificationData) => {
           setData({
             crew_name: row.crew_name,
             rank: row.rank,
@@ -182,11 +380,19 @@ function VerificationResultContent() {
         if (restrictToType === 'sj') {
           let recordData = await tryTestimonial();
           if (!recordData) {
-            const { data: caseInsensitiveData } = await supabase.from('approved_testimonials').select('*').ilike('testimonial_code', sjCode).maybeSingle();
+            const { data: caseInsensitiveData } = await supabase
+              .from('approved_testimonials')
+              .select('*')
+              .ilike('testimonial_code', sjCode)
+              .maybeSingle();
             recordData = caseInsensitiveData ?? undefined;
           }
           if (!recordData) {
-            const { data: codeOnlyData } = await supabase.from('approved_testimonials').select('*').ilike('testimonial_code', `%${codePart}%`).maybeSingle();
+            const { data: codeOnlyData } = await supabase
+              .from('approved_testimonials')
+              .select('*')
+              .ilike('testimonial_code', `%${codePart}%`)
+              .maybeSingle();
             recordData = codeOnlyData ?? undefined;
           }
           if (!recordData) {
@@ -196,7 +402,11 @@ function VerificationResultContent() {
           }
           setDocumentType('testimonial');
           let verificationStatus: VerificationStatus = 'verified';
-          const { data: orig } = await supabase.from('testimonials').select('id, status').eq('id', recordData.testimonial_id).maybeSingle();
+          const { data: orig } = await supabase
+            .from('testimonials')
+            .select('id, status')
+            .eq('id', recordData.testimonial_id)
+            .maybeSingle();
           if (orig && orig.status !== 'approved') verificationStatus = 'voided';
           setStatus(verificationStatus);
           setTestimonialData(recordData);
@@ -212,7 +422,11 @@ function VerificationResultContent() {
           }
           let recordData = await tryTestimonial();
           if (!recordData) {
-            const { data: caseInsensitiveData } = await supabase.from('approved_testimonials').select('*').ilike('testimonial_code', sjCode).maybeSingle();
+            const { data: caseInsensitiveData } = await supabase
+              .from('approved_testimonials')
+              .select('*')
+              .ilike('testimonial_code', sjCode)
+              .maybeSingle();
             if (caseInsensitiveData) {
               setDocumentType('testimonial');
               setStatus('verified');
@@ -226,7 +440,11 @@ function VerificationResultContent() {
           }
           setDocumentType('testimonial');
           let verificationStatus: VerificationStatus = 'verified';
-          const { data: orig } = await supabase.from('testimonials').select('id, status').eq('id', recordData.testimonial_id).maybeSingle();
+          const { data: orig } = await supabase
+            .from('testimonials')
+            .select('id, status')
+            .eq('id', recordData.testimonial_id)
+            .maybeSingle();
           if (orig && orig.status !== 'approved') verificationStatus = 'voided';
           setStatus(verificationStatus);
           setTestimonialData(recordData);
@@ -267,522 +485,522 @@ function VerificationResultContent() {
 
         setDocumentType('testimonial');
 
-        // For public verification, we trust the approved_testimonials snapshot
-        // This is an immutable record that was created when the testimonial was approved
-        // We don't need to check the original testimonial table for public verification
-        // as that would require authentication and the snapshot itself is the source of truth
-        
-        // Note: The approved_testimonials table is designed to be immutable - once a record
-        // exists there, it represents a verified approval at the time it was created.
-        // Even if the original testimonial is later deleted or changed, the snapshot remains valid.
-        
         let verificationStatus: VerificationStatus = 'verified';
-        
-        // Only check the original testimonial if we have authentication (optional check)
-        // For public verification, we skip this and trust the snapshot
-        const { data: originalTestimonial, error: testimonialError } = await supabase
-          .from('testimonials')
-          .select('id, status')
-          .eq('id', recordData.testimonial_id)
-          .maybeSingle();
 
-        // If we successfully accessed the testimonials table (user is authenticated)
-        // and the testimonial doesn't exist or isn't approved, mark as voided
+        const { data: originalTestimonial, error: testimonialError } =
+          await supabase
+            .from('testimonials')
+            .select('id, status')
+            .eq('id', recordData.testimonial_id)
+            .maybeSingle();
+
         if (!testimonialError && originalTestimonial) {
           if (originalTestimonial.status !== 'approved') {
             verificationStatus = 'voided';
           }
         }
-        // If testimonialError exists (likely RLS blocking unauthenticated access),
-        // we ignore it and trust the approved_testimonials snapshot for public verification
-        // This is expected behavior for unauthenticated users
 
         setStatus(verificationStatus);
         setTestimonialData(recordData);
-      } catch (e: any) {
+      } catch (e: unknown) {
         console.error('Verification failed:', e);
-        setError('An error occurred while verifying the record. Please try again.');
+        setError(
+          'An error occurred while verifying the record. Please try again.',
+        );
       } finally {
         setIsLoading(false);
       }
     };
 
-    verifyCode();
+    void verifyCode();
   }, [searchParams, router, supabase]);
+
+  // -----------------------------------------------------------------------
+  // Render states
+  // -----------------------------------------------------------------------
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background">
-        {/* Header */}
-        <div className="border-b bg-header text-header-foreground">
-          <div className="container mx-auto px-6 py-4 flex justify-center">
-            <LogoOnboarding />
-          </div>
+      <WkAuthShell size="md">
+        <div
+          className="wk-auth-card flex flex-col items-center justify-center px-8 py-16 text-center"
+          style={{ minHeight: 280 }}
+        >
+          <Loader2
+            className="h-8 w-8 animate-spin"
+            style={{ color: 'var(--wk-accent)' }}
+          />
+          <p
+            className="mt-4 text-base font-semibold"
+            style={{ color: 'var(--wk-text)' }}
+          >
+            Verifying record
+          </p>
+          <p
+            className="mt-1 text-sm"
+            style={{ color: 'var(--wk-text-muted)' }}
+          >
+            Cross-referencing the code with our verified registry…
+          </p>
         </div>
-
-        {/* Main Content */}
-        <div className="container mx-auto px-6 py-8 max-w-2xl">
-          <Card className="border-2 shadow-lg">
-            <CardContent className="pt-6">
-              <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-                <p className="text-muted-foreground">Verifying record...</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      </WkAuthShell>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-background">
-        {/* Header */}
-        <div className="border-b bg-header text-header-foreground">
-          <div className="container mx-auto px-6 py-4 flex justify-center">
-            <LogoOnboarding />
-          </div>
+      <WkAuthShell size="md">
+        <div className="space-y-6">
+          <StatusBanner
+            tone="bad"
+            icon={<XCircle className="h-5 w-5" />}
+            title="Verification failed"
+            description={error}
+          />
+          <ActionRow>
+            <PrimaryLink href="/verify" icon={<Search className="h-4 w-4" />}>
+              Try another code
+            </PrimaryLink>
+            <GhostLink href="/">Back to home</GhostLink>
+          </ActionRow>
         </div>
-
-        {/* Main Content */}
-        <div className="container mx-auto px-6 py-8 max-w-2xl">
-          <Card className="border-2 shadow-lg">
-            <CardContent className="pt-6">
-              <Alert variant="destructive" className="mb-6">
-                <XCircle className="h-5 w-5" />
-                <AlertTitle className="font-bold">Verification Failed</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-              <div className="flex gap-3">
-                <Button asChild variant="default" className="flex-1">
-                  <Link href="/verify">
-                    <Search className="mr-2 h-4 w-4" />
-                    Try Another Code
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="flex-1">
-                  <Link href="/">
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Back to Home
-                  </Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      </WkAuthShell>
     );
   }
 
   if (status === 'not_found') {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
-        {/* Header */}
-        <div className="border-b bg-header text-header-foreground">
-          <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
-            <LogoOnboarding />
+      <WkAuthShell size="md">
+        <div className="wk-auth-card p-8 sm:p-10">
+          <div className="flex flex-col items-center text-center">
+            <span className="wk-status-icon" data-tone="bad">
+              <XCircle className="h-6 w-6" />
+            </span>
+            <h1
+              className="mt-4 text-2xl font-semibold tracking-tight"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              Code <span className="wk-gradient-text">not found</span>
+            </h1>
+            <p
+              className="mt-2 max-w-md text-sm"
+              style={{ color: 'var(--wk-text-soft)' }}
+            >
+              We couldn't find a record matching the verification code you
+              entered. Make sure you copied it exactly as it appears in the
+              PDF, including the prefix.
+            </p>
+          </div>
+
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <PrimaryLink href="/verify" icon={<Search className="h-4 w-4" />}>
+              Try another code
+            </PrimaryLink>
+            <GhostLink href="/">Back to home</GhostLink>
           </div>
         </div>
-
-        {/* Main Content - Centered */}
-        <div className="flex-1 flex items-center justify-center px-4 py-8 sm:py-12">
-          <div className="w-full max-w-md">
-            <Card className="border-2 shadow-xl">
-              <CardContent className="pt-6 sm:pt-8 pb-6 sm:pb-8 px-4 sm:px-6">
-                <div className="flex flex-col items-center text-center space-y-4 sm:space-y-6">
-                  {/* Icon */}
-                  <div className="rounded-full bg-red-100 dark:bg-red-900/20 p-3 sm:p-4">
-                    <XCircle className="h-10 w-10 sm:h-12 sm:w-12 text-red-600 dark:text-red-400" />
-                  </div>
-
-                  {/* Title */}
-                  <div>
-                    <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-2">
-                      Code Not Found
-                    </h2>
-                    <p className="text-sm sm:text-base text-muted-foreground px-2">
-                      No record found for the provided verification code. Please verify the code and try again.
-                    </p>
-                  </div>
-
-                  {/* Buttons */}
-                  <div className="flex flex-col gap-3 w-full pt-2">
-                    <Button asChild variant="default" size="lg" className="w-full text-sm sm:text-base">
-                      <Link href="/verify">
-                        <Search className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                        Try Another Code
-                      </Link>
-                    </Button>
-                    <Button asChild variant="outline" size="lg" className="w-full text-sm sm:text-base">
-                      <Link href="/">
-                        <ArrowLeft className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                        Back to Home
-                      </Link>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
+      </WkAuthShell>
     );
   }
 
-  if (status === 'voided') {
+  if (status === 'voided' && data) {
     return (
-      <div className="min-h-screen bg-background">
-        {/* Header */}
-        <div className="border-b bg-header text-header-foreground">
-          <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
-            <LogoOnboarding />
-          </div>
+      <WkAuthShell size="xl">
+        <div className="space-y-5">
+          <StatusBanner
+            tone="warn"
+            icon={<AlertTriangle className="h-5 w-5" />}
+            title="This record has been voided"
+            description="The original testimonial is no longer valid or has been removed by the issuing captain."
+          />
+          <SectionCard
+            eyebrow="Voided record snapshot"
+            title="Testimonial details"
+            icon={<FileSignature className="h-5 w-5" />}
+          >
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <DataField label="Crew member" value={data.crew_name} />
+              <DataField label="Position / Rank" value={data.rank} />
+              <DataField label="Vessel" value={data.vessel_name} />
+              {data.imo ? (
+                <DataField label="IMO number" value={data.imo} />
+              ) : null}
+              <DataField
+                label="From"
+                value={format(new Date(data.start_date), 'dd MMM yyyy')}
+              />
+              <DataField
+                label="Until"
+                value={format(new Date(data.end_date), 'dd MMM yyyy')}
+              />
+            </div>
+          </SectionCard>
+          <ActionRow>
+            <PrimaryLink href="/verify" icon={<Search className="h-4 w-4" />}>
+              Try another code
+            </PrimaryLink>
+            <GhostLink href="/">Back to home</GhostLink>
+          </ActionRow>
         </div>
-
-        {/* Main Content */}
-        <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-2xl">
-          <Card className="border-2 shadow-lg">
-            <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
-              <Alert variant="destructive" className="mb-4 sm:mb-6">
-                <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />
-                <AlertTitle className="font-bold flex items-center gap-2 text-sm sm:text-base">
-                  ⚠️ Voided
-                </AlertTitle>
-                <AlertDescription className="text-xs sm:text-sm">
-                  This record has been voided. The original testimonial is no longer valid or has been removed.
-                </AlertDescription>
-              </Alert>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Button asChild variant="default" className="flex-1 text-sm sm:text-base">
-                  <Link href="/verify">
-                    <Search className="mr-2 h-4 w-4" />
-                    Try Another Code
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="flex-1 text-sm sm:text-base">
-                  <Link href="/">
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Back to Home
-                  </Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      </WkAuthShell>
     );
   }
 
   if (status === 'verified' && documentType === 'proof_of_service' && posData) {
     return (
-      <div className="min-h-screen bg-background">
-        <div className="border-b bg-header text-header-foreground">
-          <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
-            <LogoOnboarding />
-          </div>
-        </div>
-        <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-2xl">
-          <div className="space-y-4 sm:space-y-6">
-            <div className="rounded-xl border-2 border-green-500 bg-green-500/10 p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-start sm:items-center gap-3 sm:gap-4 flex-1 min-w-0">
-                  <CheckCircle2 className="h-6 w-6 sm:h-8 sm:w-8 text-green-500 flex-shrink-0 mt-1 sm:mt-0" />
-                  <div className="flex-1 min-w-0">
-                    <h1 className="text-xl sm:text-2xl font-bold text-green-500">Verified</h1>
-                    <p className="text-xs sm:text-sm text-muted-foreground mt-1 break-words">
-                      <code className="font-mono font-semibold break-all">{posData.verification_code}</code> matches an official Proof of Service record.
-                    </p>
-                  </div>
-                </div>
-                <Badge variant="outline" className="bg-green-500/20 text-green-500 border-green-500 text-sm sm:text-base px-3 sm:px-4 py-1.5 sm:py-2 flex-shrink-0">
-                  <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" />
-                  Verified
-                </Badge>
-              </div>
-            </div>
+      <WkAuthShell size="xl">
+        <div className="space-y-5">
+          <StatusBanner
+            tone="good"
+            icon={<CheckCircle2 className="h-5 w-5" />}
+            title="Verified · Proof of Service"
+            description={
+              <>
+                <code
+                  className="rounded px-1 py-0.5 font-mono text-[12px] font-semibold"
+                  style={{
+                    backgroundColor: 'var(--wk-good-soft)',
+                    color: 'var(--wk-good)',
+                  }}
+                >
+                  {posData.verification_code}
+                </code>{' '}
+                matches an official Proof of Service record on SeaJourney.
+              </>
+            }
+            rightSlot={
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wider"
+                style={{
+                  backgroundColor: 'var(--wk-good-soft)',
+                  color: 'var(--wk-good)',
+                  border: '1px solid var(--wk-good-ring)',
+                }}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Verified
+              </span>
+            }
+          />
 
-            <Card className="border-2 shadow-lg">
-              <CardHeader className="bg-muted/50 border-b px-4 sm:px-6 py-3 sm:py-4">
-                <CardTitle className="text-lg sm:text-xl font-bold text-primary">Proof of Service</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                  <div>
-                    <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Crew member</p>
-                    <p className="text-base sm:text-lg font-medium break-words">{posData.crew_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Position</p>
-                    <p className="text-base sm:text-lg font-medium break-words">{posData.crew_position ?? '—'}</p>
-                  </div>
-                </div>
-                <Separator className="my-4" />
-                <div>
-                  <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Vessel</p>
-                  <p className="text-base sm:text-lg font-medium break-words">{posData.vessel_name}{posData.vessel_type ? ` (${posData.vessel_type})` : ''}</p>
-                  {posData.vessel_imo && <p className="text-sm text-muted-foreground mt-1">IMO / Official No.: {posData.vessel_imo}</p>}
-                </div>
-                <Separator className="my-4" />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                  <div>
-                    <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Service period</p>
-                    <p className="text-base sm:text-lg font-medium">{format(new Date(posData.start_date), 'dd MMM yyyy')} – {format(new Date(posData.end_date), 'dd MMM yyyy')}</p>
-                  </div>
-                </div>
-                <Separator className="my-4" />
-                <div>
-                  <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-2">Sea time breakdown (days)</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
-                    <div><span className="text-muted-foreground block">Total</span><span className="font-semibold">{posData.total_days}</span></div>
-                    <div><span className="text-muted-foreground block">At sea</span><span className="font-semibold">{posData.at_sea_days}</span></div>
-                    <div><span className="text-muted-foreground block">Standby</span><span className="font-semibold text-purple-600 dark:text-purple-400">{posData.standby_days}</span></div>
-                    <div><span className="text-muted-foreground block">Yard</span><span className="font-semibold">{posData.yard_days}</span></div>
-                    <div><span className="text-muted-foreground block">At anchor</span><span className="font-semibold">{posData.leave_days}</span></div>
-                  </div>
-                </div>
-                <Separator className="my-4" />
-                <div>
-                  <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Generated by</p>
-                  <p className="text-base font-medium break-words">{posData.generated_by_name}{posData.generated_by_email ? ` (${posData.generated_by_email})` : ''}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{format(new Date(posData.created_at), 'dd MMM yyyy')}</p>
-                </div>
-                <div className="mt-4 pt-4 border-t">
-                  <p className="text-xs font-semibold text-muted-foreground mb-1">Verification code</p>
-                  <code className="block bg-muted px-3 py-2 rounded-lg text-sm font-mono font-semibold break-all">{posData.verification_code}</code>
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="flex justify-center pt-2 sm:pt-4">
-              <Button asChild size="lg" variant="default" className="w-full sm:w-auto min-w-[200px]">
-                <Link href="/verify">
-                  <Search className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                  Verify New Record
-                </Link>
-              </Button>
+          <SectionCard
+            eyebrow="Crew & vessel"
+            title="Service details"
+            icon={<Ship className="h-5 w-5" />}
+          >
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <DataField label="Crew member" value={posData.crew_name} />
+              <DataField
+                label="Position"
+                value={posData.crew_position ?? '—'}
+              />
+              <DataField
+                label="Vessel"
+                value={
+                  posData.vessel_type
+                    ? `${posData.vessel_name} (${posData.vessel_type})`
+                    : posData.vessel_name
+                }
+              />
+              {posData.vessel_imo ? (
+                <DataField
+                  label="IMO / Official no."
+                  value={posData.vessel_imo}
+                />
+              ) : null}
+              <DataField
+                label="Service period"
+                value={
+                  <>
+                    {format(new Date(posData.start_date), 'dd MMM yyyy')}
+                    {' — '}
+                    {format(new Date(posData.end_date), 'dd MMM yyyy')}
+                  </>
+                }
+              />
+              <DataField
+                label="Generated"
+                value={format(new Date(posData.created_at), 'dd MMM yyyy')}
+              />
             </div>
-          </div>
+          </SectionCard>
+
+          <SectionCard
+            eyebrow="Sea time breakdown"
+            title="Days at sea"
+            icon={<Compass className="h-5 w-5" />}
+          >
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <StatTile label="Total" value={posData.total_days} />
+              <StatTile
+                label="At sea"
+                value={posData.at_sea_days}
+                accent="sea"
+              />
+              <StatTile
+                label="Standby"
+                value={posData.standby_days}
+                accent="standby"
+              />
+              <StatTile label="Yard" value={posData.yard_days} accent="yard" />
+              <StatTile
+                label="At anchor"
+                value={posData.leave_days}
+                accent="anchor"
+              />
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            eyebrow="Issued by"
+            title="Generation record"
+            icon={<User className="h-5 w-5" />}
+          >
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <DataField
+                label="Generated by"
+                value={
+                  posData.generated_by_email
+                    ? `${posData.generated_by_name} (${posData.generated_by_email})`
+                    : posData.generated_by_name
+                }
+              />
+              <DataField
+                label="Generated at"
+                value={format(new Date(posData.created_at), 'dd MMM yyyy')}
+              />
+            </div>
+            <div className="mt-5 space-y-2">
+              <div className="wk-data-label">Verification code</div>
+              <code className="wk-credential">{posData.verification_code}</code>
+            </div>
+          </SectionCard>
+
+          <ActionRow>
+            <PrimaryLink href="/verify" icon={<Search className="h-4 w-4" />}>
+              Verify another record
+            </PrimaryLink>
+            <GhostLink href="/">Back to home</GhostLink>
+          </ActionRow>
         </div>
-      </div>
+      </WkAuthShell>
     );
   }
 
   if (status === 'verified' && data) {
     return (
-      <div className="min-h-screen bg-background">
-        {/* Header */}
-        <div className="border-b bg-header text-header-foreground">
-          <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
-            <LogoOnboarding />
-          </div>
-        </div>
+      <WkAuthShell size="xl">
+        <div className="space-y-5">
+          <StatusBanner
+            tone="good"
+            icon={<CheckCircle2 className="h-5 w-5" />}
+            title="Verified · MCA Testimonial"
+            description={
+              <>
+                <code
+                  className="rounded px-1 py-0.5 font-mono text-[12px] font-semibold"
+                  style={{
+                    backgroundColor: 'var(--wk-good-soft)',
+                    color: 'var(--wk-good)',
+                  }}
+                >
+                  {data.testimonial_code}
+                </code>{' '}
+                matches an official record approved by{' '}
+                <span style={{ color: 'var(--wk-text)' }}>
+                  {data.captain_name}
+                </span>
+                .
+              </>
+            }
+            rightSlot={
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wider"
+                style={{
+                  backgroundColor: 'var(--wk-good-soft)',
+                  color: 'var(--wk-good)',
+                  border: '1px solid var(--wk-good-ring)',
+                }}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Verified
+              </span>
+            }
+          />
 
-        {/* Main Content */}
-        <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-7xl">
-          <div className="space-y-4 sm:space-y-6">
-            {/* Status Header */}
-            <div className="rounded-xl border-2 border-green-500 bg-green-500/10 p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-start sm:items-center gap-3 sm:gap-4 flex-1 min-w-0">
-                  <CheckCircle2 className="h-6 w-6 sm:h-8 sm:w-8 text-green-500 flex-shrink-0 mt-1 sm:mt-0" />
-                  <div className="flex-1 min-w-0">
-                    <h1 className="text-xl sm:text-2xl font-bold text-green-500">Verified</h1>
-                    <p className="text-xs sm:text-sm text-muted-foreground mt-1 break-words">
-                      <code className="font-mono font-semibold break-all">{data.testimonial_code}</code> matches an official record approved by {data.captain_name}
-                    </p>
-                  </div>
+          <SectionCard
+            eyebrow="Part 1"
+            title="Seafarer details"
+            icon={<User className="h-5 w-5" />}
+          >
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <DataField label="Name" value={data.crew_name} />
+              <DataField label="Position / Rank" value={data.rank} />
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            eyebrow="Part 2"
+            title="Service"
+            icon={<Ship className="h-5 w-5" />}
+          >
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <DataField label="Vessel name" value={data.vessel_name} />
+                {data.imo ? (
+                  <DataField label="IMO number" value={data.imo} />
+                ) : null}
+              </div>
+
+              <div className="wk-divider" />
+
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <DataField
+                  label="From (Onboard service)"
+                  value={format(new Date(data.start_date), 'dd MMM yyyy')}
+                />
+                <DataField
+                  label="Until"
+                  value={format(new Date(data.end_date), 'dd MMM yyyy')}
+                />
+              </div>
+
+              <div className="wk-divider" />
+
+              <div>
+                <div className="wk-section-eyebrow mb-3">
+                  Service breakdown
                 </div>
-                <Badge variant="outline" className="bg-green-500/20 text-green-500 border-green-500 text-sm sm:text-base px-3 sm:px-4 py-1.5 sm:py-2 flex-shrink-0">
-                  <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" />
-                  Verified
-                </Badge>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <StatTile label="Total days" value={data.total_days} />
+                  <StatTile
+                    label="Sea days"
+                    value={data.sea_days}
+                    accent="sea"
+                  />
+                  <StatTile
+                    label="Standby days"
+                    value={data.standby_days}
+                    accent="standby"
+                  />
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            eyebrow="Part 3"
+            title="Declaration by Master"
+            icon={<FileSignature className="h-5 w-5" />}
+          >
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <DataField label="Captain name" value={data.captain_name} />
+              {data.captain_license ? (
+                <DataField
+                  label="License / Certification"
+                  value={data.captain_license}
+                />
+              ) : null}
+              <DataField
+                label="Approved"
+                value={
+                  <span className="inline-flex items-center gap-2">
+                    <Calendar className="h-4 w-4 opacity-70" />
+                    {format(
+                      new Date(data.approved_at),
+                      "dd MMM yyyy 'at' HH:mm",
+                    )}
+                  </span>
+                }
+              />
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            eyebrow="Document"
+            title="Verification details"
+            icon={<ClipboardCheck className="h-5 w-5" />}
+          >
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <div className="space-y-2">
+                <div className="wk-data-label">Testimonial code</div>
+                <code className="wk-credential">{data.testimonial_code}</code>
+              </div>
+              <div className="space-y-2">
+                <div className="wk-data-label">Document ID</div>
+                <code
+                  className="wk-credential"
+                  style={{
+                    color: 'var(--wk-text-muted)',
+                    borderStyle: 'solid',
+                    borderColor: 'var(--wk-line)',
+                    backgroundColor: 'var(--wk-bg-subtle)',
+                  }}
+                >
+                  {data.document_id}
+                </code>
               </div>
             </div>
 
-            {/* Part 1 - Seafarer's Details */}
-            <Card className="border-2 shadow-lg">
-              <CardHeader className="bg-muted/50 border-b px-4 sm:px-6 py-3 sm:py-4">
-                <CardTitle className="text-lg sm:text-xl font-bold text-primary">PART 1 – SEAFARER'S DETAILS</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                  <div>
-                    <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Name</p>
-                    <p className="text-base sm:text-lg font-medium break-words">{data.crew_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Position / Rank</p>
-                    <p className="text-base sm:text-lg font-medium break-words">{data.rank}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Part 2 - Service */}
-            <Card className="border-2 shadow-lg">
-              <CardHeader className="bg-muted/50 border-b px-4 sm:px-6 py-3 sm:py-4">
-                <CardTitle className="text-lg sm:text-xl font-bold text-primary">PART 2 – SERVICE</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
-                <div className="space-y-6 sm:space-y-8">
-                  {/* Vessel Information */}
-                  <div>
-                    <h4 className="text-sm sm:text-base font-bold text-primary mb-3 sm:mb-4">ON BOARD:</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                      <div>
-                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Vessel Name</p>
-                        <p className="text-base sm:text-lg font-medium break-words">{data.vessel_name}</p>
-                      </div>
-                      {data.imo && (
-                        <div>
-                          <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">IMO Number</p>
-                          <p className="text-base sm:text-lg font-medium break-words">{data.imo}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* Service Dates */}
-                  <div>
-                    <h4 className="text-sm sm:text-base font-bold text-primary mb-3 sm:mb-4">SERVICE DATES:</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                      <div>
-                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">From (Onboard Service)</p>
-                        <p className="text-base sm:text-lg font-medium">{format(new Date(data.start_date), 'dd MMMM yyyy')}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Until</p>
-                        <p className="text-base sm:text-lg font-medium">{format(new Date(data.end_date), 'dd MMMM yyyy')}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* Service Breakdown */}
-                  <div>
-                    <h4 className="text-sm sm:text-base font-bold text-primary mb-3 sm:mb-4">SERVICE BREAKDOWN (DAYS):</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
-                      <div>
-                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Total Days</p>
-                        <p className="text-xl sm:text-2xl font-bold">{data.total_days} days</p>
-                      </div>
-                      <div>
-                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Sea Days</p>
-                        <p className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">{data.sea_days} days</p>
-                      </div>
-                      <div>
-                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Standby Days</p>
-                        <p className="text-xl sm:text-2xl font-bold text-purple-600 dark:text-purple-400">{data.standby_days} days</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Part 3 - Declaration by Master */}
-            <Card className="border-2 shadow-lg">
-              <CardHeader className="bg-muted/50 border-b px-4 sm:px-6 py-3 sm:py-4">
-                <CardTitle className="text-lg sm:text-xl font-bold text-primary">PART 3 – DECLARATION BY MASTER</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
-                <div className="space-y-4 sm:space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                    <div>
-                      <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Captain Name</p>
-                      <p className="text-base sm:text-lg font-medium break-words">{data.captain_name}</p>
-                    </div>
-                    {data.captain_license && (
-                      <div>
-                        <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">License / Certification</p>
-                        <p className="text-base sm:text-lg font-medium break-words">{data.captain_license}</p>
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Approved Date</p>
-                    <p className="text-base sm:text-lg font-medium">{format(new Date(data.approved_at), 'dd MMMM yyyy \'at\' HH:mm')}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Document Verification */}
-            <Card className="border-2 border-primary/20 bg-primary/5 shadow-lg">
-              <CardHeader className="bg-primary/10 border-b border-primary/20 px-4 sm:px-6 py-3 sm:py-4">
-                <CardTitle className="text-lg sm:text-xl font-bold text-primary">DOCUMENT VERIFICATION</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
-                <div className="space-y-4 sm:space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                    <div>
-                      <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Testimonial Code</p>
-                      <code className="block bg-background border-2 border-primary/20 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-base sm:text-lg font-mono font-semibold text-primary break-all">
-                        {data.testimonial_code}
-                      </code>
-                    </div>
-                    <div>
-                      <p className="text-xs sm:text-sm font-semibold text-muted-foreground mb-1.5 sm:mb-2">Document ID</p>
-                      <code className="block bg-background border-2 border-primary/20 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-mono text-muted-foreground break-all">
-                        {data.document_id}
-                      </code>
-                    </div>
-                  </div>
-                  <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 p-4 sm:p-6">
-                    <p className="text-sm sm:text-base text-blue-900 dark:text-blue-100">
-                      <strong>Verification Note:</strong> This record matches the official testimonial document. 
-                      Officials can cross-reference the code above with the code in the PDF footer to confirm authenticity.
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Verify New Record Button */}
-            <div className="flex justify-center pt-2 sm:pt-4">
-              <Button asChild size="lg" variant="default" className="w-full sm:w-auto min-w-[200px]">
-                <Link href="/verify">
-                  <Search className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                  Verify New Record
-                </Link>
-              </Button>
+            <div
+              className="mt-5 rounded-xl p-4 text-sm"
+              style={{
+                backgroundColor: 'var(--wk-accent-soft)',
+                border: '1px solid var(--wk-accent-ring)',
+                color: 'var(--wk-text-soft)',
+              }}
+            >
+              <strong style={{ color: 'var(--wk-accent)' }}>
+                Verification note ·
+              </strong>{' '}
+              This record matches the official testimonial document. Officials
+              can cross-reference the code above with the code in the PDF
+              footer to confirm authenticity.
             </div>
-          </div>
+          </SectionCard>
+
+          <ActionRow>
+            <PrimaryLink href="/verify" icon={<Search className="h-4 w-4" />}>
+              Verify another record
+            </PrimaryLink>
+            <GhostLink href="/">Back to home</GhostLink>
+          </ActionRow>
         </div>
-      </div>
+      </WkAuthShell>
     );
   }
 
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Suspense wrapper
+// ---------------------------------------------------------------------------
+
 export default function VerificationResultPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-background">
-        <div className="border-b bg-header text-header-foreground">
-          <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-center">
-            <LogoOnboarding />
+    <Suspense
+      fallback={
+        <WkAuthShell size="md">
+          <div
+            className="wk-auth-card flex flex-col items-center justify-center px-8 py-16 text-center"
+            style={{ minHeight: 280 }}
+          >
+            <Loader2
+              className="h-8 w-8 animate-spin"
+              style={{ color: 'var(--wk-accent)' }}
+            />
+            <p
+              className="mt-4 text-base font-semibold"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              Loading
+            </p>
           </div>
-        </div>
-        <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-2xl">
-          <Card className="border-2 shadow-lg">
-            <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6 pb-4 sm:pb-6">
-              <div className="flex flex-col items-center justify-center py-8 sm:py-12">
-                <Loader2 className="h-6 w-6 sm:h-8 sm:w-8 animate-spin text-primary mb-3 sm:mb-4" />
-                <p className="text-sm sm:text-base text-muted-foreground">Loading...</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    }>
+        </WkAuthShell>
+      }
+    >
       <VerificationResultContent />
     </Suspense>
   );
 }
-

@@ -65,7 +65,7 @@ export async function resumeStripeSubscriptionForUser(
 
     if (!customerId) {
       throw new ResumeSubscriptionError(
-        'Could not resolve Stripe customer for this account.',
+        'Could not resolve Stripe customer for this account. Check that billing is set up, or contact support.',
         400,
       );
     }
@@ -76,6 +76,14 @@ export async function resumeStripeSubscriptionForUser(
       limit: 30,
     });
 
+    const count = allSubs?.length ?? 0;
+    if (count === 0) {
+      throw new ResumeSubscriptionError(
+        'Stripe has no subscriptions for this billing account. The old subscription may have been removed. Start a new subscription from the Offers page, and confirm you are using the same Stripe mode (test vs live) as this app.',
+        400,
+      );
+    }
+
     const best = pickCanonicalStripeSubscription(allSubs);
     if (
       !best ||
@@ -83,7 +91,7 @@ export async function resumeStripeSubscriptionForUser(
       best.status === 'incomplete_expired'
     ) {
       throw new ResumeSubscriptionError(
-        'No active subscription to resume. If you renewed in Stripe, refresh this page. Contact support if this continues.',
+        'Resume only applies while a subscription is still active but set to cancel at period end. Your plan has fully ended in Stripe — subscribe again from the Offers page. In the Stripe Dashboard, search by Customer ID (cus_…) from your billing profile, not the subscription ID.',
         400,
       );
     }

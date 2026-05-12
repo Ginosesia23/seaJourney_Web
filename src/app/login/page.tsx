@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -7,16 +6,25 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { useSupabase, useUser } from '@/supabase';
-import { Loader2 } from 'lucide-react';
-import LogoOnboarding from '@/components/logo-onboarding';
+import { Loader2, LogIn, ShieldCheck, Sparkles, Users } from 'lucide-react';
 import { getUserProfile, updateUserProfile } from '@/supabase/database/queries';
-import type { UserProfile } from '@/lib/types';
+import {
+  WkAuthShell,
+  WkAsideHero,
+  WkPrimarySubmit,
+  wkInputCls,
+  wkLabelCls,
+} from '@/components/wk/wk-auth-shell';
 
 const loginSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address.' }),
@@ -28,7 +36,7 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingUser, setIsCheckingUser] = useState(true);
-  
+
   const { supabase } = useSupabase();
   const router = useRouter();
   const { toast } = useToast();
@@ -38,24 +46,24 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
     defaultValues: { email: '', password: '' },
   });
-  
+
   const checkUserAndRedirect = async (userId: string) => {
     try {
       const userProfile = await getUserProfile(supabase, userId);
-        if (userProfile.role === 'vessel') {
-          router.push('/dashboard/crew');
-        } else if (userProfile.role === 'admin') {
+      if (userProfile.role === 'vessel') {
+        router.push('/dashboard/crew');
+      } else if (userProfile.role === 'admin') {
+        router.push('/dashboard');
+      } else {
+        if (userProfile.subscriptionStatus === 'active') {
           router.push('/dashboard');
         } else {
-        if (userProfile.subscriptionStatus === 'active') {
-                router.push('/dashboard');
-            } else {
-                router.push('/offers');
+          router.push('/offers');
         }
       }
     } catch (error) {
-      console.error("Failed to fetch user profile for redirection:", error);
-      router.push('/dashboard'); // Fallback redirect
+      console.error('Failed to fetch user profile for redirection:', error);
+      router.push('/dashboard');
     }
   };
 
@@ -76,17 +84,18 @@ export default function LoginPage() {
       });
 
       if (error) {
-        // Handle specific error cases
         if (error.message.includes('Invalid login credentials')) {
           toast({
             title: 'Login Failed',
-            description: 'Invalid email or password. Please check your credentials and try again.',
+            description:
+              'Invalid email or password. Please check your credentials and try again.',
             variant: 'destructive',
           });
         } else if (error.message.includes('Email not confirmed')) {
           toast({
             title: 'Email Not Verified',
-            description: 'Please check your email and verify your account before signing in.',
+            description:
+              'Please check your email and verify your account before signing in.',
             variant: 'destructive',
           });
         } else if (error.message.includes('Too many requests')) {
@@ -98,43 +107,42 @@ export default function LoginPage() {
         } else {
           toast({
             title: 'Login Failed',
-            description: error.message || 'An error occurred during login. Please try again.',
+            description:
+              error.message || 'An error occurred during login. Please try again.',
             variant: 'destructive',
           });
         }
         return;
       }
 
-      // Success - user is now authenticated
-      // Ensure user profile exists in users table (fallback if trigger/callback didn't create it)
       if (authData.user) {
         try {
-          // Check if user profile exists
           const userProfile = await getUserProfile(supabase, authData.user.id);
           console.log('[LOGIN] User profile found:', userProfile);
-        } catch (profileError: any) {
-          // Profile doesn't exist - create it
+        } catch (_profileError: any) {
           console.log('[LOGIN] User profile not found, creating it...');
           try {
             await updateUserProfile(supabase, authData.user.id, {
               email: authData.user.email || '',
-              username: authData.user.user_metadata?.username || `user_${authData.user.id.slice(0, 8)}`,
+              username:
+                authData.user.user_metadata?.username ||
+                `user_${authData.user.id.slice(0, 8)}`,
               subscriptionTier: 'free',
               subscriptionStatus: 'inactive',
             });
             console.log('[LOGIN] User profile created successfully');
           } catch (createError: any) {
             console.error('[LOGIN] Error creating user profile:', createError);
-            // Don't block login if profile creation fails, but log it
             toast({
               title: 'Login Successful',
-              description: 'Logged in successfully, but there was an issue with your profile. Please contact support if you experience any issues.',
+              description:
+                'Logged in successfully, but there was an issue with your profile. Please contact support if you experience any issues.',
               variant: 'default',
             });
-            return; // Return early so useEffect handles redirect
+            return;
           }
         }
-        
+
         toast({
           title: 'Welcome Back!',
           description: 'You have been successfully logged in.',
@@ -144,90 +152,164 @@ export default function LoginPage() {
       console.error('Login failed:', error);
       toast({
         title: 'Login Failed',
-        description: error.message || 'An unexpected error occurred. Please try again.',
+        description:
+          error.message || 'An unexpected error occurred. Please try again.',
         variant: 'destructive',
       });
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   };
 
   if (isCheckingUser) {
     return (
-      <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center">
-        <Loader2 className="h-12 w-12 animate-spin text-white" />
-      </div>
+      <WkAuthShell hideBackLink>
+        <div
+          className="wk-auth-card flex items-center justify-center p-10"
+          style={{ minHeight: 260 }}
+        >
+          <Loader2
+            className="h-8 w-8 animate-spin"
+            style={{ color: 'var(--wk-accent)' }}
+          />
+        </div>
+      </WkAuthShell>
     );
   }
 
   return (
-    <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
-       <div className="mb-8">
-        <LogoOnboarding />
-      </div>
-      <div className="relative w-full max-w-md p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
-        <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
-        <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
-        <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
-        <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
-        
-        <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
-          <CardHeader className="text-center">
-            <CardTitle className="font-headline text-2xl">Welcome Back</CardTitle>
-            <CardDescription>Sign in to access your dashboard.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleLogin)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input placeholder="you@example.com" {...field} className="rounded-lg" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input type="password" placeholder="••••••••" {...field} className="rounded-lg" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" className="w-full" disabled={isLoading} variant="default">
-                  {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Sign In
-                </Button>
-              </form>
-            </Form>
-
-            <div className="mt-6 space-y-2">
-              <p className="text-center text-sm text-muted-foreground">
-              Don't have an account?{' '}
-              <Link href="/signup" className="font-medium text-primary hover:underline">
-                Sign up
-              </Link>
+    <WkAuthShell
+      aside={
+        <WkAsideHero
+          eyebrow="SeaJourney"
+          title={
+            <>
+              Welcome <span className="wk-gradient-text">back on board</span>.
+            </>
+          }
+          description="Pick up exactly where you left off — log sea time, track certificates, and generate verifiable records in seconds."
+          bullets={[
+            {
+              label: 'Verified sea service records',
+              sub: 'Share a QR or SJ-code to prove your history.',
+              icon: <ShieldCheck className="h-4 w-4" />,
+            },
+            {
+              label: 'Official MCA, AMSA & testimonial forms',
+              sub: 'Auto-filled from your voyage history.',
+              icon: <Sparkles className="h-4 w-4" />,
+            },
+            {
+              label: 'A trusted crew & vessel network',
+              sub: 'Stay in touch with past vessels and captains.',
+              icon: <Users className="h-4 w-4" />,
+            },
+          ]}
+        />
+      }
+    >
+      <div className="wk-auth-card p-8 sm:p-10">
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl"
+            style={{
+              backgroundColor: 'var(--wk-accent-soft)',
+              color: 'var(--wk-accent)',
+              border: '1px solid var(--wk-accent-ring)',
+            }}
+          >
+            <LogIn className="h-5 w-5" />
+          </span>
+          <div>
+            <h1
+              className="text-2xl font-semibold tracking-tight"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              <span className="wk-gradient-text">Sign in</span> to your account
+            </h1>
+            <p className="text-sm" style={{ color: 'var(--wk-text-muted)' }}>
+              Welcome back — let&apos;s get you to your dashboard.
             </p>
-              <p className="text-center text-sm">
-                <Link href="/forgot-password" className="text-muted-foreground hover:text-primary hover:underline">
-                  Forgot your password?
-                </Link>
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+
+        <div
+          className="my-6 h-px w-full"
+          style={{ backgroundColor: 'var(--wk-line)' }}
+        />
+
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(handleLogin)}
+            className="space-y-5"
+            noValidate
+          >
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field, fieldState }) => (
+                <FormItem className="space-y-1.5">
+                  <FormLabel className={wkLabelCls}>Email</FormLabel>
+                  <FormControl>
+                    <input
+                      type="email"
+                      placeholder="you@example.com"
+                      autoComplete="email"
+                      aria-invalid={fieldState.invalid || undefined}
+                      className={wkInputCls}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage className="wk-error" />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field, fieldState }) => (
+                <FormItem className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <FormLabel className={wkLabelCls}>Password</FormLabel>
+                    <Link
+                      href="/forgot-password"
+                      className="wk-link text-xs"
+                    >
+                      Forgot?
+                    </Link>
+                  </div>
+                  <FormControl>
+                    <input
+                      type="password"
+                      placeholder="••••••••"
+                      autoComplete="current-password"
+                      aria-invalid={fieldState.invalid || undefined}
+                      className={wkInputCls}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage className="wk-error" />
+                </FormItem>
+              )}
+            />
+
+            <WkPrimarySubmit type="submit" loading={isLoading}>
+              Sign In
+            </WkPrimarySubmit>
+          </form>
+        </Form>
+
+        <p
+          className="mt-6 text-center text-sm"
+          style={{ color: 'var(--wk-text-muted)' }}
+        >
+          Don&apos;t have an account?{' '}
+          <Link href="/signup" className="wk-link">
+            Create one
+          </Link>
+        </p>
       </div>
-    </div>
+    </WkAuthShell>
   );
 }

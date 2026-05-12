@@ -17,8 +17,82 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { PDFDocument, PDFPage, PDFFont, StandardFonts, rgb } from 'pdf-lib';
-import { format, parse, differenceInHours, addDays } from 'date-fns';
+import { format, parse, parseISO, isValid, differenceInHours, addDays } from 'date-fns';
+import QRCode from 'qrcode';
 import type { SeaTimeReportData } from '@/app/actions';
+import type { AmsaSeaServiceReference } from '@/lib/amsa-sea-service-reference';
+import { formatAmsaReferencePartsForPdf } from '@/lib/amsa-sea-service-reference';
+
+/* ========================================================================== */
+/*                        VERIFICATION QR HELPERS                             */
+/* ========================================================================== */
+
+/**
+ * Base URL used to build the verification deep-link encoded in QR codes.
+ * Prefers the public site URL so scans from a printed receipt always land
+ * on production regardless of where the PDF was generated.
+ */
+function getVerificationBaseUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.SITE_URL ||
+    'https://www.seajourney.co.uk'
+  );
+}
+
+/**
+ * Builds the deep-link URL that takes a scanner straight to the verify result
+ * page for a given testimonial (SJ-…) or proof-of-service (POS-…) code.
+ */
+export function buildVerificationUrl(code: string, type: 'sj' | 'pos'): string {
+  const base = getVerificationBaseUrl().replace(/\/$/, '');
+  return `${base}/verify/result?code=${encodeURIComponent(code)}&type=${type}`;
+}
+
+/** Returns a PNG data URL for the verification QR, or null if generation fails. */
+export async function generateVerificationQRDataUrl(
+  code: string,
+  type: 'sj' | 'pos',
+  sizePx = 360,
+): Promise<string | null> {
+  try {
+    if (!code) return null;
+    const url = buildVerificationUrl(code, type);
+    return await QRCode.toDataURL(url, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: sizePx,
+      color: { dark: '#0f172a', light: '#ffffff' },
+    });
+  } catch (e) {
+    console.warn('[PDF] Failed to build verification QR:', e);
+    return null;
+  }
+}
+
+/** Raw PNG bytes version for pdf-lib embedding. Works in both browser and Node. */
+async function generateVerificationQRBytes(
+  code: string,
+  type: 'sj' | 'pos',
+  sizePx = 360,
+): Promise<Uint8Array | null> {
+  try {
+    const dataUrl = await generateVerificationQRDataUrl(code, type, sizePx);
+    if (!dataUrl) return null;
+    const base64 = dataUrl.split(',')[1] || '';
+    const bin =
+      typeof atob === 'function'
+        ? atob(base64)
+        : Buffer.from(base64, 'base64').toString('binary');
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  } catch (err) {
+    console.warn('[PDF] Failed to build verification QR bytes:', err);
+    return null;
+  }
+}
 
 // Re-export the type for use in this file
 type SeaTimeReportDataType = SeaTimeReportData;
@@ -62,6 +136,8 @@ export interface TestimonialPDFData {
     dateOfBirth?: string | null;
     position?: string | null;
     dischargeBookNumber?: string | null;
+    mobile?: string | null;
+    telephone?: string | null;
   };
   companyDetails?: {
     name?: string | null;
@@ -76,6 +152,7 @@ export interface TestimonialPDFData {
     length_m?: number | null;
     gross_tonnage?: number | null;
     call_sign?: string | null;
+    company_contact?: string | null;
   };
   captainProfile?: {
     firstName?: string;
@@ -94,10 +171,980 @@ export interface TestimonialPDFData {
     standbyEndDate?: string; // YYYY-MM-DD
     standbyDays: number;
   }>; // Standby service periods for Table A
+  /** AMSA 771 sea service reference codes — optional overlay on Form 771 */
+  amsaReference?: AmsaSeaServiceReference | null;
 }
 
-export type TestimonialPDFFormat = 'mca' | 'mlc' | 'seajourney';
+export type TestimonialPDFFormat = 'mca' | 'mlc' | 'seajourney' | 'amsa';
+
+/** Official AMSA 771 blank form (served from /public). */
+export const AMSA_771_FORM_PUBLIC_PATH = '/forms/AMSA_Form_771.pdf';
 export type TestimonialPDFOutput = 'download' | 'newtab' | 'blob';
+
+export interface TestimonialPDFOptions {
+  /** When true, AMSA overlay draws red crosshairs at each field anchor. */
+  debug?: boolean;
+}
+
+const A4_RECEIPT_PT = { w: 595.28, h: 841.89 };
+
+/** Embed a PNG logo into a pdf-lib PDFDocument. Returns null if not available. */
+async function embedLogoForPdfLib(
+  pdfDoc: PDFDocument,
+  path: string,
+): Promise<{ image: import('pdf-lib').PDFImage; width: number; height: number } | null> {
+  try {
+    if (typeof window === 'undefined') return null;
+    const { dataURL, width, height } = await loadLogoImageWithDimensions(path);
+    const base64 = dataURL.split(',')[1] || '';
+    const bin =
+      typeof atob === 'function'
+        ? atob(base64)
+        : Buffer.from(base64, 'base64').toString('binary');
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const image = await pdfDoc.embedPng(bytes);
+    return { image, width, height };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * SVG markup for the SeaJourney full lockup (icon + wordmark) in white.
+ * Mirrors the SVG used by the landing page <Logo /> component so the PDF
+ * header stays visually in sync with the site navigation.
+ */
+const SEAJOURNEY_LOGO_LOCKUP_SVG = `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 2048 532">
+<path transform="translate(75,124)" d="m0 0h19l23 2 27 5 28 8 24 9 16 8 5 2 10-6 21-10 17-6 18-5 16-3 16-2h20l24 3 17 4 3 2v93l-5-1-12-8-12-5-8-3-14-2h-24l-10 1-11 2-20 9-16 8-15 9-14 10-10 8-11 9-15 13-13 10-18 13-19 11-23 11-21 7-26 6-18 2h-34l-5-2-1-25v-163l2-8 13-6 18-5 25-4z" fill="#ffffff"/>
+<path transform="translate(616,173)" d="m0 0h29l17 4 11 5 10 7 8 8 6 10 4 12 1 12-2 1h-45l-4-10-6-5-8-3h-14l-10 4-4 6v7l4 6 12 5 30 7 15 5 13 7 10 9 6 8 5 16v20l-4 13-7 11-8 7-15 8-15 4-12 2h-26l-17-3-15-5-11-7-9-8-7-11-4-11-2-9v-12h46l3 9 5 8 5 4 8 3 14 1 10-2 7-4 3-5-1-9-5-5-9-4-30-7-20-6-14-8-7-6-7-11-3-9-1-16 3-14 5-10 8-10 11-8 12-6 14-4z" fill="#ffffff"/>
+<path transform="translate(306,278)" d="m0 0h22l15 2 16 5 13 7 7 6 1 3v30l-1 34h-4l-24-13-15-4-5-1h-24l-13 1-33 10-16 7-21 10-9 6-26 13-20 9-26 8-16 3-26 2-18-1-19-4-15-5-16-8-21-13-5-6 6 1 4 2 2-3 8 1 16 4 15 2h27l25-5 18-6 20-9 19-10 22-14 18-13 11-9 8-6 21-14 16-9 7-3 7-2 3-2h9l7-5z" fill="#ffffff"/>
+<path transform="translate(1898,221)" d="m0 0h51l2 6 18 77 1 10h3l1-8 17-71 3-13 1-1h51l-3 12-14 41-21 62-11 33-8 16-9 10-8 6-13 5-12 2h-18l-16-3-3-1v-6l5-15 4-13 5-1 4 1h12l4-4-1-10-23-68-12-35-10-30z" fill="#ffffff"/>
+<path transform="translate(1679,219)" d="m0 0h18l13 4 11 8 6 7 5 9 3 9 1 7v93l-3 1h-45l-1-1-1-80-4-11-5-4-10-2-9 2-6 5-3 7-1 5-1 78-1 1h-47l-1-1v-134l1-1h45l1 1v20l-1 4 3-2 4-8 6-7 11-7z" fill="#ffffff"/>
+<path transform="translate(1327,221)" d="m0 0h49l1 5v73l2 9 4 6 8 4h10l8-4 4-5 2-13 1-75h49v135l-2 1h-44v-26l-3 3-6 10-9 8-11 5-9 2h-13l-12-3-10-6-6-5-7-10-5-15-1-8z" fill="#ffffff"/>
+<path transform="translate(925,219)" d="m0 0h25l15 3 17 8 10 9 6 10 2 6 1 12v89l-2 1h-44l-1-18-11 12-12 6-8 2h-19l-13-4-10-6-6-7-5-12v-21l4-11 8-10 12-7 14-4 31-4 8-3 3-3 1-4-2-7-11-3-9 1-6 4-3 7h-44l-1-5 4-12 7-11 9-8 15-7 7-2zm23 79-21 5-8 4-3 5v8l6 7 3 1h11l8-4 6-7 2-6v-13z" fill="#ffffff"/>
+<path transform="translate(1225,219)" d="m0 0h23l12 2 13 5 10 7 9 8 8 12 5 13 2 10v27l-4 16-7 13-11 12-10 7-16 6-8 2-18 1-15-2-14-4-12-7-9-8-8-11-6-14-3-14v-22l4-17 7-14 11-12 9-7 13-6zm9 35-7 3-6 7-4 11-1 6v16l3 13 6 9 8 4h9l7-4 5-8 3-12v-22l-3-11-7-9-7-3z" fill="#ffffff"/>
+<path transform="translate(1813,219)" d="m0 0h22l15 3 14 7 9 7v2h2l8 11 5 11 4 16 1 23-1 1-88 1 1 9 5 9 11 5h11l10-4 4-5 1-2h45l-2 11-6 11-9 10-11 7-15 5-9 2-17 1-17-2-15-5-11-6-12-12-7-12-4-12-2-12v-20l3-15 8-16 8-11 12-9 13-6zm8 34-8 3-6 5-4 9 1 3h43l1-2-5-10-6-5-8-3z" fill="#ffffff"/>
+<path transform="translate(777,219)" d="m0 0h22l14 3 12 5 13 10 9 12 6 14 3 15v22h-89l3 13 4 6 7 4 4 1h10l9-3 5-4 2-4h45l-2 10-7 13-10 10-12 7-21 6-18 1-16-2-13-4-13-7-6-5-8-10-7-14-3-10-1-7v-24l4-16 7-14 8-10 10-8 15-7zm8 34-10 4-6 7-2 5 1 4h43l-1-7-6-8-8-4-4-1z" fill="#ffffff"/>
+<path transform="translate(1099,175)" d="m0 0h46l2 1v126l-2 15-4 9-7 11-7 7-11 7-12 5-13 3h-26l-16-4-12-6-10-9-6-8-4-9-3-16v-6l1-1h47l2 1 3 12 5 5 5 2h9l8-5 2-4 1-6 1-129z" fill="#ffffff"/>
+<path transform="translate(1561,219)" d="m0 0h17l4 1v42l-9-1h-16l-8 4-7 8-2 7-1 76-2 1h-47v-136h47v25l2-1 3-9 6-8 8-7z" fill="#ffffff"/>
+</svg>`;
+
+/**
+ * Rasterize the white SeaJourney icon+wordmark lockup SVG to a PNG and embed
+ * it into a pdf-lib PDFDocument. This gives us the same "icon on left, name
+ * on right" lockup used in the site's header navigation. Returns null in
+ * server environments or on failure.
+ */
+async function embedSeaJourneyWordmarkLockup(
+  pdfDoc: PDFDocument,
+  targetHeightPx = 160,
+): Promise<{ image: import('pdf-lib').PDFImage; width: number; height: number } | null> {
+  try {
+    if (typeof window === 'undefined') return null;
+    const viewBoxW = 2048;
+    const viewBoxH = 532;
+    const aspect = viewBoxW / viewBoxH;
+    const height = Math.max(32, Math.round(targetHeightPx));
+    const width = Math.round(height * aspect);
+
+    const svgBlob = new Blob([SEAJOURNEY_LOGO_LOCKUP_SVG], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    try {
+      const img: HTMLImageElement = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = () => reject(new Error('svg load failed'));
+        i.src = url;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/png');
+      const base64 = dataUrl.split(',')[1] || '';
+      const bin =
+        typeof atob === 'function'
+          ? atob(base64)
+          : Buffer.from(base64, 'base64').toString('binary');
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const image = await pdfDoc.embedPng(bytes);
+      return { image, width, height };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Modern SeaJourney header ribbon for receipt / verification pages.
+ * Layout:
+ *   [ SeaJourney icon + wordmark lockup ]     │     DOCUMENT TYPE
+ *   DOCUMENT VERIFICATION SUMMARY  •          │     <value>
+ *                                             │     ISSUED
+ *                                             │     <date>
+ * Single deep-navy fill across the whole band, with a thin vertical accent
+ * rule separating the brand side from the meta card on the right. No top or
+ * bottom accent stripes — the section reads as one calm, solid slab.
+ */
+async function drawSeaJourneyReceiptHeader(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  opts: {
+    pageWidth: number;
+    pageHeight: number;
+    font: PDFFont;
+    fontBold: PDFFont;
+    documentTypeLine: string;
+    subtitle?: string;
+    generatedAt?: Date;
+    margin?: number;
+    headerH?: number;
+  },
+): Promise<void> {
+  const W = opts.pageWidth;
+  const H = opts.pageHeight;
+  const font = opts.font;
+  const fontBold = opts.fontBold;
+  const M = opts.margin ?? 50;
+  const headerH = opts.headerH ?? 88;
+  const subtitle = (opts.subtitle ?? 'Document Verification Summary').toUpperCase();
+  const docType = opts.documentTypeLine.replace(/^\s*Type\s*:\s*/i, '').trim() || opts.documentTypeLine;
+  const dateStr = format(opts.generatedAt ?? new Date(), 'dd MMMM yyyy');
+
+  // Brand palette
+  const NAVY_DEEP = rgb(0.04, 0.09, 0.18);
+  const ACCENT = rgb(0.12, 0.45, 0.95);
+  const ACCENT_SOFT = rgb(0.62, 0.80, 1.0);
+  const DIVIDER = rgb(0.28, 0.38, 0.55);
+  const WHITE = rgb(1, 1, 1);
+
+  // Single-tone deep navy header covering the full width + height
+  const metaPanelW = 210;
+  page.drawRectangle({
+    x: 0,
+    y: H - headerH,
+    width: W,
+    height: headerH,
+    color: NAVY_DEEP,
+  });
+
+  // ====== LEFT SIDE: Logo lockup (icon + wordmark) + subtitle ======
+  const navyCenterY = H - headerH / 2; // vertical center of navy band
+  const logoMaxH = 30;
+  const logoBottomY = navyCenterY - logoMaxH / 2 + 4; // nudge up a hair
+
+  const lockup = await embedSeaJourneyWordmarkLockup(pdfDoc, 200);
+  if (lockup) {
+    const aspect = lockup.width / lockup.height;
+    const h = logoMaxH;
+    const w = aspect * h;
+    page.drawImage(lockup.image, {
+      x: M,
+      y: logoBottomY,
+      width: w,
+      height: h,
+    });
+  } else {
+    // Fallback: draw the wordmark as text
+    const wordmarkSize = 22;
+    page.drawText('SeaJourney', {
+      x: M,
+      y: logoBottomY + 6,
+      size: wordmarkSize,
+      font: fontBold,
+      color: WHITE,
+    });
+  }
+
+  // Subtitle line under the logo lockup with an accent bullet
+  const subSize = 8;
+  const subY = logoBottomY - 12;
+  page.drawText(subtitle, {
+    x: M,
+    y: subY,
+    size: subSize,
+    font: fontBold,
+    color: ACCENT_SOFT,
+  });
+  const subW = fontBold.widthOfTextAtSize(subtitle, subSize);
+  page.drawCircle({
+    x: M + subW + 6,
+    y: subY + subSize / 2 - 0.5,
+    size: 1.2,
+    color: ACCENT,
+  });
+  // short accent underline to the right of the bullet
+  page.drawRectangle({
+    x: M + subW + 10,
+    y: subY + subSize / 2 - 0.5,
+    width: 18,
+    height: 0.8,
+    color: ACCENT,
+  });
+
+  // ====== RIGHT SIDE: Meta card (label / value pairs) ======
+  const metaX = W - metaPanelW + 18;
+  const metaInnerW = metaPanelW - 36;
+
+  // A small accent vertical rule on the far left edge of the meta panel
+  page.drawRectangle({
+    x: W - metaPanelW,
+    y: H - headerH + 10,
+    width: 1.5,
+    height: headerH - 24,
+    color: ACCENT,
+  });
+
+  const row1LabelY = H - 20;
+  const row1ValueY = row1LabelY - 12;
+  const dividerY = row1ValueY - 10;
+  const row2LabelY = dividerY - 10;
+  const row2ValueY = row2LabelY - 12;
+
+  page.drawText('DOCUMENT TYPE', {
+    x: metaX,
+    y: row1LabelY,
+    size: 7,
+    font: fontBold,
+    color: ACCENT_SOFT,
+  });
+  // Ellipsize docType to fit within metaInnerW at 9pt
+  const valueFont = fontBold;
+  const docValueSize = 9;
+  let docDisplay = docType;
+  const measure = (s: string) => valueFont.widthOfTextAtSize(s, docValueSize);
+  if (measure(docDisplay) > metaInnerW) {
+    const ell = '…';
+    while (docDisplay.length > 1 && measure(docDisplay + ell) > metaInnerW) {
+      docDisplay = docDisplay.slice(0, -1);
+    }
+    docDisplay = docDisplay + ell;
+  }
+  page.drawText(docDisplay, {
+    x: metaX,
+    y: row1ValueY,
+    size: docValueSize,
+    font: valueFont,
+    color: WHITE,
+  });
+
+  // Thin divider between the two rows
+  page.drawRectangle({
+    x: metaX,
+    y: dividerY,
+    width: metaInnerW,
+    height: 0.4,
+    color: DIVIDER,
+  });
+
+  page.drawText('ISSUED', {
+    x: metaX,
+    y: row2LabelY,
+    size: 7,
+    font: fontBold,
+    color: ACCENT_SOFT,
+  });
+  page.drawText(dateStr, {
+    x: metaX,
+    y: row2ValueY,
+    size: 9,
+    font: fontBold,
+    color: WHITE,
+  });
+  void font; // fontBold is used for all header text; keep reference to `font` param
+}
+
+/**
+ * Draws a SeaJourney-branded "credential card" containing the authentication
+ * code on the left and a scannable verification QR on the right. Designed to
+ * feel like a small certificate section: a navy ribbon header with the
+ * SeaJourney mark, a vertical hairline divider, a prominent code with an
+ * accent underline, and the QR in its own white card.
+ *
+ * Returns the Y coordinate of the bottom of the panel so callers can continue
+ * laying content beneath it.
+ */
+async function drawSeaJourneyVerificationPanel(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  opts: {
+    x: number;
+    /** Top-left Y of the panel (pdf-lib coords: larger Y = higher on page). */
+    y: number;
+    width: number;
+    code: string;
+    codeType: 'sj' | 'pos';
+    font: PDFFont;
+    fontBold: PDFFont;
+    ribbonLabel?: string;
+  },
+): Promise<number> {
+  const { x, y, width, code, codeType, font, fontBold } = opts;
+  const ribbonLabel = (opts.ribbonLabel ?? 'Verified Sea Service Record').toUpperCase();
+
+  // Brand palette
+  const NAVY = rgb(0.06, 0.14, 0.26);
+  const ACCENT = rgb(0.12, 0.45, 0.95);
+  const ACCENT_SOFT = rgb(0.62, 0.80, 1.0);
+  const CREAM = rgb(0.984, 0.990, 0.998);
+  const INK = rgb(0.11, 0.14, 0.20);
+  const MUTED = rgb(0.48, 0.52, 0.60);
+  const LINE = rgb(0.80, 0.85, 0.92);
+  const WHITE = rgb(1, 1, 1);
+
+  const ribbonH = 22;
+  const bodyH = 110;
+  const panelH = ribbonH + bodyH;
+  const panelBottomY = y - panelH;
+  const ribbonY = y - ribbonH;
+
+  // Panel body background (sits under the ribbon)
+  page.drawRectangle({
+    x,
+    y: panelBottomY,
+    width,
+    height: panelH,
+    color: CREAM,
+    borderColor: NAVY,
+    borderWidth: 1,
+  });
+
+  // Navy ribbon header
+  page.drawRectangle({
+    x,
+    y: ribbonY,
+    width,
+    height: ribbonH,
+    color: NAVY,
+  });
+
+  // Thin accent bar right below the ribbon for extra polish
+  page.drawRectangle({
+    x,
+    y: ribbonY - 2,
+    width,
+    height: 2,
+    color: ACCENT,
+  });
+
+  // Ribbon left text: label + small decorative mark
+  const ribbonTextSize = 8.5;
+  const ribbonCenterY = ribbonY + (ribbonH - ribbonTextSize) / 2 + 1;
+  const markX = x + 18;
+  const markCenterY = ribbonY + ribbonH / 2;
+  // Outer accent ring + inner white dot — a tiny brand mark
+  page.drawCircle({ x: markX, y: markCenterY, size: 3, color: ACCENT });
+  page.drawCircle({ x: markX, y: markCenterY, size: 1.2, color: WHITE });
+  page.drawText(ribbonLabel, {
+    x: markX + 10,
+    y: ribbonCenterY,
+    size: ribbonTextSize,
+    font: fontBold,
+    color: WHITE,
+  });
+
+  // Ribbon right text: brand wordmark with bullet separator
+  const brand = 'SeaJourney';
+  const brandSize = 10;
+  const brandW = fontBold.widthOfTextAtSize(brand, brandSize);
+  const brandX = x + width - 18 - brandW;
+  const brandY = ribbonY + (ribbonH - brandSize) / 2 + 1;
+  page.drawText(brand, {
+    x: brandX,
+    y: brandY,
+    size: brandSize,
+    font: fontBold,
+    color: WHITE,
+  });
+  // bullet separator
+  page.drawCircle({
+    x: brandX - 6,
+    y: brandY + brandSize / 2 - 0.5,
+    size: 1.2,
+    color: ACCENT_SOFT,
+  });
+  // tag text before brand
+  const tagline = 'Authenticated by';
+  const tagSize = 7.5;
+  const tagW = font.widthOfTextAtSize(tagline, tagSize);
+  page.drawText(tagline, {
+    x: brandX - 6 - 4 - tagW,
+    y: brandY + (brandSize - tagSize) / 2 + 0.5,
+    size: tagSize,
+    font,
+    color: ACCENT_SOFT,
+  });
+
+  // ===== Body two-column layout =====
+  // Body top edge is just below the accent bar (ribbonY - 2)
+  const bodyTopY = ribbonY - 2;
+  const rightColW = 118;
+  const leftColW = width - rightColW;
+  const dividerX = x + leftColW;
+
+  // Vertical hairline divider (inset from body top/bottom)
+  page.drawRectangle({
+    x: dividerX,
+    y: panelBottomY + 14,
+    width: 0.5,
+    height: bodyH - 28,
+    color: LINE,
+  });
+
+  // -------- Right column: QR card (sized/positioned first) --------
+  const scanLabelSize = 7;
+  const scanLabelReserve = 14; // space below card for "SCAN TO VERIFY"
+  const bodyInnerPad = 10;
+  const availableCardH = bodyH - bodyInnerPad * 2 - scanLabelReserve;
+  const qrCardSize = Math.min(rightColW - 16, availableCardH); // square
+  const qrPadding = 6;
+  const qrSize = qrCardSize - qrPadding * 2;
+  const qrCardX = dividerX + (rightColW - qrCardSize) / 2;
+  // Top of QR card inset from body top by bodyInnerPad
+  const qrCardY = bodyTopY - bodyInnerPad - qrCardSize;
+
+  // White card behind the QR
+  page.drawRectangle({
+    x: qrCardX,
+    y: qrCardY,
+    width: qrCardSize,
+    height: qrCardSize,
+    color: WHITE,
+    borderColor: NAVY,
+    borderWidth: 0.8,
+  });
+
+  // Tiny accent strip on top of the QR card for continuity with ribbon
+  page.drawRectangle({
+    x: qrCardX,
+    y: qrCardY + qrCardSize - 2,
+    width: qrCardSize,
+    height: 2,
+    color: ACCENT,
+  });
+
+  let qrEmbedded = false;
+  try {
+    const qrBytes = await generateVerificationQRBytes(code, codeType, 360);
+    if (qrBytes) {
+      const qrImage = await pdfDoc.embedPng(qrBytes);
+      page.drawImage(qrImage, {
+        x: qrCardX + qrPadding,
+        y: qrCardY + qrPadding - 1, // slight nudge to balance around accent strip
+        width: qrSize,
+        height: qrSize,
+      });
+      qrEmbedded = true;
+    }
+  } catch {
+    // fall through to text-only presentation
+  }
+
+  // "SCAN TO VERIFY" label under the QR card (inside the body)
+  const scanText = qrEmbedded ? 'SCAN TO VERIFY' : 'VERIFY ONLINE';
+  const scanW = fontBold.widthOfTextAtSize(scanText, scanLabelSize);
+  page.drawText(scanText, {
+    x: dividerX + (rightColW - scanW) / 2,
+    y: qrCardY - scanLabelReserve + 4,
+    size: scanLabelSize,
+    font: fontBold,
+    color: MUTED,
+  });
+
+  // -------- Left column: auth code block (vertically centered with QR) --------
+  const lx = x + 22;
+  // Place the label near the top of the body, code centered vertically,
+  // URL near the bottom — all inside the cream area.
+  const leftTopY = bodyTopY - 18;
+
+  // Tiny uppercase label
+  page.drawText('AUTHENTICATION CODE', {
+    x: lx,
+    y: leftTopY,
+    size: 7.5,
+    font: fontBold,
+    color: MUTED,
+  });
+
+  // Large code
+  const codeSize = 22;
+  const codeTextW = fontBold.widthOfTextAtSize(code, codeSize);
+  const codeY = leftTopY - 28;
+  page.drawText(code, {
+    x: lx,
+    y: codeY,
+    size: codeSize,
+    font: fontBold,
+    color: NAVY,
+  });
+
+  // Accent underline under code
+  page.drawRectangle({
+    x: lx,
+    y: codeY - 6,
+    width: Math.min(codeTextW, leftColW - 44),
+    height: 1.5,
+    color: ACCENT,
+  });
+
+  // URL hint line
+  const urlLine = 'Verify at www.seajourney.co.uk/verify';
+  page.drawText(urlLine, {
+    x: lx,
+    y: codeY - 22,
+    size: 8,
+    font,
+    color: INK,
+  });
+
+  return panelBottomY;
+}
+
+/** Second page: SeaJourney verification summary (same layout as MCA deckhand/officer testimonials). */
+async function appendSeaJourneyTestimonialReceiptPage(
+  pdfDoc: PDFDocument,
+  data: TestimonialPDFData,
+  font: PDFFont,
+  fontBold: PDFFont,
+  labels: { documentTypeLine: string; supportingFooterLine: string },
+): Promise<void> {
+  if (!data.receiptData) return;
+
+  const { testimonial, userProfile, vessel, receiptData } = data;
+  const safe = (v?: string | null, fallback = '') => (v ?? '').trim() || fallback;
+  const formatDateLocal = (dateStr: string, fmt: 'DD/MM/YYYY' | 'DD MMMM YYYY' = 'DD/MM/YYYY') => {
+    try {
+      const raw = String(dateStr).trim();
+      const date = /^\d{4}-\d{2}-\d{2}/.test(raw)
+        ? parse(raw.slice(0, 10), 'yyyy-MM-dd', new Date())
+        : parseISO(raw);
+      if (Number.isNaN(date.getTime())) return dateStr;
+      return fmt === 'DD/MM/YYYY' ? format(date, 'dd/MM/yyyy') : format(date, 'dd MMMM yyyy');
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const fullName =
+    `${safe(userProfile.firstName)} ${safe(userProfile.lastName)}`.trim() || safe(userProfile.username);
+  const dobReceipt = getDateOfBirthRawFromUserProfile(userProfile);
+  const dateOfBirth = dobReceipt ? formatDateDdMmYyyyForPdf(dobReceipt) : '';
+  const displayStandbyDays = Math.round(Number(testimonial.standby_days ?? 0));
+
+  const vesselExt = vessel as TestimonialPDFData['vessel'] & { imo?: string | null; flag?: string | null };
+
+  const W = A4_RECEIPT_PT.w;
+  const H = A4_RECEIPT_PT.h;
+  const page = pdfDoc.addPage([W, H]);
+
+  const NAVY = rgb(0.06, 0.14, 0.26);
+  const ACCENT = rgb(0.12, 0.45, 0.95);
+  const INK = rgb(0.1, 0.1, 0.12);
+  const MUTED = rgb(0.42, 0.45, 0.52);
+  const LINE = rgb(0.86, 0.88, 0.92);
+  const WHITE = rgb(1, 1, 1);
+
+  const M = 50;
+  const headerH = 88;
+  const COL_GAP = 20;
+
+  const docId = receiptData.documentId || testimonial.id;
+  const refCode = testimonial.testimonial_code || receiptData.sjCode || 'N/A';
+
+  const generatedAt = receiptData.generatedAt
+    ? format(new Date(receiptData.generatedAt), 'dd MMM yyyy HH:mm:ss')
+    : format(new Date(), 'dd MMM yyyy HH:mm:ss');
+
+  const safeInt = (n: unknown) => {
+    const v = Number(n);
+    return Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0;
+  };
+
+  const t = (text: string, x: number, y: number, size: number, bold = false, color = INK) => {
+    page.drawText(String(text ?? ''), {
+      x,
+      y,
+      size,
+      font: bold ? fontBold : font,
+      color,
+    });
+  };
+
+  const wrapText = (text: string, maxWidth: number, size: number) => {
+    if (!text) return ['N/A'];
+    const words = String(text).split(' ');
+    const lines: string[] = [];
+    let current = '';
+
+    for (const w of words) {
+      const test = current ? `${current} ${w}` : w;
+      if (font.widthOfTextAtSize(test, size) <= maxWidth) {
+        current = test;
+      } else {
+        if (current) lines.push(current);
+        current = w;
+      }
+    }
+    if (current) lines.push(current);
+    return lines;
+  };
+
+  const textWidth = (text: string, size: number, bold = false) =>
+    (bold ? fontBold : font).widthOfTextAtSize(String(text ?? ''), size);
+
+  await drawSeaJourneyReceiptHeader(pdfDoc, page, {
+    pageWidth: W,
+    pageHeight: H,
+    font,
+    fontBold,
+    documentTypeLine: labels.documentTypeLine,
+    margin: M,
+    headerH,
+  });
+
+  const panelTopY = H - headerH - 30;
+  const codeDisplay = refCode.startsWith('SJ-') ? refCode : `SJ-${refCode}`;
+  const panelBottomY = await drawSeaJourneyVerificationPanel(pdfDoc, page, {
+    x: M,
+    y: panelTopY,
+    width: W - 2 * M,
+    code: codeDisplay,
+    codeType: 'sj',
+    font,
+    fontBold,
+    ribbonLabel: 'Verified Sea Service Record',
+  });
+
+  let y = panelBottomY - 25;
+
+  const colW = (W - 2 * M - COL_GAP) / 2;
+  const labelW = 130;
+  const valueW = colW - labelW - 12;
+
+  const addRow = (label: string, value: string | number | null | undefined, col: 'left' | 'right' = 'left') => {
+    const x = col === 'left' ? M : M + colW + COL_GAP;
+    const valueStr = value !== null && value !== undefined ? String(value) : 'N/A';
+
+    t(label, x, y, 8.5, true, MUTED);
+
+    const valueX = x + labelW;
+    const lines = wrapText(valueStr, valueW, 9.5);
+    lines.forEach((line, i) => {
+      t(line, valueX, y - i * 11.5, 9.5, false, INK);
+    });
+
+    y -= Math.max(11.5, lines.length * 11.5) + 5;
+  };
+
+  const addSection = (title: string) => {
+    page.drawLine({
+      start: { x: M, y: y + 3 },
+      end: { x: W - M, y: y + 3 },
+      thickness: 0.5,
+      color: LINE,
+    });
+    y -= 12;
+    t(title, M, y, 10.5, true, INK);
+    y -= 18;
+  };
+
+  addSection('Document Information');
+  addRow('Document ID', docId, 'left');
+  addRow('Generated', generatedAt, 'left');
+  y -= 10;
+
+  addSection('Seafarer Information');
+  addRow('Name', fullName || 'N/A', 'left');
+  addRow('Date of Birth', dateOfBirth || 'N/A', 'left');
+  addRow('Position', safe(userProfile.position) || 'N/A', 'left');
+  addRow('Email', userProfile.email || 'N/A', 'left');
+  y -= 10;
+
+  addSection('Vessel Information');
+  addRow('Vessel Name', safe(vessel.name) || 'N/A', 'left');
+  addRow('Vessel Type', formatVesselTypeForDisplay(vessel.type, 'N/A') || 'N/A', 'left');
+  addRow('Flag State', safe(vesselExt.flag) || safe(vessel.flag_state) || 'N/A', 'left');
+  addRow('IMO / Official Number', safe(vesselExt.imo) || safe(vessel.officialNumber) || 'N/A', 'left');
+  addRow('Gross Tonnage', vessel.gross_tonnage?.toString() || 'N/A', 'left');
+  y -= 10;
+
+  addSection('Sea Service Summary');
+  addRow(
+    'Date Range',
+    `${formatDateLocal(testimonial.start_date, 'DD/MM/YYYY')} – ${formatDateLocal(testimonial.end_date, 'DD/MM/YYYY')}`,
+    'left',
+  );
+  addRow('Total Days', safeInt(testimonial.total_days ?? 0), 'left');
+  addRow('At Sea Days', safeInt(testimonial.at_sea_days), 'left');
+  addRow('Standby Days', safeInt(displayStandbyDays), 'left');
+  addRow('Yard Days', safeInt(testimonial.yard_days), 'left');
+  addRow('Leave Days', safeInt(testimonial.leave_days ?? 0), 'left');
+  y -= 12;
+
+  t(
+    'Figures shown are generated from the approved SeaJourney record and are provided for reference only.',
+    M,
+    y,
+    8,
+    false,
+    MUTED,
+  );
+  y -= 30;
+
+  const footerY = 30;
+  page.drawLine({
+    start: { x: M, y: footerY + 20 },
+    end: { x: W - M, y: footerY + 20 },
+    thickness: 1,
+    color: LINE,
+  });
+  t(labels.supportingFooterLine, M, footerY, 8, false, MUTED);
+  t(`Reference: ${refCode}`, W - M - textWidth(`Reference: ${refCode}`, 8, true), footerY, 8, true, MUTED);
+}
+
+/**
+ * AMSA 771 — Near Coastal Sea Service Record (Australia).
+ * Fills applicant (full name, date of birth, phone, seafarer’s number / discharge book when set), vessel/operational (including business name), and period totals onto the official PDF template. Does not write vessel phone, supervisor contact fields, or captain email — optional captain signature image is still embedded when available.
+ * Does not write at-sea / standby / yard day breakdowns on the form — only total days for the period plus vessel particulars.
+ *
+ * EDIT COORDINATES HERE: AMSA 771 — all `top` values are points from the TOP of the page (same convention as MCA overlays).
+ * Pass { debug: true } in options to draw red crosshairs for alignment (off by default).
+ * Admins: Dashboard → PDF coordinate picker — upload a template and click to copy { x, top }. Dev: `/dev/amsa-pdf-align` when enabled.
+ * When `receiptData` is set (same as MCA testimonial downloads), appends a SeaJourney verification / receipt page after the AMSA form.
+ */
+export async function generateAmsa771Testimonial(
+  data: TestimonialPDFData,
+  output: TestimonialPDFOutput = 'download',
+  options?: TestimonialPDFOptions,
+): Promise<Blob | void> {
+  const debug = options?.debug === true;
+
+  const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
+
+  const API_BASE_URL =
+    typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
+  const templateUrl = `${API_BASE_URL}${AMSA_771_FORM_PUBLIC_PATH}`;
+
+  const res = await fetch(templateUrl);
+  if (!res.ok) {
+    throw new Error(`AMSA 771 template could not be loaded (${res.status}).`);
+  }
+  const templateBytes = await res.arrayBuffer();
+
+  let pdfDoc: PDFDocument;
+  try {
+    pdfDoc = await PDFDocument.load(templateBytes);
+  } catch {
+    throw new Error('AMSA 771 template PDF could not be parsed.');
+  }
+
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const black = rgb(0, 0, 0);
+  const red = rgb(1, 0, 0);
+
+  const pages = pdfDoc.getPages();
+  if (pages.length < 1) throw new Error('AMSA 771 template has no pages.');
+  const page = pages[0];
+  const { width: pw, height: ph } = page.getSize();
+
+  const winAnsiSafe = (s: string) => String(s ?? '').replace(/\r\n|\r|\n|\t/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  const safe = (v?: string | null) => winAnsiSafe(v ?? '');
+
+  const Y = (_top: number) => ph - _top;
+
+  const drawText = (
+    text: string,
+    x: number,
+    top: number,
+    opts?: { size?: number; bold?: boolean; maxW?: number },
+  ) => {
+    const sanitized = winAnsiSafe(text);
+    if (!sanitized) return;
+    const size = opts?.size ?? 9;
+    const f = opts?.bold ? fontBold : font;
+    const px = x;
+    const py = Y(top);
+    const maxW = opts?.maxW;
+
+    if (maxW) {
+      const words = sanitized.split(' ');
+      let line = '';
+      let y = py;
+      for (const word of words) {
+        const test = line + (line ? ' ' : '') + word;
+        if (f.widthOfTextAtSize(test, size) > maxW && line) {
+          page.drawText(line, { x: px, y, size, font: f, color: black });
+          line = word;
+          y -= size + 1.5;
+        } else {
+          line = test;
+        }
+      }
+      if (line) page.drawText(line, { x: px, y, size, font: f, color: black });
+      return;
+    }
+    page.drawText(sanitized, { x: px, y: py, size, font: f, color: black });
+  };
+
+  const debugMark = (label: string, x: number, top: number) => {
+    if (!debug) return;
+    const px = x;
+    const py = Y(top);
+    page.drawLine({ start: { x: px - 5, y: py }, end: { x: px + 5, y: py }, thickness: 0.6, color: red });
+    page.drawLine({ start: { x: px, y: py - 5 }, end: { x: px, y: py + 5 }, thickness: 0.6, color: red });
+    page.drawText(label, { x: px + 6, y: py + 2, size: 5.5, font, color: red });
+  };
+
+  const fullName = safe(
+    `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim() || userProfile.username || '',
+  );
+  const dob = formatDateDdMmYyyyForPdf(getDateOfBirthRawFromUserProfile(userProfile));
+  const applicantPhone = safe(userProfile.mobile || userProfile.telephone || '');
+  const seafarerNumber = safe(userProfile.dischargeBookNumber || '');
+  const crewPosition = safe(userProfile.position || '');
+
+  const vesselName = safe(vessel.name);
+  const officialNo = safe(vessel.officialNumber);
+  const lenM = vessel.length_m != null ? String(vessel.length_m) : '';
+
+  const periodFrom = formatDateDdMmYyyyForPdf(testimonial.start_date);
+  const periodTo = formatDateDdMmYyyyForPdf(testimonial.end_date);
+  // AMSA form placement currently labeled "total days" in code, but this box should show sea days.
+  const totalDays = String(testimonial.at_sea_days);
+
+  const businessName = safe(companyDetails?.name);
+  const sjCode = safe(testimonial.testimonial_code);
+
+  // --- Tune positions to match the printed form (points from top, x from left). ---
+  const C = {
+    applicant: {
+      /** Single full name (first + last, or username); wraps if long */
+      fullName: { x: 70, top: 158.8, size: 9 },
+      dob: { x: 390, top: 159.2, size: 9 },
+      phone: { x: 70, top: 195.7, size: 9 },
+      /** Seafarer’s number — from profile discharge book; tune in /dev/amsa-pdf-align */
+      seafarerNumber: { x: 393.8, top: 195.7, size: 9 },
+      /** Crew member rank / position — from profile */
+      position: { x: 310, top: 243.8, size: 9 },
+    },
+    vessel: {
+      /** Operating / business name (management company) */
+      businessName: { x: 70, top: 245, size: 9, maxW: 420 },
+      vesselName: { x: 70, top: 280.5, size: 9 },
+      officialNo: { x: 310, top: 279.3, size: 9 },
+      lengthM: { x: 70, top: 384.2, size: 9 },
+      periodFrom: { x: 70, top: 314.5, size: 9 },
+      periodTo: { x: 226.7, top: 314.9, size: 9 },
+      totalDays: { x: 390, top: 312.9, size: 9 },
+      /** Sea service reference — one overlay per printed box; tune in /dev/amsa-pdf-align */
+      amsaModeOfOperation: { x: 70, top: 348, size: 9 },
+      amsaTypeOfOperation: { x: 225.9, top: 348, size: 9 },
+      amsaDutiesPerformed: { x: 398.6, top: 348, size: 9 },
+      amsaPropulsion: { x: 181.9, top: 383.9, size: 9 },
+    },
+    footer: {
+      verification: { x: 72, top: 780, size: 7 },
+    },
+    signature: { x: 61.3, top: 505.2, w: 120, h: 36 },
+  } as const;
+
+  const drawField = (key: string, text: string, spec: { x: number; top: number; size?: number; maxW?: number }) => {
+    debugMark(key, spec.x, spec.top);
+    drawText(text, spec.x, spec.top, { size: spec.size, maxW: spec.maxW });
+  };
+
+  drawField('applicant.fullName', fullName, C.applicant.fullName);
+  if (dob) drawField('applicant.dob', dob, C.applicant.dob);
+  if (applicantPhone) drawField('applicant.phone', applicantPhone, C.applicant.phone);
+  if (seafarerNumber) drawField('applicant.seafarerNumber', seafarerNumber, C.applicant.seafarerNumber);
+  if (crewPosition) drawField('applicant.position', crewPosition, C.applicant.position);
+
+  if (businessName) drawField('vessel.businessName', businessName, C.vessel.businessName);
+  drawField('vessel.name', vesselName, C.vessel.vesselName);
+  drawField('vessel.official', officialNo, C.vessel.officialNo);
+  drawField('vessel.length', lenM, C.vessel.lengthM);
+  drawField('vessel.from', periodFrom, C.vessel.periodFrom);
+  drawField('vessel.to', periodTo, C.vessel.periodTo);
+  drawField('vessel.totalDays', totalDays, C.vessel.totalDays);
+
+  const amsaParts = formatAmsaReferencePartsForPdf(data.amsaReference ?? null);
+  if (amsaParts) {
+    drawField('vessel.amsaModeOfOperation', amsaParts.modeOfOperation, C.vessel.amsaModeOfOperation);
+    drawField('vessel.amsaTypeOfOperation', amsaParts.typeOfOperation, C.vessel.amsaTypeOfOperation);
+    drawField('vessel.amsaDutiesPerformed', amsaParts.dutiesPerformed, C.vessel.amsaDutiesPerformed);
+    drawField('vessel.amsaPropulsion', amsaParts.propulsion, C.vessel.amsaPropulsion);
+  }
+
+  if (sjCode) {
+    debugMark('footer.sj', C.footer.verification.x, C.footer.verification.top);
+    drawText(`SeaJourney ref: ${sjCode}`, C.footer.verification.x, C.footer.verification.top, { size: C.footer.verification.size });
+  }
+
+  const sig = testimonial.captain_signature || captainProfile?.signature || null;
+  if (sig) {
+    debugMark('captain.sig', C.signature.x, C.signature.top);
+    try {
+      const fmt = sig.toLowerCase().includes('jpeg') || sig.toLowerCase().includes('jpg') ? 'jpg' : 'png';
+      const imgBytes = await fetch(sig).then((r) => r.arrayBuffer());
+      const img = fmt === 'jpg' ? await pdfDoc.embedJpg(imgBytes) : await pdfDoc.embedPng(imgBytes);
+      const px = C.signature.x;
+      const bw = C.signature.w;
+      const bh = C.signature.h;
+      const scale = Math.min(bw / img.width, bh / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      const bottomLeftY = ph - C.signature.top - h;
+      page.drawImage(img, { x: px, y: bottomLeftY, width: w, height: h });
+    } catch {
+      // ignore bad signature image
+    }
+  }
+
+  if (data.receiptData) {
+    await appendSeaJourneyTestimonialReceiptPage(pdfDoc, data, font, fontBold, {
+      documentTypeLine: 'Type: AMSA 771 (Near Coastal Sea Service)',
+      supportingFooterLine: 'SeaJourney • Supporting document (not part of the official AMSA form)',
+    });
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
+
+  const cleanFilename = (name: string) =>
+    String(name || '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  const crewLabel = cleanFilename(fullName || userProfile.username || 'Crew');
+  const vesselLabel = cleanFilename(vessel.name || 'Vessel');
+  const filename = `AMSA-771 ${crewLabel} ${vesselLabel}.pdf`;
+
+  if (output === 'blob') {
+    return blob;
+  }
+  const url = URL.createObjectURL(blob);
+  if (output === 'newtab') {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
 
 /** Data for one Proof of Service entry (one vessel + period). Multiple entries = multiple boxes on the PDF. */
 export interface ProofOfServicePDFData {
@@ -373,11 +1420,59 @@ function formatVesselTypeForDisplay(type: string | null | undefined, fallback = 
 /**
  * Parse a yyyy-MM-dd date safely as a "date-only".
  * Using noon avoids DST edge cases where midnight can shift the date.
+ * Accepts ISO timestamps from Supabase (e.g. …T00:00:00.000Z) via yyyy-MM-dd prefix.
  */
 function parseDateOnly(dateStr: string): Date {
-  const d = parse(dateStr, 'yyyy-MM-dd', new Date());
+  const raw = String(dateStr).trim();
+  let d: Date;
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    d = parse(raw.slice(0, 10), 'yyyy-MM-dd', new Date());
+  } else {
+    d = parseISO(raw);
+  }
+  if (!isValid(d)) {
+    d = parse('1970-01-01', 'yyyy-MM-dd', new Date());
+  }
   d.setHours(12, 0, 0, 0);
   return d;
+}
+
+/** Raw DOB from user profile (camelCase or snake_case from API/DB). */
+function getDateOfBirthRawFromUserProfile(userProfile: {
+  dateOfBirth?: string | Date | number | null;
+  date_of_birth?: string | Date | number | null;
+}): string | null {
+  const v = userProfile.dateOfBirth ?? userProfile.date_of_birth;
+  if (v == null || v === '') return null;
+  if (v instanceof Date) {
+    if (!isValid(v)) return null;
+    return v.toISOString().slice(0, 10);
+  }
+  if (typeof v === 'number') {
+    const d = new Date(v);
+    if (!isValid(d)) return null;
+    return d.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  return s || null;
+}
+
+/** dd/MM/yyyy for pdf-lib overlays (AMSA, MCA, etc.); handles yyyy-MM-dd and ISO. */
+function formatDateDdMmYyyyForPdf(value: string | null | undefined): string {
+  if (value == null || value === '') return '';
+  const raw = String(value).trim();
+  try {
+    let d: Date;
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+      d = parse(raw.slice(0, 10), 'yyyy-MM-dd', new Date());
+    } else {
+      d = parseISO(raw);
+    }
+    if (!isValid(d) || Number.isNaN(d.getTime())) return '';
+    return format(d, 'dd/MM/yyyy');
+  } catch {
+    return '';
+  }
 }
 
 function getPageCount(doc: jsPDF): number {
@@ -473,10 +1568,6 @@ function loadLogoImageWithDimensions(
 /*                          SEA SERVICE TESTIMONIAL                           */
 /* ========================================================================== */
 
-export interface TestimonialPDFOptions {
-  debug?: boolean; // when true, log all layout positions to console
-}
-
 export async function generateTestimonialPDF(
   data: TestimonialPDFData,
   pdfFormat: TestimonialPDFFormat = 'mca',
@@ -490,12 +1581,17 @@ export async function generateTestimonialPDF(
   const resolvedPdfFormat: TestimonialPDFFormat =
     (pdfFormat as string) === 'pya' ? 'mca' : pdfFormat;
 
-  const doc = new jsPDF();
   const { testimonial, userProfile, vessel, captainProfile } = data;
 
   const fullName =
     `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim() ||
     userProfile.username;
+
+  if (resolvedPdfFormat === 'amsa') {
+    return generateAmsa771Testimonial(data, output, options);
+  }
+
+  const doc = new jsPDF();
 
   const startDate = format(parseDateOnly(testimonial.start_date), 'dd MMMM yyyy');
   const endDate = format(parseDateOnly(testimonial.end_date), 'dd MMMM yyyy');
@@ -509,9 +1605,11 @@ export async function generateTestimonialPDF(
     ? format(new Date(testimonial.signoff_used_at), 'dd MMMM yyyy')
     : null;
 
-  const dateOfBirth = userProfile.dateOfBirth
-    ? format(parseDateOnly(userProfile.dateOfBirth), 'dd MMMM yyyy')
-    : null;
+  const dobRawSj = getDateOfBirthRawFromUserProfile(userProfile);
+  const dateOfBirth =
+    dobRawSj && formatDateDdMmYyyyForPdf(dobRawSj)
+      ? format(parseDateOnly(dobRawSj), 'dd MMMM yyyy')
+      : null;
 
   // Color scheme based on format
   const isMCATemplate = resolvedPdfFormat === 'mca';
@@ -1854,34 +2952,130 @@ export async function generateProofOfServicePDF(
 
     y += 24;
 
-    drawRoundedRect(margin, y, contentWidth, 32, colors.white, colors.border);
-    drawSectionLabel('Verification', margin + 4, y + 6);
+    // ========== SeaJourney-branded verification panel ==========
+    const ribbonH = 7;
+    const accentH = 0.8;
+    const bodyH = 32;
+    const panelH = ribbonH + accentH + bodyH;
+    const panelX = margin;
+    const panelY = y;
+    const panelW = contentWidth;
 
-    drawRoundedRect(margin + 4, y + 10, 34, 10, colors.successBg, colors.successBg);
+    const cream: [number, number, number] = [250, 252, 255];
+    const accent: [number, number, number] = [31, 115, 242];
+    const accentSoft: [number, number, number] = [158, 204, 255];
+
+    // Body card (cream fill, navy border) drawn first so ribbon sits on top
+    drawRoundedRect(panelX, panelY, panelW, panelH, cream, colors.navy);
+
+    // Navy ribbon
+    setFill(colors.navy);
+    doc.rect(panelX, panelY, panelW, ribbonH, 'F');
+    // Accent stripe
+    setFill(accent);
+    doc.rect(panelX, panelY + ribbonH, panelW, accentH, 'F');
+
+    // Ribbon left: brand mark + label
+    setFill(accent);
+    doc.circle(panelX + 5.5, panelY + ribbonH / 2, 1.3, 'F');
+    setFill(colors.white);
+    doc.circle(panelX + 5.5, panelY + ribbonH / 2, 0.55, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
-    setText(colors.successText);
-    doc.text('SEAJOURNEY ID', margin + 21, y + 16.3, { align: 'center' });
+    doc.setTextColor(255, 255, 255);
+    doc.text('VERIFIED SEA SERVICE RECORD', panelX + 9, panelY + ribbonH / 2 + 0.8);
+
+    // Ribbon right: tagline + wordmark
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    const brand = 'SeaJourney';
+    const brandWidth = doc.getTextWidth(brand);
+    const brandX = panelX + panelW - 5 - brandWidth;
+    doc.text(brand, brandX, panelY + ribbonH / 2 + 1);
+    setFill(accentSoft);
+    doc.circle(brandX - 2, panelY + ribbonH / 2 + 0.1, 0.5, 'F');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(accentSoft[0], accentSoft[1], accentSoft[2]);
+    const tag = 'Authenticated by';
+    const tagWidth = doc.getTextWidth(tag);
+    doc.text(tag, brandX - 4 - tagWidth, panelY + ribbonH / 2 + 0.8);
+
+    // ----- Body content -----
+    const bodyTop = panelY + ribbonH + accentH;
+    const bodyInnerPad = 6;
+    const rightColW = 48;
+    const leftColW = panelW - rightColW;
+    const dividerX = panelX + leftColW;
+
+    // Vertical hairline divider
+    setDraw(colors.border);
+    doc.setLineWidth(0.2);
+    doc.line(dividerX, bodyTop + 4, dividerX, bodyTop + bodyH - 4);
+
+    // Left column: label + code + underline + url
+    const lx = panelX + bodyInnerPad;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    setText(colors.muted);
+    doc.text('AUTHENTICATION CODE', lx, bodyTop + 7);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    setText(colors.navy);
+    doc.text(displayCode, lx, bodyTop + 17);
+    const codeTextWidth = Math.min(doc.getTextWidth(displayCode), leftColW - bodyInnerPad * 2);
+
+    // Accent underline under code
+    setFill(accent);
+    doc.rect(lx, bodyTop + 19, codeTextWidth, 0.7, 'F');
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    setText(colors.muted);
-    doc.text('Verify this record at', margin + 44, y + 14);
+    setText(colors.text);
+    doc.text('Verify at www.seajourney.co.uk/verify', lx, bodyTop + 26);
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    setText(colors.navy);
-    doc.text('www.seajourney.co.uk/verify', margin + 44, y + 20);
+    // Right column: QR card
+    let qrPlaced = false;
+    try {
+      const qrDataUrl =
+        displayCode && displayCode !== 'Not assigned'
+          ? await generateVerificationQRDataUrl(displayCode, 'pos', 360)
+          : null;
+      if (qrDataUrl) {
+        const qrSize = 20;
+        const qrPad = 2;
+        const qrCardW = qrSize + qrPad * 2;
+        const qrCardH = qrSize + qrPad * 2;
+        const qrCardX = dividerX + (rightColW - qrCardW) / 2;
+        const qrCardY = bodyTop + (bodyH - qrCardH) / 2 - 1.5;
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    setText(colors.muted);
-    doc.text('Reference code', margin + 132, y + 14);
+        drawRoundedRect(qrCardX, qrCardY, qrCardW, qrCardH, colors.white, colors.navy);
+        // accent top stripe on QR card
+        setFill(accent);
+        doc.rect(qrCardX, qrCardY, qrCardW, 0.6, 'F');
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    setText(colors.navy);
-    doc.text(displayCode, margin + 132, y + 20);
+        doc.addImage(qrDataUrl, 'PNG', qrCardX + qrPad, qrCardY + qrPad, qrSize, qrSize);
+        qrPlaced = true;
+
+        // "SCAN TO VERIFY" label beneath
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        setText(colors.muted);
+        doc.text('SCAN TO VERIFY', dividerX + rightColW / 2, qrCardY + qrCardH + 3, { align: 'center' });
+      }
+    } catch {
+      // Best-effort QR — fall through to fallback below.
+    }
+    if (!qrPlaced) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      setText(colors.muted);
+      doc.text('Verify online', dividerX + rightColW / 2, bodyTop + bodyH / 2, { align: 'center' });
+    }
+
+    y += panelH;
 
     drawFooter(pageNumber, totalPages, entry.generatedByName, entry.generatedByEmail);
   };
@@ -2453,9 +3647,9 @@ export async function generateNavWatchApplicationPDF(
   const startDate = format(parseDateOnly(application.start_date), 'dd MMMM yyyy');
   const endDate = format(parseDateOnly(application.end_date), 'dd MMMM yyyy');
   const generatedDate = format(new Date(), 'dd MMMM yyyy');
-  const dateOfBirth = userProfile.dateOfBirth
-    ? format(parseDateOnly(userProfile.dateOfBirth), 'dd MMMM yyyy')
-    : null;
+  const dobRawNav = getDateOfBirthRawFromUserProfile(userProfile as { dateOfBirth?: string | null; date_of_birth?: string | null });
+  const dateOfBirth =
+    dobRawNav && formatDateDdMmYyyyForPdf(dobRawNav) ? format(parseDateOnly(dobRawNav), 'dd MMMM yyyy') : null;
   const sex = userProfile.sex ? (userProfile.sex === 'male' ? 'Male' : 'Female') : null;
 
   // Color scheme
@@ -4813,8 +6007,7 @@ export async function generateMCAWatchRatingFormLegacy(
 /*                    MCA TESTIMONIAL PDF GENERATORS                          */
 /* ========================================================================== */
 /*
- * Debug is ON by default: generating an MCA testimonial draws red crosshairs + labels
- * at each field position so you can reposition data on the template.
+ * Debug is off unless you pass { debug: true }: crosshairs + labels at each field for tuning.
  *
  * To edit coordinates:
  *   - Deckhand: search for "EDIT COORDINATES HERE: MCA Deckhand" in this file → COORDS object.
@@ -4884,14 +6077,20 @@ export async function generateMCADeckhandTestimonial(
   const red = rgb(1, 0, 0);
 
   const safe = (v?: string | null, fallback = '') => (v ?? '').trim() || fallback;
-  const formatDateLocal = (dateStr: string, fmt: 'DD/MM/YYYY' | 'DD MMMM YYYY' = 'DD/MM/YYYY') => {
+  const formatDateLocal = (dateStr: string | null | undefined, fmt: 'DD/MM/YYYY' | 'DD MMMM YYYY' = 'DD/MM/YYYY') => {
+    if (dateStr == null || dateStr === '') return '';
+    const raw = String(dateStr).trim();
     try {
-      const date = parse(dateStr, 'yyyy-MM-dd', new Date());
-      return fmt === 'DD/MM/YYYY' 
-        ? format(date, 'dd/MM/yyyy')
-        : format(date, 'dd MMMM yyyy');
+      let d: Date;
+      if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+        d = parse(raw.slice(0, 10), 'yyyy-MM-dd', new Date());
+      } else {
+        d = parseISO(raw);
+      }
+      if (!isValid(d) || Number.isNaN(d.getTime())) return '';
+      return fmt === 'DD/MM/YYYY' ? format(d, 'dd/MM/yyyy') : format(d, 'dd MMMM yyyy');
     } catch {
-      return dateStr;
+      return '';
     }
   };
 
@@ -5061,9 +6260,10 @@ export async function generateMCADeckhandTestimonial(
   }
 
   const fullName = `${safe(userProfile.firstName)} ${safe(userProfile.lastName)}`.trim() || safe(userProfile.username);
-  const dateOfBirth = userProfile.dateOfBirth ? formatDateLocal(userProfile.dateOfBirth, 'DD/MM/YYYY') : '';
+  const dateOfBirth = formatDateDdMmYyyyForPdf(getDateOfBirthRawFromUserProfile(userProfile));
   const dateJoining = formatDateLocal(testimonial.start_date, 'DD/MM/YYYY');
   const dateDischarge = formatDateLocal(testimonial.end_date, 'DD/MM/YYYY');
+  const upDeck = userProfile as TestimonialPDFData['userProfile'] & { discharge_book_number?: string | null };
 
   // Company Details
   drawText(page1, base, safe(companyDetails?.name), COORDS.companyName.x, COORDS.companyName.top);
@@ -5082,7 +6282,7 @@ export async function generateMCADeckhandTestimonial(
   // Personal Details
   drawText(page1, base, fullName, COORDS.fullName.x, COORDS.fullName.top);
   drawText(page1, base, dateOfBirth, COORDS.dateOfBirth.x, COORDS.dateOfBirth.top);
-  drawText(page1, base, safe(userProfile.dischargeBookNumber), COORDS.dischargeBook.x, COORDS.dischargeBook.top);
+  drawText(page1, base, safe(userProfile.dischargeBookNumber ?? upDeck.discharge_book_number), COORDS.dischargeBook.x, COORDS.dischargeBook.top);
 
   // Vessel Details
   drawText(page1, base, safe(vessel.name), COORDS.vesselName.x, COORDS.vesselName.top);
@@ -5255,56 +6455,31 @@ export async function generateMCADeckhandTestimonial(
       (bold ? fontBold : font).widthOfTextAtSize(String(text ?? ''), size);
   
     // ===== Branded Header =====
-    page.drawRectangle({ x: 0, y: H - headerH, width: W, height: headerH, color: NAVY });
-    page.drawRectangle({ x: 0, y: H - headerH - 4, width: W, height: 4, color: ACCENT });
-  
-    t('SeaJourney', M, H - 42, 22, true, WHITE);
-    t('Document Verification Summary', M, H - 64, 10, false, rgb(0.90, 0.93, 0.98));
-  
-    const metaX = W - M - 200;
-    t('Document', metaX, H - 40, 9, true, WHITE);
-    t('Type: MCA Testimonial', metaX, H - 54, 8, false, rgb(0.90, 0.93, 0.98));
-    t(`Generated: ${format(new Date(), 'dd MMM yyyy')}`, metaX, H - 66, 8, false, rgb(0.90, 0.93, 0.98));
-  
+    await drawSeaJourneyReceiptHeader(pdfDoc, page, {
+      pageWidth: W,
+      pageHeight: H,
+      font,
+      fontBold,
+      documentTypeLine: 'MCA Testimonial',
+      margin: M,
+      headerH,
+    });
+
     // ===== Authentication Code Display =====
-    let y = H - headerH - 30;
-    const codeBoxH = 70;
-    const codeBoxY = y - codeBoxH;
-    
-    // Compact highlighted box for authentication code
-    page.drawRectangle({
-      x: M,
-      y: codeBoxY,
-      width: W - 2 * M,
-      height: codeBoxH,
-      color: rgb(0.97, 0.98, 1),
-      borderColor: ACCENT,
-      borderWidth: 1.5,
-    });
-    
-    // Accent bar at top
-    page.drawRectangle({
-      x: M,
-      y: y - 3,
-      width: W - 2 * M,
-      height: 3,
-      color: ACCENT,
-    });
-    
-    // Label
-    t('Authentication Code', M + 20, y - 18, 8, true, MUTED);
-    
-    // Code display (smaller, professional size)
     const codeDisplay = refCode.startsWith('SJ-') ? refCode : `SJ-${refCode}`;
-    const codeSize = 18;
-    const codeX = M + (W - 2 * M) / 2;
-    const codeY = y - 42;
-    t(codeDisplay, codeX - textWidth(codeDisplay, codeSize, true) / 2, codeY, codeSize, true, NAVY);
-    
-    // Verification instruction
-    t('Verify at www.seajourney.co.uk/verify', codeX - textWidth('Verify at www.seajourney.co.uk/verify', 7, false) / 2, codeY - 18, 7, false, MUTED);
-    
-    y = codeBoxY - 25;
+    const panelTopY = H - headerH - 30;
+    const panelBottomY = await drawSeaJourneyVerificationPanel(pdfDoc, page, {
+      x: M,
+      y: panelTopY,
+      width: W - 2 * M,
+      code: codeDisplay,
+      codeType: 'sj',
+      font,
+      fontBold,
+      ribbonLabel: 'Verified Sea Service Record',
+    });
+
+    let y = panelBottomY - 25;
   
     // ===== Content - Professional Two Column Layout =====
     const colW = (W - 2 * M - COL_GAP) / 2;
@@ -5488,14 +6663,20 @@ export async function generateMCAOfficerTestimonial(
   const red = rgb(1, 0, 0);
 
   const safe = (v?: string | null, fallback = '') => (v ?? '').trim() || fallback;
-  const formatDateLocal = (dateStr: string, fmt: 'DD/MM/YYYY' | 'DD MMMM YYYY' = 'DD/MM/YYYY') => {
+  const formatDateLocal = (dateStr: string | null | undefined, fmt: 'DD/MM/YYYY' | 'DD MMMM YYYY' = 'DD/MM/YYYY') => {
+    if (dateStr == null || dateStr === '') return '';
+    const raw = String(dateStr).trim();
     try {
-      const date = parse(dateStr, 'yyyy-MM-dd', new Date());
-      return fmt === 'DD/MM/YYYY' 
-        ? format(date, 'dd/MM/yyyy')
-        : format(date, 'dd MMMM yyyy');
+      let d: Date;
+      if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+        d = parse(raw.slice(0, 10), 'yyyy-MM-dd', new Date());
+      } else {
+        d = parseISO(raw);
+      }
+      if (!isValid(d) || Number.isNaN(d.getTime())) return '';
+      return fmt === 'DD/MM/YYYY' ? format(d, 'dd/MM/yyyy') : format(d, 'dd MMMM yyyy');
     } catch {
-      return dateStr;
+      return '';
     }
   };
 
@@ -5665,9 +6846,10 @@ export async function generateMCAOfficerTestimonial(
   }
 
   const fullName = `${safe(userProfile.firstName)} ${safe(userProfile.lastName)}`.trim() || safe(userProfile.username);
-  const dateOfBirth = userProfile.dateOfBirth ? formatDateLocal(userProfile.dateOfBirth, 'DD/MM/YYYY') : '';
+  const dateOfBirth = formatDateDdMmYyyyForPdf(getDateOfBirthRawFromUserProfile(userProfile));
   const dateJoining = formatDateLocal(testimonial.start_date, 'DD/MM/YYYY');
   const dateDischarge = formatDateLocal(testimonial.end_date, 'DD/MM/YYYY');
+  const upOff = userProfile as TestimonialPDFData['userProfile'] & { discharge_book_number?: string | null };
   
   // Determine capacity from position
   const position = safe(userProfile.position).toLowerCase();
@@ -5694,7 +6876,7 @@ export async function generateMCAOfficerTestimonial(
   drawText(page1, base, fullName, COORDS.fullName.x, COORDS.fullName.top);
   drawText(page1, base, dateOfBirth, COORDS.dateOfBirth.x, COORDS.dateOfBirth.top);
   drawText(page1, base, capacity, COORDS.capacity.x, COORDS.capacity.top);
-  drawText(page1, base, safe(userProfile.dischargeBookNumber), COORDS.dischargeBook.x, COORDS.dischargeBook.top);
+  drawText(page1, base, safe(userProfile.dischargeBookNumber ?? upOff.discharge_book_number), COORDS.dischargeBook.x, COORDS.dischargeBook.top);
 
   // Vessel Details
   drawText(page1, base, safe(vessel.name), COORDS.vesselName.x, COORDS.vesselName.top);
@@ -5868,56 +7050,31 @@ export async function generateMCAOfficerTestimonial(
       (bold ? fontBold : font).widthOfTextAtSize(String(text ?? ''), size);
   
     // ===== Branded Header =====
-    page.drawRectangle({ x: 0, y: H - headerH, width: W, height: headerH, color: NAVY });
-    page.drawRectangle({ x: 0, y: H - headerH - 4, width: W, height: 4, color: ACCENT });
-  
-    t('SeaJourney', M, H - 42, 22, true, WHITE);
-    t('Document Verification Summary', M, H - 64, 10, false, rgb(0.90, 0.93, 0.98));
-  
-    const metaX = W - M - 200;
-    t('Document', metaX, H - 40, 9, true, WHITE);
-    t('Type: MCA Testimonial', metaX, H - 54, 8, false, rgb(0.90, 0.93, 0.98));
-    t(`Generated: ${format(new Date(), 'dd MMM yyyy')}`, metaX, H - 66, 8, false, rgb(0.90, 0.93, 0.98));
-  
+    await drawSeaJourneyReceiptHeader(pdfDoc, page, {
+      pageWidth: W,
+      pageHeight: H,
+      font,
+      fontBold,
+      documentTypeLine: 'MCA Testimonial',
+      margin: M,
+      headerH,
+    });
+
     // ===== Authentication Code Display =====
-    let y = H - headerH - 30;
-    const codeBoxH = 70;
-    const codeBoxY = y - codeBoxH;
-    
-    // Compact highlighted box for authentication code
-    page.drawRectangle({
-      x: M,
-      y: codeBoxY,
-      width: W - 2 * M,
-      height: codeBoxH,
-      color: rgb(0.97, 0.98, 1),
-      borderColor: ACCENT,
-      borderWidth: 1.5,
-    });
-    
-    // Accent bar at top
-    page.drawRectangle({
-      x: M,
-      y: y - 3,
-      width: W - 2 * M,
-      height: 3,
-      color: ACCENT,
-    });
-    
-    // Label
-    t('Authentication Code', M + 20, y - 18, 8, true, MUTED);
-    
-    // Code display (smaller, professional size)
     const codeDisplay = refCode.startsWith('SJ-') ? refCode : `SJ-${refCode}`;
-    const codeSize = 18;
-    const codeX = M + (W - 2 * M) / 2;
-    const codeY = y - 42;
-    t(codeDisplay, codeX - textWidth(codeDisplay, codeSize, true) / 2, codeY, codeSize, true, NAVY);
-    
-    // Verification instruction
-    t('Verify at www.seajourney.co.uk/verify', codeX - textWidth('Verify at www.seajourney.co.uk/verify', 7, false) / 2, codeY - 18, 7, false, MUTED);
-    
-    y = codeBoxY - 25;
+    const panelTopY = H - headerH - 30;
+    const panelBottomY = await drawSeaJourneyVerificationPanel(pdfDoc, page, {
+      x: M,
+      y: panelTopY,
+      width: W - 2 * M,
+      code: codeDisplay,
+      codeType: 'sj',
+      font,
+      fontBold,
+      ribbonLabel: 'Verified Sea Service Record',
+    });
+
+    let y = panelBottomY - 25;
   
     // ===== Content - Professional Two Column Layout =====
     const colW = (W - 2 * M - COL_GAP) / 2;

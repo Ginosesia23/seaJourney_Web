@@ -60,7 +60,7 @@ interface Plan {
 // These are just design defaults; real prices will be overridden from Stripe
 const planTemplates: Omit<Plan, 'priceId'>[] = [
   {
-    name: 'Standard',
+    name: 'Crew Standard',
     price: '£4.99',
     priceSuffix: '/ month',
     trialLabel: CREW_TRIAL_DISPLAY_LABEL,
@@ -77,12 +77,12 @@ const planTemplates: Omit<Plan, 'priceId'>[] = [
     color: 'blue',
   },
   {
-    name: 'Premium',
+    name: 'Crew Premium',
     price: '£9.99',
     priceSuffix: '/ month',
     description: 'Advanced logging and documentation for career progression.',
     features: [
-      'All Standard features',
+      'All Crew Standard features',
       'Unlimited vessels',
       'Passage log book',
       'Bridge watch log book',
@@ -97,14 +97,14 @@ const planTemplates: Omit<Plan, 'priceId'>[] = [
     trialLabel: CREW_TRIAL_DISPLAY_LABEL,
   },
   {
-    name: 'Pro',
+    name: 'Crew Professional',
     price: '£14.99',
     priceSuffix: '/ month',
     trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description:
       'Complete maritime career management and certification tracking.',
     features: [
-      'All Premium features',
+      'All Crew Premium features',
       'Advanced analytics',
       'GPS passage tracking',
       'Automatic vessel state tracking via AIS (additional fee per month)',
@@ -121,14 +121,13 @@ const planTemplates: Omit<Plan, 'priceId'>[] = [
 // Vessel plan templates - for vessel accounts
 const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
   {
-    name: 'Vessel Lite',
-    price: '£24.99',
+    name: 'Vessel Standard',
+    price: '£35.99',
     priceSuffix: '/ month',
     trialLabel: VESSEL_TRIAL_DISPLAY_LABEL,
     description: 'Essential vessel management for small operations.',
     features: [
       'Single vessel',
-      'Up to 15 crew members',
       'Crew management & assignments',
       'Vessel state tracking',
       'Digital testimonial approvals',
@@ -140,16 +139,16 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
     color: 'blue',
   },
   {
-    name: 'Vessel Basic',
-    price: '£49.99',
+    name: 'Vessel Premium',
+    price: '£79.99',
     priceSuffix: '/ month',
     trialLabel: VESSEL_TRIAL_DISPLAY_LABEL,
     description: 'Advanced vessel management for growing operations.',
     features: [
       'Single vessel',
-      'Up to 30 crew members',
-      'All Lite features',
+      'All Standard features',
       'Advanced crew analytics',
+      'AI form builder',
       'Priority support',
     ],
     cta: 'Get Started',
@@ -158,17 +157,18 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
     color: 'purple',
   },
   {
-    name: 'Vessel Pro',
-    price: '£99.99',
+    name: 'Vessel Professional',
+    price: '£139.99',
     priceSuffix: '/ month',
     trialLabel: VESSEL_TRIAL_DISPLAY_LABEL,
     description: 'Complete vessel management solution.',
     features: [
       'Single vessel',
-      'Unlimited crew members',
       'Multiple role assignments',
-      'All Basic features',
+      'All Premium features',
       'Generate documents and applications for crew members',
+      'End-to-end sign-off cycle: vessel → captain → crew',
+      'Free crew accounts while actively tracking this vessel',
     ],
     cta: 'Get Started',
     icon: TrendingUp,
@@ -185,7 +185,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'Up to 3 vessels (included)',
       'Unlimited crew members',
       '£50 per additional vessel',
-      'All Pro features',
+      'All Professional features',
       'Enterprise-grade analytics',
       'Custom integrations & API access',
       'Dedicated account manager',
@@ -306,12 +306,15 @@ export default function MembershipCTA() {
           if (lower.includes('vessel')) {
             if (lower.includes('fleet')) return 'vessel_fleet';
             if (lower.includes('pro')) return 'vessel_pro';
-            if (lower.includes('basic')) return 'vessel_basic';
-            if (lower.includes('lite')) return 'vessel_lite';
+            if (lower.includes('premium') || lower.includes('basic')) return 'vessel_basic';
+            if (lower.includes('standard') || lower.includes('lite')) return 'vessel_lite';
           }
           // Handle crew plans
-          if (lower === 'pro') return 'professional'; // map "Pro" card → professional tier
-          return lower; // 'standard', 'premium', etc.
+          // Crew plans (with or without "crew" prefix) map to internal tier keys
+          if (lower.includes('professional') || lower === 'pro' || lower === 'crew pro') return 'professional';
+          if (lower.includes('premium')) return 'premium';
+          if (lower.includes('standard')) return 'standard';
+          return lower;
         };
 
         // Helper to normalize tier names for matching

@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { format } from 'date-fns';
 
 /**
- * PATCH: Update a crew member's MCA application details.
+ * PATCH: Update a crew member’s profile details (same fields as “Crew details” on the profile).
  * Caller must be a vessel manager; crewUserId must be assigned to the vessel manager's active vessel.
  * Body: { crewUserId, title?, dateOfBirth?, sex?, placeOfBirth?, countryOfBirth?, nationality?,
  *         telephone?, mobile?, addressLine1?, addressLine2?, addressDistrict?, addressTownCity?,
@@ -43,7 +43,7 @@ export async function PATCH(req: NextRequest) {
     }
     if (vesselUser.role !== 'vessel' || !vesselUser.active_vessel_id) {
       return NextResponse.json(
-        { error: 'Only vessel managers can update crew MCA details' },
+        { error: 'Only vessel managers can update crew details' },
         { status: 403 }
       );
     }
@@ -94,7 +94,7 @@ export async function PATCH(req: NextRequest) {
     if (updateError) {
       console.error('[CREW-MCA-DETAILS] Update error:', updateError);
       return NextResponse.json(
-        { error: 'Failed to update MCA details', details: updateError.message },
+        { error: 'Failed to update crew details', details: updateError.message },
         { status: 500 }
       );
     }

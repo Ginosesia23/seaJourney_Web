@@ -33,7 +33,10 @@ CREATE TABLE IF NOT EXISTS public.vessel_generated_testimonials (
   notes TEXT NULL,
   
   -- PDF format used
-  pdf_format TEXT NOT NULL DEFAULT 'seajourney' CHECK (pdf_format IN ('seajourney', 'mca')),
+  pdf_format TEXT NOT NULL DEFAULT 'seajourney' CHECK (pdf_format IN ('seajourney', 'mca', 'amsa')),
+
+  -- AMSA 771 reference section (JSON); only used when pdf_format = 'amsa'
+  amsa_reference_data JSONB DEFAULT NULL,
   
   -- Timestamps
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -59,7 +62,11 @@ ON public.vessel_generated_testimonials(created_at DESC);
 -- Enable RLS
 ALTER TABLE public.vessel_generated_testimonials ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies
+-- RLS Policies — drop first so re-running this script does not fail with "policy already exists"
+DROP POLICY IF EXISTS "Vessel managers can view testimonials they generated" ON public.vessel_generated_testimonials;
+DROP POLICY IF EXISTS "Vessel managers can insert testimonials for crew with approved access" ON public.vessel_generated_testimonials;
+DROP POLICY IF EXISTS "Vessel managers can update testimonials they generated" ON public.vessel_generated_testimonials;
+DROP POLICY IF EXISTS "Vessel managers can delete testimonials they generated" ON public.vessel_generated_testimonials;
 
 -- Vessel managers can view testimonials they generated for their crew
 CREATE POLICY "Vessel managers can view testimonials they generated"

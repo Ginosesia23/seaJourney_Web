@@ -2198,7 +2198,9 @@ export default function ProfilePage() {
   // Sync activeTab with URL query parameter on mount and when searchParams change
   useEffect(() => {
     const tabFromUrl = searchParams?.get('tab');
-    if (tabFromUrl) {
+    if (tabFromUrl === 'crew-details' || tabFromUrl === 'mca-details') {
+      setActiveTab('crew-details');
+    } else if (tabFromUrl) {
       setActiveTab(tabFromUrl);
     } else {
       setActiveTab('information');
@@ -2229,7 +2231,7 @@ export default function ProfilePage() {
       activeVesselId: activeVesselId || undefined,
       startDate: startDate || undefined,
       role: (userProfileRaw as any).role || userProfileRaw.role || 'crew',
-      // MCA Application fields
+      // Crew details (used for official documents and PDFs)
       title: (userProfileRaw as any).title || undefined,
       placeOfBirth: (userProfileRaw as any).place_of_birth || (userProfileRaw as any).placeOfBirth || undefined,
       countryOfBirth: (userProfileRaw as any).country_of_birth || (userProfileRaw as any).countryOfBirth || undefined,
@@ -2303,7 +2305,7 @@ export default function ProfilePage() {
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="rounded-xl">
           <TabsTrigger value="information" className="!rounded-lg">Information</TabsTrigger>
-          <TabsTrigger value="mca-details" className="!rounded-lg">MCA Application</TabsTrigger>
+          <TabsTrigger value="crew-details" className="!rounded-lg">Crew details</TabsTrigger>
           <TabsTrigger value="career" className="!rounded-lg">Career</TabsTrigger>
         </TabsList>
 
@@ -2330,8 +2332,8 @@ export default function ProfilePage() {
           </div>
         </TabsContent>
 
-        {/* MCA Application Details Tab */}
-        <TabsContent value="mca-details" className="mt-6">
+        {/* Crew details — name, DOB, address, etc. for generated documents */}
+        <TabsContent value="crew-details" className="mt-6">
           <MCAApplicationDetailsCard />
         </TabsContent>
 

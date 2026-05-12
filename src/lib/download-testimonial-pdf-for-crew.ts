@@ -163,6 +163,8 @@ export async function downloadTestimonialPdfForCrewMember(
           .discharge_book_number ||
         (userProfile as { dischargeBookNumber?: string | null }).dischargeBookNumber ||
         null,
+      mobile: (userProfile as { mobile?: string | null }).mobile ?? null,
+      telephone: (userProfile as { telephone?: string | null }).telephone ?? null,
     },
     vessel: {
       name: vessel.name,
@@ -172,6 +174,7 @@ export async function downloadTestimonialPdfForCrewMember(
       length_m: vessel.length_m || null,
       gross_tonnage: vessel.gross_tonnage || null,
       call_sign: vessel.call_sign || null,
+      company_contact: vessel.company_contact ?? null,
     },
     captainProfile,
     companyDetails: companyDetailsFromVessel(vessel),
@@ -222,8 +225,23 @@ export async function downloadTestimonialPdfForCrewMember(
       await generateMCADeckhandTestimonial(testimonialDataWithReceipt, 'download');
     }
   } else {
-    await generateTestimonialPDF(testimonialData, format, 'download', {
-      debug: process.env.NEXT_PUBLIC_PDF_DEBUG === 'true',
-    });
+    const payload =
+      format === 'amsa'
+        ? {
+            ...testimonialData,
+            receiptData: {
+              documentId: testimonial.id,
+              sjCode: testimonial.testimonial_code || null,
+              documentType: 'testimonial' as const,
+              generatedAt: new Date().toISOString(),
+              generatedBy: {
+                userId: authUserId,
+                email: userProfile?.email || undefined,
+              },
+            },
+          }
+        : testimonialData;
+
+    await generateTestimonialPDF(payload, format, 'download');
   }
 }

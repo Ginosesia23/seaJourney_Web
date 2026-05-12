@@ -22,6 +22,7 @@ const WatchFeatureComingSoon = () => {
   const [appleElapsed, setAppleElapsed] = useState(0);
   const [galaxyRunning, setGalaxyRunning] = useState(false);
   const [galaxyElapsed, setGalaxyElapsed] = useState(0);
+  
   const [watchNightMode, setWatchNightMode] = useState(false);
 
   useEffect(() => {

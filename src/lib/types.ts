@@ -1,3 +1,4 @@
+import type { AmsaSeaServiceReference } from './amsa-sea-service-reference';
 
 export interface UserProfile {
   id: string;
@@ -20,7 +21,7 @@ export interface UserProfile {
   startDate?: string | null; // ISO date string (YYYY-MM-DD) - Official start date for vessel accounts
   signature?: string | null; // Base64 encoded signature image for captains
   dischargeBookNumber?: string | null; // Discharge book number for use in testimonials
-  // MCA Application fields
+  // Crew details (profile / PDFs — date of birth, address, etc.)
   title?: string | null; // Mr/Mrs/Miss/etc
   placeOfBirth?: string | null;
   countryOfBirth?: string | null;
@@ -147,7 +148,9 @@ export interface VesselGeneratedTestimonial {
     generated_by_email: string | null;
     data_source: 'crew' | 'vessel'; // Data source used
     notes: string | null;
-    pdf_format: 'seajourney' | 'mca'; // PDF format used
+    pdf_format: 'seajourney' | 'mca' | 'amsa'; // PDF format used
+    /** AMSA 771 sea service reference codes when pdf_format is amsa */
+    amsa_reference_data?: AmsaSeaServiceReference | null;
     created_at: string;           // ISO timestamp
     updated_at: string;           // ISO timestamp
     /** One-time share link (send to captain) */

@@ -68,13 +68,30 @@ export const SupabaseProvider: React.FC<SupabaseProviderProps> = ({ children }) 
       setIsUserLoading(false);
     });
 
-    // Listen for auth changes
+    // Listen for auth changes. IMPORTANT: when the browser tab regains
+    // focus Supabase fires `TOKEN_REFRESHED` with a *new* session object
+    // whose `user` has the same id but a different reference. If we blindly
+    // call `setUser` every time, every downstream hook that depends on the
+    // user object (e.g. `useDoc`) will re-run its effect, flip back to
+    // loading, and refetch — which the user experiences as the whole page
+    // reloading every time they switch browser tabs.
+    //
+    // To prevent that we update `session` as needed (we still want the
+    // fresh access_token for API calls), but only call `setUser` when the
+    // user id actually changes — i.e. true sign-in / sign-out / user switch.
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('Auth state changed:', event);
-      setSession(session);
-      setUser(session?.user ?? null);
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
+      const newUser = newSession?.user ?? null;
+      setSession(newSession);
+      setUser((prev) => {
+        if ((prev?.id ?? null) === (newUser?.id ?? null)) {
+          // Same identity — preserve the existing reference so downstream
+          // effects keyed on `user` don't re-fire on every token refresh.
+          return prev;
+        }
+        return newUser;
+      });
       setIsUserLoading(false);
       setUserError(null);
     });

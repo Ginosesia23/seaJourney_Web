@@ -65,10 +65,19 @@ import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/
 import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
 import { buildAndGenerateNavWatchApplication, navWatchApplicationDefaultValues, navWatchApplicationSchema, type NavWatchApplicationFormValues } from '@/lib/nav-watch-application';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { getVesselManagerCrewLimit } from '@/lib/vessel-crew-limit';
 import { MCAApplicationDetailsCard } from '@/components/dashboard/mca-application-details';
+import { parseAmsaReferenceFromDb } from '@/lib/amsa-sea-service-reference';
+import { VesselGeneratedAmsaReferencePanel } from '@/components/dashboard/vessel-generated-amsa-reference-panel';
 
 
 const getInitials = (name: string) => name ? name.split(' ').map((n) => n[0]).join('') : '';
+
+function testimonialPdfFormatLabel(pdfFormat: string | undefined | null): string {
+  if (pdfFormat === 'mca') return 'MCA';
+  if (pdfFormat === 'amsa') return 'AMSA';
+  return 'SeaJourney';
+}
 
 const inviteCrewSchema = z.object({
   firstName: z.string().min(1, 'First name is required').max(100),
@@ -546,7 +555,6 @@ export default function CrewPage() {
         data: NonNullable<CrewMemberWithAssignment['seaTimeData']>;
     } | null>(null);
     const [selectedTestimonialFormat, setSelectedTestimonialFormat] = useState<Record<string, TestimonialPDFFormat>>({});
-    const [selectedVesselDocFormat, setSelectedVesselDocFormat] = useState<Record<string, TestimonialPDFFormat>>({});
     const [selectedNewDocFormat, setSelectedNewDocFormat] = useState<TestimonialPDFFormat>('mca');
     const [isNavWatchDialogOpen, setIsNavWatchDialogOpen] = useState(false);
     const [isSavingNavWatch, setIsSavingNavWatch] = useState(false);
@@ -593,33 +601,13 @@ export default function CrewPage() {
     // Use admin-fetched vessels if admin, otherwise use collection
     const allVessels = currentUserProfile?.role === 'admin' ? allVesselsForAdmin : allVesselsFromCollection;
 
-    // Get crew limit based on vessel subscription tier
-    const getCrewLimit = (tier: string | undefined, profileRow: any): number => {
-        if (!tier || !profileRow || !hasActiveSubscription(profileRow)) {
-            return 0;
-        }
-
-        const tierLower = tier.toLowerCase();
-        switch (tierLower) {
-            case 'vessel_lite':
-                return 15;
-            case 'vessel_basic':
-                return 30;
-            case 'vessel_pro':
-            case 'vessel_fleet':
-                return Infinity; // Unlimited
-            default:
-                return 0; // Unknown tier = no access
-        }
-    };
-
     const crewLimit = useMemo(() => {
         // Only apply limits to vessel managers (not admins)
         if (currentUserProfile?.role !== 'vessel') {
             return Infinity; // Admins and captains see all
         }
-        return getCrewLimit(currentUserProfile.subscriptionTier, currentUserProfileRaw);
-    }, [currentUserProfile?.role, currentUserProfile?.subscriptionTier, currentUserProfileRaw]);
+        return getVesselManagerCrewLimit(currentUserProfileRaw);
+    }, [currentUserProfile?.role, currentUserProfileRaw]);
 
     // Check if vessel has Pro tier subscription (required for document generation and crew member details)
     const hasProTier = useMemo(() => {
@@ -2404,8 +2392,8 @@ export default function CrewPage() {
         effectivePeriodFiltered.vesselGeneratedTestimonials.length,
     ]);
 
-    // Check if selected crew member's MCA information is complete
-    const isMCAInfoComplete = useMemo(() => {
+    // Required crew details (same fields as profile “Crew details”) for PDFs and applications
+    const isCrewDetailsComplete = useMemo(() => {
         if (!selectedMemberData?.profile) return true;
         
         const profile = selectedMemberData.profile as any;
@@ -2518,7 +2506,7 @@ export default function CrewPage() {
                     generatedAt: application.created_at,
                     generatedBy: { userId: user?.id, email: currentUserProfile?.email || undefined },
                 },
-            }, output, { debug: false });
+            }, output);
             if (output === 'download') {
                 toast({ title: 'Success', description: 'PDF downloaded successfully.' });
             } else {
@@ -3148,6 +3136,8 @@ export default function CrewPage() {
                     dateOfBirth: (selectedMemberData.profile as any).date_of_birth || (selectedMemberData.profile as any).dateOfBirth || null,
                     position: selectedMemberData.profile.position || null,
                     dischargeBookNumber: (selectedMemberData.profile as any).discharge_book_number || (selectedMemberData.profile as any).dischargeBookNumber || null,
+                    mobile: (selectedMemberData.profile as any).mobile ?? null,
+                    telephone: (selectedMemberData.profile as any).telephone ?? null,
                 },
                 vessel: {
                     name: vessel.name,
@@ -3157,6 +3147,7 @@ export default function CrewPage() {
                     length_m: vessel.length_m || null,
                     gross_tonnage: vessel.gross_tonnage || null,
                     call_sign: vessel.call_sign || null,
+                    company_contact: (vessel as any).company_contact ?? null,
                 },
                 captainProfile: null,
                 companyDetails: {
@@ -3165,6 +3156,13 @@ export default function CrewPage() {
                     contactDetails: (vessel as any).company_contact || null,
                 },
                 standbyPeriods: standbyPeriods.length > 0 ? standbyPeriods : undefined,
+                amsaReference:
+                    format === 'amsa'
+                        ? parseAmsaReferenceFromDb(
+                              (testimonial as VesselGeneratedTestimonial).amsa_reference_data ??
+                                  (testimonial as { amsa_reference_data?: unknown }).amsa_reference_data,
+                          ) ?? null
+                        : undefined,
             };
 
             // Generate PDF based on format
@@ -3199,9 +3197,25 @@ export default function CrewPage() {
                     await generateMCADeckhandTestimonial(testimonialDataWithReceipt, output);
                 }
             } else {
-                await generateTestimonialPDF(testimonialData, format, output, {
-                  debug: process.env.NEXT_PUBLIC_PDF_DEBUG === 'true',
-                });
+                const payload =
+                    format === 'amsa'
+                        ? {
+                              ...testimonialData,
+                              receiptData: {
+                                  documentId: testimonial.id,
+                                  sjCode: null,
+                                  documentType: 'testimonial' as const,
+                                  generatedAt: new Date().toISOString(),
+                                  generatedBy: {
+                                      userId: currentUserProfile?.id,
+                                      email: currentUserProfile?.email || undefined,
+                                      name: testimonial.generated_by_name,
+                                  },
+                              },
+                          }
+                        : testimonialData;
+
+                await generateTestimonialPDF(payload, format, output);
             }
 
             if (output === 'download') {
@@ -3466,6 +3480,8 @@ export default function CrewPage() {
                     dateOfBirth: (selectedMemberData.profile as any).date_of_birth || (selectedMemberData.profile as any).dateOfBirth || null,
                     position: selectedMemberData.profile.position || null,
                     dischargeBookNumber: (selectedMemberData.profile as any).discharge_book_number || (selectedMemberData.profile as any).dischargeBookNumber || null,
+                    mobile: (selectedMemberData.profile as any).mobile ?? null,
+                    telephone: (selectedMemberData.profile as any).telephone ?? null,
                 },
                 vessel: {
                     name: vessel.name,
@@ -3475,6 +3491,7 @@ export default function CrewPage() {
                     length_m: vessel.length_m || null,
                     gross_tonnage: vessel.gross_tonnage || null,
                     call_sign: vessel.call_sign || null,
+                    company_contact: (vessel as any).company_contact ?? null,
                 },
                 captainProfile: captainProfile,
                 companyDetails: {
@@ -3516,9 +3533,24 @@ export default function CrewPage() {
                     await generateMCADeckhandTestimonial(testimonialDataWithReceipt, output);
                 }
             } else {
-                await generateTestimonialPDF(testimonialData, format, output, {
-                  debug: process.env.NEXT_PUBLIC_PDF_DEBUG === 'true',
-                });
+                const payload =
+                    format === 'amsa'
+                        ? {
+                              ...testimonialData,
+                              receiptData: {
+                                  documentId: testimonial.id,
+                                  sjCode: testimonial.testimonial_code || null,
+                                  documentType: 'testimonial' as const,
+                                  generatedAt: new Date().toISOString(),
+                                  generatedBy: {
+                                      userId: user?.id,
+                                      email: currentUserProfile?.email || undefined,
+                                  },
+                              },
+                          }
+                        : testimonialData;
+
+                await generateTestimonialPDF(payload, format, output);
             }
 
             if (output === 'download') {
@@ -3964,7 +3996,7 @@ export default function CrewPage() {
                 generated_by_email: currentUserProfile.email || null,
                 data_source: dataSource as 'crew' | 'vessel',
                 notes: null, // No notes for vessel-generated testimonials
-                pdf_format: 'mca', // Default format, can be changed when generating PDF later
+                pdf_format: selectedNewDocFormat,
             };
 
             const { data: savedTestimonial, error: saveError } = await supabase
@@ -4977,9 +5009,9 @@ export default function CrewPage() {
                                     <FileText className="mr-2 h-4 w-4" />
                                     Documents
                                 </TabsTrigger>
-                                <TabsTrigger value="mca-details" className="rounded-lg">
+                                <TabsTrigger value="crew-details" className="rounded-lg">
                                     <FileCheck className="mr-2 h-4 w-4" />
-                                    MCA Details
+                                    Crew details
                                 </TabsTrigger>
                                 <TabsTrigger value="leave" className="rounded-lg">
                                     <CalendarDays className="mr-2 h-4 w-4" />
@@ -4987,8 +5019,8 @@ export default function CrewPage() {
                                 </TabsTrigger>
                             </TabsList>
 
-                            {/* MCA Details Tab - vessel can add/edit crew member MCA info for documents */}
-                            <TabsContent value="mca-details" className="space-y-4 mt-0">
+                            {/* Crew details — vessel can edit; used for AMSA, MCA, Nav Watch, and other PDFs */}
+                            <TabsContent value="crew-details" className="space-y-4 mt-0">
                                 <MCAApplicationDetailsCard
                                     targetUserId={selectedMemberData.profile.id}
                                     initialProfileRaw={selectedMemberData.profile}
@@ -5208,7 +5240,9 @@ export default function CrewPage() {
                                             <div>
                                                 <h3 className="text-lg font-semibold">Documents</h3>
                                                 <p className="text-sm text-muted-foreground mt-1">
-                                                    View and download documents for this crew member. Create testimonials or Proof of Service from <Link href="/dashboard/documents" className="text-primary underline underline-offset-2 font-medium">Generator → Documents</Link>.
+                                                    View and download documents for this crew member. Vessel-generated testimonials use the PDF format chosen when they were created in{' '}
+                                                    <Link href="/dashboard/documents" className="text-primary underline underline-offset-2 font-medium">Generator → Documents</Link>
+                                                    . Preview and download here always match that saved format.
                                                 </p>
                                             </div>
                                             <div className="flex items-center gap-2">
@@ -5227,12 +5261,12 @@ export default function CrewPage() {
                                                                 Generate an MCA Watch Rating (Nav Watch) application PDF for {selectedMemberData.profile.firstName || selectedMemberData.profile.username}. Sea service will be taken from their approved testimonials and vessel assignments.
                                                             </DialogDescription>
                                                         </DialogHeader>
-                                                        {isMCAInfoComplete ? (
+                                                        {isCrewDetailsComplete ? (
                                                             <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
                                                                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
-                                                                <AlertTitle className="text-green-900 dark:text-green-100">Using vessel MCA details</AlertTitle>
+                                                                <AlertTitle className="text-green-900 dark:text-green-100">Using vessel crew details</AlertTitle>
                                                                 <AlertDescription className="text-green-800 dark:text-green-200">
-                                                                    MCA details are complete and will be used in this document.
+                                                                    Crew details are complete and will be used in this document.
                                                                 </AlertDescription>
                                                             </Alert>
                                                         ) : null}
@@ -5299,13 +5333,13 @@ export default function CrewPage() {
                                             </div>
                                         </div>
 
-                                        {/* MCA details status: show only when complete */}
-                                        {isMCAInfoComplete ? (
+                                        {/* Crew details status: show only when complete */}
+                                        {isCrewDetailsComplete ? (
                                             <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
                                                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
-                                                <AlertTitle className="text-green-900 dark:text-green-100">Using vessel MCA details</AlertTitle>
+                                                <AlertTitle className="text-green-900 dark:text-green-100">Using vessel crew details</AlertTitle>
                                                 <AlertDescription className="text-green-800 dark:text-green-200">
-                                                    MCA details for this crew member are complete. These vessel-provided details will be used when you generate Nav Watch and other MCA documents.
+                                                    Crew details for this member are complete. These details are used when you generate AMSA, MCA, Nav Watch, and other documents.
                                                 </AlertDescription>
                                             </Alert>
                                         ) : null}
@@ -5538,6 +5572,7 @@ export default function CrewPage() {
                                                                                                     <SelectContent>
                                                                                                         <SelectItem value="seajourney">SeaJourney</SelectItem>
                                                                                                         <SelectItem value="mca">MCA</SelectItem>
+                                                                                                        <SelectItem value="amsa">AMSA (771)</SelectItem>
                                                                                                     </SelectContent>
                                                                                                 </Select>
                                                                                                 <Button
@@ -5597,8 +5632,36 @@ export default function CrewPage() {
                                                                                                     {testimonial.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
                                                                                                 </Badge>
                                                                                                 <Badge variant="outline" className="text-xs">
-                                                                                                    {testimonial.pdf_format === 'mca' ? 'MCA' : 'SeaJourney'}
+                                                                                                    {testimonialPdfFormatLabel(testimonial.pdf_format)}
                                                                                                 </Badge>
+                                                                                                {testimonial.pdf_format === 'amsa' && selectedMemberData ? (
+                                                                                                    <div onClick={(e) => e.stopPropagation()}>
+                                                                                                        <VesselGeneratedAmsaReferencePanel
+                                                                                                            testimonial={testimonial}
+                                                                                                            supabase={supabase}
+                                                                                                            disabled={
+                                                                                                                generatingPDF === testimonial.id ||
+                                                                                                                deletingTestimonial === testimonial.id
+                                                                                                            }
+                                                                                                            onSaved={(updated) => {
+                                                                                                                setCrewMembers((prev) =>
+                                                                                                                    prev.map((m) =>
+                                                                                                                        m.profile.id === selectedMemberData.profile.id
+                                                                                                                            ? {
+                                                                                                                                  ...m,
+                                                                                                                                  vesselGeneratedTestimonials: (
+                                                                                                                                      m.vesselGeneratedTestimonials || []
+                                                                                                                                  ).map((t) =>
+                                                                                                                                      t.id === updated.id ? updated : t,
+                                                                                                                                  ),
+                                                                                                                              }
+                                                                                                                            : m,
+                                                                                                                    ),
+                                                                                                                );
+                                                                                                            }}
+                                                                                                        />
+                                                                                                    </div>
+                                                                                                ) : null}
                                                                                                 <span className="text-sm text-muted-foreground">
                                                                                                     {testimonial.total_days} days
                                                                                                 </span>
@@ -5622,10 +5685,16 @@ export default function CrewPage() {
                                                                                             <Button
                                                                                                 variant="ghost"
                                                                                                 size="sm"
-                                                                                                onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca', 'newtab')}
+                                                                                                onClick={() =>
+                                                                                                    handleGenerateVesselTestimonialPDF(
+                                                                                                        testimonial,
+                                                                                                        (testimonial.pdf_format as TestimonialPDFFormat) || 'mca',
+                                                                                                        'newtab',
+                                                                                                    )
+                                                                                                }
                                                                                                 disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
                                                                                                 className="rounded-lg"
-                                                                                                title="Preview"
+                                                                                                title="Preview (saved format)"
                                                                                             >
                                                                                                 {generatingPDF === testimonial.id ? (
                                                                                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -5633,26 +5702,18 @@ export default function CrewPage() {
                                                                                                     <FileText className="h-4 w-4" />
                                                                                                 )}
                                                                                             </Button>
-                                                                                            <Select
-                                                                                                value={selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca'}
-                                                                                                onValueChange={(format) => setSelectedVesselDocFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
-                                                                                                disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
-                                                                                            >
-                                                                                                <SelectTrigger className="w-[140px] rounded-xl">
-                                                                                                    <SelectValue placeholder="Version" />
-                                                                                                </SelectTrigger>
-                                                                                                <SelectContent>
-                                                                                                    <SelectItem value="seajourney">SeaJourney</SelectItem>
-                                                                                                    <SelectItem value="mca">MCA</SelectItem>
-                                                                                                </SelectContent>
-                                                                                            </Select>
                                                                                             <Button
                                                                                                 variant="outline"
                                                                                                 size="sm"
-                                                                                                onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca')}
+                                                                                                onClick={() =>
+                                                                                                    handleGenerateVesselTestimonialPDF(
+                                                                                                        testimonial,
+                                                                                                        (testimonial.pdf_format as TestimonialPDFFormat) || 'mca',
+                                                                                                    )
+                                                                                                }
                                                                                                 disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
                                                                                                 className="rounded-xl"
-                                                                                                title="Download"
+                                                                                                title="Download (saved format)"
                                                                                             >
                                                                                                 {generatingPDF === testimonial.id ? (
                                                                                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -5940,6 +6001,7 @@ export default function CrewPage() {
                                                                                     <SelectContent>
                                                                                         <SelectItem value="seajourney">SeaJourney</SelectItem>
                                                                                         <SelectItem value="mca">MCA</SelectItem>
+                                                                                        <SelectItem value="amsa">AMSA (771)</SelectItem>
                                                                                     </SelectContent>
                                                                                 </Select>
                                                                                 <Button
@@ -6010,8 +6072,38 @@ export default function CrewPage() {
                                                                                         {testimonial.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
                                                                                     </Badge>
                                                                                     <Badge variant="outline" className="text-xs">
-                                                                                        {testimonial.pdf_format === 'mca' ? 'MCA' : 'SeaJourney'}
+                                                                                        {testimonialPdfFormatLabel(testimonial.pdf_format)}
                                                                                     </Badge>
+                                                                                    {currentUserProfile?.role === 'vessel' &&
+                                                                                    testimonial.pdf_format === 'amsa' &&
+                                                                                    selectedMemberData ? (
+                                                                                        <div onClick={(e) => e.stopPropagation()}>
+                                                                                            <VesselGeneratedAmsaReferencePanel
+                                                                                                testimonial={testimonial}
+                                                                                                supabase={supabase}
+                                                                                                disabled={
+                                                                                                    generatingPDF === testimonial.id ||
+                                                                                                    deletingTestimonial === testimonial.id
+                                                                                                }
+                                                                                                onSaved={(updated) => {
+                                                                                                    setCrewMembers((prev) =>
+                                                                                                        prev.map((m) =>
+                                                                                                            m.profile.id === selectedMemberData.profile.id
+                                                                                                                ? {
+                                                                                                                      ...m,
+                                                                                                                      vesselGeneratedTestimonials: (
+                                                                                                                          m.vesselGeneratedTestimonials || []
+                                                                                                                      ).map((t) =>
+                                                                                                                          t.id === updated.id ? updated : t,
+                                                                                                                      ),
+                                                                                                                  }
+                                                                                                                : m,
+                                                                                                        ),
+                                                                                                    );
+                                                                                                }}
+                                                                                            />
+                                                                                        </div>
+                                                                                    ) : null}
                                                                                     <span className="text-sm text-muted-foreground">
                                                                                         {testimonial.total_days} days
                                                                                     </span>
@@ -6035,10 +6127,16 @@ export default function CrewPage() {
                                                                                 <Button
                                                                                     variant="ghost"
                                                                                     size="sm"
-                                                                                    onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca', 'newtab')}
+                                                                                    onClick={() =>
+                                                                                        handleGenerateVesselTestimonialPDF(
+                                                                                            testimonial,
+                                                                                            (testimonial.pdf_format as TestimonialPDFFormat) || 'mca',
+                                                                                            'newtab',
+                                                                                        )
+                                                                                    }
                                                                                     disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
                                                                                     className="rounded-lg"
-                                                                                    title="Preview"
+                                                                                    title="Preview (saved format)"
                                                                                 >
                                                                                     {generatingPDF === testimonial.id ? (
                                                                                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -6046,26 +6144,18 @@ export default function CrewPage() {
                                                                                         <FileText className="h-4 w-4" />
                                                                                     )}
                                                                                 </Button>
-                                                                                <Select
-                                                                                    value={selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca'}
-                                                                                    onValueChange={(format) => setSelectedVesselDocFormat(prev => ({ ...prev, [testimonial.id]: format as TestimonialPDFFormat }))}
-                                                                                    disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
-                                                                                >
-                                                                                    <SelectTrigger className="w-[140px] rounded-xl">
-                                                                                        <SelectValue placeholder="Version" />
-                                                                                    </SelectTrigger>
-                                                                                    <SelectContent>
-                                                                                        <SelectItem value="seajourney">SeaJourney</SelectItem>
-                                                                                        <SelectItem value="mca">MCA</SelectItem>
-                                                                                    </SelectContent>
-                                                                                </Select>
                                                                                 <Button
                                                                                     variant="outline"
                                                                                     size="sm"
-                                                                                    onClick={() => handleGenerateVesselTestimonialPDF(testimonial, selectedVesselDocFormat[testimonial.id] ?? testimonial.pdf_format ?? 'mca')}
+                                                                                    onClick={() =>
+                                                                                        handleGenerateVesselTestimonialPDF(
+                                                                                            testimonial,
+                                                                                            (testimonial.pdf_format as TestimonialPDFFormat) || 'mca',
+                                                                                        )
+                                                                                    }
                                                                                     disabled={generatingPDF === testimonial.id || deletingTestimonial === testimonial.id}
                                                                                     className="rounded-xl"
-                                                                                    title="Download"
+                                                                                    title="Download (saved format)"
                                                                                 >
                                                                                     {generatingPDF === testimonial.id ? (
                                                                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -6268,7 +6358,7 @@ export default function CrewPage() {
                                     <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
                                         {viewDocumentBreakdown.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
                                     </Badge>
-                                    <Badge variant="outline">{viewDocumentBreakdown.pdf_format === 'mca' ? 'MCA' : 'SeaJourney'}</Badge>
+                                    <Badge variant="outline">{testimonialPdfFormatLabel(viewDocumentBreakdown.pdf_format)}</Badge>
                                 </div>
                                 {viewDocumentBreakdown.generated_by_name && (
                                     <div className="text-sm text-muted-foreground">

@@ -1,109 +1,133 @@
 'use client';
 
-import { useState, useRef, useMemo, KeyboardEvent } from 'react';
+import { useState, useRef, useMemo, useEffect, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Search, FileText, ShieldCheck, AlertCircle } from 'lucide-react';
+import {
+  Search,
+  FileText,
+  ShieldCheck,
+  AlertCircle,
+  Anchor,
+  BadgeCheck,
+  Lock,
+} from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import LogoOnboarding from '@/components/logo-onboarding';
+import {
+  WkAsideHero,
+  WkAuthShell,
+  WkPrimarySubmit,
+} from '@/components/wk/wk-auth-shell';
 import { createPublicSupabaseClient } from '@/lib/supabase-public';
 
 type CodeType = 'sj' | 'pos';
+
+const CODE_LENGTH = 8;
 
 export default function VerificationPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [codeType, setCodeType] = useState<CodeType>('sj');
-  const [code, setCode] = useState<string[]>(['', '', '', '', '', '', '', '']);
+  const [code, setCode] = useState<string[]>(() =>
+    Array.from({ length: CODE_LENGTH }, () => ''),
+  );
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const router = useRouter();
   const supabase = useMemo(() => createPublicSupabaseClient(), []);
 
   const prefix = codeType === 'sj' ? 'SJ-' : 'POS-';
+  const isCodeComplete =
+    code.every((c) => c !== '') && code.join('').length === CODE_LENGTH;
 
-  const handleInputChange = (index: number, value: string) => {
-    // Only allow alphanumeric characters
-    const cleanedValue = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    
-    if (cleanedValue.length > 1) {
-      // Handle paste - split the value across multiple inputs
-      const chars = cleanedValue.split('').slice(0, 8);
-      const newCode = [...code];
-      chars.forEach((char, i) => {
-        if (index + i < 8) {
-          newCode[index + i] = char;
-        }
+  // Focus first cell on mount for fast keyboard entry.
+  useEffect(() => {
+    inputRefs.current[0]?.focus();
+  }, []);
+
+  const handleInputChange = (index: number, raw: string) => {
+    const cleaned = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    if (cleaned.length > 1) {
+      const chars = cleaned.split('').slice(0, CODE_LENGTH);
+      const next = [...code];
+      chars.forEach((ch, i) => {
+        if (index + i < CODE_LENGTH) next[index + i] = ch;
       });
-      setCode(newCode);
+      setCode(next);
       if (notFound) setNotFound(false);
 
-      // Focus the next empty input or the last one
-      const nextEmptyIndex = newCode.findIndex((c, i) => i >= index && c === '');
-      const focusIndex = nextEmptyIndex !== -1 ? nextEmptyIndex : Math.min(index + chars.length, 7);
-      if (inputRefs.current[focusIndex]) {
-        inputRefs.current[focusIndex]?.focus();
-      }
-    } else {
-      // Single character input
-      const newCode = [...code];
-      newCode[index] = cleanedValue;
-      setCode(newCode);
-      if (notFound) setNotFound(false);
+      const nextEmpty = next.findIndex((c, i) => i >= index && c === '');
+      const focusIndex =
+        nextEmpty !== -1
+          ? nextEmpty
+          : Math.min(index + chars.length, CODE_LENGTH - 1);
+      inputRefs.current[focusIndex]?.focus();
+      return;
+    }
 
-      // Auto-advance to next input if a character was entered
-      if (cleanedValue && index < 7) {
-        inputRefs.current[index + 1]?.focus();
-      }
+    const next = [...code];
+    next[index] = cleaned;
+    setCode(next);
+    if (notFound) setNotFound(false);
+
+    if (cleaned && index < CODE_LENGTH - 1) {
+      inputRefs.current[index + 1]?.focus();
     }
   };
 
-  const handleKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (
+    index: number,
+    e: KeyboardEvent<HTMLInputElement>,
+  ) => {
     if (e.key === 'Backspace' && !code[index] && index > 0) {
-      // If current field is empty and backspace is pressed, go to previous field
       inputRefs.current[index - 1]?.focus();
     } else if (e.key === 'ArrowLeft' && index > 0) {
       inputRefs.current[index - 1]?.focus();
-    } else if (e.key === 'ArrowRight' && index < 7) {
+    } else if (e.key === 'ArrowRight' && index < CODE_LENGTH - 1) {
       inputRefs.current[index + 1]?.focus();
+    } else if (e.key === 'Enter' && isCodeComplete && !isLoading) {
+      void handleVerification();
     }
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const pastedText = e.clipboardData.getData('text').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (pastedText.length > 0) {
-      let codePart: string;
-      if (pastedText.startsWith('POS') && pastedText.length >= 11) {
-        codePart = pastedText.slice(3, 11);
-      } else if (pastedText.startsWith('SJ') && pastedText.length >= 10) {
-        codePart = pastedText.slice(2, 10);
-      } else {
-        codePart = pastedText.slice(0, 8);
-      }
-      const chars = codePart.split('').slice(0, 8);
-      const newCode = [...code];
-      chars.forEach((char, i) => {
-        if (i < 8) {
-          newCode[i] = char;
-        }
-      });
-      setCode(newCode);
-      if (notFound) setNotFound(false);
+    const text = e.clipboardData
+      .getData('text')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+    if (!text.length) return;
 
-      // Focus the next empty input or the last one
-      const nextEmptyIndex = newCode.findIndex((c) => c === '');
-      const focusIndex = nextEmptyIndex !== -1 ? nextEmptyIndex : 7;
-      if (inputRefs.current[focusIndex]) {
-        inputRefs.current[focusIndex]?.focus();
-      }
+    let codePart: string;
+    if (text.startsWith('POS') && text.length >= 11) {
+      codePart = text.slice(3, 11);
+      setCodeType('pos');
+    } else if (text.startsWith('SJ') && text.length >= 10) {
+      codePart = text.slice(2, 10);
+      setCodeType('sj');
+    } else {
+      codePart = text.slice(0, CODE_LENGTH);
     }
+
+    const chars = codePart.split('').slice(0, CODE_LENGTH);
+    const next = [...code];
+    chars.forEach((ch, i) => {
+      if (i < CODE_LENGTH) next[i] = ch;
+    });
+    setCode(next);
+    if (notFound) setNotFound(false);
+
+    const nextEmpty = next.findIndex((c) => c === '');
+    const focusIndex = nextEmpty !== -1 ? nextEmpty : CODE_LENGTH - 1;
+    inputRefs.current[focusIndex]?.focus();
   };
 
   const handleVerification = async () => {
-    const fullCode = code.join('').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (fullCode.length !== 8) return;
+    const fullCode = code
+      .join('')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+    if (fullCode.length !== CODE_LENGTH) return;
 
     setIsLoading(true);
     setNotFound(false);
@@ -114,7 +138,9 @@ export default function VerificationPage() {
       const typeParam = codeType === 'sj' ? 'sj' : 'pos';
 
       if (codeType === 'pos') {
-        const res = await fetch(`/api/verify/proof-of-service?code=${encodeURIComponent(codeWithPrefix)}`);
+        const res = await fetch(
+          `/api/verify/proof-of-service?code=${encodeURIComponent(codeWithPrefix)}`,
+        );
         const json = res.ok ? await res.json() : {};
         if (json.found && json.record) {
           router.replace(`/verify/result?code=${codeParam}&type=${typeParam}`);
@@ -141,132 +167,206 @@ export default function VerificationPage() {
     }
   };
 
-  const isCodeComplete = code.every(char => char !== '') && code.join('').length === 8;
-
   return (
-    <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4 py-6 sm:py-8">
-      <div className="mb-6 sm:mb-8">
-        <LogoOnboarding />
-      </div>
-      <div className="relative w-full max-w-md sm:max-w-2xl p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
-        <div className="absolute -top-px -left-px h-3 w-3 sm:h-4 sm:w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
-        <div className="absolute -top-px -right-px h-3 w-3 sm:h-4 sm:w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
-        <div className="absolute -bottom-px -left-px h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
-        <div className="absolute -bottom-px -right-px h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
+    <WkAuthShell
+      size="md"
+      aside={
+        <WkAsideHero
+          eyebrow="Public verification"
+          title={
+            <>
+              Confirm a record's{' '}
+              <span className="wk-gradient-text">authenticity</span>.
+            </>
+          }
+          description="Every SeaJourney testimonial and Proof of Service includes a unique code linked to a tamper-proof record. Enter the code from the PDF to instantly verify it was issued by a verified captain or vessel."
+          bullets={[
+            {
+              label: 'Tamper-proof records',
+              sub: 'Cryptographically anchored at issuance.',
+              icon: <Lock className="h-4 w-4" />,
+            },
+            {
+              label: 'Matches the official PDF',
+              sub: 'Code in the document footer mirrors our database.',
+              icon: <BadgeCheck className="h-4 w-4" />,
+            },
+            {
+              label: 'No account required',
+              sub: 'Anyone — auditors, agencies, employers — can verify.',
+              icon: <Anchor className="h-4 w-4" />,
+            },
+          ]}
+        />
+      }
+    >
+      <div className="wk-auth-card p-7 sm:p-9" data-code-type={codeType}>
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl"
+            style={{
+              backgroundColor: 'var(--wk-accent-soft)',
+              color: 'var(--wk-accent)',
+              border: '1px solid var(--wk-accent-ring)',
+            }}
+          >
+            <ShieldCheck className="h-5 w-5" />
+          </span>
+          <div>
+            <h1
+              className="text-2xl font-semibold tracking-tight"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              <span className="wk-gradient-text">Verify</span> a record
+            </h1>
+            <p className="text-sm" style={{ color: 'var(--wk-text-muted)' }}>
+              Enter the 8-character code from the PDF.
+            </p>
+          </div>
+        </div>
 
-        <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
-          <CardHeader className="text-center px-4 sm:px-6 pt-6 pb-4">
-            <div className="mx-auto flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-full bg-primary/10">
-              <Search className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-            </div>
-            <CardTitle className="mt-3 sm:mt-4 font-headline text-2xl sm:text-3xl">Sea Time Verification</CardTitle>
-            <CardDescription className="mt-2 text-sm sm:text-lg text-muted-foreground px-2">
-              Enter the verification code from the PDF to verify a testimonial or Proof of Service record.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="px-4 sm:px-6 pb-6">
-            <div className="space-y-4 sm:space-y-6">
-              {notFound && (
-                <Alert variant="destructive" className="py-2">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    Code not found. Try switching to the other document type (SJ or POS) above and verify again.
-                  </AlertDescription>
-                </Alert>
-              )}
+        <div
+          className="my-6 h-px w-full"
+          style={{ backgroundColor: 'var(--wk-line)' }}
+        />
 
-              {/* Document type toggle - pill style, centered */}
-              <div className="space-y-2 flex flex-col items-center">
-                <label className="text-xs sm:text-sm font-semibold text-muted-foreground block">
-                  Document type
-                </label>
-                <div className="flex p-0.5 rounded-full bg-muted/80 border border-border/60 w-full max-w-[10rem]">
-                  <button
-                    type="button"
-                    onClick={() => { setCodeType('sj'); setNotFound(false); }}
-                    className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-1.5 px-3 text-xs font-medium transition-colors rounded-l-full rounded-r-md outline-none focus:ring-0 focus-visible:ring-0 ${
-                      codeType === 'sj'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                    }`}
-                  >
-                    <FileText className="h-3.5 w-3.5 shrink-0" />
-                    <span>SJ</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setCodeType('pos'); setNotFound(false); }}
-                    className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-1.5 px-3 text-xs font-medium transition-colors rounded-r-full rounded-l-md outline-none focus:ring-0 focus-visible:ring-0 ${
-                      codeType === 'pos'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                    }`}
-                  >
-                    <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-                    <span>POS</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Code Input */}
-              <div className="space-y-2 sm:space-y-3">
-                <label className="text-xs sm:text-sm font-semibold text-muted-foreground text-center block">
-                  Verification code
-                </label>
-                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-wrap">
-                  <span className="text-xl sm:text-2xl font-bold text-primary">{prefix}</span>
-                  <div className="flex gap-1 sm:gap-2">
-                    {code.map((char, index) => (
-                      <input
-                        key={index}
-                        ref={(el) => {
-                          inputRefs.current[index] = el;
-                        }}
-                        type="text"
-                        inputMode="text"
-                        maxLength={1}
-                        value={char}
-                        onChange={(e) => handleInputChange(index, e.target.value)}
-                        onKeyDown={(e) => handleKeyDown(index, e)}
-                        onPaste={index === 0 ? handlePaste : undefined}
-                        className="w-9 h-11 sm:w-12 sm:h-14 text-center text-xl sm:text-2xl font-bold uppercase bg-background border-2 border-primary/30 rounded-lg focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
-                        disabled={isLoading}
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck="false"
-                      />
-                    ))}
-                  </div>
-                </div>
-                <p className="text-[10px] sm:text-xs text-muted-foreground text-center mt-1 sm:mt-2 px-2">
-                  Enter the 8-character code from the PDF (after {prefix})
-                </p>
-              </div>
-
-              {/* Verify Button */}
-              <Button
-                onClick={handleVerification}
-                size="lg"
-                className="h-11 sm:h-12 w-full rounded-lg text-sm sm:text-base"
-                disabled={isLoading || !isCodeComplete}
+        <form
+          className="space-y-6"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleVerification();
+          }}
+        >
+          {/* Document type segmented pill */}
+          <div className="flex flex-col items-center gap-2">
+            <span
+              className="text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--wk-text-soft)' }}
+            >
+              Document type
+            </span>
+            <div className="wk-pill-group" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-pressed={codeType === 'sj'}
+                onClick={() => {
+                  setCodeType('sj');
+                  setNotFound(false);
+                }}
+                className="wk-pill"
               >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 sm:h-5 sm:w-5 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  <>
-                    <Search className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                    Verify Record
-                  </>
-                )}
-              </Button>
+                <FileText className="h-3.5 w-3.5" />
+                <span>SJ · Testimonial</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-pressed={codeType === 'pos'}
+                onClick={() => {
+                  setCodeType('pos');
+                  setNotFound(false);
+                }}
+                className="wk-pill"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                <span>POS · Proof of Service</span>
+              </button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+
+          {/* Code entry */}
+          <div className="space-y-3">
+            <span
+              className="block text-center text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--wk-text-soft)' }}
+            >
+              Verification code
+            </span>
+            <div className="flex items-center justify-center gap-2 sm:gap-3">
+              <span
+                className="shrink-0 text-base font-bold sm:text-2xl"
+                style={{ color: 'var(--wk-accent)' }}
+              >
+                {prefix}
+              </span>
+              <div className="flex flex-nowrap items-center justify-center gap-1 sm:gap-2">
+                {code.map((char, index) => (
+                  <input
+                    key={index}
+                    ref={(el) => {
+                      inputRefs.current[index] = el;
+                    }}
+                    type="text"
+                    inputMode="text"
+                    maxLength={1}
+                    value={char}
+                    onChange={(e) => handleInputChange(index, e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(index, e)}
+                    onPaste={index === 0 ? handlePaste : undefined}
+                    className="wk-code-box"
+                    disabled={isLoading}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck="false"
+                    aria-label={`Character ${index + 1} of verification code`}
+                  />
+                ))}
+              </div>
+            </div>
+            <p
+              className="text-center text-xs"
+              style={{ color: 'var(--wk-text-muted)' }}
+            >
+              The code appears in the footer of every issued PDF, after{' '}
+              <code
+                className="rounded px-1 py-0.5 font-mono text-[11px]"
+                style={{
+                  backgroundColor: 'var(--wk-bg-subtle)',
+                  color: 'var(--wk-accent)',
+                }}
+              >
+                {prefix}
+              </code>
+              .
+            </p>
+          </div>
+
+          {/* Not-found alert */}
+          {notFound ? (
+            <div className="wk-status-banner" data-tone="bad" role="alert">
+              <span className="wk-status-icon" data-tone="bad">
+                <AlertCircle className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <div
+                  className="text-sm font-semibold"
+                  style={{ color: 'var(--wk-text)' }}
+                >
+                  Code not found
+                </div>
+                <div
+                  className="mt-0.5 text-xs"
+                  style={{ color: 'var(--wk-text-soft)' }}
+                >
+                  Double-check the code, or switch the document type above and
+                  try again.
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <WkPrimarySubmit
+            type="submit"
+            loading={isLoading}
+            disabled={!isCodeComplete}
+            icon={<Search className="h-4 w-4" />}
+          >
+            {isLoading ? 'Verifying' : 'Verify Record'}
+          </WkPrimarySubmit>
+        </form>
       </div>
-    </div>
+    </WkAuthShell>
   );
 }
