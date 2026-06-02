@@ -314,7 +314,7 @@ function TimelineGrid({
 
   return (
     <>
-    <div ref={scrollRef} className="overflow-x-auto rounded-lg border border-border">
+    <div ref={scrollRef} className="max-w-full min-w-0 overflow-x-auto rounded-lg border border-border">
       <div style={{ minWidth: `${NAME_W + displayDays.length * cellW + 80}px` }}>
 
         {/* ── Month header band ── */}
@@ -1010,7 +1010,7 @@ function CurrentlyOnboardPanel({
 
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 max-w-full space-y-6">
       {/* ---- Hero stat strip ---- */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatBox
@@ -1178,7 +1178,7 @@ function CurrentlyOnboardRow({
 
   return (
     <li className={cn('transition-colors', isExpanded ? 'bg-muted/20' : 'hover:bg-muted/30')}>
-      <div className="flex items-center gap-4 px-4 sm:px-6 py-3 group/row">
+      <div className="flex items-start gap-3 px-4 py-3 sm:items-center sm:gap-4 sm:px-6 group/row">
         {/* Status accent strip — green/red/orange per spec */}
         <span
           className={cn(
@@ -1257,7 +1257,7 @@ function CurrentlyOnboardRow({
         </button>
 
         <div
-          className="flex items-center gap-2 shrink-0"
+          className="flex shrink-0 items-center gap-2 self-center sm:self-auto"
           onClick={(e) => e.stopPropagation()}
         >
           {isToggling && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
@@ -2449,7 +2449,7 @@ export default function CrewRotationPage() {
   const totalCrew = crewMembers.length;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="min-w-0 max-w-full space-y-6 p-4 sm:p-6">
       {/* Page header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
@@ -2843,10 +2843,10 @@ export default function CrewRotationPage() {
                 </Card>
 
                 {/* Timeline chart */}
-                <Card>
-                  <CardContent className="pt-4">
+                <Card className="min-w-0 overflow-hidden">
+                  <CardContent className="min-w-0 pt-4">
                     {isLoading ? (
-                      <div className="space-y-3 min-w-[600px]">
+                      <div className="w-full space-y-3">
                         {[1, 2, 3].map(i => (
                           <div key={i} className="h-10 animate-pulse rounded bg-muted" />
                         ))}

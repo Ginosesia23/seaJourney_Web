@@ -3911,29 +3911,29 @@ function WatchRotationGraphic() {
 
   return (
     <div
-      className="overflow-hidden rounded-2xl p-5"
+      className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl p-4 sm:p-5"
       style={{
         backgroundColor: 'var(--wk-card)',
         border: '1px solid var(--wk-line)',
         boxShadow: 'var(--wk-shadow-md)',
       }}
     >
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <p className="min-w-0 text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
           Today&apos;s Watch Rota
         </p>
         <span
-          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+          className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
           style={{ backgroundColor: 'var(--wk-accent-soft)', color: 'var(--wk-accent)' }}
         >
           <Clock className="h-3 w-3" /> Live
         </span>
       </div>
 
-      <div className="overflow-x-auto">
-        <div style={{ minWidth: 420 }}>
+      <div className="max-w-full overflow-x-auto overscroll-x-contain">
+        <div className="w-[360px] sm:w-[420px]">
           {/* Header: time slots */}
-          <div className="grid gap-1" style={{ gridTemplateColumns: '90px repeat(6, 1fr)' }}>
+          <div className="grid grid-cols-[4.5rem_repeat(6,minmax(0,1fr))] gap-1 sm:grid-cols-[90px_repeat(6,minmax(0,1fr))]">
             <div />
             {slots.map((s) => (
               <div
@@ -3951,8 +3951,7 @@ function WatchRotationGraphic() {
             {crew.map((c) => (
               <div
                 key={c.name}
-                className="grid items-center gap-1"
-                style={{ gridTemplateColumns: '90px repeat(6, 1fr)' }}
+                className="grid grid-cols-[4.5rem_repeat(6,minmax(0,1fr))] items-center gap-1 sm:grid-cols-[90px_repeat(6,minmax(0,1fr))]"
               >
                 <div
                   className="truncate pr-2 text-xs font-medium"
@@ -3965,7 +3964,7 @@ function WatchRotationGraphic() {
                   return (
                     <div
                       key={i}
-                      className="flex h-8 items-center justify-center rounded"
+                      className="flex h-7 items-center justify-center rounded sm:h-8"
                       style={{
                         backgroundColor: on
                           ? `color-mix(in srgb, ${c.color} 20%, transparent)`
@@ -3994,7 +3993,7 @@ function WatchRotationGraphic() {
         style={{ borderColor: 'var(--wk-line)' }}
       >
         <Users className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--wk-accent)' }} />
-        <p className="text-xs" style={{ color: 'var(--wk-text-muted)' }}>
+        <p className="min-w-0 text-xs" style={{ color: 'var(--wk-text-muted)' }}>
           Full 24-hour coverage · 4 crew members · auto-syncs to sea-time log
         </p>
       </div>
@@ -4037,8 +4036,8 @@ function WatchRotationSchedule() {
   return (
     <section className="py-24 sm:py-32" style={{ backgroundColor: 'var(--wk-bg)' }}>
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2">
-          <div>
+        <div className="mx-auto grid min-w-0 max-w-6xl items-center gap-12 lg:grid-cols-2">
+          <div className="min-w-0">
             <Eyebrow icon={LayoutGrid} accent>
               New Feature
             </Eyebrow>
@@ -4101,6 +4100,7 @@ function WatchRotationSchedule() {
           </div>
 
           <motion.div
+            className="min-w-0 w-full"
             initial={{ opacity: 0, x: 24 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, margin: '-60px' }}
@@ -4135,18 +4135,18 @@ function CrewLeaveGraphic() {
 
   return (
     <div
-      className="overflow-hidden rounded-2xl p-5"
+      className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl p-4 sm:p-5"
       style={{
         backgroundColor: 'var(--wk-card)',
         border: '1px solid var(--wk-line)',
         boxShadow: 'var(--wk-shadow-md)',
       }}
     >
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="min-w-0 text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
           Leave Planner — June 2025
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span
             className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
             style={{
@@ -4168,10 +4168,10 @@ function CrewLeaveGraphic() {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <div style={{ minWidth: 420 }}>
+      <div className="max-w-full overflow-x-auto overscroll-x-contain">
+        <div className="w-[360px] sm:w-[420px]">
           {/* Day header */}
-          <div className="grid gap-0.5 mb-1" style={{ gridTemplateColumns: '80px repeat(14, 1fr)' }}>
+          <div className="mb-1 grid grid-cols-[4rem_repeat(14,minmax(0,1fr))] gap-0.5 sm:grid-cols-[80px_repeat(14,minmax(0,1fr))]">
             <div />
             {days.map((d, i) => (
               <div
@@ -4185,7 +4185,7 @@ function CrewLeaveGraphic() {
           </div>
 
           {/* Date numbers */}
-          <div className="grid gap-0.5 mb-3" style={{ gridTemplateColumns: '80px repeat(14, 1fr)' }}>
+          <div className="mb-3 grid grid-cols-[4rem_repeat(14,minmax(0,1fr))] gap-0.5 sm:grid-cols-[80px_repeat(14,minmax(0,1fr))]">
             <div className="text-[10px]" style={{ color: 'var(--wk-text-muted)' }}>
               Jun
             </div>
@@ -4205,8 +4205,7 @@ function CrewLeaveGraphic() {
             {requests.map((r) => (
               <div
                 key={r.crew}
-                className="grid items-center gap-0.5"
-                style={{ gridTemplateColumns: '80px repeat(14, 1fr)' }}
+                className="grid grid-cols-[4rem_repeat(14,minmax(0,1fr))] items-center gap-0.5 sm:grid-cols-[80px_repeat(14,minmax(0,1fr))]"
               >
                 <div
                   className="truncate pr-1 text-xs font-medium"
@@ -4260,7 +4259,7 @@ function CrewLeaveGraphic() {
         style={{ borderColor: 'var(--wk-line)' }}
       >
         <CheckCircle2 className="h-4 w-4 flex-shrink-0" style={{ color: '#10b981' }} />
-        <p className="text-xs" style={{ color: 'var(--wk-text-muted)' }}>
+        <p className="min-w-0 text-xs" style={{ color: 'var(--wk-text-muted)' }}>
           3 approved · 1 pending · full coverage maintained
         </p>
       </div>
@@ -4303,8 +4302,9 @@ function CrewLeavePlanner() {
   return (
     <section className="wk-section-alt py-24 sm:py-32">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2">
+        <div className="mx-auto grid min-w-0 max-w-6xl items-center gap-12 lg:grid-cols-2">
           <motion.div
+            className="min-w-0 w-full"
             initial={{ opacity: 0, x: -24 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, margin: '-60px' }}
@@ -4313,7 +4313,7 @@ function CrewLeavePlanner() {
             <CrewLeaveGraphic />
           </motion.div>
 
-          <div>
+          <div className="min-w-0">
             <Eyebrow icon={Calendar} accent>
               New Feature
             </Eyebrow>
