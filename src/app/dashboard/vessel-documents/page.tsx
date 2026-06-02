@@ -116,24 +116,25 @@ export default function VesselDocumentsPage() {
     } as UserProfile;
   }, [userProfileRaw]);
 
-  const isCrewLimited = useMemo(() => {
+  // Restricted-tier viewers (crew_limited + vessel_linked) — both are
+  // vessel-managed accounts that should see documents generated FOR them
+  // by their vessel. Same UI for both.
+  const isRestrictedTier = useMemo(() => {
     if (!userProfile || !userProfileRaw) return false;
+    if (!hasActiveSubscription(userProfileRaw)) return false;
     const tier = (userProfile.subscriptionTier || '').toLowerCase();
-    return (
-      userProfile.role === 'crew' &&
-      tier === 'crew_limited' &&
-      hasActiveSubscription(userProfileRaw)
-    );
+    if (tier === 'vessel_linked') return true;
+    return userProfile.role === 'crew' && tier === 'crew_limited';
   }, [userProfile, userProfileRaw]);
 
   useEffect(() => {
-    if (!profileLoading && userProfile && !isCrewLimited) {
+    if (!profileLoading && userProfile && !isRestrictedTier) {
       router.replace('/dashboard');
     }
-  }, [profileLoading, userProfile, isCrewLimited, router]);
+  }, [profileLoading, userProfile, isRestrictedTier, router]);
 
   const loadData = useCallback(async () => {
-    if (!user?.id || !isCrewLimited) return;
+    if (!user?.id || !isRestrictedTier) return;
     setLoading(true);
     try {
       const { data: idRows, error: idErr } = await supabase
@@ -239,7 +240,7 @@ export default function VesselDocumentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [user?.id, isCrewLimited, supabase]);
+  }, [user?.id, isRestrictedTier, supabase]);
 
   useEffect(() => {
     void loadData();
@@ -425,7 +426,7 @@ export default function VesselDocumentsPage() {
     );
   }
 
-  if (!isCrewLimited) {
+  if (!isRestrictedTier) {
     return null;
   }
 

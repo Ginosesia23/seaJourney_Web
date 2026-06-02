@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { scanDocument, matchFieldsToProfile, AIQuotaExceededError, type SeaTimeData } from '@/ai/document-scan-flow';
+import {
+  scanDocument,
+  matchFieldsToProfile,
+  fuzzyMatchProfileKey,
+  isLikelyCalculatedLabel,
+  AIQuotaExceededError,
+  type ExtractedField,
+  type SeaTimeData,
+} from '@/ai/document-scan-flow';
+import {
+  autoBindFields,
+  AUTO_BIND_APPLY_THRESHOLD,
+  type AutoBindSuggestion,
+} from '@/ai/auto-bind-flow';
 import { buildScanRowContexts } from '@/lib/build-scan-row-contexts';
+import { hasVesselPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -77,12 +91,19 @@ export async function POST(request: NextRequest) {
     // Verify the requesting user has vessel or admin role
     const { data: requestingUser } = await supabase
       .from('users')
-      .select('role, active_vessel_id')
+      .select('role, active_vessel_id, subscription_tier, subscription_status, cancel_at_period_end, current_period_end')
       .eq('id', user.id)
       .maybeSingle();
 
     if (!requestingUser || (requestingUser.role !== 'vessel' && requestingUser.role !== 'admin')) {
       return NextResponse.json({ error: 'Only vessel managers and admins can scan documents' }, { status: 403 });
+    }
+
+    if (requestingUser.role === 'vessel' && !hasVesselPremiumPlusFeatures(requestingUser)) {
+      return NextResponse.json(
+        { error: 'Form Builder requires Vessel Premium, Professional, or Fleet' },
+        { status: 402 },
+      );
     }
 
     // Fetch crew profile (only if a crew was picked). When the user scans
@@ -137,6 +158,89 @@ export async function POST(request: NextRequest) {
     // Scan document with AI
     const scanResult = await scanDocument(base64, file.type);
 
+    // ---------- Binding enhancement pass --------------------------------
+    // Gemini's first scan binds the obvious fields (name, DOB, IMO, etc.)
+    // but misses ~30% of the long tail. Before we run profile matching
+    // we tighten the bindings on every extracted field using:
+    //   1. A cheap CPU-only fuzzy matcher (token overlap on canonical
+    //      phrases) — catches "Days alongside in port" → inPortDays.
+    //   2. A second Gemini text-only call for whatever fuzzy still
+    //      can't bind. Confidence >= AUTO_BIND_APPLY_THRESHOLD is
+    //      applied directly; lower scores are surfaced as suggestions.
+    // The result is plumbed through matchFieldsToProfile below so the
+    // editor + the fill flow benefit from the same upgraded bindings.
+    const fieldsForBinding: (ExtractedField & {
+      autoBindSuggestion?: {
+        profileKey: string | null;
+        confidence: number;
+        reason?: string | null;
+      };
+      isCalculableSuggestion?: boolean;
+    })[] = scanResult.fields.map((f) => ({ ...f }));
+
+    // Pass 1: cheap fuzzy fallback for fields the model didn't bind.
+    for (const f of fieldsForBinding) {
+      if (f.profileKey && f.profileKey !== 'none') continue;
+      const match = fuzzyMatchProfileKey(f.fieldName, f.fieldDescription);
+      if (match) {
+        f.profileKey = match.key;
+        f.autoBindSuggestion = {
+          profileKey: match.key,
+          confidence: match.score,
+          reason: 'Token overlap with canonical label.',
+        };
+      }
+    }
+
+    // Pass 2: AI second-pass for whatever's still unbound. Batch them
+    // into a single call to keep cost predictable.
+    const unboundForAi = fieldsForBinding
+      .map((f, idx) => ({ idx, field: f }))
+      .filter(({ field }) => !field.profileKey || field.profileKey === 'none');
+    if (unboundForAi.length) {
+      const inputs = unboundForAi.map(({ idx, field }) => ({
+        id: String(idx),
+        fieldName: field.fieldName,
+        fieldDescription: field.fieldDescription ?? null,
+      }));
+      let suggestions: AutoBindSuggestion[] = [];
+      try {
+        suggestions = await autoBindFields(inputs);
+      } catch (err) {
+        // Don't let the binding pass take down the whole scan — degrade
+        // gracefully and keep the first-pass results.
+        console.warn('[document-scan] auto-bind classifier failed:', err);
+        suggestions = [];
+      }
+      for (const s of suggestions) {
+        const idx = parseInt(s.id, 10);
+        if (!Number.isFinite(idx) || !fieldsForBinding[idx]) continue;
+        const field = fieldsForBinding[idx];
+        if (s.profileKey && s.confidence >= AUTO_BIND_APPLY_THRESHOLD) {
+          field.profileKey = s.profileKey;
+        }
+        // Always record the suggestion (even when applied) so the editor
+        // can show provenance and the user can override.
+        field.autoBindSuggestion = {
+          profileKey: s.profileKey,
+          confidence: s.confidence,
+          reason: s.reason ?? null,
+        };
+        if (s.isCalculable || isLikelyCalculatedLabel(field.fieldName)) {
+          field.isCalculableSuggestion = true;
+        }
+      }
+    }
+
+    // Local calc detection for fields the AI second-pass didn't tag.
+    // Cheap, label-only — surfaces obvious cases like "Total = A + B".
+    for (const f of fieldsForBinding) {
+      if (f.isCalculableSuggestion) continue;
+      if (isLikelyCalculatedLabel(f.fieldName)) {
+        f.isCalculableSuggestion = true;
+      }
+    }
+
     // If we have a crew, try to auto-match values from their profile / the
     // vessel / the calculated sea-time. Otherwise return raw extracted
     // fields with no suggested values — the client will pull them in once
@@ -151,21 +255,32 @@ export async function POST(request: NextRequest) {
       const rowContexts = await buildScanRowContexts(supabase, crewProfile.id);
 
       const matchedFields = matchFieldsToProfile(
-        scanResult.fields,
+        fieldsForBinding,
         crewProfile,
         vesselData,
         captainName,
         seaTimeData,
         rowContexts.length ? rowContexts : null,
       );
-      matched = matchedFields.filter((f) => f.suggestedValue !== null);
-      unmatched = matchedFields.filter((f) => f.suggestedValue === null);
+      // Re-attach the binding suggestion + isCalculable hint by index,
+      // so the editor can show "auto-bound by AI, X% confidence" and
+      // pre-select the calculated widget where appropriate.
+      const enriched = matchedFields.map((f, i) => ({
+        ...f,
+        autoBindSuggestion: fieldsForBinding[i]?.autoBindSuggestion ?? null,
+        isCalculableSuggestion:
+          fieldsForBinding[i]?.isCalculableSuggestion ?? false,
+      }));
+      matched = enriched.filter((f) => f.suggestedValue !== null);
+      unmatched = enriched.filter((f) => f.suggestedValue === null);
     } else {
       matched = [];
-      unmatched = scanResult.fields.map((f) => ({
+      unmatched = fieldsForBinding.map((f) => ({
         ...f,
         suggestedValue: null,
         source: 'manual',
+        autoBindSuggestion: f.autoBindSuggestion ?? null,
+        isCalculableSuggestion: f.isCalculableSuggestion ?? false,
       }));
     }
 

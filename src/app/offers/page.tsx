@@ -154,6 +154,9 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'All Standard features',
       'Advanced crew analytics',
       'AI form builder',
+      'Watch schedules',
+      'Onboard tracker',
+      'Vessel linked role accounts',
       'Priority support',
     ],
     cta: 'Get Started',
@@ -571,9 +574,10 @@ export default function OffersPage() {
     }
 
     if (!user) {
-      // Route to vessel sign up if viewing vessel plans, otherwise crew sign up
+      // Sign up first, then return to offers to complete checkout.
       const signupPath = showVesselPlans ? '/signup/vessel' : '/signup';
-      router.push(`${signupPath}?redirect=/offers`);
+      const params = new URLSearchParams({ redirect: '/offers', plan: plan.name });
+      router.push(`${signupPath}?${params.toString()}`);
       return;
     }
   

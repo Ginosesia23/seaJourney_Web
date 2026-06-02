@@ -669,7 +669,7 @@ export default function VisaTrackerPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 max-w-full flex-col gap-6">
       {/* Header */}
       <div className="space-y-2">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -968,7 +968,7 @@ export default function VisaTrackerPage() {
               </Button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="max-w-full overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1129,7 +1129,7 @@ export default function VisaTrackerPage() {
                             return (
                               <TableRow>
                                 <TableCell colSpan={8} className="bg-muted/20 p-0">
-                                  <div className="p-6 space-y-6">
+                                  <div className="space-y-6 p-4 sm:p-6">
                                     <div className="flex items-center justify-between border-b pb-4">
                                       <div className="flex items-center gap-3">
                                         <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -1160,7 +1160,7 @@ export default function VisaTrackerPage() {
                                                 {monthDates.length} {monthDates.length === 1 ? 'date' : 'dates'}
                                               </Badge>
                                             </div>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                                            <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
                                               {monthDates.map((entry) => {
                                                 const dayOfWeek = format(entry.date, 'EEE');
                                                 const dayNumber = format(entry.date, 'd');
@@ -1169,7 +1169,7 @@ export default function VisaTrackerPage() {
                                                 return (
                                                   <div
                                                     key={entry.id}
-                                                    className="group relative flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/50 transition-all hover:shadow-sm"
+                                                    className="group relative flex min-w-0 items-center justify-between rounded-lg border bg-card p-2.5 transition-all hover:bg-accent/50 hover:shadow-sm sm:p-3"
                                                   >
                                                     <div className="flex items-center gap-3 flex-1 min-w-0">
                                                       <div className={cn(
@@ -1187,8 +1187,8 @@ export default function VisaTrackerPage() {
                                                         </span>
                                                       </div>
                                                       <div className="flex-1 min-w-0">
-                                                        <div className="text-sm font-medium">
-                                                          {format(entry.date, 'MMMM d, yyyy')}
+                                                        <div className="truncate text-sm font-medium">
+                                                          {format(entry.date, 'MMM d, yyyy')}
                                                         </div>
                                                         {isToday && (
                                                           <div className="text-xs text-primary font-medium mt-0.5">

@@ -160,16 +160,16 @@ export async function GET(req: NextRequest) {
     let watchDates = new Set<string>();
     if (isOfficer) {
       const { data: watchLogs, error: watchError } = await supabaseAdmin
-        .from('watch_logs')
-        .select('watch_start')
+        .from('nav_watch_logs')
+        .select('start_time')
         .eq('user_id', crewUserId)
         .eq('vessel_id', vesselId)
-        .gte('watch_start', `${rangeStart}T00:00:00`)
-        .lte('watch_start', `${rangeEnd}T23:59:59`);
+        .gte('start_time', `${rangeStart}T00:00:00`)
+        .lte('start_time', `${rangeEnd}T23:59:59`);
 
       if (!watchError && watchLogs) {
         watchLogs.forEach((log) => {
-          watchDates.add(format(new Date(log.watch_start), 'yyyy-MM-dd'));
+          watchDates.add(format(new Date(log.start_time), 'yyyy-MM-dd'));
         });
       }
     }

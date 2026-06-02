@@ -132,11 +132,14 @@ export default function ExportPage() {
         } as UserProfile;
     }, [userProfileRaw]);
 
-    // Check if user has access (premium/pro for crew, any active tier for vessels)
-    // crew_limited users are NOT allowed on export page
+    // Check if user has access (premium/pro for crew, any active tier for vessels).
+    // crew_limited AND vessel_linked users are both blocked — neither account
+    // type owns portable sea-time history, so exporting it doesn't apply to them.
+    // Vessel-linked accounts get documents the vessel sends them via the inbox /
+    // vessel-documents pages instead.
     const hasAccess = useMemo(() => {
         if (!userProfile || !userProfileRaw) return false;
-        const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
+        const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toString().toLowerCase();
         const role = (userProfile as any).role || userProfile.role || 'crew';
         const entitled = hasActiveSubscription(userProfileRaw);
 
@@ -145,10 +148,15 @@ export default function ExportPage() {
             return false;
         }
 
+        // Block vessel-linked secondary accounts (Captain / Officer / Engineer /
+        // Manager) — they don't have personal exportable history.
+        if (tier === 'vessel_linked') {
+            return false;
+        }
+
         // Vessel accounts: allow all active vessel tiers
         if (role === 'vessel') {
-            const tierLower = tier.toLowerCase();
-            return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && entitled;
+            return (tier.startsWith('vessel_') || tier === 'vessel_lite' || tier === 'vessel_basic' || tier === 'vessel_pro' || tier === 'vessel_fleet') && entitled;
         }
 
         // Crew accounts: premium or pro only (not crew_limited)

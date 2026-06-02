@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { MoreHorizontal, Loader2, Search, Users, User as UserIcon, Ship, Anchor, ChevronDown, ChevronUp, Clock, Calendar, UserCheck, UserPlus, GripVertical, Bug, CalendarDays, X, FileText, Download, CalendarIcon, CheckCircle2, Plus, ExternalLink, ChevronRight, Trash2, AlertCircle, AlertTriangle, ArrowUpCircle, Send, Eye, Pencil, Navigation, FileCheck, Copy, ShieldCheck } from 'lucide-react';
@@ -41,7 +41,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
@@ -67,6 +66,15 @@ import { buildAndGenerateNavWatchApplication, navWatchApplicationDefaultValues, 
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 import { getVesselManagerCrewLimit } from '@/lib/vessel-crew-limit';
 import { MCAApplicationDetailsCard } from '@/components/dashboard/mca-application-details';
+import { CrewWatchHistorySection } from '@/components/dashboard/crew-watch-history-section';
+import { MiniStatTile } from '@/components/dashboard/mini-stat-tile';
+import type { CrewRotation } from '@/lib/types';
+import {
+  formatRotationShort,
+  getRotationStatus,
+  ONBOARD_TOGGLE_LEAVE_MARKER,
+  type RotationStatus,
+} from '@/lib/crew-rotation';
 import { parseAmsaReferenceFromDb } from '@/lib/amsa-sea-service-reference';
 import { VesselGeneratedAmsaReferencePanel } from '@/components/dashboard/vessel-generated-amsa-reference-panel';
 
@@ -123,16 +131,18 @@ interface SortableRowProps {
     currentUserProfile: UserProfile | null;
     allVessels: Vessel[] | undefined;
     expandedRows: Set<string>;
-    updatingOnboardStatus: string | null;
     requestingAccess: string | null;
     loadingSeaTime: Set<string>;
     hasProTier: boolean;
-    onToggleOnboard: (assignmentId: string, currentStatus: boolean, userId: string) => void;
     onToggleRowExpansion: (member: CrewMemberWithAssignment) => void;
     onRequestAccess: (userId: string) => void;
     onOpenLeavePeriodsDialog: (member: CrewMemberWithAssignment) => void;
     onEditStartDate?: (member: CrewMemberWithAssignment) => void;
     onSetEndDate?: (member: CrewMemberWithAssignment) => void;
+    /** Effective rotation (per-crew override or vessel default) for this row,
+     *  or null if no rotation configured. When present, the onboard toggle
+     *  shows the rotation pattern + today's expected status. */
+    rotation?: CrewRotation | null;
 }
 
 function SortableRow({
@@ -141,11 +151,10 @@ function SortableRow({
     currentUserProfile,
     allVessels,
     expandedRows,
-    updatingOnboardStatus,
     requestingAccess,
     loadingSeaTime,
     hasProTier,
-    onToggleOnboard,
+    rotation,
     onToggleRowExpansion,
     onRequestAccess,
     onOpenLeavePeriodsDialog,
@@ -155,7 +164,15 @@ function SortableRow({
     const { profile, assignment } = member;
     const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
     const displayName = fullName || profile.username;
-    
+
+    // Pre-compute the rotation's verdict for today so we can render the
+    // hint text below the toggle. Memoised on rotation identity + the
+    // start of today so it only recomputes when meaningful.
+    const rotationToday: RotationStatus | null = useMemo(() => {
+        if (!rotation) return null;
+        return getRotationStatus(rotation, new Date());
+    }, [rotation]);
+
     // Crew member must have paid entitlement (not free) for vessel manager to request sea time access
     const hasPaidTier = useMemo(() => {
         const tier = (
@@ -349,27 +366,47 @@ function SortableRow({
             )}
             {currentUserProfile?.role === 'vessel' && (
                 <TableCell>
-                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                        <Switch
-                            checked={assignment.onboard || false}
-                            onCheckedChange={() => {
-                                if (assignment.id && !assignment.id.startsWith('placeholder-')) {
-                                    onToggleOnboard(assignment.id, assignment.onboard || false, assignment.userId);
-                                }
-                            }}
-                            disabled={updatingOnboardStatus === assignment.id || assignment.id.startsWith('placeholder-')}
-                        />
-                        <span className="text-xs text-muted-foreground">
+                    {/* Read-only onboard status. The interactive toggle now
+                        lives on the Onboard Tracker (/dashboard/crew-rotation)
+                        so there's a single source of truth for who's where
+                        — and a conflict dialog when a manual toggle would
+                        disagree with the rotation pattern. */}
+                    <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-2 flex-wrap">
                             {assignment.onboard ? (
-                                <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                                    <Ship className="h-3 w-3" /> Onboard
-                                </span>
+                                <Badge className="text-[10px] font-medium uppercase tracking-wide bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/15">
+                                    <Ship className="h-2.5 w-2.5 mr-1" /> Onboard
+                                </Badge>
                             ) : (
-                                <span className="flex items-center gap-1 text-muted-foreground">
-                                    <Anchor className="h-3 w-3" /> Offboard
-                                </span>
+                                <Badge className="text-[10px] font-medium uppercase tracking-wide bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/20 hover:bg-red-500/15">
+                                    <Anchor className="h-2.5 w-2.5 mr-1" /> Off board
+                                </Badge>
                             )}
-                        </span>
+                            <Link
+                                href="/dashboard/crew-rotation"
+                                className="text-[10px] text-muted-foreground hover:text-foreground hover:underline underline-offset-2 transition-colors"
+                                title="Manage on the Onboard Tracker"
+                            >
+                                Manage →
+                            </Link>
+                        </div>
+                        {rotation && rotationToday && rotationToday !== 'not-started' && (
+                            <span
+                                className={cn(
+                                    'text-[10px] leading-tight',
+                                    (assignment.onboard ?? false) === (rotationToday === 'on')
+                                        ? 'text-muted-foreground'
+                                        : 'text-amber-600 dark:text-amber-400 font-medium'
+                                )}
+                                title={
+                                    (assignment.onboard ?? false) === (rotationToday === 'on')
+                                        ? 'Onboard status matches the rotation pattern.'
+                                        : 'Onboard status differs from the rotation pattern.'
+                                }
+                            >
+                                Rotation: {formatRotationShort(rotation)} · today: {rotationToday === 'on' ? 'On' : 'Off'}
+                            </span>
+                        )}
                     </div>
                 </TableCell>
             )}
@@ -475,7 +512,13 @@ export default function CrewPage() {
     const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
     const [hasPendingCaptaincyRequest, setHasPendingCaptaincyRequest] = useState(false);
     const [isCheckingCaptaincy, setIsCheckingCaptaincy] = useState(false);
-    const [updatingOnboardStatus, setUpdatingOnboardStatus] = useState<string | null>(null);
+    // Rotations for the active vessel. Used to display rotation context
+    // beside each crew member's onboard badge. The interactive toggle now
+    // lives on the Onboard Tracker (/dashboard/crew-rotation), which is
+    // also where `/api/crew-rotation/sync` is invoked to align the
+    // `onboard` flag with the rotation pattern.
+    const [crewRotations, setCrewRotations] = useState<CrewRotation[]>([]);
+    const [hasRunRotationSync, setHasRunRotationSync] = useState(false);
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
     const [requestingAccess, setRequestingAccess] = useState<string | null>(null);
     const [loadingSeaTime, setLoadingSeaTime] = useState<Set<string>>(new Set());
@@ -485,6 +528,7 @@ export default function CrewPage() {
     const [activeId, setActiveId] = useState<string | null>(null);
     const [dragCoordinates, setDragCoordinates] = useState<{ x: number; y: number; index: number } | null>(null);
     const [selectedCrewMemberId, setSelectedCrewMemberId] = useState<string | null>(null);
+    const [crewDetailsExpanded, setCrewDetailsExpanded] = useState(false);
     const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
     /** When member has multiple service periods: 'current' | assignmentId | 'all'. Controls which period's data is shown. */
     const [viewingServicePeriod, setViewingServicePeriod] = useState<'current' | string | 'all'>('current');
@@ -536,6 +580,26 @@ export default function CrewPage() {
     const [sendTestimonialByEmailValue, setSendTestimonialByEmailValue] = useState('');
     const [isSendingTestimonialByEmail, setIsSendingTestimonialByEmail] = useState(false);
     const [vesselDocToSendToCaptain, setVesselDocToSendToCaptain] = useState<VesselGeneratedTestimonial | null>(null);
+
+    /**
+     * Linked captain accounts on this vessel — pulled from the Vessel Roles
+     * feature (Vessel Pro/Fleet plan). Auto-suggested in the "Send to captain"
+     * dialogs so vessel managers don't have to retype the email, and used as
+     * the in-app sign-off delivery target (see /dashboard/sign-offs).
+     */
+    type LinkedCaptainOption = {
+        id: string;
+        email: string;
+        firstName: string | null;
+        lastName: string | null;
+    };
+    const [linkedCaptains, setLinkedCaptains] = useState<LinkedCaptainOption[]>([]);
+
+    /** Active tab in the unified "Send to captain" dialog. */
+    const [sendCaptainTab, setSendCaptainTab] = useState<'in_app' | 'email'>('email');
+    /** Currently picked linked-captain user id when sending in-app. */
+    const [sendCaptainLinkedId, setSendCaptainLinkedId] = useState<string | null>(null);
+
     const [editStartDateMember, setEditStartDateMember] = useState<CrewMemberWithAssignment | null>(null);
     const [editStartDateValue, setEditStartDateValue] = useState('');
     const [offerSeaTimeWithStartDate, setOfferSeaTimeWithStartDate] = useState(false);
@@ -662,7 +726,13 @@ export default function CrewPage() {
         checkPendingCaptaincy();
     }, [currentUserProfile?.role, currentUserProfile?.activeVesselId, user?.id, supabase]);
 
-    // For vessel managers: load active captain (primary signing authority) for the active vessel
+    // For vessel managers: load active captain for the active vessel.
+    // Resolution order:
+    //  1. The current `vessel_signing_authorities` row (real signing authority).
+    //  2. Fallback: a captain linked to this vessel via the Vessel Roles
+    //     feature (Vessel Pro/Fleet — users.managed_by_vessel_id = vessel,
+    //     users.role = 'captain'). This makes vessel managers' "send to
+    //     captain" UX automatic when they've already linked a captain.
     useEffect(() => {
         const loadActiveCaptain = async () => {
             if (currentUserProfile?.role !== 'vessel' || !currentUserProfile?.activeVesselId || !supabase) {
@@ -677,15 +747,30 @@ export default function CrewPage() {
                     .is('end_date', null)
                     .order('is_primary', { ascending: false })
                     .limit(1);
-                if (error || !signingAuthorities?.length) {
-                    setActiveCaptain(null);
-                    return;
+
+                let captainId: string | null = null;
+
+                if (!error && signingAuthorities?.length) {
+                    captainId = signingAuthorities[0].captain_user_id || null;
                 }
-                const captainId = signingAuthorities[0].captain_user_id;
+
+                // Fallback: auto-detect a linked captain on this vessel.
+                if (!captainId) {
+                    const { data: linkedRow } = await supabase
+                        .from('users')
+                        .select('id')
+                        .eq('managed_by_vessel_id', currentUserProfile.activeVesselId)
+                        .eq('role', 'captain')
+                        .limit(1)
+                        .maybeSingle();
+                    captainId = (linkedRow as any)?.id || null;
+                }
+
                 if (!captainId) {
                     setActiveCaptain(null);
                     return;
                 }
+
                 const { data: captainUser } = await supabase
                     .from('users')
                     .select('first_name, last_name')
@@ -701,6 +786,102 @@ export default function CrewPage() {
         };
         loadActiveCaptain();
     }, [currentUserProfile?.role, currentUserProfile?.activeVesselId, supabase]);
+
+    // For vessel managers: load captain accounts that have been linked to this
+    // vessel via the Vessel Roles feature (Vessel Pro/Fleet). Used as
+    // auto-suggested options in the "Send to captain" dialogs so the manager
+    // doesn't have to retype the email.
+    useEffect(() => {
+        const loadLinkedCaptains = async () => {
+            if (
+                currentUserProfile?.role !== 'vessel' ||
+                !currentUserProfile?.activeVesselId ||
+                !supabase
+            ) {
+                setLinkedCaptains([]);
+                return;
+            }
+            try {
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('id, email, first_name, last_name, role')
+                    .eq('managed_by_vessel_id', currentUserProfile.activeVesselId)
+                    .eq('role', 'captain');
+                if (error) {
+                    console.error('[CREW PAGE] Failed to load linked captains:', error);
+                    setLinkedCaptains([]);
+                    return;
+                }
+                setLinkedCaptains(
+                    (data || [])
+                        .filter((row: any) => !!row?.email)
+                        .map((row: any) => ({
+                            id: row.id,
+                            email: row.email,
+                            firstName: row.first_name ?? null,
+                            lastName: row.last_name ?? null,
+                        }))
+                );
+            } catch (err) {
+                console.error('[CREW PAGE] Exception loading linked captains:', err);
+                setLinkedCaptains([]);
+            }
+        };
+        loadLinkedCaptains();
+    }, [currentUserProfile?.role, currentUserProfile?.activeVesselId, supabase]);
+
+    /**
+     * Renders an auto-suggest row of captain accounts that have been linked to
+     * this vessel via the Vessel Roles feature. Clicking a chip fills the
+     * email field below. The free-text email input is preserved so the manager
+     * can still send to a non-linked captain. Returns null when no linked
+     * captains are present.
+     */
+    const renderLinkedCaptainsPicker = React.useCallback((
+        selectedEmail: string,
+        setEmail: (next: string) => void,
+        opts?: { disabled?: boolean }
+    ) => {
+        if (!linkedCaptains.length) return null;
+        const normalized = selectedEmail.trim().toLowerCase();
+        return (
+            <div className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3">
+                <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-primary">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Linked captains on this vessel
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                    {linkedCaptains.map((c) => {
+                        const fullName = [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || c.email;
+                        const isSelected = normalized === c.email.toLowerCase();
+                        return (
+                            <button
+                                key={c.id}
+                                type="button"
+                                disabled={opts?.disabled}
+                                onClick={() => setEmail(c.email)}
+                                className={
+                                    'inline-flex max-w-full items-center gap-2 rounded-full border px-2.5 py-1 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60 ' +
+                                    (isSelected
+                                        ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                                        : 'border-border bg-background text-foreground hover:border-primary/40 hover:bg-primary/10')
+                                }
+                                title={c.email}
+                            >
+                                <UserCheck className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate font-medium">{fullName}</span>
+                                <span className="truncate opacity-70">{c.email}</span>
+                                {isSelected && <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />}
+                            </button>
+                        );
+                    })}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                    Tap a captain to auto-fill their email below, or type a different one manually.
+                </p>
+            </div>
+        );
+    }, [linkedCaptains]);
 
     // Captains with pending requests cannot access crew page
     // Only admins, vessel managers, and captains with approved/no requests can access
@@ -1068,6 +1249,83 @@ export default function CrewPage() {
         fetchCrew();
     }, [supabase, currentUserProfile?.activeVesselId, isAuthorized, user?.id, currentUserProfile?.role, crewRefreshTrigger]);
 
+    // ---- Crew rotations (for onboard sync + UI context) -------------------
+    //
+    // Vessel managers see a small "rotation hint" next to each crew member's
+    // onboard toggle (e.g. "4w on / 4w off · today: On"). After loading the
+    // rotations once per vessel, we also call /api/crew-rotation/sync so the
+    // stored `onboard` boolean matches whatever the rotation says today —
+    // this is what keeps the crew page and the /dashboard/crew-rotation
+    // page from ever showing contradictory states. Mirrors the equivalent
+    // trigger on the rotation page itself.
+    useEffect(() => {
+        const vesselId = currentUserProfile?.activeVesselId;
+        if (currentUserProfile?.role !== 'vessel' || !vesselId) {
+            setCrewRotations([]);
+            setHasRunRotationSync(false);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`/api/crew-rotation?vesselId=${vesselId}`);
+                if (!res.ok) return;
+                const json = await res.json();
+                if (cancelled) return;
+                const list: CrewRotation[] = json.rotations ?? [];
+                setCrewRotations(list);
+
+                // Run sync once per vessel session — only if rotations exist.
+                if (list.length > 0 && !hasRunRotationSync) {
+                    setHasRunRotationSync(true);
+                    try {
+                        const sync = await fetch('/api/crew-rotation/sync', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ vesselId }),
+                        });
+                        const syncJson = await sync.json();
+                        const updates: Array<{ to: boolean }> = syncJson.updated ?? [];
+                        if (updates.length > 0) {
+                            // Server flipped some onboard flags — refresh the crew
+                            // list so the UI matches the database.
+                            setCrewRefreshTrigger((n) => n + 1);
+                            const movedOn = updates.filter((u) => u.to).length;
+                            const movedOff = updates.filter((u) => !u.to).length;
+                            const parts: string[] = [];
+                            if (movedOn > 0) parts.push(`${movedOn} moved on-board`);
+                            if (movedOff > 0) parts.push(`${movedOff} moved off-board`);
+                            toast({
+                                title: 'Rotation sync',
+                                description: parts.join(', ') + ' based on the rotation pattern.',
+                            });
+                        }
+                    } catch (err) {
+                        console.warn('[CREW PAGE] rotation sync failed (non-fatal):', err);
+                    }
+                }
+            } catch (err) {
+                console.warn('[CREW PAGE] rotation fetch failed (non-fatal):', err);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [currentUserProfile?.activeVesselId, currentUserProfile?.role, hasRunRotationSync]);
+
+    // Compute the effective rotation for a given crew user id — per-crew
+    // override first, then the vessel-wide default. Pure helper, derives
+    // from `crewRotations`. Returns `null` if no rotation applies.
+    const effectiveRotationFor = useCallback(
+        (crewUserId: string): CrewRotation | null => {
+            if (!crewRotations.length) return null;
+            const override = crewRotations.find((r) => r.crewUserId === crewUserId);
+            if (override) return override;
+            return crewRotations.find((r) => r.crewUserId === null) ?? null;
+        },
+        [crewRotations],
+    );
+
     // Fetch access requests for crew members (vessel managers only)
     useEffect(() => {
         if (currentUserProfile?.role !== 'vessel' || !user?.id) {
@@ -1195,6 +1453,56 @@ export default function CrewPage() {
             clearInterval(pollInterval);
         };
     }, [currentUserProfile?.role, user?.id, supabase, crewMembers.length]);
+
+    // Realtime: keep onboard badges in sync with the Onboard Tracker.
+    // When a vessel manager toggles a crew member's onboard status from
+    // /dashboard/crew-rotation (or from another tab), Postgres broadcasts
+    // the UPDATE and we patch the matching row in place so the table
+    // here reflects the change without a manual refresh.
+    useEffect(() => {
+        if (!supabase || currentUserProfile?.role !== 'vessel' || !currentUserProfile?.activeVesselId) return;
+        const vesselId = currentUserProfile.activeVesselId;
+        const channel = supabase
+            .channel(`crew-page-onboard-${vesselId}`)
+            .on(
+                'postgres_changes' as any,
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'vessel_assignments',
+                    filter: `vessel_id=eq.${vesselId}`,
+                },
+                (payload: any) => {
+                    const row = payload?.new;
+                    if (!row?.id) return;
+                    setCrewMembers(prev => prev.map(member => (
+                        member.assignment.id === row.id
+                            ? { ...member, assignment: { ...member.assignment, onboard: row.onboard ?? false } }
+                            : member
+                    )));
+
+                    // Refresh leave periods when onboard status changes so
+                    // auto-recorded sign-off periods appear immediately.
+                    const crewUserId = row.user_id as string | undefined;
+                    const vesselId = currentUserProfile.activeVesselId;
+                    if (crewUserId && vesselId) {
+                        fetch(`/api/crew-leave-periods?crewUserId=${crewUserId}&vesselId=${vesselId}`)
+                            .then((res) => (res.ok ? res.json() : null))
+                            .then((json) => {
+                                if (!json?.leavePeriods) return;
+                                setCrewMembers((prev) => prev.map((member) => (
+                                    member.profile.id === crewUserId
+                                        ? { ...member, leavePeriods: json.leavePeriods }
+                                        : member
+                                )));
+                            })
+                            .catch(() => undefined);
+                    }
+                },
+            )
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, [supabase, currentUserProfile?.role, currentUserProfile?.activeVesselId]);
 
     // Function to request sea time access
     const handleRequestAccess = async (crewUserId: string) => {
@@ -1414,14 +1722,14 @@ export default function CrewPage() {
             const isOfficer = role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
             if (isOfficer && member.profile.id) {
                 const { data: watchLogs } = await supabase
-                    .from('watch_logs')
-                    .select('watch_start')
+                    .from('nav_watch_logs')
+                    .select('start_time')
                     .eq('user_id', member.profile.id)
                     .eq('vessel_id', vesselId)
-                    .gte('watch_start', `${rangeStart}T00:00:00`)
-                    .lte('watch_start', `${rangeEnd}T23:59:59`);
+                    .gte('start_time', `${rangeStart}T00:00:00`)
+                    .lte('start_time', `${rangeEnd}T23:59:59`);
                 watchLogs?.forEach(log => {
-                    watchDates.add(formatDate(new Date(log.watch_start), 'yyyy-MM-dd'));
+                    watchDates.add(formatDate(new Date(log.start_time), 'yyyy-MM-dd'));
                 });
             }
 
@@ -1543,14 +1851,14 @@ export default function CrewPage() {
             const isOfficer = role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
             if (isOfficer && member.profile.id) {
                 const { data: watchLogs } = await supabase
-                    .from('watch_logs')
-                    .select('watch_start')
+                    .from('nav_watch_logs')
+                    .select('start_time')
                     .eq('user_id', member.profile.id)
                     .eq('vessel_id', vesselId)
-                    .gte('watch_start', `${rangeStart}T00:00:00`)
-                    .lte('watch_start', `${rangeEnd}T23:59:59`);
+                    .gte('start_time', `${rangeStart}T00:00:00`)
+                    .lte('start_time', `${rangeEnd}T23:59:59`);
                 watchLogs?.forEach(log => {
-                    watchDates.add(formatDate(new Date(log.watch_start), 'yyyy-MM-dd'));
+                    watchDates.add(formatDate(new Date(log.start_time), 'yyyy-MM-dd'));
                 });
             }
 
@@ -1597,52 +1905,9 @@ export default function CrewPage() {
         }
     };
 
-    // Function to toggle onboard status (vessel accounts only)
-    const handleToggleOnboard = async (assignmentId: string, currentOnboardStatus: boolean, userId: string) => {
-        if (currentUserProfile?.role !== 'vessel') return;
-        
-        setUpdatingOnboardStatus(assignmentId);
-        try {
-            const newOnboardStatus = !currentOnboardStatus;
-            
-            const { error } = await supabase
-                .from('vessel_assignments')
-                .update({ onboard: newOnboardStatus })
-                .eq('id', assignmentId);
-            
-            if (error) {
-                throw error;
-            }
-            
-            // Update local state
-            setCrewMembers(prev => prev.map(member => {
-                if (member.assignment.id === assignmentId) {
-                    return {
-                        ...member,
-                        assignment: {
-                            ...member.assignment,
-                            onboard: newOnboardStatus
-                        }
-                    };
-                }
-                return member;
-            }));
-            
-            toast({
-                title: newOnboardStatus ? 'Crew member marked as onboard' : 'Crew member marked as offboard',
-                description: `The crew member's onboard status has been updated.`,
-            });
-        } catch (error: any) {
-            console.error('[CREW PAGE] Error updating onboard status:', error);
-            toast({
-                title: 'Error',
-                description: error.message || 'Failed to update onboard status. Please try again.',
-                variant: 'destructive',
-            });
-        } finally {
-            setUpdatingOnboardStatus(null);
-        }
-    };
+    // (Onboard toggle removed — interactive control now lives on the
+    // Onboard Tracker page so there's a single source of truth. The
+    // table here just shows a read-only badge.)
 
     const openEditStartDate = (member: CrewMemberWithAssignment) => {
         setEditStartDateMember(member);
@@ -1989,6 +2254,7 @@ export default function CrewPage() {
         setSelectedCrewMemberId(memberId);
         setSelectedAssignmentId(assignmentId ?? null);
         setViewingServicePeriod('current');
+        setCrewDetailsExpanded(false);
         
         const member = crewMembers.find(m =>
             m.profile.id === memberId &&
@@ -2945,6 +3211,110 @@ export default function CrewPage() {
         }
     };
 
+    /**
+     * In-app variant of `handleSendVesselDocToCaptainByEmail`. Same sign-off
+     * token flow, but the testimonial is routed to a linked captain account
+     * (`captain_user_id` set) and NO email is sent — the linked captain sees
+     * it on /dashboard/sign-offs and signs via the existing token page.
+     * Pro/Fleet only (gated by linked-captains presence).
+     */
+    const handleSendVesselDocToLinkedCaptain = async () => {
+        const linkedCaptain = linkedCaptains.find((c) => c.id === sendCaptainLinkedId) || null;
+        if (!linkedCaptain) {
+            toast({ title: 'Pick a captain', description: 'Select a linked captain to send to.', variant: 'destructive' });
+            return;
+        }
+        if (!vesselDocToSendToCaptain || !selectedMemberData || !currentUserProfile?.activeVesselId) {
+            toast({ title: 'Error', description: 'Document or crew data not available.', variant: 'destructive' });
+            return;
+        }
+        const vessel = getVesselDetails(currentUserProfile.activeVesselId);
+        if (!vessel) {
+            toast({ title: 'Error', description: 'Vessel details not found.', variant: 'destructive' });
+            return;
+        }
+        if (!session?.access_token) {
+            toast({ title: 'Error', description: 'Your session has expired. Please refresh and try again.', variant: 'destructive' });
+            return;
+        }
+        setIsSendingTestimonialByEmail(true);
+        try {
+            const doc = vesselDocToSendToCaptain;
+            const captainEmail = linkedCaptain.email.trim().toLowerCase();
+            const totalDays = doc.at_sea_days + doc.standby_days + doc.yard_days + doc.leave_days;
+            const captainName = [linkedCaptain.firstName, linkedCaptain.lastName].filter(Boolean).join(' ').trim() || null;
+            const testimonialData = {
+                user_id: doc.crew_user_id,
+                vessel_id: doc.vessel_id,
+                start_date: doc.start_date,
+                end_date: doc.end_date,
+                total_days: totalDays,
+                at_sea_days: doc.at_sea_days,
+                standby_days: doc.standby_days,
+                yard_days: doc.yard_days,
+                leave_days: doc.leave_days,
+                status: 'pending_captain' as const,
+                captain_user_id: linkedCaptain.id,
+                captain_email: captainEmail,
+                captain_name: captainName,
+                captain_position: null,
+                captain_signature: null,
+                captain_comment_conduct: null,
+                captain_comment_ability: null,
+                captain_comment_general: null,
+                official_body: null,
+                official_reference: null,
+                notes: `Generated by vessel manager on ${formatDate(new Date(), 'dd MMMM yyyy')}. Sent in-app to linked captain for sign-off.`,
+                testimonial_code: null,
+                generated_by_user_id: user?.id ?? null,
+            };
+            const { data: createdTestimonial, error: createError } = await supabase
+                .from('testimonials')
+                .insert(testimonialData)
+                .select()
+                .single();
+            if (createError) throw createError;
+
+            const tokenRes = await fetch('/api/testimonials/create-signoff-token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({ testimonialId: createdTestimonial.id, captainEmail }),
+            });
+            const tokenData = await tokenRes.json().catch(() => ({}));
+            if (!tokenRes.ok || !tokenData.token) {
+                throw new Error(tokenData.error || 'Failed to create sign-off link');
+            }
+
+            const testimonialWithSource = { ...createdTestimonial, data_source: doc.data_source } as Testimonial;
+            setCrewMembers((prev) =>
+                prev.map((member) =>
+                    member.profile.id === selectedMemberData.profile.id
+                        ? { ...member, testimonials: [testimonialWithSource, ...(member.testimonials || [])] }
+                        : member
+                )
+            );
+
+            setSendTestimonialByEmailOpen(false);
+            setVesselDocToSendToCaptain(null);
+            setSendCaptainLinkedId(null);
+            toast({
+                title: 'Sent in-app',
+                description: `${captainName || captainEmail} will see this testimonial on their Sign-Offs page.`,
+            });
+        } catch (error: any) {
+            toast({
+                title: 'Error',
+                description: error?.message || 'Failed to send. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSendingTestimonialByEmail(false);
+        }
+    };
+
     // Generate PDF for a vessel-generated testimonial (output: 'download' | 'newtab' for preview)
     const handleGenerateVesselTestimonialPDF = async (testimonial: VesselGeneratedTestimonial, format: TestimonialPDFFormat = 'mca', output: TestimonialPDFOutput = 'download') => {
         if (!selectedMemberData) {
@@ -3012,16 +3382,16 @@ export default function CrewPage() {
                 
                 if (hasApprovedAccess && isOfficer && selectedMemberData.profile.id) {
                     const { data: watchLogs } = await supabase
-                        .from('watch_logs')
-                        .select('watch_start')
+                        .from('nav_watch_logs')
+                        .select('start_time')
                         .eq('user_id', selectedMemberData.profile.id)
                         .eq('vessel_id', testimonial.vessel_id)
-                        .gte('watch_start', `${testimonial.start_date}T00:00:00`)
-                        .lte('watch_start', `${testimonial.end_date}T23:59:59`);
+                        .gte('start_time', `${testimonial.start_date}T00:00:00`)
+                        .lte('start_time', `${testimonial.end_date}T23:59:59`);
                     
                     if (watchLogs) {
                         watchLogs.forEach(log => {
-                            const dateStr = formatDate(new Date(log.watch_start), 'yyyy-MM-dd');
+                            const dateStr = formatDate(new Date(log.start_time), 'yyyy-MM-dd');
                             watchDates.add(dateStr);
                         });
                     }
@@ -3148,6 +3518,7 @@ export default function CrewPage() {
                     gross_tonnage: vessel.gross_tonnage || null,
                     call_sign: vessel.call_sign || null,
                     company_contact: (vessel as any).company_contact ?? null,
+                    stamp: (vessel as any).stamp ?? null,
                 },
                 captainProfile: null,
                 companyDetails: {
@@ -3357,16 +3728,16 @@ export default function CrewPage() {
                 
                 if (hasApprovedAccess && isOfficer && selectedMemberData.profile.id) {
                     const { data: watchLogs } = await supabase
-                        .from('watch_logs')
-                        .select('watch_start')
+                        .from('nav_watch_logs')
+                        .select('start_time')
                         .eq('user_id', selectedMemberData.profile.id)
                         .eq('vessel_id', testimonial.vessel_id)
-                        .gte('watch_start', `${testimonial.start_date}T00:00:00`)
-                        .lte('watch_start', `${testimonial.end_date}T23:59:59`);
+                        .gte('start_time', `${testimonial.start_date}T00:00:00`)
+                        .lte('start_time', `${testimonial.end_date}T23:59:59`);
                     
                     if (watchLogs) {
                         watchLogs.forEach(log => {
-                            const dateStr = formatDate(new Date(log.watch_start), 'yyyy-MM-dd');
+                            const dateStr = formatDate(new Date(log.start_time), 'yyyy-MM-dd');
                             watchDates.add(dateStr);
                         });
                     }
@@ -3492,6 +3863,7 @@ export default function CrewPage() {
                     gross_tonnage: vessel.gross_tonnage || null,
                     call_sign: vessel.call_sign || null,
                     company_contact: (vessel as any).company_contact ?? null,
+                    stamp: (vessel as any).stamp ?? null,
                 },
                 captainProfile: captainProfile,
                 companyDetails: {
@@ -3719,16 +4091,16 @@ export default function CrewPage() {
             if (isOfficer && selectedMemberData.profile.id && currentUserProfile.activeVesselId) {
                 try {
                     const { data: watchLogs, error: watchError } = await supabase
-                        .from('watch_logs')
-                        .select('watch_start')
+                        .from('nav_watch_logs')
+                        .select('start_time')
                         .eq('user_id', selectedMemberData.profile.id)
                         .eq('vessel_id', currentUserProfile.activeVesselId)
-                        .gte('watch_start', `${startDateStr}T00:00:00`)
-                        .lte('watch_start', `${endDateStr}T23:59:59`);
+                        .gte('start_time', `${startDateStr}T00:00:00`)
+                        .lte('start_time', `${endDateStr}T23:59:59`);
 
                     if (!watchError && watchLogs) {
                         watchLogs.forEach(log => {
-                            const dateStr = formatDate(new Date(log.watch_start), 'yyyy-MM-dd');
+                            const dateStr = formatDate(new Date(log.start_time), 'yyyy-MM-dd');
                             watchDates.add(dateStr);
                         });
                     }
@@ -4474,10 +4846,127 @@ export default function CrewPage() {
         }
     };
 
+    /**
+     * In-app variant of `handleSendTestimonialToCaptainByEmail`. Used when the
+     * vessel manager generates a fresh testimonial from the Generate form and
+     * picks "In-app" → linked captain. Same sign-off token flow as the email
+     * version, but no Resend email is sent — the linked captain sees the
+     * pending sign-off at /dashboard/sign-offs. Pro/Fleet only.
+     */
+    const handleSendTestimonialToLinkedCaptain = async () => {
+        const linkedCaptain = linkedCaptains.find((c) => c.id === sendCaptainLinkedId) || null;
+        if (!linkedCaptain) {
+            toast({ title: 'Pick a captain', description: 'Select a linked captain to send to.', variant: 'destructive' });
+            return;
+        }
+        if (!selectedMemberData || !currentUserProfile?.activeVesselId || !documentStartDate || !documentEndDate || !calculatedSeaTime) {
+            toast({ title: 'Error', description: 'Please select dates and calculate sea time first.', variant: 'destructive' });
+            return;
+        }
+        if (!session?.access_token) {
+            toast({ title: 'Error', description: 'Your session has expired. Please refresh and try again.', variant: 'destructive' });
+            return;
+        }
+        setIsSendingTestimonialByEmail(true);
+        try {
+            const vessel = getVesselDetails(currentUserProfile.activeVesselId);
+            if (!vessel) {
+                toast({ title: 'Error', description: 'Vessel details not found.', variant: 'destructive' });
+                return;
+            }
+            const startDateStr = formatDate(documentStartDate, 'yyyy-MM-dd');
+            const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
+            const calendarDays = differenceInDays(documentEndDate, documentStartDate) + 1;
+            const dataSource = selectedMemberData.accessRequest?.status === 'approved'
+                ? (selectedDataSource || 'crew')
+                : 'vessel';
+
+            const standbyCap = Math.min(calculatedSeaTime.standbyDays, calendarDays, calculatedSeaTime.atSeaDays);
+            const atSea = calculatedSeaTime.atSeaDays;
+            const yard = calculatedSeaTime.yardDays;
+            const leave = calculatedSeaTime.leaveDays;
+            const totalDays = atSea + standbyCap + yard + leave;
+            const captainEmail = linkedCaptain.email.trim().toLowerCase();
+            const captainName = [linkedCaptain.firstName, linkedCaptain.lastName].filter(Boolean).join(' ').trim() || null;
+
+            const testimonialData = {
+                user_id: selectedMemberData.profile.id,
+                vessel_id: currentUserProfile.activeVesselId,
+                start_date: startDateStr,
+                end_date: endDateStr,
+                total_days: totalDays,
+                at_sea_days: atSea,
+                standby_days: standbyCap,
+                yard_days: yard,
+                leave_days: leave,
+                status: 'pending_captain' as const,
+                captain_user_id: linkedCaptain.id,
+                captain_email: captainEmail,
+                captain_name: captainName,
+                captain_position: null,
+                captain_signature: null,
+                captain_comment_conduct: null,
+                captain_comment_ability: null,
+                captain_comment_general: null,
+                official_body: null,
+                official_reference: null,
+                notes: `Generated by vessel manager on ${formatDate(new Date(), 'dd MMMM yyyy')}. Sent in-app to linked captain for sign-off.`,
+                testimonial_code: null,
+                generated_by_user_id: user?.id ?? null,
+            };
+
+            const { data: createdTestimonial, error: createError } = await supabase
+                .from('testimonials')
+                .insert(testimonialData)
+                .select()
+                .single();
+            if (createError) throw createError;
+
+            const tokenRes = await fetch('/api/testimonials/create-signoff-token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({ testimonialId: createdTestimonial.id, captainEmail }),
+            });
+            const tokenData = await tokenRes.json().catch(() => ({}));
+            if (!tokenRes.ok || !tokenData.token) {
+                throw new Error(tokenData.error || 'Failed to create sign-off link');
+            }
+
+            const testimonialWithSource = { ...createdTestimonial, data_source: dataSource } as Testimonial;
+            setCrewMembers((prev) =>
+                prev.map((member) =>
+                    member.profile.id === selectedMemberData.profile.id
+                        ? { ...member, testimonials: [testimonialWithSource, ...(member.testimonials || [])] }
+                        : member
+                )
+            );
+
+            setSendTestimonialByEmailOpen(false);
+            setSendCaptainLinkedId(null);
+            setDocumentStartDate(undefined);
+            setDocumentEndDate(undefined);
+            setCalculatedSeaTime(null);
+            setShowGenerateForm(false);
+            toast({
+                title: 'Sent in-app',
+                description: `${captainName || captainEmail} will see this testimonial on their Sign-Offs page.`,
+            });
+        } catch (error: any) {
+            console.error('[CREW PAGE] Error sending testimonial to linked captain:', error);
+            toast({ title: 'Error', description: error?.message || 'Failed to send. Please try again.', variant: 'destructive' });
+        } finally {
+            setIsSendingTestimonialByEmail(false);
+        }
+    };
+
     // Handler for going back to crew list
     const handleBackToCrewList = () => {
         setSelectedCrewMemberId(null);
         setSelectedAssignmentId(null);
+        setCrewDetailsExpanded(false);
         setIsLeavePeriodDialogOpen(false);
         setLeavePeriodStartDate(undefined);
         setLeavePeriodEndDate(undefined);
@@ -4797,211 +5286,355 @@ export default function CrewPage() {
     if (selectedMemberData && currentUserProfile?.role === 'vessel') {
         const fullName = `${selectedMemberData.profile.firstName || ''} ${selectedMemberData.profile.lastName || ''}`.trim() || selectedMemberData.profile.username;
         
+        // ---- Derived flags for the data-source switcher --------------------
+        // `hasAccess` = crew member has shared their personal logs with the
+        // vessel (so the manager can compare). When false, we ALWAYS show
+        // vessel-recorded data because there's no other source available.
+        const hasAccess = selectedMemberData.accessRequest?.status === 'approved';
+        const isUsingVesselSource = hasAccess ? breakdownViewSource === 'vessel' : true;
+        const activeSourceLabel = isUsingVesselSource ? 'Vessel logs' : 'Crew logs';
+        const sourceExplainer = hasAccess
+            ? (isUsingVesselSource
+                ? "Showing the vessel's own daily state logs for this period."
+                : "Showing the crew member's personal logs (shared with the vessel).")
+            : "Crew member hasn't shared their personal logs — showing the vessel's own daily state logs.";
+
         return (
             <div className="flex flex-col gap-6">
-                <Card className="rounded-xl border">
-                    <CardHeader>
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <Avatar className="h-12 w-12">
-                                    <AvatarImage src={selectedMemberData.profile.profilePicture} alt={fullName} />
-                                    <AvatarFallback className="bg-primary/20">
-                                        {getInitials(fullName) || <UserIcon />}
-                                    </AvatarFallback>
-                                </Avatar>
-                                <div>
-                                    <CardTitle>{fullName}</CardTitle>
-                                    <CardDescription>
-                                        {selectedMemberData.profile.email}
-                                        {selectedMemberData.assignment.position && ` • ${selectedMemberData.assignment.position}`}
-                                    </CardDescription>
-                                </div>
-                            </div>
-                            <Button
-                                variant="outline"
-                                onClick={handleBackToCrewList}
-                                className="flex items-center gap-2 rounded-xl"
-                            >
-                                <Users className="h-4 w-4" />
-                                Back to Crew List
-                            </Button>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        {/* Service history: current + previous periods; selector to view data for one period or all */}
-                        {(selectedMemberData.otherAssignments?.length ?? 0) > 0 && (
-                            <div className="mb-6 pb-4 border-b">
-                                <h3 className="text-sm font-medium text-muted-foreground mb-2">Service on this vessel</h3>
-                                <p className="text-xs text-muted-foreground mb-3">View data for a specific period or all combined.</p>
-                                <div className="flex flex-wrap gap-2">
-                                    <Button
-                                        variant={viewingServicePeriod === 'current' ? 'secondary' : 'outline'}
-                                        size="sm"
-                                        className="rounded-xl"
-                                        onClick={() => setViewingServicePeriod('current')}
+                {/* ---- Header card — tap to expand crew details ------------ */}
+                <Card className="rounded-xl border overflow-hidden">
+                    <Collapsible open={crewDetailsExpanded} onOpenChange={setCrewDetailsExpanded}>
+                        <CardContent className="p-0">
+                            <div className="flex flex-wrap items-center justify-between gap-4 p-5">
+                                <CollapsibleTrigger asChild>
+                                    <button
+                                        type="button"
+                                        className="flex items-center gap-4 min-w-0 flex-1 text-left rounded-lg -m-2 p-2 hover:bg-muted/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                        aria-expanded={crewDetailsExpanded}
                                     >
-                                        Current
-                                    </Button>
-                                    {selectedMemberData.otherAssignments!.map((a) => (
-                                        <Button
-                                            key={a.id}
-                                            variant={viewingServicePeriod === a.id ? 'secondary' : 'outline'}
-                                            size="sm"
-                                            className="rounded-xl text-left whitespace-nowrap"
-                                            onClick={() => setViewingServicePeriod(a.id)}
-                                        >
-                                            {format(new Date(a.startDate), 'dd MMM yyyy')} – {a.endDate ? format(new Date(a.endDate), 'dd MMM yyyy') : 'present'}
-                                        </Button>
-                                    ))}
-                                    <Button
-                                        variant={viewingServicePeriod === 'all' ? 'secondary' : 'outline'}
-                                        size="sm"
-                                        className="rounded-xl"
-                                        onClick={() => setViewingServicePeriod('all')}
-                                    >
-                                        All
-                                    </Button>
-                                </div>
-                                <p className="text-xs text-muted-foreground mt-2">
-                                    Showing: {viewingServicePeriod === 'current' && 'Current period'}
-                                    {viewingServicePeriod === 'all' && 'All periods combined'}
-                                    {viewingServicePeriod !== 'current' && viewingServicePeriod !== 'all' && effectiveMember && `${format(new Date(effectiveMember.assignment.startDate), 'dd MMM yyyy')} – ${effectiveMember.assignment.endDate ? format(new Date(effectiveMember.assignment.endDate), 'dd MMM yyyy') : 'present'}`}
-                                </p>
-                            </div>
-                        )}
-                        {/* Days breakdown - crew logs when access approved (can switch to vessel data); otherwise vessel data only. Vessel data for toggle is in local state only. */}
-                            <div className="mb-6 pb-6 border-b">
-                            <div className="flex flex-wrap items-center gap-2 mb-3">
-                                <h3 className="text-sm font-medium text-muted-foreground">Days breakdown</h3>
-                                {selectedMemberData.seaTimeDataFromVessel && (
-                                    <Badge variant="outline" className="text-xs">
-                                        From vessel data (crew has not shared access)
-                                    </Badge>
-                                )}
-                                {selectedMemberData.accessRequest?.status === 'approved' && (
-                                    <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                                        <span>View:</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setBreakdownViewSource('crew')}
-                                            className={cn(
-                                                'font-medium transition-colors hover:text-foreground',
-                                                breakdownViewSource === 'crew' ? 'text-foreground underline underline-offset-4' : ''
-                                            )}
-                                        >
-                                            Crew logs
-                                        </button>
-                                        <span className="text-muted-foreground/60">·</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setBreakdownViewSource('vessel');
-                                                if (effectiveMember && !loadingSeaTime.has(effectiveMember.profile.id)) {
-                                                    loadVesselBreakdownForView(effectiveMember);
-                                                }
-                                            }}
-                                            className={cn(
-                                                'font-medium transition-colors hover:text-foreground',
-                                                breakdownViewSource === 'vessel' ? 'text-foreground underline underline-offset-4' : ''
-                                            )}
-                                        >
-                                            Vessel data
-                                        </button>
-                                    </span>
-                                )}
-                            </div>
-                            {(() => {
-                                const hasAccess = selectedMemberData.accessRequest?.status === 'approved';
-                                const useVessel = hasAccess ? breakdownViewSource === 'vessel' : true;
-                                const vesselData = (() => {
-                                    if (!vesselBreakdownForView || vesselBreakdownForView.memberId !== effectiveMember?.profile.id) return null;
-                                    const start = effectiveMember.assignment.startDate;
-                                    const end = effectiveMember.assignment.endDate ?? new Date().toISOString().split('T')[0];
-                                    if (vesselBreakdownForView.startDate !== start || vesselBreakdownForView.endDate !== end) return null;
-                                    return vesselBreakdownForView.data;
-                                })();
-                                // When crew has no access, vessel-based breakdown is stored on the member (loadVesselBasedSeaTimeData); use it. When they have access, use toggle: vesselData or crew seaTimeData.
-                                const data = hasAccess ? (useVessel ? vesselData : selectedMemberData.seaTimeData) : selectedMemberData.seaTimeData;
-                                const isLoading = loadingSeaTime.has(selectedMemberData.profile.id);
-                                const waitingForVessel = hasAccess && breakdownViewSource === 'vessel' && !vesselData && isLoading;
-                                if ((isLoading && !data) || waitingForVessel) {
-                                    return (
-                                        <div className="flex items-center justify-center py-8" key="loading">
-                                            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                                            <span className="ml-2 text-muted-foreground">Loading breakdown...</span>
-                                        </div>
-                                    );
-                                }
-                                if (data) {
-                                    const seaServiceDays = (data.underwayDays ?? 0) + (data.standbyDays ?? 0);
-                                    // When crew has granted access, use vessel leave days for display (vessel is source of truth)
-                                    const displayOnLeaveDays = hasAccess && leaveConflictInfo
-                                        ? leaveConflictInfo.vesselLeaveDays
-                                        : (data.onLeaveDays ?? 0);
-                                    return (
-                                        <div key={`breakdown-${breakdownViewSource}-${useVessel ? 'vessel' : 'crew'}`} className="space-y-5">
-                                            {/* Sea service = Underway + Standby — primary metric */}
-                                            <div className="rounded-xl border-2 border-primary/30 bg-primary/5 dark:bg-primary/10 p-5">
-                                                <div className="text-sm font-medium text-muted-foreground mb-1">Sea service</div>
-                                                <div className="text-3xl font-bold text-primary">{seaServiceDays} days</div>
-                                                <p className="text-xs text-muted-foreground mt-2">
-                                                    Underway ({data.underwayDays ?? 0}) + Standby ({data.standbyDays ?? 0})
-                                                </p>
-                                            </div>
-                                            {/* 4 main: Underway, In port, At anchor, Standby */}
-                                            <div>
-                                                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Breakdown</h4>
-                                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                                    <Card className="p-3 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
-                                                        <div className="text-xs text-muted-foreground mb-1">Underway</div>
-                                                        <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">{data.underwayDays ?? 0}</div>
-                                                    </Card>
-                                                    <Card className="p-3 border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20">
-                                                        <div className="text-xs text-muted-foreground mb-1">In port</div>
-                                                        <div className="text-lg font-semibold text-green-700 dark:text-green-400">{data.inPortDays ?? 0}</div>
-                                                    </Card>
-                                                    <Card className="p-3 border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-950/20">
-                                                        <div className="text-xs text-muted-foreground mb-1">At anchor</div>
-                                                        <div className="text-lg font-semibold text-orange-700 dark:text-orange-400">{data.atAnchorDays ?? 0}</div>
-                                                    </Card>
-                                                    <Card className="p-3 border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20">
-                                                        <div className="text-xs text-muted-foreground mb-1">Standby</div>
-                                                        <div className="text-lg font-semibold text-purple-600 dark:text-purple-400">{data.standbyDays ?? 0}</div>
-                                                    </Card>
-                                                </div>
-                                                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
-                                                    <span>In yard: {data.inYardDays ?? 0}</span>
-                                                    <span>On leave: {displayOnLeaveDays}</span>
-                                                    <span>Total days: {data.totalDays ?? 0}</span>
-                                                    {data.atSeaDays != null && (
-                                                        <span>At sea (voyage): {data.atSeaDays}</span>
+                                        <Avatar className="h-14 w-14 shrink-0">
+                                            <AvatarImage src={selectedMemberData.profile.profilePicture} alt={fullName} />
+                                            <AvatarFallback className="bg-primary/20 text-base">
+                                                {getInitials(fullName) || <UserIcon />}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <ChevronDown
+                                                    className={cn(
+                                                        'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
+                                                        crewDetailsExpanded && 'rotate-180',
                                                     )}
-                                                </div>
-                                                {hasAccess && (
-                                                    <div className="mt-3 pt-3 border-t text-xs text-muted-foreground space-y-1">
-                                                        <p>Leave days used for calculations are from vessel records.</p>
-                                                        {leaveConflictInfo?.conflict && (
-                                                            <p className="text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
-                                                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                                                Conflict: crew&apos;s logs show {leaveConflictInfo.crewLeaveDays} leave days; vessel has {leaveConflictInfo.vesselLeaveDays}.
-                                                            </p>
-                                                        )}
-                                                    </div>
+                                                    aria-hidden
+                                                />
+                                                <h2 className="text-xl font-semibold truncate">{fullName}</h2>
+                                                {selectedMemberData.assignment.position && (
+                                                    <Badge variant="secondary" className="text-xs font-medium">
+                                                        {selectedMemberData.assignment.position}
+                                                    </Badge>
+                                                )}
+                                                {selectedMemberData.assignment.onboard ? (
+                                                    <Badge className="text-[10px] font-medium uppercase tracking-wide bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/15">
+                                                        <Ship className="h-2.5 w-2.5 mr-1" /> Onboard
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge className="text-[10px] font-medium uppercase tracking-wide bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/20 hover:bg-red-500/15">
+                                                        <Anchor className="h-2.5 w-2.5 mr-1" /> Off board
+                                                    </Badge>
                                                 )}
                                             </div>
+                                            <p className="text-sm text-muted-foreground truncate mt-0.5 pl-6">
+                                                {selectedMemberData.profile.email}
+                                            </p>
+                                            {(() => {
+                                                const rotation = effectiveRotationFor(selectedMemberData.profile.id);
+                                                if (!rotation) return null;
+                                                const today = getRotationStatus(rotation, new Date());
+                                                if (today === 'not-started') return null;
+                                                const matches = (selectedMemberData.assignment.onboard ?? false) === (today === 'on');
+                                                return (
+                                                    <p className={cn(
+                                                        'text-xs mt-1 pl-6',
+                                                        matches ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400 font-medium',
+                                                    )}>
+                                                        Rotation: {formatRotationShort(rotation)} · today: {today === 'on' ? 'On' : 'Off'}
+                                                        {!matches && ' · toggle will reconcile on next sync'}
+                                                    </p>
+                                                );
+                                            })()}
+                                            <p className="text-[10px] text-muted-foreground/80 mt-1 pl-6">
+                                                {crewDetailsExpanded ? 'Hide crew details' : 'Show crew details'}
+                                            </p>
+                                        </div>
+                                    </button>
+                                </CollapsibleTrigger>
+                                <Button
+                                    variant="outline"
+                                    onClick={handleBackToCrewList}
+                                    className="flex items-center gap-2 rounded-xl shrink-0"
+                                >
+                                    <Users className="h-4 w-4" />
+                                    Back to crew list
+                                </Button>
+                            </div>
+
+                            <CollapsibleContent>
+                                <div className="border-t px-5 pb-5 pt-4">
+                                    <MCAApplicationDetailsCard
+                                        targetUserId={selectedMemberData.profile.id}
+                                        initialProfileRaw={selectedMemberData.profile}
+                                        onSaved={(updatedProfile) => {
+                                            if (!updatedProfile) return;
+                                            const crewId = selectedMemberData.profile.id;
+                                            setCrewMembers(prev => prev.map(m =>
+                                                m.profile.id === crewId
+                                                    ? { ...m, profile: { ...m.profile, ...updatedProfile } }
+                                                    : m
+                                            ));
+                                        }}
+                                    />
+                                </div>
+                            </CollapsibleContent>
+                        </CardContent>
+                    </Collapsible>
+                </Card>
+
+                {/* ---- Service period selector (only when multiple) ----- */}
+                {(selectedMemberData.otherAssignments?.length ?? 0) > 0 && (
+                    <Card className="rounded-xl border">
+                        <CardContent className="p-5">
+                            <div className="flex items-start justify-between flex-wrap gap-3 mb-3">
+                                <div>
+                                    <h3 className="text-sm font-semibold">Service period</h3>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Pick a period to scope the data below — or view everything combined.
+                                    </p>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Showing: <span className="font-medium text-foreground">
+                                        {viewingServicePeriod === 'current' && 'Current period'}
+                                        {viewingServicePeriod === 'all' && 'All periods combined'}
+                                        {viewingServicePeriod !== 'current' && viewingServicePeriod !== 'all' && effectiveMember && `${format(new Date(effectiveMember.assignment.startDate), 'dd MMM yyyy')} – ${effectiveMember.assignment.endDate ? format(new Date(effectiveMember.assignment.endDate), 'dd MMM yyyy') : 'present'}`}
+                                    </span>
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    variant={viewingServicePeriod === 'current' ? 'default' : 'outline'}
+                                    size="sm"
+                                    className="rounded-lg"
+                                    onClick={() => setViewingServicePeriod('current')}
+                                >
+                                    Current
+                                </Button>
+                                {selectedMemberData.otherAssignments!.map((a) => (
+                                    <Button
+                                        key={a.id}
+                                        variant={viewingServicePeriod === a.id ? 'default' : 'outline'}
+                                        size="sm"
+                                        className="rounded-lg text-left whitespace-nowrap"
+                                        onClick={() => setViewingServicePeriod(a.id)}
+                                    >
+                                        {format(new Date(a.startDate), 'dd MMM yyyy')} – {a.endDate ? format(new Date(a.endDate), 'dd MMM yyyy') : 'present'}
+                                    </Button>
+                                ))}
+                                <Button
+                                    variant={viewingServicePeriod === 'all' ? 'default' : 'outline'}
+                                    size="sm"
+                                    className="rounded-lg"
+                                    onClick={() => setViewingServicePeriod('all')}
+                                >
+                                    All
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* ---- Two-column layout: stats rail | tabs ----------------
+                       On lg+ screens the breakdown sits in a sticky left rail
+                       so the manager keeps the per-period numbers in view
+                       while paging through Documents / Watches / etc. On
+                       smaller screens everything stacks vertically. */}
+                <div className="grid gap-6 lg:grid-cols-3">
+                    {/* ===== LEFT RAIL ===== */}
+                    <div className="lg:col-span-1 space-y-4 lg:sticky lg:top-6 lg:self-start">
+                        {/* Days breakdown card */}
+                        <Card className="rounded-xl border">
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                                    <Anchor className="h-4 w-4 text-muted-foreground" />
+                                    Sea time &amp; days breakdown
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                {/* Data-source segmented control (when crew has shared access) */}
+                                {hasAccess ? (
+                                    <div className="space-y-1.5">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                                                Data source
+                                            </span>
+                                        </div>
+                                        <div
+                                            role="tablist"
+                                            aria-label="Data source"
+                                            className="inline-flex w-full items-center rounded-lg border bg-muted/40 p-0.5"
+                                        >
+                                            <button
+                                                type="button"
+                                                role="tab"
+                                                aria-selected={breakdownViewSource === 'crew'}
+                                                onClick={() => setBreakdownViewSource('crew')}
+                                                className={cn(
+                                                    'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+                                                    breakdownViewSource === 'crew'
+                                                        ? 'bg-background text-foreground shadow-sm'
+                                                        : 'text-muted-foreground hover:text-foreground'
+                                                )}
+                                            >
+                                                Crew logs
+                                            </button>
+                                            <button
+                                                type="button"
+                                                role="tab"
+                                                aria-selected={breakdownViewSource === 'vessel'}
+                                                onClick={() => {
+                                                    setBreakdownViewSource('vessel');
+                                                    if (effectiveMember && !loadingSeaTime.has(effectiveMember.profile.id)) {
+                                                        loadVesselBreakdownForView(effectiveMember);
+                                                    }
+                                                }}
+                                                className={cn(
+                                                    'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+                                                    breakdownViewSource === 'vessel'
+                                                        ? 'bg-background text-foreground shadow-sm'
+                                                        : 'text-muted-foreground hover:text-foreground'
+                                                )}
+                                            >
+                                                Vessel logs
+                                            </button>
+                                        </div>
+                                        <p className="text-[11px] text-muted-foreground leading-snug pt-0.5">
+                                            {sourceExplainer}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="rounded-lg border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 px-3 py-2">
+                                        <div className="flex items-start gap-2">
+                                            <Ship className="h-3.5 w-3.5 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
+                                                    Vessel logs
+                                                </p>
+                                                <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 leading-snug mt-0.5">
+                                                    {sourceExplainer}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Leave conflict alert — surfaced at top so it's not missed */}
+                                {hasAccess && leaveConflictInfo?.conflict && (
+                                    <div className="rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 flex items-start gap-2">
+                                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                                        <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-snug">
+                                            <span className="font-semibold">Leave conflict.</span>{' '}
+                                            Crew logs show {leaveConflictInfo.crewLeaveDays} leave days;
+                                            vessel has {leaveConflictInfo.vesselLeaveDays}. Vessel record is used for calculations.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Stats body */}
+                                {(() => {
+                                    const vesselData = (() => {
+                                        if (!vesselBreakdownForView || vesselBreakdownForView.memberId !== effectiveMember?.profile.id) return null;
+                                        const start = effectiveMember.assignment.startDate;
+                                        const end = effectiveMember.assignment.endDate ?? new Date().toISOString().split('T')[0];
+                                        if (vesselBreakdownForView.startDate !== start || vesselBreakdownForView.endDate !== end) return null;
+                                        return vesselBreakdownForView.data;
+                                    })();
+                                    const data = hasAccess ? (isUsingVesselSource ? vesselData : selectedMemberData.seaTimeData) : selectedMemberData.seaTimeData;
+                                    const isLoading = loadingSeaTime.has(selectedMemberData.profile.id);
+                                    const waitingForVessel = hasAccess && breakdownViewSource === 'vessel' && !vesselData && isLoading;
+                                    if ((isLoading && !data) || waitingForVessel) {
+                                        return (
+                                            <div className="flex items-center justify-center py-10" key="loading">
+                                                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                                                <span className="ml-2 text-sm text-muted-foreground">Loading…</span>
+                                            </div>
+                                        );
+                                    }
+                                    if (data) {
+                                        const seaServiceDays = (data.underwayDays ?? 0) + (data.standbyDays ?? 0);
+                                        const displayOnLeaveDays = hasAccess && leaveConflictInfo
+                                            ? leaveConflictInfo.vesselLeaveDays
+                                            : (data.onLeaveDays ?? 0);
+                                        return (
+                                            <div
+                                                key={`breakdown-${breakdownViewSource}-${isUsingVesselSource ? 'vessel' : 'crew'}`}
+                                                className="space-y-4"
+                                            >
+                                                {/* Sea service hero */}
+                                                <div className="rounded-xl border-2 border-primary/30 bg-primary/5 dark:bg-primary/10 p-4">
+                                                    <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-1">
+                                                        Sea service
+                                                    </div>
+                                                    <div className="flex items-baseline gap-1.5">
+                                                        <span className="text-3xl font-bold text-primary tabular-nums">{seaServiceDays}</span>
+                                                        <span className="text-sm font-medium text-muted-foreground">days</span>
+                                                    </div>
+                                                    <p className="text-[11px] text-muted-foreground mt-1.5">
+                                                        Underway ({data.underwayDays ?? 0}) + Standby ({data.standbyDays ?? 0})
+                                                    </p>
+                                                </div>
+
+                                                {/* Primary 4 — Underway / In port / At anchor / Standby */}
+                                                <div>
+                                                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                                                        Primary
+                                                    </h4>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <MiniStatTile label="Underway" value={data.underwayDays ?? 0} tone="blue" />
+                                                        <MiniStatTile label="In port" value={data.inPortDays ?? 0} tone="green" />
+                                                        <MiniStatTile label="At anchor" value={data.atAnchorDays ?? 0} tone="orange" />
+                                                        <MiniStatTile label="Standby" value={data.standbyDays ?? 0} tone="purple" />
+                                                    </div>
+                                                </div>
+
+                                                {/* Secondary mini-cards (unique to the breakdown) */}
+                                                <div>
+                                                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                                                        Other
+                                                    </h4>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <MiniStatTile label="In yard" value={data.inYardDays ?? 0} tone="muted" />
+                                                        <MiniStatTile label="On leave" value={displayOnLeaveDays} tone="muted" />
+                                                        <MiniStatTile label="Total days" value={data.totalDays ?? 0} tone="muted" />
+                                                        {data.atSeaDays != null && (
+                                                            <MiniStatTile label="At sea (voyage)" value={data.atSeaDays} tone="muted" />
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                    return (
+                                        <div className="text-xs text-muted-foreground text-center py-8 border rounded-lg bg-muted/20">
+                                            {hasAccess
+                                                ? (breakdownViewSource === 'vessel' ? 'No vessel logs in this period.' : 'No crew log data available.')
+                                                : 'No vessel logs in this period. Add vessel state logs or request sea time access from the crew member.'}
                                         </div>
                                     );
-                                }
-                                return (
-                                    <div className="text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/20">
-                                        {hasAccess
-                                            ? (breakdownViewSource === 'vessel' ? 'No vessel logs in this period.' : 'No sea time data available')
-                                            : 'No vessel logs in this period. Add vessel state logs or request sea time access from the crew member.'}
-                                    </div>
-                                );
-                            })()}
-                            </div>
-                        
+                                })()}
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    {/* ===== RIGHT COLUMN ===== */}
+                    <div className="lg:col-span-2 space-y-6">
                         {/* Tabs for Leave Periods and Documents */}
                         <Tabs defaultValue="documents" className="w-full">
                             <TabsList className="grid w-full grid-cols-3 rounded-xl mb-6">
@@ -5009,33 +5642,35 @@ export default function CrewPage() {
                                     <FileText className="mr-2 h-4 w-4" />
                                     Documents
                                 </TabsTrigger>
-                                <TabsTrigger value="crew-details" className="rounded-lg">
-                                    <FileCheck className="mr-2 h-4 w-4" />
-                                    Crew details
-                                </TabsTrigger>
                                 <TabsTrigger value="leave" className="rounded-lg">
                                     <CalendarDays className="mr-2 h-4 w-4" />
                                     Leave Periods
                                 </TabsTrigger>
+                                <TabsTrigger value="watches" className="rounded-lg">
+                                    <Clock className="mr-2 h-4 w-4" />
+                                    Watches
+                                </TabsTrigger>
                             </TabsList>
 
-                            {/* Crew details — vessel can edit; used for AMSA, MCA, Nav Watch, and other PDFs */}
-                            <TabsContent value="crew-details" className="space-y-4 mt-0">
-                                <MCAApplicationDetailsCard
-                                    targetUserId={selectedMemberData.profile.id}
-                                    initialProfileRaw={selectedMemberData.profile}
-                                    onSaved={(updatedProfile) => {
-                                        if (!updatedProfile) return;
-                                        const crewId = selectedMemberData.profile.id;
-                                        setCrewMembers(prev => prev.map(m =>
-                                            m.profile.id === crewId
-                                                ? { ...m, profile: { ...m.profile, ...updatedProfile } }
-                                                : m
-                                        ));
-                                    }}
+                            {/* Watches Tab — record of every watch the crew member
+                                has been assigned to in this vessel's saved schedules.
+                                Read-only here; managers edit on /dashboard/watch-schedule.
+                                Later this same view will be exposed on the crew's own
+                                profile account (see watch-history-summary.ts). */}
+                            <TabsContent value="watches" className="space-y-4 mt-0">
+                                <CrewWatchHistorySection
+                                    supabase={supabase}
+                                    vesselId={currentUserProfile?.activeVesselId ?? null}
+                                    crewUserId={selectedMemberData.profile.id}
+                                    crewDisplayName={
+                                        `${selectedMemberData.profile.firstName || ''} ${selectedMemberData.profile.lastName || ''}`.trim() ||
+                                        selectedMemberData.profile.username ||
+                                        selectedMemberData.profile.email ||
+                                        null
+                                    }
                                 />
                             </TabsContent>
-                            
+
                             {/* Leave Periods Tab */}
                             <TabsContent value="leave" className="space-y-4 mt-0">
                                 <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
@@ -5128,20 +5763,32 @@ export default function CrewPage() {
                                                     const startDate = parse(period.startDate, 'yyyy-MM-dd', new Date());
                                                     const endDate = parse(period.endDate, 'yyyy-MM-dd', new Date());
                                                     const days = eachDayOfInterval({ start: startDate, end: endDate }).length;
+                                                    // Leave periods auto-created from the Onboard Tracker
+                                                    // off-board toggle carry a marker so we can label them
+                                                    // distinctly (and hide the raw marker from notes).
+                                                    const isAutoFromToggle = !!period.notes?.startsWith(ONBOARD_TOGGLE_LEAVE_MARKER);
+                                                    const displayNotes = isAutoFromToggle
+                                                        ? period.notes!.slice(ONBOARD_TOGGLE_LEAVE_MARKER.length).trim()
+                                                        : period.notes;
                                                     return (
                                                         <Card key={period.id} className="hover:shadow-md transition-shadow">
                                                             <CardContent className="p-4">
                                                                 <div className="flex items-start justify-between">
                                                                     <div className="flex-1">
-                                                                        <div className="flex items-center gap-2 mb-1">
+                                                                        <div className="flex flex-wrap items-center gap-2 mb-1">
                                                                             <CalendarDays className="h-4 w-4 text-muted-foreground" />
                                                                             <span className="font-semibold">
                                                                                 {format(startDate, 'MMM d, yyyy')} - {format(endDate, 'MMM d, yyyy')}
                                                                             </span>
+                                                                            {isAutoFromToggle && (
+                                                                                <Badge variant="secondary" className="gap-1 text-[10px] uppercase tracking-wide">
+                                                                                    Onboard Tracker
+                                                                                </Badge>
+                                                                            )}
                                                                         </div>
                                                                         <div className="text-sm text-muted-foreground ml-6">
                                                                             {days} {days === 1 ? 'day' : 'days'}
-                                                                            {period.notes && ` • ${period.notes}`}
+                                                                            {displayNotes && ` • ${displayNotes}`}
                                                                         </div>
                                                                     </div>
                                                                     <Button
@@ -6232,8 +6879,8 @@ export default function CrewPage() {
                                 )}
                             </TabsContent>
                         </Tabs>
-                    </CardContent>
-                </Card>
+                    </div>
+                </div>
 
                 {/* Send document to captain (one-time link) */}
                 <Dialog open={sendToCaptainDialogOpen} onOpenChange={(open) => { setSendToCaptainDialogOpen(open); if (!open) setSendToCaptainDocId(null); }}>
@@ -6245,6 +6892,7 @@ export default function CrewPage() {
                             </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-4">
+                            {renderLinkedCaptainsPicker(sendToCaptainEmail, setSendToCaptainEmail, { disabled: isSendingToCaptainDoc })}
                             <div className="space-y-2">
                                 <Label htmlFor="captain-email">Captain email</Label>
                                 <Input
@@ -6275,38 +6923,158 @@ export default function CrewPage() {
                     </DialogContent>
                 </Dialog>
 
-                {/* Send testimonial to captain by email (when no active captain) */}
-                <Dialog open={sendTestimonialByEmailOpen} onOpenChange={(open) => { setSendTestimonialByEmailOpen(open); if (!open) { setSendTestimonialByEmailValue(''); setVesselDocToSendToCaptain(null); } }}>
+                {/* Send testimonial to captain (in-app to linked captain OR via email) */}
+                <Dialog
+                    open={sendTestimonialByEmailOpen}
+                    onOpenChange={(open) => {
+                        setSendTestimonialByEmailOpen(open);
+                        if (open) {
+                            // Default to the in-app tab when linked captains exist; auto-select the first.
+                            if (linkedCaptains.length > 0) {
+                                setSendCaptainTab('in_app');
+                                setSendCaptainLinkedId(linkedCaptains[0]?.id ?? null);
+                            } else {
+                                setSendCaptainTab('email');
+                                setSendCaptainLinkedId(null);
+                            }
+                        } else {
+                            setSendTestimonialByEmailValue('');
+                            setVesselDocToSendToCaptain(null);
+                            setSendCaptainLinkedId(null);
+                        }
+                    }}
+                >
                     <DialogContent className="rounded-xl max-w-md">
                         <DialogHeader>
                             <DialogTitle>Send testimonial to captain</DialogTitle>
                             <DialogDescription>
-                                No active captain is assigned to this vessel. Enter the captain’s email to send this testimonial for approval. They will receive a secure link to view, add comments, and approve or reject—same as the crew-to-captain flow.
+                                {linkedCaptains.length > 0
+                                    ? 'Send in-app to a linked captain on this vessel, or send by email to any captain. Either way, the captain reviews, comments and signs in the same secure UI.'
+                                    : 'No active captain is assigned to this vessel. Enter the captain’s email to send this testimonial for approval — they will receive a secure link to view, add comments, and approve or reject.'}
                             </DialogDescription>
                         </DialogHeader>
-                        <div className="space-y-4 py-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="testimonial-captain-email">Captain email</Label>
-                                <Input
-                                    id="testimonial-captain-email"
-                                    type="email"
-                                    placeholder="captain@example.com"
-                                    value={sendTestimonialByEmailValue}
-                                    onChange={(e) => setSendTestimonialByEmailValue(e.target.value)}
-                                    className="rounded-xl"
-                                />
-                            </div>
-                            <div className="flex justify-end gap-2">
+                        <div className="py-2">
+                            <Tabs
+                                value={sendCaptainTab}
+                                onValueChange={(v) => setSendCaptainTab(v as 'in_app' | 'email')}
+                                className="w-full"
+                            >
+                                {linkedCaptains.length > 0 && (
+                                    <TabsList className="grid w-full grid-cols-2 rounded-xl">
+                                        <TabsTrigger value="in_app" className="rounded-lg">
+                                            <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
+                                            In-app (linked)
+                                        </TabsTrigger>
+                                        <TabsTrigger value="email" className="rounded-lg">
+                                            <Send className="h-3.5 w-3.5 mr-1.5" />
+                                            By email
+                                        </TabsTrigger>
+                                    </TabsList>
+                                )}
+
+                                {/* In-app: pick a linked captain, no email is sent */}
+                                <TabsContent value="in_app" className="mt-4 space-y-3">
+                                    {linkedCaptains.length === 0 ? (
+                                        <p className="text-sm text-muted-foreground">
+                                            No linked captains on this vessel yet. Add one from{' '}
+                                            <a className="text-primary underline" href="/dashboard/vessel-roles">Vessel Roles</a>.
+                                        </p>
+                                    ) : (
+                                        <>
+                                            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                                                Choose a linked captain
+                                            </Label>
+                                            <div className="grid gap-2">
+                                                {linkedCaptains.map((c) => {
+                                                    const fullName = [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || c.email;
+                                                    const isSelected = sendCaptainLinkedId === c.id;
+                                                    return (
+                                                        <button
+                                                            key={c.id}
+                                                            type="button"
+                                                            disabled={isSendingTestimonialByEmail}
+                                                            onClick={() => setSendCaptainLinkedId(c.id)}
+                                                            className={
+                                                                'flex items-center gap-3 rounded-xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ' +
+                                                                (isSelected
+                                                                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                                                                    : 'border-border hover:border-primary/40 hover:bg-primary/5')
+                                                            }
+                                                        >
+                                                            <span className={
+                                                                'flex h-9 w-9 flex-none items-center justify-center rounded-full ' +
+                                                                (isSelected ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground')
+                                                            }>
+                                                                <UserCheck className="h-4 w-4" />
+                                                            </span>
+                                                            <span className="min-w-0 flex-1">
+                                                                <span className="block truncate text-sm font-semibold text-foreground">
+                                                                    {fullName}
+                                                                </span>
+                                                                <span className="block truncate text-xs text-muted-foreground">
+                                                                    {c.email}
+                                                                </span>
+                                                            </span>
+                                                            {isSelected && <CheckCircle2 className="h-4 w-4 text-primary" />}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                            <p className="rounded-md border border-dashed bg-muted/30 p-2 text-[11px] text-muted-foreground">
+                                                <ShieldCheck className="inline-block h-3 w-3 mr-1 align-text-bottom" />
+                                                No email is sent — the captain will see this on their Sign-Offs page after logging into SeaJourney.
+                                            </p>
+                                        </>
+                                    )}
+                                </TabsContent>
+
+                                {/* By email: existing flow */}
+                                <TabsContent value="email" className="mt-4 space-y-3">
+                                    {linkedCaptains.length > 0 &&
+                                        renderLinkedCaptainsPicker(sendTestimonialByEmailValue, setSendTestimonialByEmailValue, { disabled: isSendingTestimonialByEmail })}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="testimonial-captain-email">Captain email</Label>
+                                        <Input
+                                            id="testimonial-captain-email"
+                                            type="email"
+                                            placeholder="captain@example.com"
+                                            value={sendTestimonialByEmailValue}
+                                            onChange={(e) => setSendTestimonialByEmailValue(e.target.value)}
+                                            className="rounded-xl"
+                                        />
+                                    </div>
+                                </TabsContent>
+                            </Tabs>
+
+                            <div className="mt-4 flex justify-end gap-2">
                                 <Button variant="outline" onClick={() => setSendTestimonialByEmailOpen(false)} disabled={isSendingTestimonialByEmail}>
                                     Cancel
                                 </Button>
-                                <Button onClick={() => vesselDocToSendToCaptain ? handleSendVesselDocToCaptainByEmail() : handleSendTestimonialToCaptainByEmail()} disabled={isSendingTestimonialByEmail}>
+                                <Button
+                                    onClick={() => {
+                                        if (sendCaptainTab === 'in_app') {
+                                            if (vesselDocToSendToCaptain) {
+                                                handleSendVesselDocToLinkedCaptain();
+                                            } else {
+                                                handleSendTestimonialToLinkedCaptain();
+                                            }
+                                        } else if (vesselDocToSendToCaptain) {
+                                            handleSendVesselDocToCaptainByEmail();
+                                        } else {
+                                            handleSendTestimonialToCaptainByEmail();
+                                        }
+                                    }}
+                                    disabled={
+                                        isSendingTestimonialByEmail ||
+                                        (sendCaptainTab === 'in_app' && !sendCaptainLinkedId)
+                                    }
+                                >
                                     {isSendingTestimonialByEmail ? (
                                         <Loader2 className="h-4 w-4 animate-spin" />
                                     ) : (
                                         <>
                                             <Send className="h-4 w-4 mr-2" />
-                                            Send for approval
+                                            {sendCaptainTab === 'in_app' ? 'Send in-app' : 'Send by email'}
                                         </>
                                     )}
                                 </Button>
@@ -7136,11 +7904,10 @@ export default function CrewPage() {
                                                 currentUserProfile={currentUserProfile}
                                                 allVessels={allVessels || undefined}
                                                 expandedRows={expandedRows}
-                                                updatingOnboardStatus={updatingOnboardStatus}
                                                 requestingAccess={requestingAccess}
                                                 loadingSeaTime={loadingSeaTime}
                                                 hasProTier={hasProTier}
-                                                onToggleOnboard={handleToggleOnboard}
+                                                rotation={effectiveRotationFor(member.profile.id)}
                                                 onToggleRowExpansion={toggleRowExpansion}
                                                 onRequestAccess={handleRequestAccess}
                                                 onOpenLeavePeriodsDialog={(member) => handleSelectCrewMember(member.profile.id, member.assignment.id)}

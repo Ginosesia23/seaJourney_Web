@@ -119,14 +119,18 @@ export default function CertificatesPage() {
   // Check if user has premium access
   const hasPremiumAccess = useMemo(() => {
     if (!userProfile || !userProfileRaw) return false;
-    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
+    const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toString().toLowerCase();
     const role = (userProfile as any).role || userProfile.role || 'crew';
     const entitled = hasActiveSubscription(userProfileRaw);
 
+    // Block vessel-linked secondary accounts (Captain / Officer / Engineer /
+    // Manager). Personal certificates belong to the seafarer's own account —
+    // linked accounts are scoped to vessel-side workflows only.
+    if (tier === 'vessel_linked') return false;
+
     // Vessel accounts: allow all active vessel tiers
     if (role === 'vessel') {
-      const tierLower = tier.toLowerCase();
-      return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && entitled;
+      return (tier.startsWith('vessel_') || tier === 'vessel_lite' || tier === 'vessel_basic' || tier === 'vessel_pro' || tier === 'vessel_fleet') && entitled;
     }
 
     // Crew accounts: premium or pro only

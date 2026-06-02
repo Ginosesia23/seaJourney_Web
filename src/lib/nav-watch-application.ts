@@ -59,16 +59,16 @@ async function getWatchDatesForVessel(
   const startStr = format(periodStart, 'yyyy-MM-dd');
   const endStr = format(periodEnd, 'yyyy-MM-dd');
   const { data: watchLogs, error } = await supabase
-    .from('watch_logs')
-    .select('watch_start')
+    .from('nav_watch_logs')
+    .select('start_time')
     .eq('user_id', userId)
     .eq('vessel_id', vesselId)
-    .gte('watch_start', `${startStr}T00:00:00`)
-    .lte('watch_start', `${endStr}T23:59:59`);
+    .gte('start_time', `${startStr}T00:00:00`)
+    .lte('start_time', `${endStr}T23:59:59`);
   if (error || !watchLogs || watchLogs.length === 0) return new Set();
   const dates = new Set<string>();
-  watchLogs.forEach((log: { watch_start: string }) => {
-    dates.add(format(new Date(log.watch_start), 'yyyy-MM-dd'));
+  watchLogs.forEach((log: { start_time: string }) => {
+    dates.add(format(new Date(log.start_time), 'yyyy-MM-dd'));
   });
   return dates;
 }

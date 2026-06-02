@@ -81,8 +81,8 @@ const seaStateOptions = [
   { value: 'phenomenal', label: 'Phenomenal (10+)' },
 ];
 
-/** Paid crew tiers that can use the passage log (excludes free and crew_limited). */
-const PASSAGE_LOG_CREW_TIERS = new Set(['standard', 'premium', 'pro', 'professional']);
+/** Premium+ crew tiers that can use the passage log (excludes Standard, free, crew_limited). */
+const PASSAGE_LOG_CREW_TIERS = new Set(['premium', 'pro', 'professional']);
 
 function passageOverlapsAssignment(passage: PassageLog, a: VesselAssignment): boolean {
   if (a.vesselId !== passage.vessel_id) return false;
@@ -281,7 +281,7 @@ export default function PassageLogbookPage() {
     },
   });
 
-  // Standard+ crew (not crew_limited), all active vessel tiers, admin
+  // Premium+ crew (not crew_limited), all active vessel tiers, admin
   const hasAccess = useMemo(() => {
     if (!userProfile || !userProfileRaw) return false;
     const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toLowerCase();
@@ -302,6 +302,7 @@ export default function PassageLogbookPage() {
     }
 
     if (tier === 'crew_limited' && entitled) return false;
+    if (tier === 'vessel_linked' && entitled) return false;
 
     return PASSAGE_LOG_CREW_TIERS.has(tier) && entitled;
   }, [userProfile, userProfileRaw]);
@@ -312,7 +313,7 @@ export default function PassageLogbookPage() {
       const message =
         role === 'vessel'
           ? 'Passage Log Book requires an active vessel subscription.'
-          : 'Passage Log Book is available on Standard tier and above (not Crew Limited).';
+          : 'Passage Log Book is available on Crew Premium and Professional plans.';
       toast({
         title: 'Subscription Required',
         description: message,
@@ -719,7 +720,7 @@ export default function PassageLogbookPage() {
     const message =
       role === 'vessel'
         ? 'The Passage Log Book requires an active vessel subscription. Please subscribe to a plan to access this feature.'
-        : 'The Passage Log Book is available on Standard tier and above. Upgrade your plan to access this feature.';
+        : 'The Passage Log Book is available on Crew Premium and Professional plans. Upgrade your plan to access this feature.';
     const buttonText = role === 'vessel' ? 'View Plans' : 'View plans';
     
     return (

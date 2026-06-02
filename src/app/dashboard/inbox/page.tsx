@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc, useCollection } from '@/supabase/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +24,7 @@ import { DateComparisonView } from './date-comparison-view';
 import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog, SeaTimeRequest, VesselSeaTimeAccessRequest, VesselSeaTimeOffer } from '@/lib/types';
 
 export default function InboxPage() {
+  const router = useRouter();
   const { user } = useUser();
   const { supabase, session } = useSupabase();
   const { toast } = useToast();
@@ -98,6 +100,21 @@ export default function InboxPage() {
     // Captains, admins, and vessel managers can access, or users with captain in their position
     return role === 'captain' || role === 'vessel' || role === 'admin' || position.includes('captain');
   }, [userProfile, userProfileRaw]);
+
+  /**
+   * True if this is a vessel-linked captain account (Vessel Pro/Fleet
+   * linked role). These accounts don't have RLS access to the crew member's
+   * raw daily_state_logs, so the inbox's action dialog can't show the
+   * comparison view. Instead, route them to the existing token-based
+   * sign-off UI at /testimonials/signoff, which is the same flow we use
+   * for email captains and works purely off the token.
+   */
+  const isLinkedCaptainAccount = useMemo(() => {
+    if (!userProfileRaw) return false;
+    const tier = ((userProfileRaw as any).subscription_tier || (userProfileRaw as any).subscriptionTier || '').toString().toLowerCase();
+    const role = ((userProfileRaw as any).role || userProfileRaw.role || '').toString().toLowerCase();
+    return tier === 'vessel_linked' && role === 'captain';
+  }, [userProfileRaw]);
 
   // Check if user has any pending vessel sea time access requests (crew members need access for this)
   const hasVesselAccessRequests = useMemo(() => {
@@ -975,6 +992,19 @@ export default function InboxPage() {
   };
 
   const openActionDialog = async (testimonial: typeof testimonials[0], actionType: 'approve' | 'reject') => {
+    // Vessel-linked captain accounts use the token-based sign-off page
+    // (same UI as email captains) — the inbox's comparison view depends on
+    // crew_logs that linked accounts can't access via RLS. Redirect to the
+    // existing /testimonials/signoff?token=... page instead.
+    const linkedToken = (testimonial as any).signoff_token as string | null | undefined;
+    if (isLinkedCaptainAccount && linkedToken) {
+      const targetEmail = (testimonial as any).signoff_target_email || (testimonial as any).captain_email || user?.email || '';
+      const params = new URLSearchParams({ token: linkedToken });
+      if (targetEmail) params.set('email', targetEmail);
+      router.push(`/testimonials/signoff?${params.toString()}`);
+      return;
+    }
+
     setSelectedTestimonial(testimonial);
     setAction(actionType);
     setRejectionReason('');
@@ -1347,7 +1377,7 @@ export default function InboxPage() {
                   // Extract dates from watch logs
                   const dates = new Set<string>();
                   data.watchLogs.forEach((log: any) => {
-                    const dateStr = format(new Date(log.watch_start), 'yyyy-MM-dd');
+                    const dateStr = format(new Date(log.start_time), 'yyyy-MM-dd');
                     dates.add(dateStr);
                   });
                   console.log('[INBOX] Found watch dates for officer:', {

@@ -34,6 +34,7 @@ import {
   AlertCircle,
   MousePointerClick,
   Wand2,
+  Sparkles,
   Calculator,
   Rows3,
   ListOrdered,
@@ -110,6 +111,8 @@ import {
   extractRowIndexFromLabel,
   stripRowMarkerFromLabel,
   resolveFieldRowIndex,
+  stripEphemeralFromFields,
+  findProfileKeyLabel,
 } from '@/lib/vessel-document-templates';
 import { autoAlignTemplateFields } from '@/lib/auto-align-template-fields';
 import {
@@ -645,6 +648,226 @@ export function FormBuilderEditor({
     });
   };
 
+  // -------------------------------------------------------------------
+  // AI auto-fill summary + pending suggestions
+  // -------------------------------------------------------------------
+  // We split the current field list into three buckets so the editor
+  // can show a glanceable summary banner:
+  //   - autoFillFields: bound to a profile key → resolved from the
+  //     crew profile / vessel / sea-time at fill time
+  //   - calculatedFields: type === 'calculated' (computed from inputs)
+  //   - manualFields: no binding, no calculation → user types each fill
+  // Pending suggestions are unbound fields where the scan attached an
+  // `autoBindSuggestion` with confidence below the auto-apply threshold.
+  // The user can review them and apply the lot with one click.
+  const fieldStats = useMemo(() => {
+    let autoFill = 0;
+    let manual = 0;
+    let calculated = 0;
+    for (const f of fields) {
+      if (getFieldType(f) === 'calculated') {
+        calculated += 1;
+      } else if (f.profileKey) {
+        autoFill += 1;
+      } else {
+        manual += 1;
+      }
+    }
+    return { autoFill, manual, calculated, total: fields.length };
+  }, [fields]);
+
+  const pendingSuggestions = useMemo(() => {
+    return fields.filter(
+      (f) =>
+        !f.profileKey &&
+        getFieldType(f) !== 'calculated' &&
+        f.autoBindSuggestion &&
+        f.autoBindSuggestion.profileKey,
+    );
+  }, [fields]);
+
+  const calcSuggestions = useMemo(() => {
+    return fields.filter(
+      (f) =>
+        f.isCalculableSuggestion === true &&
+        getFieldType(f) !== 'calculated',
+    );
+  }, [fields]);
+
+  /**
+   * Apply every pending binding suggestion in one go. Keeps the
+   * suggestion metadata around (so the user can see "applied by AI"
+   * provenance in the inspector) but moves the value into the
+   * real `profileKey` so it'll auto-fill at runtime.
+   */
+  const handleApplyAllSuggestions = () => {
+    if (!pendingSuggestions.length) return;
+    const idsToApply = new Set(pendingSuggestions.map((f) => f.id));
+    setFields((prev) =>
+      prev.map((f) => {
+        if (!idsToApply.has(f.id)) return f;
+        const suggested = f.autoBindSuggestion?.profileKey ?? null;
+        if (!suggested) return f;
+        return { ...f, profileKey: suggested };
+      }),
+    );
+    toast({
+      title: 'Suggestions applied',
+      description: `${idsToApply.size} field${idsToApply.size === 1 ? '' : 's'} will now auto-fill from the account data.`,
+    });
+  };
+
+  /**
+   * Re-run the binding classifier on every field that's still unbound
+   * AND has no existing suggestion. Useful after manual edits / when
+   * loading an existing template that pre-dates auto-bind.
+   */
+  const [rebinding, setRebinding] = useState(false);
+  const handleRebindWithAi = useCallback(async () => {
+    if (!accessToken) {
+      toast({
+        title: 'Not signed in',
+        description: 'Refresh and try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    // Send every field with no profile binding AND not a calculation.
+    // We don't filter on "already has a suggestion" — re-running picks
+    // up improvements from prompt changes / model upgrades, and the
+    // user opted into this explicitly by clicking the button.
+    const candidates = fields
+      .filter(
+        (f) =>
+          !f.profileKey &&
+          getFieldType(f) !== 'calculated' &&
+          (f.label || f.originalLabel),
+      )
+      .map((f) => ({
+        id: f.id,
+        fieldName: f.originalLabel || f.label,
+        fieldDescription: undefined as string | undefined,
+      }));
+    if (!candidates.length) {
+      toast({
+        title: 'Nothing to bind',
+        description: 'Every field already has a binding or is calculated.',
+      });
+      return;
+    }
+    setRebinding(true);
+    try {
+      const res = await fetch('/api/document-scan/auto-bind', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ fields: candidates }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to bind');
+      const suggestions: Array<{
+        id: string;
+        profileKey: string | null;
+        confidence: number;
+        isCalculable?: boolean;
+        reason?: string;
+        source: 'fuzzy' | 'ai';
+      }> = data.suggestions ?? [];
+      if (!suggestions.length) {
+        toast({
+          title: 'No matches',
+          description:
+            'AI could not match any of the unbound labels to account data. Try renaming the labels to be more descriptive.',
+        });
+        return;
+      }
+      const byId = new Map(suggestions.map((s) => [s.id, s]));
+      let appliedCount = 0;
+      let suggestedCount = 0;
+      setFields((prev) =>
+        prev.map((f) => {
+          const s = byId.get(f.id);
+          if (!s) return f;
+          // High-confidence (≥0.75) → apply directly. Lower → surface
+          // as a pending suggestion in the inspector. Keeps the user
+          // in control without making the button a no-op for borderline
+          // labels.
+          if (s.profileKey && s.confidence >= 0.75) {
+            appliedCount += 1;
+            return {
+              ...f,
+              profileKey: s.profileKey,
+              autoBindSuggestion: {
+                profileKey: s.profileKey,
+                confidence: s.confidence,
+                reason: s.reason ?? null,
+                source: s.source,
+              },
+              isCalculableSuggestion:
+                s.isCalculable || f.isCalculableSuggestion,
+            };
+          }
+          if (s.profileKey) {
+            suggestedCount += 1;
+            return {
+              ...f,
+              autoBindSuggestion: {
+                profileKey: s.profileKey,
+                confidence: s.confidence,
+                reason: s.reason ?? null,
+                source: s.source,
+              },
+              isCalculableSuggestion:
+                s.isCalculable || f.isCalculableSuggestion,
+            };
+          }
+          return f;
+        }),
+      );
+      const parts: string[] = [];
+      if (appliedCount) parts.push(`${appliedCount} bound automatically`);
+      if (suggestedCount) parts.push(`${suggestedCount} suggested`);
+      toast({
+        title: 'AI re-bind complete',
+        description: parts.length
+          ? parts.join(' · ')
+          : 'No confident matches — review the unbound fields manually.',
+      });
+    } catch (err: any) {
+      console.error('[form-builder] re-bind failed', err);
+      toast({
+        title: 'Re-bind failed',
+        description: err?.message ?? 'Unexpected error',
+        variant: 'destructive',
+      });
+    } finally {
+      setRebinding(false);
+    }
+  }, [fields, accessToken]);
+
+  /**
+   * Convert one of the calc-suggested fields into a calculated field
+   * with the right operation pre-selected. Lets the user accept the
+   * scanner's hint with a single click rather than going through the
+   * "Add calculation" → "wire up inputs" dance.
+   */
+  const handleConvertSuggestionToCalc = (id: string) => {
+    setFields((prev) =>
+      prev.map((f) => {
+        if (f.id !== id) return f;
+        if (getFieldType(f) === 'calculated') return f;
+        return {
+          ...f,
+          type: 'calculated',
+          calculation: f.calculation ?? { operation: 'sum', inputs: [] },
+        };
+      }),
+    );
+    selectOnly(id);
+  };
+
 
   const handleSave = async () => {
     const trimmedName = name.trim();
@@ -686,7 +909,9 @@ export function FormBuilderEditor({
           body: JSON.stringify({
             name: trimmedName,
             description: description.trim() || null,
-            fields,
+            // Strip ephemeral AI suggestion metadata before persisting
+            // — those properties only live in editor memory.
+            fields: stripEphemeralFromFields(fields),
           }),
         });
         const data = await res.json();
@@ -707,7 +932,7 @@ export function FormBuilderEditor({
         form.append('vesselId', vesselId);
         form.append('name', trimmedName);
         if (description.trim()) form.append('description', description.trim());
-        form.append('fields', JSON.stringify(fields));
+        form.append('fields', JSON.stringify(stripEphemeralFromFields(fields)));
 
         const res = await fetch('/api/document-templates', {
           method: 'POST',
@@ -794,6 +1019,20 @@ export function FormBuilderEditor({
             <Wand2 className="h-4 w-4" />
             Auto-align
           </Button>
+          <Button
+            variant="outline"
+            onClick={handleRebindWithAi}
+            disabled={saving || rebinding || fields.length === 0}
+            className="gap-1.5 rounded-xl"
+            title="Use Gemini to suggest profile-key bindings for any field that's still unbound"
+          >
+            {rebinding ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            Re-bind with AI
+          </Button>
           {duplicateBindingGroups.length > 0 && (
             <Button
               variant="outline"
@@ -855,6 +1094,125 @@ export function FormBuilderEditor({
             drag them onto the right spot — values won&apos;t appear on the
             filled PDF in their correct place until you do.
           </div>
+        </div>
+      )}
+
+      {/*
+        AI auto-fill summary banner. Shows at-a-glance how much of the
+        form the user gets for free (account-bound + calculated) vs how
+        much they still have to type at fill time. The two right-side
+        chips are interactive: "Apply suggestions" lifts pending
+        AI-suggested bindings into the live profileKey in one click,
+        and the calculation hint converts a single field at a time.
+      */}
+      {fieldStats.total > 0 && (
+        <div className="rounded-xl border border-violet-300/50 bg-gradient-to-r from-violet-50/70 via-sky-50/40 to-emerald-50/40 dark:from-violet-950/30 dark:via-sky-950/20 dark:to-emerald-950/20 dark:border-violet-500/30 px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-center gap-3 justify-between">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                <span className="font-medium text-foreground">
+                  AI auto-fill
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  <strong className="text-foreground">{fieldStats.autoFill}</strong>
+                  <span className="text-muted-foreground">auto-fill from account</span>
+                </span>
+                {fieldStats.calculated > 0 && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-violet-500" />
+                    <strong className="text-foreground">{fieldStats.calculated}</strong>
+                    <span className="text-muted-foreground">calculated</span>
+                  </span>
+                )}
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/50" />
+                  <strong className="text-foreground">{fieldStats.manual}</strong>
+                  <span className="text-muted-foreground">manual entry</span>
+                </span>
+              </div>
+            </div>
+            {pendingSuggestions.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleApplyAllSuggestions}
+                disabled={saving}
+                className="gap-1.5 rounded-xl border-violet-300 bg-white/50 hover:bg-white text-violet-700 dark:text-violet-300 dark:bg-violet-950/40 dark:hover:bg-violet-950/70 dark:border-violet-500/40"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Apply {pendingSuggestions.length} suggestion
+                {pendingSuggestions.length === 1 ? '' : 's'}
+              </Button>
+            )}
+          </div>
+          {pendingSuggestions.length > 0 && (
+            <div className="mt-3 border-t border-violet-200/50 dark:border-violet-500/20 pt-2.5 text-xs text-muted-foreground">
+              <div className="font-medium text-foreground mb-1.5">
+                Pending AI suggestions:
+              </div>
+              <ul className="grid gap-1 sm:grid-cols-2">
+                {pendingSuggestions.slice(0, 6).map((f) => {
+                  const s = f.autoBindSuggestion!;
+                  const pct = Math.round((s.confidence ?? 0) * 100);
+                  return (
+                    <li
+                      key={f.id}
+                      className="flex items-center gap-2 rounded-lg bg-white/40 dark:bg-violet-950/20 border border-violet-200/40 dark:border-violet-500/20 px-2 py-1.5"
+                    >
+                      <span className="truncate max-w-[40%] text-foreground font-medium">
+                        {f.label || '(untitled)'}
+                      </span>
+                      <span className="text-muted-foreground shrink-0">→</span>
+                      <span className="truncate text-violet-700 dark:text-violet-300">
+                        {findProfileKeyLabel(s.profileKey)}
+                      </span>
+                      <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
+                        {pct}%
+                      </span>
+                    </li>
+                  );
+                })}
+                {pendingSuggestions.length > 6 && (
+                  <li className="text-muted-foreground italic">
+                    …and {pendingSuggestions.length - 6} more
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+          {calcSuggestions.length > 0 && (
+            <div className="mt-3 border-t border-violet-200/50 dark:border-violet-500/20 pt-2.5 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5 font-medium text-foreground mb-1.5">
+                <Calculator className="h-3.5 w-3.5" />
+                Looks like {calcSuggestions.length} field
+                {calcSuggestions.length === 1 ? '' : 's'} could be calculated
+                from other fields
+              </div>
+              <ul className="flex flex-wrap gap-1.5">
+                {calcSuggestions.slice(0, 4).map((f) => (
+                  <li key={f.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleConvertSuggestionToCalc(f.id)}
+                      className="inline-flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-900/40 px-2 py-0.5 text-violet-800 dark:text-violet-200 hover:bg-violet-200 dark:hover:bg-violet-900/70"
+                    >
+                      <Calculator className="h-3 w-3" />
+                      {f.label || '(untitled)'} → Calculation
+                    </button>
+                  </li>
+                ))}
+                {calcSuggestions.length > 4 && (
+                  <li className="text-muted-foreground italic self-center">
+                    …and {calcSuggestions.length - 4} more
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
@@ -1099,34 +1457,90 @@ function FieldListPanel({
   const itemRefs = useRef<Map<string, HTMLLIElement>>(new Map());
   const multi = selectedIds.size > 1;
 
+  // "Needs attention" filter — narrows the list to fields that aren't
+  // bound to a profile key, aren't calculated, and don't have a
+  // pending AI suggestion. These are the rows the user has to fill in
+  // by hand at fill time, so isolating them makes it easier to either
+  // bind, set a default, or delete them. The filter is purely a view
+  // toggle (no mutation), and we still show "1 of N" so the user
+  // knows there's more under the filter.
+  const [needsAttentionOnly, setNeedsAttentionOnly] = useState(false);
+  const visibleFields = useMemo(() => {
+    if (!needsAttentionOnly) return fields;
+    return fields.filter((f) => {
+      if (getFieldType(f) === 'calculated') return false;
+      if (f.profileKey) return false;
+      return true;
+    });
+  }, [fields, needsAttentionOnly]);
+
+  const needsAttentionCount = useMemo(
+    () =>
+      fields.filter(
+        (f) =>
+          getFieldType(f) !== 'calculated' && !f.profileKey,
+      ).length,
+    [fields],
+  );
+
   return (
     <Card>
       <CardHeader className="py-3 flex-row items-center justify-between gap-2 space-y-0">
-        <CardTitle className="text-sm">Fields</CardTitle>
-        {multi && (
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-muted-foreground">
-              {selectedIds.size} selected
+        <CardTitle className="text-sm flex items-center gap-2">
+          Fields
+          {fields.length > 0 && (
+            <span className="text-[11px] font-normal text-muted-foreground">
+              ({fields.length})
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              onClick={onClearSelection}
+          )}
+        </CardTitle>
+        <div className="flex items-center gap-2">
+          {needsAttentionCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setNeedsAttentionOnly((v) => !v)}
+              className={cn(
+                'rounded-md text-[11px] px-2 py-0.5 transition-colors',
+                needsAttentionOnly
+                  ? 'bg-amber-500 text-white hover:bg-amber-600'
+                  : 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-200',
+              )}
+              title="Show only fields without a binding — the ones that need manual entry at fill time"
             >
-              Clear
-            </Button>
-          </div>
-        )}
+              {needsAttentionOnly
+                ? `Showing ${needsAttentionCount} unbound`
+                : `${needsAttentionCount} unbound`}
+            </button>
+          )}
+          {multi && (
+            <>
+              <span className="text-[11px] text-muted-foreground">
+                {selectedIds.size} selected
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={onClearSelection}
+              >
+                Clear
+              </Button>
+            </>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="pt-0 max-h-[420px] overflow-auto">
         {fields.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No fields yet. Click <strong>Add field</strong> to start.
           </p>
+        ) : visibleFields.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Every field has a binding — nothing left to clean up.
+          </p>
         ) : (
           <ul className="space-y-1.5">
-            {fields.map((f) => {
+            {visibleFields.map((f) => {
               const positioned = isPositionedField(f);
               const isSelected = selectedIds.has(f.id);
               const rowIdx = resolveFieldRowIndex(f);
@@ -1165,7 +1579,7 @@ function FieldListPanel({
                           {f.label || '(untitled)'}
                         </span>
                       </div>
-                      <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground flex-wrap">
                         <span className="rounded bg-muted px-1.5 py-0.5 uppercase tracking-wide">
                           {getFieldType(f)}
                         </span>
@@ -1174,6 +1588,17 @@ function FieldListPanel({
                             → {f.profileKey}
                           </span>
                         )}
+                        {!f.profileKey &&
+                          f.autoBindSuggestion?.profileKey &&
+                          getFieldType(f) !== 'calculated' && (
+                            <span
+                              className="inline-flex items-center gap-1 rounded bg-violet-100 dark:bg-violet-950/40 px-1.5 py-0.5 text-violet-700 dark:text-violet-300"
+                              title="AI suggested a binding — open this field to apply it"
+                            >
+                              <Sparkles className="h-2.5 w-2.5" />
+                              suggested
+                            </span>
+                          )}
                         {f.required && (
                           <span className="text-rose-600">required</span>
                         )}
@@ -1971,6 +2396,63 @@ function FieldInspector({
         {/* ---- Data: auto-fill binding + default value ----------- */}
         {supportsProfileBinding && (
           <InspectorSection label="Data" icon={Link2}>
+            {/*
+              Pending AI suggestion pill — shown when the scanner / re-bind
+              attached an `autoBindSuggestion` whose profileKey doesn't yet
+              match what's set on the field. Clicking applies it; clicking
+              the dismiss button drops the suggestion so it doesn't keep
+              nagging. Gives the user provenance ("AI · 0.78 confidence")
+              without forcing them to accept a guess.
+            */}
+            {field.autoBindSuggestion?.profileKey &&
+              field.autoBindSuggestion.profileKey !== field.profileKey && (
+                <div className="rounded-lg border border-violet-300/60 bg-violet-50 dark:bg-violet-950/30 dark:border-violet-500/40 px-2.5 py-2 text-xs flex items-start gap-2">
+                  <Sparkles className="h-3.5 w-3.5 text-violet-600 dark:text-violet-300 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="text-muted-foreground">
+                      AI suggests{' '}
+                      <span className="font-medium text-violet-700 dark:text-violet-300">
+                        {findProfileKeyLabel(
+                          field.autoBindSuggestion.profileKey,
+                        )}
+                      </span>{' '}
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        ({Math.round(field.autoBindSuggestion.confidence * 100)}%)
+                      </span>
+                    </div>
+                    {field.autoBindSuggestion.reason && (
+                      <div className="text-[11px] text-muted-foreground italic line-clamp-2">
+                        {field.autoBindSuggestion.reason}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onChange(field.id, {
+                          profileKey:
+                            field.autoBindSuggestion?.profileKey ?? null,
+                        })
+                      }
+                      className="rounded-md bg-violet-600 hover:bg-violet-700 text-white text-[11px] px-2 py-0.5 font-medium"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onChange(field.id, {
+                          autoBindSuggestion: undefined,
+                        })
+                      }
+                      className="rounded-md border border-transparent hover:border-border text-[11px] px-2 py-0.5 text-muted-foreground"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
             <div className="space-y-1">
               <Label className="text-xs">Auto-fill from</Label>
               <ProfileKeyPicker

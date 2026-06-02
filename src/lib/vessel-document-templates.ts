@@ -346,6 +346,55 @@ export interface TemplateField {
    * input is replaced with a read-only preview.
    */
   calculation?: TemplateFieldCalculation;
+  /**
+   * **Ephemeral, NOT persisted.** Annotation produced by the AI auto-bind
+   * classifier when a fresh template is being authored. The Form Builder
+   * editor uses it to show provenance ("auto-bound · 0.82 confidence")
+   * and to render lower-confidence picks as pending suggestions the
+   * user can apply with one click. Stripped from the field before it's
+   * saved to Supabase — `prepareFieldForSave` handles the cleanup.
+   */
+  autoBindSuggestion?: {
+    profileKey: string | null;
+    confidence: number;
+    reason?: string | null;
+    /** Where the suggestion came from — drives the badge colour. */
+    source?: 'fuzzy' | 'ai';
+  };
+  /**
+   * **Ephemeral, NOT persisted.** Heuristic flag from the scanner — the
+   * label reads like a derived/computed value (e.g. "Total = A + B").
+   * The editor shows a "convert to calculation" hint in the inspector
+   * when this is set. Stripped before save.
+   */
+  isCalculableSuggestion?: boolean;
+}
+
+/**
+ * Strip the ephemeral AI-suggestion metadata from a TemplateField
+ * before it's persisted. The suggestion fields are useful at edit
+ * time (they drive the Form Builder's summary banner and per-field
+ * "pending suggestion" pills) but should never make it into the
+ * database — the saved template is the canonical, user-approved state.
+ *
+ * Keep this in one place so every save site can call it without
+ * duplicating the property list.
+ */
+export function stripEphemeralFieldData(field: TemplateField): TemplateField {
+  if (
+    field.autoBindSuggestion === undefined &&
+    field.isCalculableSuggestion === undefined
+  ) {
+    return field;
+  }
+  const { autoBindSuggestion, isCalculableSuggestion, ...rest } = field;
+  return rest;
+}
+
+export function stripEphemeralFromFields(
+  fields: TemplateField[],
+): TemplateField[] {
+  return fields.map(stripEphemeralFieldData);
 }
 
 /** Row shape returned from Supabase — snake_case. */
@@ -594,9 +643,13 @@ export function isPositionedField(field: TemplateField): boolean {
   if (!b) return false;
   if (!Number.isFinite(b.xMin) || !Number.isFinite(b.yMin)) return false;
   if (b.xMax <= b.xMin || b.yMax <= b.yMin) return false;
-  // Placeholders all start inside the first ~250px of the left edge — anything
-  // wider or further right is user-positioned.
-  if (b.xMin < 25 && b.xMax < 240) return false;
+  // Placeholders are stacked along the far-left margin by makePlaceholderBbox:
+  // xMin is always in [20, 240] and xMax is always xMin+200 (max ~440).
+  // Real AI-detected fields that happen to be in a narrow left column will have
+  // xMin starting near 0 but xMax typically > 100 because they span the value
+  // cell width. The safest placeholder detector is: xMin < 25 AND width < 210.
+  const w = b.xMax - b.xMin;
+  if (b.xMin < 25 && w < 210) return false;
   return true;
 }
 

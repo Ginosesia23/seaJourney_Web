@@ -5,9 +5,10 @@
  * 1. Voyages = consecutive 'underway' days (or 'at-anchor' days that are part of an active passage)
  *    Note: 'at-anchor' days AFTER a voyage ends are counted as standby, not part of the voyage
  * 2. Standby = time immediately following a voyage while in 'in-port' or 'at-anchor' state only.
- *    (at-anchor can be both sea time when part of voyage, and standby when after voyage ends)
- *    Vessel manager accounts (`vesselManagerSeaTime`): 'underway' and 'at-anchor' always count as sea;
- *    standby after a voyage is only 'in-port' (at-anchor after a voyage is sea, not standby).
+ *    Both modes treat post-voyage at-anchor days the same way (MCA-style): they count toward
+ *    standby, capped by the voyage's span / 14-day rule. In `vesselManagerSeaTime` mode the
+ *    sea-days total still includes all underway + at-anchor days *except* those at-anchor
+ *    days that have been counted as standby (those are reclassified to avoid double-counting).
  * 3. In-yard and on-leave are NEVER standby: they end the standby period. Example: 4 days passage,
  *    then 1 day at anchor, then yard → 4 at sea, 1 standby, rest are in-yard only.
  * 4. Max 14 consecutive days of standby can be counted from any single period
@@ -300,8 +301,10 @@ export function calculateStandbyDays(
         standbyDays++;
         currentDate = addDays(currentDate, 1);
       } else if (log.state === 'at-anchor') {
-        // MCA: at-anchor after voyage can be standby. Vessel manager: at-anchor is sea only — skip without ending period.
-        if (!vesselManagerSeaTime) standbyDays++;
+        // Both modes count post-voyage at-anchor as standby. In vessel-manager mode the
+        // at-anchor day was initially added to the sea-days set above; we subtract it back
+        // out after this loop so it isn't double-counted.
+        standbyDays++;
         currentDate = addDays(currentDate, 1);
       } else {
         // in-yard, on-leave, underway, or any other state - end standby period; never count as standby
@@ -339,7 +342,12 @@ export function calculateStandbyDays(
   // Apply rules to calculate counted standby days
   // When rangeStart/rangeEnd are set, only count days that fall within the range
   let totalStandbyDays = 0;
-  
+  // Vessel-manager mode initially added every at-anchor day to the sea-days
+  // set. Any at-anchor day that we now classify as standby must be subtracted
+  // from sea so it isn't double-counted. We accumulate the count here and
+  // apply the adjustment once below.
+  let atAnchorReclassifiedAsStandby = 0;
+
   for (const period of standbyPeriods) {
     // Rule 1: Max 14 consecutive days from any single period
     // Rule 2: A standby block can't be longer than the previous voyage
@@ -360,6 +368,14 @@ export function calculateStandbyDays(
       }
       counted++;
       countedDates.push(dateStr);
+
+      // Vessel-manager bookkeeping: at-anchor days now counted as standby
+      // need to be removed from the sea total (they were added by default
+      // in the at-anchor sweep above).
+      if (vesselManagerSeaTime) {
+        const log = logMap.get(dateStr);
+        if (log?.state === 'at-anchor') atAnchorReclassifiedAsStandby++;
+      }
     }
     
     period.countedDays = counted;
@@ -369,6 +385,13 @@ export function calculateStandbyDays(
     if (countedDates.length > 0) {
       console.log(`[Standby Calculation] Counted dates: ${countedDates.join(', ')}`);
     }
+  }
+
+  if (vesselManagerSeaTime && atAnchorReclassifiedAsStandby > 0) {
+    totalSeaDays = Math.max(0, totalSeaDays - atAnchorReclassifiedAsStandby);
+    console.log(
+      `[Standby Calculation] Vessel-manager: reclassified ${atAnchorReclassifiedAsStandby} at-anchor day(s) from sea to standby; adjusted Total Sea Days: ${totalSeaDays}`
+    );
   }
 
   // Debug logging

@@ -20,9 +20,13 @@ import {
   type VesselDocumentTemplateRow,
 } from '@/lib/vessel-document-templates';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { formBuilderAccessDenied } from '@/lib/vessel-form-builder-access';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+const PROFILE_SELECT =
+  'id, role, active_vessel_id, subscription_tier, subscription_status, cancel_at_period_end, current_period_end';
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB for saved templates
 const ALLOWED_MIME_TYPES = new Set([
@@ -52,7 +56,7 @@ async function authenticate(request: NextRequest) {
   }
   const { data: profile } = await supabaseAdmin
     .from('users')
-    .select('id, role, active_vessel_id')
+    .select(PROFILE_SELECT)
     .eq('id', user.id)
     .maybeSingle();
   return { user, profile };
@@ -117,6 +121,9 @@ export async function POST(request: NextRequest) {
         { status: 403 },
       );
     }
+
+    const tierDenied = formBuilderAccessDenied(profile as any);
+    if (tierDenied) return tierDenied;
 
     // Insert the row first so we have a stable id for the storage path.
     const { data: inserted, error: insertError } = await supabaseAdmin
@@ -212,6 +219,12 @@ export async function GET(request: NextRequest) {
     const isVesselManager =
       (profile as any)?.role === 'vessel' &&
       (profile as any)?.active_vessel_id === vesselId;
+
+    if (isVesselManager) {
+      const tierDenied = formBuilderAccessDenied(profile as any);
+      if (tierDenied) return tierDenied;
+    }
+
     let hasAccess = isAdmin || isVesselManager;
     if (!hasAccess) {
       const { data: assignment } = await supabaseAdmin

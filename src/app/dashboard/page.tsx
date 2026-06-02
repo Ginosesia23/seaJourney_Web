@@ -152,17 +152,17 @@ export default function DashboardPage() {
 
       try {
         const { data: watchLogs, error } = await supabase
-          .from('watch_logs')
-          .select('watch_start')
+          .from('nav_watch_logs')
+          .select('start_time')
           .eq('user_id', user.id);
 
         if (error) throw error;
 
-        // Extract dates from watch logs (watch_start timestamps)
+        // Extract dates from watch logs (start_time timestamps)
         const dates = new Set<string>();
         if (watchLogs) {
           watchLogs.forEach(log => {
-            const dateStr = format(new Date(log.watch_start), 'yyyy-MM-dd');
+            const dateStr = format(new Date(log.start_time), 'yyyy-MM-dd');
             dates.add(dateStr);
           });
         }
@@ -278,9 +278,10 @@ export default function DashboardPage() {
         const totalUsers = allUsers?.length || 0;
         const activeSubscriptions = allUsers?.filter(u => {
           const tier = (u.subscription_tier || 'free').toLowerCase();
-          // Exclude crew_limited and free from active subscription counts
+          // Exclude crew_limited, vessel_linked, and free from active subscription counts —
+          // these are vessel-managed free tiers, not paying customers.
           return (
-            hasActiveSubscription(u) && tier !== 'crew_limited' && tier !== 'free'
+            hasActiveSubscription(u) && tier !== 'crew_limited' && tier !== 'vessel_linked' && tier !== 'free'
           );
         }).length || 0;
 
@@ -297,6 +298,7 @@ export default function DashboardPage() {
           // Crew plans
           'free': 0,
           'crew_limited': 0,
+          'vessel_linked': 0,
           'standard': 4.99,
           'premium': 9.99,
           'pro': 14.99,
@@ -2181,6 +2183,7 @@ export default function DashboardPage() {
                       const tierPricing: Record<string, number> = {
                         'free': 0,
                         'crew_limited': 0,
+                        'vessel_linked': 0,
                         'standard': 4.99,
                         'premium': 9.99,
                         'pro': 14.99,
@@ -2188,14 +2191,18 @@ export default function DashboardPage() {
                       };
                       const price = tierPricing[tier.toLowerCase()] || 0;
                       const tierRevenue = price * (count as number);
+                      const tierLabel =
+                        tier === 'crew_limited'
+                          ? 'Crew Limited'
+                          : tier === 'vessel_linked'
+                            ? 'Vessel Linked'
+                            : tier.replace(/_/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
                       return (
                         <div key={tier} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
                           <div className="flex items-center gap-2">
                             <CreditCard className="h-4 w-4 text-muted-foreground" />
                             <div>
-                              <span className="text-sm font-medium">
-                                {tier === 'crew_limited' ? 'Crew Limited' : tier.replace(/_/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                              </span>
+                              <span className="text-sm font-medium">{tierLabel}</span>
                               {price > 0 && (
                                 <p className="text-xs text-muted-foreground">£{price.toFixed(2)}/mo</p>
                               )}
@@ -2746,7 +2753,7 @@ export default function DashboardPage() {
             </div>
             </CardHeader>
             <CardContent>
-            <div className="text-3xl font-bold">{atSeaDays}</div>
+            <div className="text-3xl font-bold text-blue-700 dark:text-blue-300">{atSeaDays}</div>
             <p className="text-xs text-muted-foreground mt-1">Sea service days</p>
             </CardContent>
         </Card>
@@ -3146,7 +3153,7 @@ export default function DashboardPage() {
           </div>
         </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-bold">{thisMonthStats.atSeaDays}</div>
+                  <div className="text-3xl font-bold text-blue-700 dark:text-blue-300">{thisMonthStats.atSeaDays}</div>
                   <p className="text-xs text-muted-foreground mt-1">Days underway</p>
         </CardContent>
       </Card>

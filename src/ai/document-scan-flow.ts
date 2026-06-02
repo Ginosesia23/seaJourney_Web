@@ -4,6 +4,12 @@ import { z } from 'zod';
 /**
  * Schema for the structured output we want from Gemini.
  * Each extracted field from the scanned document.
+ *
+ * Pass-1 (semantic extraction): no bbox — keeping this pass focused on
+ * understanding the document's semantic structure makes it significantly more
+ * reliable. Visual grounding (where each blank actually sits on the page) is
+ * done separately in Pass-2 so the model can dedicate full attention to the
+ * spatial task with explicit context for every field.
  */
 export const ExtractedFieldSchema = z.object({
   fieldName: z.string().describe('The label or name of the form field as it appears on the document'),
@@ -32,12 +38,15 @@ export const ExtractedFieldSchema = z.object({
         'checkbox (small square/circle tick), signature (signature line or signature box). Default to "text" when unsure.',
     ),
   page: z.number().int().min(1).describe('REQUIRED. 1-indexed page number where this field physically appears on the document. For multi-page forms you MUST distribute fields across pages — do NOT set every field to 1. Fields on page 2 get page=2, fields on page 3 get page=3, etc.'),
+  // bbox is populated by Pass-2 visual grounding — NOT by this Pass-1 schema.
+  // Declared here so the merged ExtractedField type carries it through to the
+  // rest of the pipeline (route handler, form-builder-scanner, etc.).
   bbox: z.object({
-    yMin: z.number().min(0).max(1000),
-    xMin: z.number().min(0).max(1000),
-    yMax: z.number().min(0).max(1000),
-    xMax: z.number().min(0).max(1000),
-  }).optional().describe('Bounding box of the field VALUE area (not the label) in normalized [0, 1000] coordinates where (0,0) is the top-left of the page. Must be omitted if you cannot confidently locate the field.'),
+    yMin: z.number().int().min(0).max(1000),
+    xMin: z.number().int().min(0).max(1000),
+    yMax: z.number().int().min(0).max(1000),
+    xMax: z.number().int().min(0).max(1000),
+  }).optional().describe('Populated by Pass-2 visual grounding. Not returned by Pass-1.'),
   profileKey: z.string().optional().describe(
     'The closest matching user profile or vessel field key from this list: ' +
     'fullName, firstName, lastName, email, dateOfBirth, placeOfBirth, countryOfBirth, nationality, ' +
@@ -61,8 +70,13 @@ export type ExtractedField = z.infer<typeof ExtractedFieldSchema>;
 export type DocumentScanOutput = z.infer<typeof DocumentScanOutputSchema>;
 
 /**
- * The system prompt for document scanning.
- * Instructs Gemini to act as a maritime document field extractor.
+ * Pass-1 prompt: semantic extraction only — no bboxes.
+ *
+ * Keeping this pass focused on understanding the document's structure makes
+ * it significantly more reliable. The model doesn't have to juggle two tasks
+ * (what is each field? / where is each field's blank?) simultaneously; it
+ * concentrates entirely on semantic labelling. Visual grounding is done in a
+ * dedicated Pass-2 call that has explicit per-field context.
  */
 const DOCUMENT_SCAN_PROMPT = `You are a maritime document analysis expert. You are examining a scanned document or form related to maritime/sea service (e.g. AMSA 771, MCA sea service testimonial, STCW certification).
 
@@ -103,8 +117,7 @@ Default to "text" only when none of the above cues fit. Do NOT omit fieldType.
 MULTI-PAGE HANDLING (critical — read carefully):
 - The document may have multiple pages. BEFORE you start extracting, count how many pages it has.
 - Process each page in order: finish page 1 completely, then page 2, then page 3, etc.
-- For EVERY single field, you MUST set the "page" property to the 1-indexed page number where that field physically appears on the printed document. Never omit it. Never default to 1 for fields that are on later pages. A 3-page form with 10 fields per page MUST produce fields with page values of 1, 1, 1, …, 2, 2, 2, …, 3, 3, 3, … — not all 1s.
-- Bounding-box coordinates are LOCAL TO EACH PAGE. A field at the top of page 2 uses yMin ≈ 0, NOT a cumulative offset across pages. Coordinates always reset to [0,1000] at the top-left of whichever page the field is on.
+- For EVERY single field, you MUST set the "page" property to the 1-indexed page number where that field physically appears on the printed document. Never omit it. Never default to 1 for fields that are on later pages. A 3-page form with 10 fields per page MUST produce fields with page values of 1, 1, 1, ..., 2, 2, 2, ..., 3, 3, 3, ... -- not all 1s.
 - If two pages repeat the same field label (e.g. a header "Seafarer name" appears on every page), emit one field per occurrence with the correct page number — do not dedupe across pages.
 
 Completeness rules for the blanks that ARE fillable:
@@ -121,7 +134,7 @@ Completeness rules for the blanks that ARE fillable:
   - "Sea service — Row 1 — Days at sea"
   - "Sea service — Row 2 — Vessel name"   ← different vessel on the same document
   - "Sea service — Row 2 — Date of engagement"
-  - (…and so on per vessel listed)
+  - (... and so on per vessel listed)
   The row number MUST be consistent across every cell of the same vessel so downstream code can group fields by vessel. Row 1 is the first vessel listed on the form (usually the most recent).
 - Standby / at-sea / leave / yard monthly breakdowns: each month × each column = one field. Do NOT summarise.
 - Checkboxes: emit one field per option, use "<group> — <option>" as fieldName.
@@ -150,45 +163,107 @@ Formatting rules:
 - Be literal with fieldName — use the label exactly as printed, including any "(if any)" or "*" markers.
 - Describe the field briefly in fieldDescription when the label is ambiguous.
 
-BOUNDING BOXES (very important for visual verification):
-- For EVERY field, return a tight bounding box around the VALUE AREA — the empty space / printed box / underline / cell where the HANDWRITTEN ANSWER goes. NEVER put the box on the label text itself.
-- Use normalized integer coordinates in [0, 1000] where (0,0) is the TOP-LEFT of the page and (1000,1000) is the BOTTOM-RIGHT. This is the same coordinate convention used for object detection.
-- Return the box as { yMin, xMin, yMax, xMax } — same order as Gemini's standard [ymin, xmin, ymax, xmax] bounding box array. yMin < yMax (y grows DOWN from the top).
+Return structured JSON matching the output schema. Include every fillable blank with its correct fieldType and page number. Do NOT include bboxes — those are added in a separate visual-grounding step. Emitting a phantom field for decorative/instructional text is a failure; so is missing an obvious fillable blank.`;
 
-WHERE TO PUT THE BOX relative to the printed label (read carefully — this is the most common mistake):
-1. LABEL TO THE LEFT of a blank line or input box (e.g. "Full name: ____________"):
-   The box goes to the RIGHT of the label, ON TOP OF the underline/input rectangle. yMin/yMax = the underline's vertical extent; xMin starts just after the label text ends; xMax = where the underline / box right edge ends.
-2. LABEL ABOVE a blank line or box (typical of modern forms):
-   The box goes BELOW the label, not on top of the label text. yMin = just under the bottom of the label text; yMax = bottom of the input underline or input rectangle.
-3. LABEL INSIDE a printed rectangle followed by an empty area (e.g. grey label bar on top, white space below):
-   The box covers the WHITE/EMPTY area, NOT the grey label bar.
-4. CHECKBOX / TICKBOX:
-   The box covers ONLY the small square/circle where a tick/cross goes, NEVER the adjacent label text.
-5. SIGNATURE line ("Signature: _______________"):
-   The box covers the signing space (the underline or signature rectangle), NOT the word "Signature" or the date label next to it.
-6. TABLE CELL:
-   The box covers the empty cell interior. For a table with a header row "Vessel name | IMO | Flag", the boxes go in the DATA rows below the header, not on the header row.
+// ---------------------------------------------------------------------------
+// Pass-2: Visual grounding schemas and prompt
+// ---------------------------------------------------------------------------
 
-VISUAL SANITY CHECK before emitting each bbox (do this in your head for every field):
-- "If I drew a pen stroke inside this box, would it land on the blank line / empty space / tick square where the user should write?" → If yes, box is correct.
-- "Does my box overlap with any printed black text (the label, a question, a header)?" → If yes, the box is WRONG — shift it down (if label is above) or right (if label is left) until it clears the text.
-- "Is my box the same height as a line of handwriting (~2–3% of page)?" → If taller, you've probably swallowed the label too. Shrink it.
+/**
+ * Input descriptor for a single field that needs visual grounding.
+ * Sent to Gemini in the Pass-2 call so it knows exactly what to locate.
+ */
+interface GroundingFieldInput {
+  id: string;       // Opaque identifier — we use the array index as a string.
+  fieldName: string;
+  fieldType: string; // 'text' | 'multiline' | 'date' | etc. — helps the model size the box correctly.
+}
 
-- Examples:
-  - Field "Date of Birth: ____" with a 120-wide underline starting 10% across and 13% down: the label text ends near x=390 and the underline runs from 400 to 520 at y ≈ 140–155 → bbox = { yMin: 140, xMin: 400, yMax: 155, xMax: 520 }. NOT { yMin: 130, xMin: 300, yMax: 150, xMax: 520 } (that would include the words "Date of Birth").
-  - Field "Rank" with the label printed above a 30-pt-tall empty rectangle: label sits around y=200–215; the rectangle starts at y=220 and ends at y=250 → bbox = { yMin: 220, xMin: xLeft, yMax: 250, xMax: xRight }. Never { yMin: 200, … } — that would cover the label.
-  - Monthly table cell for "January — Standby days" in a table whose header row sits at y=600–620: data row sits at y=625–650 → bbox ≈ { yMin: 625, xMin: 340, yMax: 650, xMax: 400 }.
+const GroundingBboxSchema = z.object({
+  id: z.string(),
+  bbox: z.object({
+    yMin: z.number().int().min(0).max(1000),
+    xMin: z.number().int().min(0).max(1000),
+    yMax: z.number().int().min(0).max(1000),
+    xMax: z.number().int().min(0).max(1000),
+  }),
+});
 
-- Keep the box compact: for a single-line blank, height should be about 2–4% of the page (20–40 units). Target ~25 units tall for a normal single-line blank.
-- CONSISTENCY RULES — the form-builder relies on these:
-  - If two or more fields sit on the VISUAL SAME ROW (same printed baseline), their yMin and yMax values MUST be identical. Do not vary them by a few pixels "to be precise" — identical is correct.
-  - If two or more fields share a VISUAL COLUMN (their input boxes start or end at the same x on the page, like a two-column address block or a monthly table), their xMin (or xMax) values MUST be identical.
-  - All cells in a single ROW of a table MUST have identical yMin + yMax. All cells in a single COLUMN of a table MUST have identical xMin + xMax.
-  - All single-line blanks on the same page SHOULD have the same height (height = yMax - yMin). Pick one height per page and reuse it for every single-line blank. Tables with tall cells can use their own height.
-- Return the 1-indexed page number in "page" for EVERY field. This is required even on single-page documents (set page = 1 there). On multi-page documents, fields on page 2 MUST have page = 2, fields on page 3 MUST have page = 3, etc. Getting the page wrong causes the fields to be stamped on the wrong sheet.
-- If you cannot confidently locate a field's blank on the page, OMIT bbox rather than guessing — but still set the correct page.
+const GroundingOutputSchema = z.object({
+  results: z.array(GroundingBboxSchema),
+});
 
-Return structured JSON matching the output schema. Include every fillable blank with its correct fieldType. Emitting a phantom field for decorative/instructional text is a failure; so is missing an obvious fillable blank.`;
+type GroundingOutput = z.infer<typeof GroundingOutputSchema>;
+
+/**
+ * Build the Pass-2 visual grounding prompt for a single page.
+ * The prompt lists every field on that page and asks Gemini to return ONLY
+ * bounding boxes — one focused task, maximum spatial accuracy.
+ */
+function buildGroundingPrompt(fields: GroundingFieldInput[]): string {
+  const fieldList = fields
+    .map(
+      (f) =>
+        `  id="${f.id}" label="${f.fieldName}" type=${f.fieldType}`,
+    )
+    .join('\n');
+
+  return `You are a precise form-field locator. Your ONLY job is to find the bounding box of the empty VALUE AREA for each field listed below — NOT the label text, NOT the surrounding border.
+
+FIELDS TO LOCATE (on this page):
+${fieldList}
+
+COORDINATE SYSTEM:
+- Normalized integers in [0, 1000]. (0,0) = top-left; (1000,1000) = bottom-right.
+- Return { yMin, xMin, yMax, xMax } — y grows DOWN from the top.
+- ALL values MUST be whole integers. No decimals (0.45 is WRONG). No 0–100 percentages (45 is WRONG). 45% across = xMin:450.
+
+WHERE TO PLACE THE BOX — THE MOST IMPORTANT RULE:
+The box must cover ONLY the blank/input area where someone would write — NEVER the printed label text.
+
+1. LABEL LEFT of blank (e.g. "Full name: ___________"):
+   → Box goes to the RIGHT of the label, on the underline/rectangle.
+   → xMin = just after the label text ends. xMax = right edge of the underline.
+
+2. LABEL ABOVE blank (label-above-input layout):
+   → Box goes BELOW the label text.
+   → yMin = just below the bottom of the label. yMax = bottom of the input rectangle.
+
+3. TWO-COLUMN TABLE (label cell left, empty value cell right):
+   → The ENTIRE left cell is the label — put nothing there.
+   → xMin = just past the vertical divider. xMax = right edge of the value cell.
+   → CRITICAL: if the box would start at x=0 or xMax ≤ divider, it is on the label — shift right.
+
+4. TABLE DATA CELL (column headers + data rows):
+   → Box goes in the empty DATA row cell, NOT the header row.
+
+5. CHECKBOX:
+   → Box covers ONLY the small square/circle, NOT the option text beside it.
+   → Keep it small: width ≈ height ≈ 20–30 units.
+
+6. SIGNATURE line:
+   → Box covers the blank signing space, NOT the word "Signature".
+
+HEIGHT RULES:
+- Single-line fields (text, number, date, email): height 20–35 units. Target ~25 units.
+- Multiline / signature fields: height 50–200 units (match the actual blank rectangle).
+- NEVER return height < 15 or width < 15 for any field.
+- NEVER return height > 40 for a single-line field.
+
+ROW ALIGNMENT — mandatory:
+- All fields on the SAME visual row MUST have IDENTICAL yMin and yMax.
+- All fields in the SAME visual column MUST have IDENTICAL xMin.
+
+SELF-CHECK before emitting each field:
+  Q1: "Would a pen stroke inside this box land ONLY on blank space, never on printed text?" → If no, shift the box.
+  Q2: "Is the height correct for this field type?" → Fix if outside the ranges above.
+  Q3: "Are all same-row fields using identical yMin/yMax?" → Fix if not.
+
+If you genuinely cannot locate a field's blank on this page image, OMIT it from results (do not guess).
+
+Return JSON: { "results": [ { "id": "<id>", "bbox": { "yMin": ..., "xMin": ..., "yMax": ..., "xMax": ... } }, ... ] }
+Only include fields you can confidently locate. Omit fields you cannot find.`;
+}
 
 /**
  * Model used for document scanning. Default `gemini-2.5-flash-lite` because
@@ -244,8 +319,92 @@ function isRateLimitError(err: any): boolean {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Scan a document using Gemini vision and extract form fields.
- * Accepts base64 encoded file data with mime type.
+ * Pass-2: Visual grounding for a single page.
+ *
+ * Sends the page image + a list of field names/types and asks Gemini to
+ * return a tight bounding box for each blank's VALUE AREA. Runs separately
+ * from Pass-1 so each pass can focus on a single task.
+ *
+ * Returns a map from field `id` → bbox. Fields the model could not
+ * confidently locate are absent from the map (callers fall back to
+ * `makePlaceholderBbox` in `form-builder-scanner.tsx`).
+ */
+async function groundFieldBboxes(
+  pageBase64: string,
+  mimeType: string,
+  fields: GroundingFieldInput[],
+): Promise<Map<string, ExtractedField['bbox']>> {
+  if (fields.length === 0) return new Map();
+
+  const prompt = buildGroundingPrompt(fields);
+
+  const callOnce = () =>
+    ai.generate({
+      model: DOCUMENT_SCAN_MODEL,
+      prompt: [
+        { text: prompt },
+        {
+          media: {
+            contentType: mimeType as 'image/png' | 'image/jpeg' | 'application/pdf',
+            url: `data:${mimeType};base64,${pageBase64}`,
+          },
+        },
+        { text: 'Locate each field and return the bounding boxes as JSON.' },
+      ],
+      output: { schema: GroundingOutputSchema },
+    });
+
+  let response;
+  try {
+    response = await callOnce();
+  } catch (err: any) {
+    if (isRateLimitError(err)) {
+      const retryAfter = extractRetryAfterSeconds(err);
+      if (retryAfter !== null && retryAfter <= 20) {
+        await sleep(retryAfter * 1000 + 250);
+        try {
+          response = await callOnce();
+        } catch {
+          // Degrade gracefully — we'll fall back to placeholders.
+          return new Map();
+        }
+      } else {
+        // Quota exceeded but not a short wait — degrade gracefully.
+        return new Map();
+      }
+    } else {
+      // Non-quota error — degrade gracefully rather than killing the scan.
+      console.warn('[document-scan] Pass-2 grounding error:', err);
+      return new Map();
+    }
+  }
+
+  const output = response.output as GroundingOutput | null;
+  if (!output?.results) return new Map();
+
+  const bboxMap = new Map<string, ExtractedField['bbox']>();
+  for (const r of output.results) {
+    if (r.id && r.bbox) bboxMap.set(r.id, r.bbox);
+  }
+  return bboxMap;
+}
+
+/**
+ * Scan a document using a two-pass Gemini strategy:
+ *
+ *   Pass 1 — Semantic extraction (DOCUMENT_SCAN_PROMPT):
+ *     Extract field names, types, profileKeys, page numbers and categories.
+ *     No bboxes — keeping this pass focused on semantics makes it far more
+ *     reliable and consistent.
+ *
+ *   Pass 2 — Visual grounding (buildGroundingPrompt):
+ *     For each page that has fields, send the page image + the list of field
+ *     names/types and ask Gemini to return tight bounding boxes for each
+ *     blank's VALUE AREA only. One focused task = much higher spatial accuracy.
+ *     Runs per-page so multi-page PDFs get dedicated attention per page.
+ *
+ * If Pass-2 fails or cannot locate a field, the bbox is left undefined and
+ * `form-builder-scanner.tsx` falls back to `makePlaceholderBbox`.
  *
  * Retries once on 429 if the API tells us to retry within ~20s; otherwise
  * throws `AIQuotaExceededError` so the API route can surface a friendly
@@ -255,7 +414,10 @@ export async function scanDocument(
   fileBase64: string,
   mimeType: string,
 ): Promise<DocumentScanOutput> {
-  const generateOnce = () =>
+  // -------------------------------------------------------------------------
+  // Pass 1: Semantic extraction
+  // -------------------------------------------------------------------------
+  const pass1Once = () =>
     ai.generate({
       model: DOCUMENT_SCAN_MODEL,
       prompt: [
@@ -267,7 +429,7 @@ export async function scanDocument(
           },
         },
         {
-          text: 'Please analyze this document and extract all form fields. Return the result as structured JSON.',
+          text: 'Analyze this document and extract all fillable form fields with their semantic metadata. Return structured JSON. Do NOT include bboxes — those are added separately.',
         },
       ],
       output: {
@@ -275,17 +437,16 @@ export async function scanDocument(
       },
     });
 
-  let response;
+  let pass1Response;
   try {
-    response = await generateOnce();
+    pass1Response = await pass1Once();
   } catch (err: any) {
     if (isRateLimitError(err)) {
       const retryAfter = extractRetryAfterSeconds(err);
-      // Short hint (<20s) → wait it out and retry ONCE.
       if (retryAfter !== null && retryAfter <= 20) {
         await sleep(retryAfter * 1000 + 250);
         try {
-          response = await generateOnce();
+          pass1Response = await pass1Once();
         } catch (err2: any) {
           throw new AIQuotaExceededError(
             'AI quota exceeded. Try again shortly or upgrade the Gemini plan.',
@@ -303,11 +464,70 @@ export async function scanDocument(
     }
   }
 
-  const output = response.output;
-  if (!output) {
+  const pass1Output = pass1Response.output;
+  if (!pass1Output) {
     throw new Error('AI returned no structured output');
   }
-  return output;
+
+  if (pass1Output.fields.length === 0) {
+    // No fields found — return early without running Pass 2.
+    return pass1Output;
+  }
+
+  // -------------------------------------------------------------------------
+  // Pass 2: Visual grounding — run per page in parallel.
+  //
+  // For PDFs we pass the full document to each page's grounding call because
+  // Gemini interprets multi-page PDFs as a sequence of pages and we specify
+  // which page we want via the field list. For images there is only one page.
+  // -------------------------------------------------------------------------
+
+  // Group fields by page number.
+  const fieldsByPage = new Map<number, { idx: number; field: typeof pass1Output.fields[number] }[]>();
+  pass1Output.fields.forEach((field, idx) => {
+    const page = field.page ?? 1;
+    if (!fieldsByPage.has(page)) fieldsByPage.set(page, []);
+    fieldsByPage.get(page)!.push({ idx, field });
+  });
+
+  // For images there is only one page; for PDFs we pass the full document
+  // and include the page number in each field ID so the model knows which
+  // page each field is on. We append "p<page>:" to each ID for multi-page
+  // docs so Pass-2 can disambiguate when the same fieldName appears on
+  // multiple pages (e.g. a repeating header).
+  const pageGroundingPromises: Promise<void>[] = [];
+  const bboxResults = new Map<number, ExtractedField['bbox']>(); // keyed by original field index
+
+  for (const [pageNum, pageFields] of fieldsByPage) {
+    const inputs: GroundingFieldInput[] = pageFields.map(({ idx, field }) => ({
+      id: `p${pageNum}:${idx}`,
+      fieldName: field.fieldName,
+      fieldType: field.fieldType ?? 'text',
+    }));
+
+    pageGroundingPromises.push(
+      groundFieldBboxes(fileBase64, mimeType, inputs).then((bboxMap) => {
+        for (const { idx } of pageFields) {
+          const key = `p${pageNum}:${idx}`;
+          const bbox = bboxMap.get(key);
+          if (bbox) bboxResults.set(idx, bbox);
+        }
+      }),
+    );
+  }
+
+  await Promise.all(pageGroundingPromises);
+
+  // Merge bboxes back onto Pass-1 fields.
+  const mergedFields = pass1Output.fields.map((field, idx) => ({
+    ...field,
+    bbox: bboxResults.get(idx) ?? undefined,
+  }));
+
+  return {
+    ...pass1Output,
+    fields: mergedFields,
+  };
 }
 
 /**
@@ -465,17 +685,176 @@ const FIELD_ALIASES: Array<{ key: string; pattern: RegExp }> = [
   { key: 'vesselCompanyContact', pattern: /\bcompany\s*(contact|telephone|phone|email)\b/i },
 
   // Service — standby specifically caught here (table cells like "Days on standby")
+  // Ordered specific → generic so "days alongside in port" hits inPortDays
+  // before falling through to standbyDays.
+  { key: 'inPortDays', pattern: /\b(days?\s*(in[-\s]*port|alongside)|in[-\s]*port\s*days?|alongside\s*days?)\b/i },
+  { key: 'atAnchorDays', pattern: /\b(at[-\s]*anchor\s*days?|days?\s*at\s*anchor|anchored\s*days?)\b/i },
+  { key: 'underwayDays', pattern: /\b(underway\s*days?|days?\s*(actively\s*)?underway|sailing\s*days?|days?\s*sailing)\b/i },
   { key: 'atSeaDays', pattern: /\b(days?\s*at\s*sea|sea\s*days|at[-\s]*sea\s*days)\b/i },
   { key: 'standbyDays', pattern: /\b(standby\s*days?|days?\s*on\s*standby|harbou?r\s*days?|stand[-\s]*by)\b/i },
-  { key: 'yardDays', pattern: /\b(yard\s*days?|refit\s*days?|days?\s*in\s*yard)\b/i },
-  { key: 'leaveDays', pattern: /\b(leave\s*days?|days?\s*on\s*leave)\b/i },
-  { key: 'totalDays', pattern: /\b(total\s*days?|days?\s*of\s*service|total\s*sea\s*service)\b/i },
-  { key: 'servicePeriodStart', pattern: /\b(from|date\s*of\s*engagement|date\s*signed\s*on|date\s*joined|start\s*date|commencement)\b/i },
-  { key: 'servicePeriodEnd', pattern: /\b(to\b|date\s*of\s*discharge|date\s*signed\s*off|date\s*left|end\s*date|completion)\b/i },
+  { key: 'yardDays', pattern: /\b(yard\s*days?|refit\s*days?|days?\s*in\s*yard|dry[-\s]*dock\s*days?)\b/i },
+  { key: 'leaveDays', pattern: /\b(leave\s*days?|days?\s*on\s*leave|vacation\s*days?)\b/i },
+  { key: 'totalDays', pattern: /\b(total\s*days?|days?\s*of\s*service|total\s*sea\s*service|total\s*service\s*days?)\b/i },
+  { key: 'servicePeriodStart', pattern: /\b(from|date\s*of\s*engagement|date\s*signed\s*on|date\s*joined|date\s*of\s*joining|start\s*date|commencement|date\s*from|period\s*from)\b/i },
+  { key: 'servicePeriodEnd', pattern: /\b(to\b|date\s*of\s*discharge|date\s*signed\s*off|date\s*left|date\s*of\s*leaving|end\s*date|completion|date\s*to|period\s*to|paid\s*off)\b/i },
 
   // Captain
-  { key: 'captainName', pattern: /\b(master|captain|commanding\s*officer|signed\s*by\s*master)\b/i },
+  { key: 'captainName', pattern: /\b(master|captain|commanding\s*officer|signed\s*by\s*master|master'?s?\s*name)\b/i },
+  { key: 'captainPosition', pattern: /\b(master'?s?\s*(rank|position|title))\b/i },
+  { key: 'captainSignature', pattern: /\bmaster'?s?\s*signature|captain'?s?\s*signature\b/i },
+
+  // System
+  { key: 'todayDate', pattern: /\b(today'?s?\s*date|date\s*signed|date\s*completed|date\s*of\s*signing|signed\s*on\s*\(date\))\b/i },
 ];
+
+/**
+ * Heuristic flag for labels that read like a derived/computed value.
+ * Used by the API route to seed `type: 'calculated'` suggestions when
+ * the second-pass classifier returns isCalculable, OR locally as a
+ * fallback when the AI call wasn't run.
+ *
+ * Conservative on purpose — we'd rather miss a calc opportunity than
+ * mis-classify a plain numeric blank as calculated (which would force
+ * the user to undo it in the editor).
+ */
+export function isLikelyCalculatedLabel(label: string): boolean {
+  if (!label) return false;
+  const cleaned = label.toLowerCase();
+  // Compound expressions are an obvious tell.
+  if (/[=+\-×x]\s*[a-z]/.test(cleaned)) return true;
+  // "Sum of …" / "Total of …" / "Grand total" wording.
+  if (/\b(sum\s*of|grand\s*total|net\s*total|gross\s*total)\b/.test(cleaned)) {
+    return true;
+  }
+  // "Subtotal" cells.
+  if (/\b(sub[-\s]*total|running\s*total|cumulative)\b/.test(cleaned)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Token-overlap fuzzy fallback for labels the regex misses. Each
+ * PROFILE_FIELD_MAP key has a "canonical phrase" (its label + a few
+ * common aliases) — we tokenise both sides and score by Jaccard
+ * overlap on word stems. Returns the best key + score, or null when
+ * nothing crosses the threshold.
+ *
+ * Deliberately conservative — 0.5 minimum overlap means at least half
+ * the meaningful tokens line up before we'll guess. Used after the
+ * alias regex but before the AI second-pass (so it only fires on the
+ * harder cases that need cheap CPU rather than a network round-trip).
+ */
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((tok) => tok.length >= 3 && !TOKEN_STOP_WORDS.has(tok))
+    .map((tok) => {
+      // Trim trailing -s for crude plural-stemming so "days" matches
+      // "day". Done in one step so we don't import a stemmer for this.
+      if (tok.endsWith('s') && tok.length > 4) return tok.slice(0, -1);
+      return tok;
+    });
+}
+
+const TOKEN_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'this', 'that', 'name', 'date',
+  'number', 'no', 'detail', 'details', 'value', 'fill', 'enter', 'please',
+  'tick', 'cross', 'box', 'line', 'field', 'item', 'row', 'column', 'page',
+]);
+
+/**
+ * Canonical phrases keyed by profileKey. We hand-curate one short phrase
+ * per key (label + most useful aliases joined). Adding new keys should
+ * stay easy — keep the values short so tokenisation isn't dominated by
+ * noise.
+ */
+const CANONICAL_PHRASES: Record<string, string> = {
+  fullName: 'full name seafarer crew member',
+  firstName: 'first given christian forename',
+  lastName: 'last surname family',
+  email: 'email mail address',
+  dateOfBirth: 'date of birth dob born',
+  placeOfBirth: 'place town city of birth',
+  countryOfBirth: 'country of birth',
+  nationality: 'nationality citizenship',
+  telephone: 'telephone phone landline',
+  mobile: 'mobile cell cellphone',
+  position: 'rank position capacity grade rating',
+  dischargeBookNumber: 'discharge book seaman cdc sid',
+  title: 'title mr mrs ms dr',
+  fullAddress: 'home postal full address',
+  addressLine1: 'address line one street',
+  addressLine2: 'address line two apartment building',
+  addressDistrict: 'district neighbourhood',
+  addressTownCity: 'town city locality suburb',
+  addressCountyState: 'county state province region',
+  addressPostCode: 'post code postcode zip',
+  addressCountry: 'country',
+  vesselName: 'name of ship vessel',
+  vesselType: 'type of ship class vessel',
+  vesselIMO: 'imo number',
+  vesselOfficialNumber: 'official number',
+  vesselFlag: 'flag state port of registry country',
+  vesselGrossTonnage: 'gross tonnage gt',
+  vesselLength: 'length loa overall',
+  vesselBeam: 'beam width',
+  vesselDraft: 'draft draught',
+  vesselNumberOfCrew: 'number of crew complement',
+  vesselBuildYear: 'year built build',
+  vesselCallSign: 'call sign',
+  vesselMMSI: 'mmsi',
+  vesselManagementCompany: 'management company owner managing',
+  vesselCompanyAddress: 'company address',
+  vesselCompanyContact: 'company contact phone email',
+  servicePeriodStart: 'from date engagement signed on joined start commencement',
+  servicePeriodEnd: 'to date discharge signed off left end completion paid off',
+  totalDays: 'total days service',
+  atSeaDays: 'days at sea',
+  standbyDays: 'standby days on harbour',
+  yardDays: 'yard refit dry dock days',
+  leaveDays: 'leave vacation days',
+  underwayDays: 'underway sailing days',
+  atAnchorDays: 'at anchor anchored days',
+  inPortDays: 'in port alongside days',
+  captainName: 'master captain commanding officer name',
+  captainPosition: 'master captain rank position',
+  captainSignature: 'master captain signature',
+  todayDate: 'today current date signed completed',
+};
+
+/**
+ * Best-effort fuzzy match. Returns `{ key, score }` for the top match
+ * when the Jaccard overlap is at least `minScore`, otherwise null.
+ * Exported so the API route can run a CPU-only refinement before
+ * spending the AI second-pass.
+ */
+export function fuzzyMatchProfileKey(
+  fieldName: string,
+  fieldDescription?: string | null,
+  minScore = 0.5,
+): { key: string; score: number } | null {
+  const haystack = `${fieldName} ${fieldDescription ?? ''}`;
+  const labelTokens = new Set(tokenize(haystack));
+  if (labelTokens.size === 0) return null;
+
+  let best: { key: string; score: number } | null = null;
+  for (const [key, phrase] of Object.entries(CANONICAL_PHRASES)) {
+    const phraseTokens = new Set(tokenize(phrase));
+    if (phraseTokens.size === 0) continue;
+    let overlap = 0;
+    for (const tok of phraseTokens) {
+      if (labelTokens.has(tok)) overlap += 1;
+    }
+    const score = overlap / Math.max(labelTokens.size, phraseTokens.size);
+    if (score >= minScore && (best == null || score > best.score)) {
+      best = { key, score };
+    }
+  }
+  return best;
+}
 
 /** Try to resolve a profileKey from the field's label/description text. */
 function resolveAliasKey(fieldName: string, fieldDescription?: string): string | null {

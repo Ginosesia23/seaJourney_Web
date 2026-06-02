@@ -9,9 +9,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { TEMPLATE_BUCKET } from '@/lib/vessel-document-templates';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { formBuilderAccessDenied } from '@/lib/vessel-form-builder-access';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+const PROFILE_SELECT =
+  'id, role, active_vessel_id, subscription_tier, subscription_status, cancel_at_period_end, current_period_end';
 
 async function authenticate(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -31,7 +35,7 @@ async function authenticate(request: NextRequest) {
   }
   const { data: profile } = await supabaseAdmin
     .from('users')
-    .select('id, role, active_vessel_id')
+    .select(PROFILE_SELECT)
     .eq('id', user.id)
     .maybeSingle();
   return { user, profile };
@@ -75,6 +79,9 @@ export async function GET(
   if (!hasAccess) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
+
+  const tierDenied = formBuilderAccessDenied(profile as any);
+  if (tierDenied) return tierDenied;
 
   const { data: fileBlob, error } = await supabaseAdmin.storage
     .from(TEMPLATE_BUCKET)

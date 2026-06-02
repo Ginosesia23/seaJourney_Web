@@ -1,7 +1,11 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useUser, useSupabase } from '@/supabase';
+import { useDoc } from '@/supabase/database';
+import { isVesselLinkedAccount } from '@/supabase/database/subscription-helpers';
+import type { UserProfile } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -73,6 +77,18 @@ export default function ProofOfServicePage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
   const { toast } = useToast();
+  const router = useRouter();
+  const { data: userProfileRaw } = useDoc<UserProfile>('users', user?.id);
+
+  // Vessel-linked secondary accounts (Captain / Officer / Engineer / Manager)
+  // don't own personal sea-time history, so this page doesn't apply to them.
+  // Redirect to the dashboard if one of them lands here directly.
+  useEffect(() => {
+    if (userProfileRaw && isVesselLinkedAccount(userProfileRaw)) {
+      router.replace('/dashboard');
+    }
+  }, [userProfileRaw, router]);
+
   const [entries, setEntries] = useState<ProofOfService[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);

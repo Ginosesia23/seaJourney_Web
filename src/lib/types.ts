@@ -35,7 +35,16 @@ export interface UserProfile {
   addressCountyState?: string | null;
   addressPostCode?: string | null;
   addressCountry?: string | null;
+  /**
+   * If non-null, this user is a vessel-linked secondary account owned by the referenced vessel.
+   * Created via /api/users/invite-vessel-role by a vessel manager on the Pro or Fleet tier.
+   * See: /dashboard/vessel-roles
+   */
+  managedByVesselId?: string | null;
 }
+
+/** Roles a vessel manager (Pro/Fleet tier) can create as a linked secondary account. */
+export type VesselLinkedRole = 'captain' | 'officer' | 'engineer' | 'manager';
 
 export interface Vessel {
   id: string;
@@ -58,6 +67,8 @@ export interface Vessel {
   management_company?: string | null;
   company_address?: string | null;
   company_contact?: string | null;
+  /** Vessel ship's stamp stored as a base64 image data URL (PNG/JPEG). */
+  stamp?: string | null;
 }
 
 export type DailyStatus = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';
@@ -283,6 +294,38 @@ export interface CrewLeavePeriod {
     notes?: string | null;              // Optional notes about the leave period
     createdAt?: string;                 // ISO timestamp
     updatedAt?: string;                 // ISO timestamp
+}
+
+export type CrewDaysOwedScope = 'rotation_block' | 'until_return';
+
+export interface CrewDaysOwed {
+    id: string;
+    crewUserId: string;
+    vesselId: string;
+    vesselUserId: string;
+    startDate: string;
+    endDate: string;
+    scope: CrewDaysOwedScope;
+    notes?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+}
+
+export type RotationUnit = 'days' | 'weeks' | 'months';
+
+export interface CrewRotation {
+    id: string;                        // uuid PK
+    vesselId: string;                  // uuid FK → vessels.id
+    crewUserId: string | null;         // uuid FK → users.id, null = vessel-wide default
+    onUnit: RotationUnit;              // Unit for the ON period
+    onValue: number;                   // Duration of ON period (positive integer)
+    offUnit: RotationUnit;             // Unit for the OFF period
+    offValue: number;                  // Duration of OFF period (positive integer)
+    startDate: string;                 // YYYY-MM-DD — reference date for cycle calculation
+    endDate?: string | null;           // YYYY-MM-DD — optional last day of rotation (inclusive)
+    notes?: string | null;             // Optional notes about the rotation
+    createdAt?: string;                // ISO timestamp
+    updatedAt?: string;                // ISO timestamp
 }
 
 export interface VesselClaimRequest {

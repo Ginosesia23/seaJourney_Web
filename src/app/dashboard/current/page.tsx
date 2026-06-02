@@ -43,13 +43,14 @@ import {
   endVesselAssignment,
   getVesselAssignments,
   getPassageLogs,
+  getPassageLogsByVessel,
   createPassageLog,
 } from '@/supabase/database/queries';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { DateRange } from 'react-day-picker';
-import type { UserProfile, Vessel, SeaServiceRecord, StateLog, DailyStatus, VesselAssignment } from '@/lib/types';
+import type { UserProfile, Vessel, SeaServiceRecord, StateLog, DailyStatus, VesselAssignment, PassageLog } from '@/lib/types';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
@@ -279,6 +280,7 @@ export default function CurrentPage() {
   const canAddVessel = hasUnlimitedVessels || actualVesselCount < vesselLimit;
 
   const [stateLogs, setStateLogs] = useState<StateLog[]>([]);
+  const [passages, setPassages] = useState<PassageLog[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
 
@@ -1019,6 +1021,88 @@ export default function CurrentPage() {
     return role === 'vessel';
   }, [userProfile]);
 
+  // Fetch passage logs so the date hover tooltip can show passage details
+  // (origin → destination, distance, type) on underway / part-of-passage days.
+  useEffect(() => {
+    if (!user?.id || !supabase) {
+      setPassages([]);
+      return;
+    }
+
+    const fetchPassages = async () => {
+      try {
+        const collected: PassageLog[] = [];
+
+        const useVesselPassages =
+          isVesselAccount ||
+          (userProfile?.role === 'captain' && captainViewMode === 'vessel');
+
+        if (useVesselPassages) {
+          const vesselIds = new Set<string>();
+          for (const a of vesselAssignments) vesselIds.add(a.vesselId);
+          if (currentVessel?.id) vesselIds.add(currentVessel.id);
+
+          for (const vesselId of vesselIds) {
+            try {
+              const byVessel = await getPassageLogsByVessel(supabase, vesselId);
+              collected.push(...byVessel);
+            } catch (err) {
+              console.error('[CURRENT PAGE] Error fetching vessel passages:', vesselId, err);
+            }
+          }
+        } else {
+          try {
+            const own = await getPassageLogs(supabase, user.id);
+            collected.push(...own);
+          } catch (err) {
+            console.error('[CURRENT PAGE] Error fetching personal passages:', err);
+          }
+        }
+
+        const deduped = Array.from(
+          new Map(collected.map((p) => [p.id, p])).values()
+        );
+        setPassages(deduped);
+      } catch (err) {
+        console.error('[CURRENT PAGE] Error fetching passages:', err);
+        setPassages([]);
+      }
+    };
+
+    fetchPassages();
+  }, [
+    user?.id,
+    supabase,
+    isVesselAccount,
+    userProfile?.role,
+    captainViewMode,
+    currentVessel?.id,
+    vesselAssignments,
+  ]);
+
+  // O(1) date → passages lookup for tooltip rendering.
+  const passagesByDate = useMemo(() => {
+    const map = new Map<string, PassageLog[]>();
+    for (const p of passages) {
+      if (!p.start_time || !p.end_time) continue;
+      try {
+        const start = startOfDay(new Date(p.start_time));
+        const end = startOfDay(new Date(p.end_time));
+        if (isAfter(start, end)) continue;
+        const days = eachDayOfInterval({ start, end });
+        for (const d of days) {
+          const key = format(d, 'yyyy-MM-dd');
+          const arr = map.get(key);
+          if (arr) arr.push(p);
+          else map.set(key, [p]);
+        }
+      } catch (err) {
+        // Skip malformed passages rather than breaking the page.
+      }
+    }
+    return map;
+  }, [passages]);
+
   // For vessel accounts, automatically set their vessel if they have active_vessel_id
   useEffect(() => {
     if (isVesselAccount && userProfile?.activeVesselId && vessels) {
@@ -1039,17 +1123,17 @@ export default function CurrentPage() {
 
       try {
         const { data, error } = await supabase
-          .from('watch_logs')
-          .select('watch_start')
+          .from('nav_watch_logs')
+          .select('start_time')
           .eq('user_id', user.id);
 
         if (error) throw error;
 
-        // Extract dates from watch logs (watch_start timestamps)
+        // Extract dates from watch logs (start_time timestamps)
         const dates = new Set<string>();
         if (data) {
-          data.forEach((log: { watch_start: string }) => {
-            const date = format(new Date(log.watch_start), 'yyyy-MM-dd');
+          data.forEach((log: { start_time: string }) => {
+            const date = format(new Date(log.start_time), 'yyyy-MM-dd');
             dates.add(date);
           });
         }
@@ -1314,12 +1398,12 @@ export default function CurrentPage() {
 
         // Check if there's a watch log entry for today
         const { data, error } = await supabase
-          .from('watch_logs')
+          .from('nav_watch_logs')
           .select('id')
           .eq('user_id', user.id)
           .eq('vessel_id', currentVessel.id)
-          .gte('watch_start', todayStart.toISOString())
-          .lte('watch_start', todayEnd.toISOString())
+          .gte('start_time', todayStart.toISOString())
+          .lte('start_time', todayEnd.toISOString())
           .maybeSingle();
 
         if (error) throw error;
@@ -1501,12 +1585,12 @@ export default function CurrentPage() {
       if (isOnWatchToday) {
         // Remove watch - delete today's watch log entry
         const { error } = await supabase
-          .from('watch_logs')
+          .from('nav_watch_logs')
           .delete()
           .eq('user_id', user.id)
           .eq('vessel_id', currentVessel.id)
-          .gte('watch_start', todayStart.toISOString())
-          .lte('watch_start', todayEnd.toISOString());
+          .gte('start_time', todayStart.toISOString())
+          .lte('start_time', todayEnd.toISOString());
 
         if (error) throw error;
         
@@ -1524,12 +1608,12 @@ export default function CurrentPage() {
       } else {
         // Start watch - create a watch log entry for the full day
         const { error } = await supabase
-          .from('watch_logs')
+          .from('nav_watch_logs')
           .insert({
             user_id: user.id,
             vessel_id: currentVessel.id,
-            watch_start: todayStart.toISOString(),
-            watch_end: todayEnd.toISOString(),
+            start_time: todayStart.toISOString(),
+            end_time: todayEnd.toISOString(),
             watch_type: 'bridge', // Default type, can be changed if needed
           });
 
@@ -1991,12 +2075,12 @@ export default function CurrentPage() {
           if (!watchDates.has(dateKey)) {
             try {
               const { error: watchError } = await supabase
-                .from('watch_logs')
+                .from('nav_watch_logs')
                 .insert({
                   user_id: user.id,
                   vessel_id: currentVessel.id,
-                  watch_start: dateStart.toISOString(),
-                  watch_end: dateEnd.toISOString(),
+                  start_time: dateStart.toISOString(),
+                  end_time: dateEnd.toISOString(),
                   watch_type: 'bridge', // Using 'bridge' for navigation watch
                 });
 
@@ -2021,12 +2105,12 @@ export default function CurrentPage() {
           if (watchDates.has(dateKey)) {
             try {
               const { error: watchError } = await supabase
-                .from('watch_logs')
+                .from('nav_watch_logs')
                 .delete()
                 .eq('user_id', user.id)
                 .eq('vessel_id', currentVessel.id)
-                .gte('watch_start', dateStart.toISOString())
-                .lte('watch_start', dateEnd.toISOString());
+                .gte('start_time', dateStart.toISOString())
+                .lte('start_time', dateEnd.toISOString());
 
               if (watchError) {
                 console.error(`Error removing watch log for ${dateKey}:`, watchError);
@@ -2066,12 +2150,12 @@ export default function CurrentPage() {
               dateEnd.setHours(23, 59, 59, 999);
               
               const { error: watchError } = await supabase
-                .from('watch_logs')
+                .from('nav_watch_logs')
                 .delete()
                 .eq('user_id', user.id)
                 .eq('vessel_id', currentVessel.id)
-                .gte('watch_start', dateStart.toISOString())
-                .lte('watch_start', dateEnd.toISOString());
+                .gte('start_time', dateStart.toISOString())
+                .lte('start_time', dateEnd.toISOString());
 
               if (watchError) {
                 console.error(`Error removing watch log for ${dateStr}:`, watchError);
@@ -2408,12 +2492,12 @@ export default function CurrentPage() {
       if (state !== 'at-anchor' && watchDates.has(todayKey)) {
         try {
           const { error: watchError } = await supabase
-            .from('watch_logs')
+            .from('nav_watch_logs')
             .delete()
             .eq('user_id', user.id)
             .eq('vessel_id', currentVessel.id)
-            .gte('watch_start', todayStart.toISOString())
-            .lte('watch_start', todayEnd.toISOString());
+            .gte('start_time', todayStart.toISOString())
+            .lte('start_time', todayEnd.toISOString());
 
           if (watchError) {
             console.error('Error removing watch log:', watchError);
@@ -2557,12 +2641,12 @@ export default function CurrentPage() {
             dateEnd.setHours(23, 59, 59, 999);
             
             const { error: watchError } = await supabase
-              .from('watch_logs')
+              .from('nav_watch_logs')
               .delete()
               .eq('user_id', user.id)
               .eq('vessel_id', currentVessel.id)
-              .gte('watch_start', dateStart.toISOString())
-              .lte('watch_start', dateEnd.toISOString());
+              .gte('start_time', dateStart.toISOString())
+              .lte('start_time', dateEnd.toISOString());
 
             if (watchError) {
               console.error(`Error removing watch log for ${dateStr}:`, watchError);
@@ -2641,12 +2725,12 @@ export default function CurrentPage() {
       if (watchDates.has(todayKey)) {
         try {
           const { error: watchError } = await supabase
-            .from('watch_logs')
+            .from('nav_watch_logs')
             .delete()
             .eq('user_id', user.id)
             .eq('vessel_id', currentVessel.id)
-            .gte('watch_start', todayStart.toISOString())
-            .lte('watch_start', todayEnd.toISOString());
+            .gte('start_time', todayStart.toISOString())
+            .lte('start_time', todayEnd.toISOString());
 
           if (watchError) {
             console.error('Error removing watch log:', watchError);
@@ -2813,6 +2897,14 @@ export default function CurrentPage() {
                 // Determine styling for dates
                 let backgroundStyle: React.CSSProperties | undefined = undefined;
 
+                // Look up any recorded passages whose date range covers this
+                // day. Surface them in the tooltip on underway / part-of-passage
+                // days so the user can see *what* each at-sea day was for.
+                const passagesForDay = passagesByDate.get(dateKey) || [];
+                const shouldShowPassages =
+                  passagesForDay.length > 0 &&
+                  (stateInfo?.value === 'underway' || isPartOfActivePassage);
+
                 // Build tooltip content
                 const tooltipContent = (
                   <div className="space-y-1.5 text-sm">
@@ -2841,6 +2933,46 @@ export default function CurrentPage() {
                           <div className="flex items-center gap-2 text-purple-600">
                             <Clock className="h-3.5 w-3.5" />
                             <span>Counted as Standby</span>
+                          </div>
+                        )}
+                        {shouldShowPassages && (
+                          <div className="pt-1.5 mt-1 border-t border-border/50 space-y-1.5">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              {passagesForDay.length > 1 ? 'Passages' : 'Passage'}
+                            </div>
+                            {passagesForDay.map((p) => {
+                              const startDate = new Date(p.start_time);
+                              const endDate = new Date(p.end_time);
+                              const from = p.departure_port?.trim();
+                              const to = p.arrival_port?.trim();
+                              const routeLabel = from || to
+                                ? `${from || 'Unknown'} → ${to || 'Unknown'}`
+                                : 'Route not recorded';
+                              const ptype = p.passage_type
+                                ? p.passage_type.replace(/_/g, ' ')
+                                : null;
+                              return (
+                                <div key={p.id} className="space-y-0.5">
+                                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                                    <Ship className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="font-medium truncate">{routeLabel}</span>
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground pl-[22px]">
+                                    {format(startDate, 'd MMM HH:mm')}
+                                    <span className="mx-1">–</span>
+                                    {format(endDate, 'd MMM HH:mm')}
+                                  </div>
+                                  {(p.distance_nm != null || ptype) && (
+                                    <div className="text-[11px] text-muted-foreground pl-[22px] flex flex-wrap gap-x-2 capitalize">
+                                      {p.distance_nm != null && (
+                                        <span>{Math.round(p.distance_nm)} nm</span>
+                                      )}
+                                      {ptype && <span>· {ptype}</span>}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                         {notes && (

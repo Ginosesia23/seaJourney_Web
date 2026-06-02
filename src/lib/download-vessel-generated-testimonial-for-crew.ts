@@ -122,16 +122,16 @@ export async function downloadVesselGeneratedTestimonialForCrew(
 
     if (hasApprovedAccess && isOfficer && crewProfile.id) {
       const { data: watchLogs } = await supabase
-        .from('watch_logs')
-        .select('watch_start')
+        .from('nav_watch_logs')
+        .select('start_time')
         .eq('user_id', crewProfile.id)
         .eq('vessel_id', testimonial.vessel_id)
-        .gte('watch_start', `${testimonial.start_date}T00:00:00`)
-        .lte('watch_start', `${testimonial.end_date}T23:59:59`);
+        .gte('start_time', `${testimonial.start_date}T00:00:00`)
+        .lte('start_time', `${testimonial.end_date}T23:59:59`);
 
       if (watchLogs) {
         watchLogs.forEach((log) => {
-          const dateStr = formatDate(new Date(log.watch_start), 'yyyy-MM-dd');
+          const dateStr = formatDate(new Date(log.start_time), 'yyyy-MM-dd');
           watchDates.add(dateStr);
         });
       }
@@ -270,6 +270,7 @@ export async function downloadVesselGeneratedTestimonialForCrew(
       gross_tonnage: vessel.gross_tonnage || null,
       call_sign: vessel.call_sign || null,
       company_contact: vessel.company_contact ?? null,
+      stamp: (vessel as { stamp?: string | null }).stamp ?? null,
     },
     captainProfile: null,
     companyDetails: {

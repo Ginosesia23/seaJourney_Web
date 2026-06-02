@@ -38,14 +38,14 @@
 
     --content-background: 213 30% 94%;
 
-    /* Sidebar Colors - Lighter for light mode */
-    --sidebar-background: 213 45% 18%;
+    /* Sidebar Colors — match dark mode so the sidebar stays #0c1721 in light & dark */
+    --sidebar-background: 209 47% 9%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 213 45% 18%;
+    --sidebar-primary: 209 47% 9%;
     --sidebar-primary-foreground: 210 40% 98%;
-    --sidebar-accent: 213 45% 22%;
+    --sidebar-accent: 209 47% 14%;
     --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 213 45% 28%;
+    --sidebar-border: 209 47% 18%;
     --sidebar-ring: 213 90% 60%;
 
     /* Chart Colors — +5% lightness vs previous for calendar / legend */
@@ -96,14 +96,14 @@
 
     --content-background: 210 100% 4%;
 
-    /* Sidebar Colors */
-    --sidebar-background: 213 45% 9%;
+    /* Sidebar Colors — #0c1721 (matches light mode) */
+    --sidebar-background: 209 47% 9%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 213 45% 9%;
+    --sidebar-primary: 209 47% 9%;
     --sidebar-primary-foreground: 210 40% 98%;
-    --sidebar-accent: 213 45% 12%;
+    --sidebar-accent: 209 47% 14%;
     --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 213 45% 18%;
+    --sidebar-border: 209 47% 18%;
     --sidebar-ring: 213 90% 60%;
 
      /* Chart Colors */

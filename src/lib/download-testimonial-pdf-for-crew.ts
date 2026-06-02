@@ -175,6 +175,7 @@ export async function downloadTestimonialPdfForCrewMember(
       gross_tonnage: vessel.gross_tonnage || null,
       call_sign: vessel.call_sign || null,
       company_contact: vessel.company_contact ?? null,
+      stamp: (vessel as { stamp?: string | null }).stamp ?? null,
     },
     captainProfile,
     companyDetails: companyDetailsFromVessel(vessel),

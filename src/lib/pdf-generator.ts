@@ -153,6 +153,12 @@ export interface TestimonialPDFData {
     gross_tonnage?: number | null;
     call_sign?: string | null;
     company_contact?: string | null;
+    /**
+     * Optional ship's stamp as a base64 image data URL. When provided the
+     * stamp is rendered automatically inside the "Ship's Stamp" field on the
+     * generated testimonial.
+     */
+    stamp?: string | null;
   };
   captainProfile?: {
     firstName?: string;
@@ -2276,10 +2282,34 @@ export async function generateTestimonialPDF(
   setTextColor(primaryBlue);
   doc.text("Ship's Stamp", stampX, stampY);
 
+  // Ship's stamp - render the stored vessel stamp image if available, otherwise leave the
+  // labelled space blank so a physical stamp can be applied to printed copies.
+  const stampBoxY = stampY + 4;
+  const stampBoxHeight = 18; // Square-ish slot for a typical round/oval ship's stamp
+  const stampBoxWidth = sectionWidth - 2;
+  if (debug) positions.stampBox = { x: stampX, y: stampBoxY, w: stampBoxWidth, h: stampBoxHeight };
+
+  const vesselStamp = vessel.stamp || null;
+  let stampSectionEnd: number;
+  if (vesselStamp) {
+    try {
+      let stampFormat: 'PNG' | 'JPEG' = 'PNG';
+      if (vesselStamp.includes('data:image/jpeg') || vesselStamp.includes('data:image/jpg')) {
+        stampFormat = 'JPEG';
+      }
+      doc.addImage(vesselStamp, stampFormat, stampX, stampBoxY, stampBoxWidth, stampBoxHeight);
+      stampSectionEnd = stampBoxY + stampBoxHeight + 3;
+    } catch (error) {
+      console.error('[PDF GENERATION] Error adding ship\'s stamp image to PDF:', error);
+      stampSectionEnd = stampY + 4;
+    }
+  } else {
+    stampSectionEnd = stampY + 4;
+  }
+
   // Calculate final Y position based on the tallest section (signature with box)
   const signatureSectionEnd = signatureBoxY + signatureBoxHeight + 6; // Box + text below
   const dateSectionEnd = dateTextY + 4; // Text + spacing
-  const stampSectionEnd = stampY + 4; // Label only
   currentY = Math.max(signatureSectionEnd, dateSectionEnd, stampSectionEnd);
 
   // ===== Part 4 – Official Verification (optional) =====

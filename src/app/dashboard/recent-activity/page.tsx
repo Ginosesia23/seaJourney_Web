@@ -23,9 +23,11 @@ import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { useRouter } from 'next/navigation';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselStateLogs } from '@/supabase/database/queries';
+import { isVesselLinkedAccount } from '@/supabase/database/subscription-helpers';
 import type { Vessel, StateLog, UserProfile, DailyStatus, Testimonial } from '@/lib/types';
 
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
@@ -54,6 +56,7 @@ interface ActivityItem {
 export default function RecentActivityPage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
+  const router = useRouter();
   
   const [timeRange, setTimeRange] = useState<TimeRange>('30');
   const [activityType, setActivityType] = useState<ActivityType>('all');
@@ -65,6 +68,16 @@ export default function RecentActivityPage() {
 
   // Fetch user profile
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
+
+  // Vessel-linked secondary accounts (Captain / Officer / Engineer / Manager)
+  // don't have personal activity worth surfacing here — their work shows up
+  // through inbox + sign-offs instead. Redirect to the dashboard if they
+  // land here directly.
+  useEffect(() => {
+    if (userProfileRaw && isVesselLinkedAccount(userProfileRaw)) {
+      router.replace('/dashboard');
+    }
+  }, [userProfileRaw, router]);
   
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;

@@ -81,6 +81,8 @@ import {
   FormBuilderScanner,
   type FormBuilderScanDraft,
 } from './form-builder-scanner';
+import { canUseVesselFormBuilder } from '@/lib/vessel-form-builder-access';
+import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
 
 interface CrewOption {
   profile: UserProfile;
@@ -157,6 +159,8 @@ export function CustomTemplatesTab({
   crewList,
   loadingCrew,
 }: CustomTemplatesTabProps) {
+  const formBuilderEnabled = canUseVesselFormBuilder(currentUserProfile);
+
   const [templates, setTemplates] = useState<VesselDocumentTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -569,6 +573,16 @@ export function CustomTemplatesTab({
       setDeletingId(null);
     }
   };
+
+  if (!formBuilderEnabled) {
+    return (
+      <VesselPremiumFeatureGate
+        title="Available on Vessel Premium"
+        featureLabel="Form Builder"
+        description="Scan MCA and company forms, auto-detect fields, and save reusable templates for your vessel."
+      />
+    );
+  }
 
   if (!activeVesselId) {
     return (

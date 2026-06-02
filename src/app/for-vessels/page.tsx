@@ -369,6 +369,9 @@ export default function ForVesselsPage() {
                 Register a vessel
                 <ArrowRight className="h-4 w-4" />
               </Link>
+              <Link href="/request-demo" className="wk-btn wk-btn-ghost">
+                Request a demo
+              </Link>
               <Link href="/offers" className="wk-btn wk-btn-ghost">
                 See plans
               </Link>

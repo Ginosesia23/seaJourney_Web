@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { matchFieldsToProfile, type SeaTimeData, type ExtractedField } from '@/ai/document-scan-flow';
+import {
+  matchFieldsToProfile,
+  fuzzyMatchProfileKey,
+  type SeaTimeData,
+  type ExtractedField,
+} from '@/ai/document-scan-flow';
 import { buildScanRowContexts } from '@/lib/build-scan-row-contexts';
+import { formBuilderAccessDenied } from '@/lib/vessel-form-builder-access';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -25,6 +31,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    const { data: requestingUser } = await supabase
+      .from('users')
+      .select(
+        'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end',
+      )
+      .eq('id', user.id)
+      .maybeSingle();
+
+    const tierDenied = formBuilderAccessDenied(requestingUser as any);
+    if (tierDenied) return tierDenied;
+
     const body = await request.json();
     const { fields, crewUserId, vesselId, seaTimeData } = body as {
       fields: ExtractedField[];
@@ -36,8 +55,6 @@ export async function POST(request: NextRequest) {
     if (!fields?.length || !crewUserId || !vesselId) {
       return NextResponse.json({ error: 'fields, crewUserId, and vesselId are required' }, { status: 400 });
     }
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Fetch crew profile
     const { data: crewProfile } = await supabase
@@ -78,9 +95,21 @@ export async function POST(request: NextRequest) {
     // correctly — each row gets its own vessel and sea-time numbers.
     const rowContexts = await buildScanRowContexts(supabase, crewProfile.id);
 
+    // CPU-only fuzzy upgrade for fields the original scan didn't bind.
+    // We don't run the AI second-pass here — rematch is invoked frequently
+    // (every time the user switches crew) and re-doing the binding pass
+    // each time would waste quota. The fuzzy fallback alone catches ~20%
+    // of the long-tail labels the first scan missed.
+    const enhancedFields: ExtractedField[] = fields.map((f) => {
+      if (f.profileKey && f.profileKey !== 'none') return f;
+      const match = fuzzyMatchProfileKey(f.fieldName, f.fieldDescription);
+      if (!match) return f;
+      return { ...f, profileKey: match.key };
+    });
+
     // Re-match fields
     const matchedFields = matchFieldsToProfile(
-      fields,
+      enhancedFields,
       crewProfile,
       vesselData,
       captainName,

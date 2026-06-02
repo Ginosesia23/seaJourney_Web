@@ -441,8 +441,8 @@ export async function generateSeaTimeReportData(
   
   if (isOfficer) {
     let watchQuery = supabaseAdmin
-      .from('watch_logs')
-      .select('watch_start')
+      .from('nav_watch_logs')
+      .select('start_time')
       .eq('user_id', userId);
     
     if (filterType === 'vessel' && vesselId) {
@@ -450,15 +450,15 @@ export async function generateSeaTimeReportData(
     } else if (filterType === 'date_range' && dateRange) {
       const startDateStr = dateRange.from.toISOString().split('T')[0];
       const endDateStr = dateRange.to.toISOString().split('T')[0];
-      watchQuery = watchQuery.gte('watch_start', `${startDateStr}T00:00:00`)
-                             .lte('watch_start', `${endDateStr}T23:59:59`);
+      watchQuery = watchQuery.gte('start_time', `${startDateStr}T00:00:00`)
+                             .lte('start_time', `${endDateStr}T23:59:59`);
     }
     
     const { data: watchLogs } = await watchQuery;
     
     if (watchLogs) {
       watchLogs.forEach(log => {
-        const dateStr = format(new Date(log.watch_start), 'yyyy-MM-dd');
+        const dateStr = format(new Date(log.start_time), 'yyyy-MM-dd');
         watchDates.add(dateStr);
       });
     }

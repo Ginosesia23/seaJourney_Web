@@ -16,9 +16,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselStateLogs, getAllStateLogsForUser, updateStateLogsBatch, getVesselAssignments, deleteStateLogsForDates, getPassageLogs, createPassageLog } from '@/supabase/database/queries';
+import { getVesselStateLogs, getAllStateLogsForUser, updateStateLogsBatch, getVesselAssignments, deleteStateLogsForDates, getPassageLogs, getPassageLogsByVessel, createPassageLog } from '@/supabase/database/queries';
+import { isVesselLinkedAccount } from '@/supabase/database/subscription-helpers';
 import { useToast } from '@/hooks/use-toast';
-import type { UserProfile, Vessel, StateLog, DailyStatus, VesselAssignment } from '@/lib/types';
+import type { UserProfile, Vessel, StateLog, DailyStatus, VesselAssignment, PassageLog } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { calendarStateSolid, calendarStateWash } from '@/lib/calendar-state-colors';
 
@@ -37,6 +38,7 @@ export default function CalendarPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [stateLogs, setStateLogs] = useState<StateLog[]>([]);
+  const [passages, setPassages] = useState<PassageLog[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [selectionMode, setSelectionMode] = useState<'single' | 'range' | 'multi'>('single');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
@@ -111,6 +113,14 @@ export default function CalendarPage() {
     return role === 'vessel';
   }, [userProfile]);
 
+  // Vessel-linked secondary accounts (Captain / Officer / Engineer / Manager
+  // accounts owned by a vessel). They view the vessel's calendar in read-only
+  // mode — their own personal logs don't exist, the vessel's record is what
+  // they need to see.
+  const isVesselLinked = useMemo(() => {
+    return isVesselLinkedAccount(userProfileRaw);
+  }, [userProfileRaw]);
+
   // Fetch watch logs for the user (officers only)
   useEffect(() => {
     const fetchWatchLogs = async () => {
@@ -121,17 +131,17 @@ export default function CalendarPage() {
 
       try {
         const { data: watchLogs, error } = await supabase
-          .from('watch_logs')
-          .select('watch_start')
+          .from('nav_watch_logs')
+          .select('start_time')
           .eq('user_id', user.id);
 
         if (error) throw error;
 
-        // Extract dates from watch logs (watch_start timestamps)
+        // Extract dates from watch logs (start_time timestamps)
         const dates = new Set<string>();
         if (watchLogs) {
           watchLogs.forEach(log => {
-            const dateStr = format(new Date(log.watch_start), 'yyyy-MM-dd');
+            const dateStr = format(new Date(log.start_time), 'yyyy-MM-dd');
             dates.add(dateStr);
           });
         }
@@ -281,8 +291,15 @@ export default function CalendarPage() {
 
           // For captains: check view mode to determine which logs to fetch
       let userIdToFetch: string | undefined = user.id;
-      
-      if (userProfile?.role === 'captain' && captainViewMode === 'vessel') {
+
+      if (isVesselLinked) {
+        // Vessel-linked secondary accounts always view the vessel manager's
+        // logs (their own personal logs don't exist). They're already
+        // authorised via the vessel's `managed_by_vessel_id` link, so we
+        // skip the captaincy claim check captains go through.
+        const vesselManagerId = (vessel as any).vessel_manager_id || (vessel as any).vesselManagerId;
+        userIdToFetch = vesselManagerId || undefined;
+      } else if (userProfile?.role === 'captain' && captainViewMode === 'vessel') {
         // Captain wants to see vessel logs - check if they have approved captaincy
         try {
           const { data: captaincyData } = await supabase
@@ -333,8 +350,10 @@ export default function CalendarPage() {
         );
 
         // Include any user rows not covered by assignment vessel IDs (missing/legacy assignments).
+        // Vessel-linked accounts view the vessel manager's logs only; they don't
+        // have personal logs to merge in, so skip the user-wide pass.
         const isCaptainVesselView = userProfile?.role === 'captain' && captainViewMode === 'vessel';
-        if (!isCaptainVesselView) {
+        if (!isCaptainVesselView && !isVesselLinked) {
           try {
             const userWide = await getAllStateLogsForUser(supabase, user.id);
             const seen = new Set(uniqueLogs.map(log => `${log.date}-${log.vesselId}`));
@@ -365,7 +384,95 @@ export default function CalendarPage() {
     };
     
     fetchAllLogs();
-  }, [user?.id, vessels, vesselAssignments, currentVessel?.id, userProfile?.role, captainViewMode, supabase]);
+  }, [user?.id, vessels, vesselAssignments, currentVessel?.id, userProfile?.role, captainViewMode, supabase, isVesselLinked]);
+
+  // Fetch passage logs so we can show passage details in the date tooltip
+  // (origin → destination, distance, type) on underway / part-of-passage days.
+  useEffect(() => {
+    if (!user?.id || !supabase) {
+      setPassages([]);
+      return;
+    }
+
+    const fetchPassages = async () => {
+      try {
+        const collected: PassageLog[] = [];
+
+        const useVesselPassages =
+          isVesselAccount ||
+          isVesselLinked ||
+          (userProfile?.role === 'captain' && captainViewMode === 'vessel');
+
+        if (useVesselPassages) {
+          // Vessel / captain-in-vessel-mode / vessel-linked view: show every
+          // passage on the vessel(s) the user can access (any crew).
+          const vesselIds = new Set<string>();
+          for (const a of vesselAssignments) vesselIds.add(a.vesselId);
+          if (currentVessel?.id) vesselIds.add(currentVessel.id);
+
+          for (const vesselId of vesselIds) {
+            try {
+              const byVessel = await getPassageLogsByVessel(supabase, vesselId);
+              collected.push(...byVessel);
+            } catch (err) {
+              console.error('[CALENDAR PAGE] Error fetching vessel passages:', vesselId, err);
+            }
+          }
+        } else {
+          // Personal view: just the current user's own passages.
+          try {
+            const own = await getPassageLogs(supabase, user.id);
+            collected.push(...own);
+          } catch (err) {
+            console.error('[CALENDAR PAGE] Error fetching personal passages:', err);
+          }
+        }
+
+        const deduped = Array.from(
+          new Map(collected.map((p) => [p.id, p])).values()
+        );
+        setPassages(deduped);
+      } catch (err) {
+        console.error('[CALENDAR PAGE] Error fetching passages:', err);
+        setPassages([]);
+      }
+    };
+
+    fetchPassages();
+  }, [
+    user?.id,
+    supabase,
+    isVesselAccount,
+    isVesselLinked,
+    userProfile?.role,
+    captainViewMode,
+    currentVessel?.id,
+    vesselAssignments,
+  ]);
+
+  // Build a O(1) date → passages lookup so each calendar cell can render its
+  // own passage details in the tooltip without iterating the full list.
+  const passagesByDate = useMemo(() => {
+    const map = new Map<string, PassageLog[]>();
+    for (const p of passages) {
+      if (!p.start_time || !p.end_time) continue;
+      try {
+        const start = startOfDay(new Date(p.start_time));
+        const end = startOfDay(new Date(p.end_time));
+        if (isAfter(start, end)) continue;
+        const days = eachDayOfInterval({ start, end });
+        for (const d of days) {
+          const key = format(d, 'yyyy-MM-dd');
+          const arr = map.get(key);
+          if (arr) arr.push(p);
+          else map.set(key, [p]);
+        }
+      } catch (err) {
+        // Skip malformed passages rather than blowing up the calendar.
+      }
+    }
+    return map;
+  }, [passages]);
 
   // Fetch vessel assignments to determine valid date ranges
   useEffect(() => {
@@ -1005,12 +1112,12 @@ export default function CalendarPage() {
             if (!watchDates.has(dateKey)) {
               try {
                 const { error: watchError } = await supabase
-                  .from('watch_logs')
+                  .from('nav_watch_logs')
                   .insert({
                     user_id: user.id,
                     vessel_id: vesselId,
-                    watch_start: dateStart.toISOString(),
-                    watch_end: dateEnd.toISOString(),
+                    start_time: dateStart.toISOString(),
+                    end_time: dateEnd.toISOString(),
                     watch_type: 'bridge', // Using 'bridge' for navigation watch
                   });
 
@@ -1029,12 +1136,12 @@ export default function CalendarPage() {
             if (watchDates.has(dateKey)) {
               try {
                 const { error: watchError } = await supabase
-                  .from('watch_logs')
+                  .from('nav_watch_logs')
                   .delete()
                   .eq('user_id', user.id)
                   .eq('vessel_id', vesselId)
-                  .gte('watch_start', dateStart.toISOString())
-                  .lte('watch_start', dateEnd.toISOString());
+                  .gte('start_time', dateStart.toISOString())
+                  .lte('start_time', dateEnd.toISOString());
 
                 if (watchError) {
                   console.error(`Error removing watch log for ${dateKey}:`, watchError);
@@ -1075,12 +1182,12 @@ export default function CalendarPage() {
               dateEnd.setHours(23, 59, 59, 999);
               
               const { error: watchError } = await supabase
-                .from('watch_logs')
+                .from('nav_watch_logs')
                 .delete()
                 .eq('user_id', user.id)
                 .eq('vessel_id', validation.vessel.id)
-                .gte('watch_start', dateStart.toISOString())
-                .lte('watch_start', dateEnd.toISOString());
+                .gte('start_time', dateStart.toISOString())
+                .lte('start_time', dateEnd.toISOString());
 
               if (watchError) {
                 console.error(`Error removing watch log for ${dateStr}:`, watchError);
@@ -1299,12 +1406,12 @@ export default function CalendarPage() {
             dateEnd.setHours(23, 59, 59, 999);
             
             const { error: watchError } = await supabase
-              .from('watch_logs')
+              .from('nav_watch_logs')
               .delete()
               .eq('user_id', user.id)
               .eq('vessel_id', validation.vessel.id)
-              .gte('watch_start', dateStart.toISOString())
-              .lte('watch_start', dateEnd.toISOString());
+              .gte('start_time', dateStart.toISOString())
+              .lte('start_time', dateEnd.toISOString());
 
             if (watchError) {
               console.error(`Error removing watch log for ${dateStr}:`, watchError);
@@ -1523,6 +1630,14 @@ export default function CalendarPage() {
                   else if (isCountedStandby) secondaryIndicatorBar = 'standby';
                 }
 
+                // Look up any recorded passages whose date range covers this
+                // day. Surface them in the tooltip on underway / part-of-passage
+                // days so the user can see *what* each at-sea day was for.
+                const passagesForDay = passagesByDate.get(dateKey) || [];
+                const shouldShowPassages =
+                  passagesForDay.length > 0 &&
+                  (stateInfo?.value === 'underway' || isPartOfActivePassage);
+
                 // Build tooltip content
                 const tooltipContent = (
                   <div className="space-y-1.5 text-sm">
@@ -1551,6 +1666,46 @@ export default function CalendarPage() {
                           <div className="flex items-center gap-2 text-purple-600">
                             <Clock className="h-3.5 w-3.5" />
                             <span>Counted as Standby</span>
+                          </div>
+                        )}
+                        {shouldShowPassages && (
+                          <div className="pt-1.5 mt-1 border-t border-border/50 space-y-1.5">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              {passagesForDay.length > 1 ? 'Passages' : 'Passage'}
+                            </div>
+                            {passagesForDay.map((p) => {
+                              const startDate = new Date(p.start_time);
+                              const endDate = new Date(p.end_time);
+                              const from = p.departure_port?.trim();
+                              const to = p.arrival_port?.trim();
+                              const routeLabel = from || to
+                                ? `${from || 'Unknown'} → ${to || 'Unknown'}`
+                                : 'Route not recorded';
+                              const ptype = p.passage_type
+                                ? p.passage_type.replace(/_/g, ' ')
+                                : null;
+                              return (
+                                <div key={p.id} className="space-y-0.5">
+                                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                                    <Ship className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="font-medium truncate">{routeLabel}</span>
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground pl-[22px]">
+                                    {format(startDate, 'd MMM HH:mm')}
+                                    <span className="mx-1">–</span>
+                                    {format(endDate, 'd MMM HH:mm')}
+                                  </div>
+                                  {(p.distance_nm != null || ptype) && (
+                                    <div className="text-[11px] text-muted-foreground pl-[22px] flex flex-wrap gap-x-2 capitalize">
+                                      {p.distance_nm != null && (
+                                        <span>{Math.round(p.distance_nm)} nm</span>
+                                      )}
+                                      {ptype && <span>· {ptype}</span>}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                         {notes && (
@@ -1587,11 +1742,11 @@ export default function CalendarPage() {
                       <div className="aspect-square rounded-[6px] overflow-hidden">
                   <button
                     onClick={() => handleDateClick(day)}
-                    disabled={isFuture}
+                    disabled={isFuture || isVesselLinked}
                     className={cn(
                             "w-full h-full rounded-[6px] text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
                             secondaryIndicatorBar && "relative overflow-hidden",
-                      !isFuture && "hover:scale-105 hover:shadow-md",
+                      !isFuture && !isVesselLinked && "hover:scale-105 hover:shadow-md",
                       !isCurrentMonth && "opacity-40",
                       isFuture && "opacity-30 cursor-not-allowed",
                       // When only start date is selected (no end date yet) - show prominent blue border (highest priority for selection)
@@ -1739,7 +1894,9 @@ export default function CalendarPage() {
           <div className="space-y-1">
             <h1 className="text-3xl font-bold tracking-tight">Calendar</h1>
               <p className="text-muted-foreground">
-                View and manage your vessel states throughout the year. Use single date, date range, or multi-select to choose dates, then change their state.
+                {isVesselLinked
+                  ? "Read-only view of the vessel's daily state record. You can browse the calendar but can't edit entries from a linked account."
+                  : 'View and manage your vessel states throughout the year. Use single date, date range, or multi-select to choose dates, then change their state.'}
               </p>
           </div>
           {/* Captain View Mode Toggle - Only show for approved captains */}

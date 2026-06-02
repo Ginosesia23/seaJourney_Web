@@ -34,6 +34,9 @@ import {
   Megaphone,
   MessagesSquare,
   Crosshair,
+  FileSignature,
+  Clock,
+  RefreshCw,
 } from "lucide-react"
 
 import {
@@ -73,7 +76,11 @@ import { LogOut, Sparkles, Sun, Moon, Laptop } from "lucide-react"
 import { useTheme } from "next-themes"
 import type { UserProfile } from "@/lib/types"
 import { signOutLocal } from "@/lib/auth-utils"
-import { hasActiveSubscription as hasActiveSubscriptionEntitlement } from "@/supabase/database/subscription-helpers"
+import {
+  hasActiveSubscription as hasActiveSubscriptionEntitlement,
+  hasVesselPremiumPlusFeatures,
+  isVesselLinkedAccount,
+} from "@/supabase/database/subscription-helpers"
 
 type NavItem = {
   href: string;
@@ -109,7 +116,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
   },
   {
     title: "Logbooks",
-    hideForRoles: ['admin', 'crew'], // Hide for admin and crew (crew needs premium to see these)
+    hideForRoles: ['admin'],
     items: [
       { href: "/dashboard/passage-logbook", label: "Passage Log", icon: Map, disabled: false },
       { href: "/dashboard/bridge-watch-log", label: "Bridge Watch", icon: Navigation, disabled: false, hideForRoles: ['vessel'] }, // Hide Bridge Watch for vessel role
@@ -125,13 +132,14 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
       { href: "/dashboard/vessel-documents", label: "Documents", icon: FileText, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], crewLimitedOnly: true },
       { href: "/dashboard/certificates", label: "Certificates", icon: Award, disabled: false, hideForCrewLimited: true },
       { href: "/dashboard/proof-of-service", label: "Proof of Service", icon: ShieldCheck, disabled: false, hideForCrewLimited: true },
+      { href: "/dashboard/my-watch-schedule", label: "Watch Schedule", icon: Clock, disabled: false, hideForCrewLimited: true },
     ]
   },
   {
-    title: "Generator",
+    title: "Documents",
     hideForRoles: ['crew', 'captain', 'admin'],
     items: [
-      { href: "/dashboard/documents", label: "Documents", icon: FileText, disabled: false, requiredRole: "vessel" },
+      { href: "/dashboard/documents", label: "Generator", icon: FileText, disabled: false, requiredRole: "vessel" },
     ]
   },
   {
@@ -142,6 +150,9 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
       { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/crew-roles", label: "Assign Roles", icon: UserCog, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'] }, // Disabled for now – re-enable when ready
       { href: "/dashboard/requests", label: "Requests", icon: ClipboardList, requiredRole: "captain", disabled: false }, // Captains can view their requests
+      { href: "/dashboard/sign-offs", label: "Sign-Offs", icon: FileSignature, requiredRole: "captain", disabled: false }, // Linked captains review/sign vessel-routed testimonials in-app
+      { href: "/dashboard/watch-schedule", label: "Watch Schedule", icon: Clock, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/crew-rotation", label: "Onboard Tracker", icon: RefreshCw, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
     ]
   },
   {
@@ -156,6 +167,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false, hideForRoles: ['vessel'] }, // Hide Profile for vessel role
       { href: "/dashboard/profile", label: "Vessel", icon: Ship, disabled: false, requiredRole: "vessel", hideForRoles: ['captain'] }, // Show Vessel page for vessel role only (not captain)
+      { href: "/dashboard/vessel-roles", label: "Roles", icon: UserCog, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] }, // Premium+ feature: vessel-linked secondary accounts
       { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false, hideForRoles: ['vessel'] }, // Captain only; hidden for vessel accounts
     ]
   },
@@ -237,6 +249,15 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     return role === 'crew' && tier === 'crew_limited' && entitled;
   }, [userProfile]);
 
+  // Vessel-linked secondary accounts (created via /dashboard/vessel-roles by a
+  // Pro/Fleet vessel manager). Parallel to crew_limited but with its own
+  // allowed-hrefs whitelist. Captain-linked accounts have role='captain' so
+  // they additionally see captain-only nav items (signature, requests).
+  const isVesselLinked = React.useMemo(() => {
+    if (!userProfile) return false;
+    return isVesselLinkedAccount(userProfile) && hasActiveSubscriptionEntitlement(userProfile);
+  }, [userProfile]);
+
   // Check if user has premium/pro subscription for visa tracker access
   const hasPremiumAccess = React.useMemo(() => {
     if (!userProfile) return false;
@@ -257,11 +278,11 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
       );
     }
 
-    // Crew accounts: premium or pro only (but not crew_limited)
-    return (tier === 'premium' || tier === 'pro') && entitled;
+    // Crew accounts: premium, pro, or professional (but not crew_limited)
+    return (tier === 'premium' || tier === 'pro' || tier === 'professional') && entitled;
   }, [userProfile]);
 
-  /** Passage log: Standard+ crew (not crew_limited), vessel tiers, admin */
+  /** Passage log: Premium+ crew (not crew_limited), vessel tiers, admin */
   const hasPassageLogAccess = React.useMemo(() => {
     if (!userProfile) return false;
     const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toLowerCase();
@@ -283,9 +304,21 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
 
     if (isCrewLimited) return false;
 
-    const passageCrewTiers = ['standard', 'premium', 'pro', 'professional'];
+    const passageCrewTiers = ['premium', 'pro', 'professional'];
     return passageCrewTiers.includes(tier) && entitled;
   }, [userProfile, isCrewLimited]);
+
+  /** Vessel Premium+ features: roles, watch schedule, onboard tracker */
+  const hasVesselPremiumPlus = React.useMemo(() => {
+    if (!userProfile) return false;
+    return hasVesselPremiumPlusFeatures(userProfile);
+  }, [userProfile]);
+
+  const VESSEL_PREMIUM_PLUS_NAV = new Set([
+    '/dashboard/watch-schedule',
+    '/dashboard/crew-rotation',
+    '/dashboard/vessel-roles',
+  ]);
 
   // Check if user is an officer (for bridge watch log access)
   const isOfficer = React.useMemo(() => {
@@ -812,8 +845,40 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     }
                   }
 
+                  // For vessel_linked tier (Captain/Officer/Engineer/Manager
+                  // secondary accounts owned by a vessel): a flat allowed
+                  // list scoped to what these accounts actually need —
+                  // viewing the vessel's state, completing assigned tasks,
+                  // and managing their own profile. Personal-portfolio
+                  // pages (export, certificates, proof-of-service, recent
+                  // activity) are intentionally excluded because linked
+                  // accounts don't own portable sea-time history. Captain-
+                  // linked accounts additionally see captain-only items
+                  // (signature, requests, sign-offs) because their
+                  // users.role = 'captain' matches the `requiredRole`
+                  // checks already applied above.
+                  if (isVesselLinked) {
+                    const allowedHrefs = [
+                      '/dashboard',
+                      '/dashboard/current',
+                      '/dashboard/calendar',
+                      '/dashboard/profile',
+                      '/dashboard/applications',
+                      '/dashboard/vessel-documents',
+                      '/dashboard/inbox',
+                      '/dashboard/feedback',
+                      // Captain-only items (already gated by requiredRole):
+                      '/dashboard/settings/signature',
+                      '/dashboard/requests',
+                      '/dashboard/sign-offs',
+                    ];
+                    if (!allowedHrefs.includes(item.href)) {
+                      return null;
+                    }
+                  }
+
                   // Check if feature requires premium access (visa tracker, bridge watch, export, request sea time, certificates)
-                  // Passage log uses hasPassageLogAccess (Standard+ crew, vessel tiers)
+                  // Passage log uses hasPassageLogAccess (Premium+ crew, vessel tiers)
                   // Note: Applications page is accessible to all users (testimonials are free), but Nav Watch/OOW are premium-only
                   // Note: Export is accessible to crew_limited users, so we exclude it from premium requirement for them
                   const isVisaTracker = item.href === '/dashboard/visa-tracker';
@@ -822,12 +887,23 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const isExport = item.href === '/dashboard/export';
                   const isSeaTimeRequest = item.href === '/dashboard/sea-time-request';
                   const isCertificates = item.href === '/dashboard/certificates';
-                  // Export is accessible to crew_limited users, so don't require premium for them
+                  // vessel_linked accounts never reach this branch for the
+                  // hrefs filtered out above (export, certificates,
+                  // proof-of-service, recent-activity). For the items they
+                  // *can* see we still keep the `!isVesselLinked` guard so
+                  // no item is mistakenly marked premium-locked — their
+                  // feature surface comes from the vessel's Pro/Fleet
+                  // plan, not personal billing.
                   const requiresPremium =
                     (isVisaTracker || isBridgeWatch || isSeaTimeRequest || isCertificates || (isExport && !isCrewLimited)) &&
                     !hasPremiumAccess &&
-                    !isCrewLimited;
-                  const passageNavLocked = isPassageLog && !hasPassageLogAccess && !isCrewLimited;
+                    !isCrewLimited &&
+                    !isVesselLinked;
+                  const passageNavLocked = isPassageLog && !hasPassageLogAccess && !isCrewLimited && !isVesselLinked;
+                  const vesselPremiumNavLocked =
+                    VESSEL_PREMIUM_PLUS_NAV.has(item.href) &&
+                    userProfile?.role === 'vessel' &&
+                    !hasVesselPremiumPlus;
                   
                   // Hide bridge watch log for non-officers
                   if (isBridgeWatch && !isOfficer) {
@@ -854,7 +930,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   
                   return (
                     <SidebarMenuItem key={uniqueKey}>
-                      {requiresPremium || passageNavLocked ? (
+                      {requiresPremium || passageNavLocked || vesselPremiumNavLocked ? (
                         <Tooltip delayDuration={200}>
                           <TooltipTrigger asChild>
                             <div className="w-full">
@@ -875,8 +951,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                               <p className="font-semibold">{item.label}</p>
                               <p className="text-xs text-muted-foreground">
                                 {passageNavLocked
-                                  ? 'Passage Log is available on Standard tier and above (not Crew Limited), or with an active vessel subscription.'
-                                  : 'This feature requires a Premium or Pro subscription. Upgrade to unlock advanced features.'}
+                                  ? 'Passage Log is available on Crew Premium and Professional plans, or with an active vessel subscription.'
+                                  : vesselPremiumNavLocked
+                                    ? 'Available on Vessel Premium and Professional plans. Upgrade to unlock watch schedules, onboard tracker, linked roles, and Form Builder.'
+                                    : 'This feature requires a Premium or Pro subscription. Upgrade to unlock advanced features.'}
                               </p>
                             </div>
                           </TooltipContent>

@@ -42,6 +42,20 @@ export async function PUT(req: NextRequest) {
     if (updates.management_company !== undefined) updateData.management_company = updates.management_company?.trim() || null;
     if (updates.company_address !== undefined) updateData.company_address = updates.company_address?.trim() || null;
     if (updates.company_contact !== undefined) updateData.company_contact = updates.company_contact?.trim() || null;
+    if (updates.stamp !== undefined) {
+      // Stamp is a base64 image data URL (or null to clear). Don't trim — preserve raw bytes.
+      const stampValue = updates.stamp;
+      if (stampValue === null || stampValue === '') {
+        updateData.stamp = null;
+      } else if (typeof stampValue === 'string' && stampValue.startsWith('data:image/')) {
+        updateData.stamp = stampValue;
+      } else {
+        return NextResponse.json(
+          { error: 'Invalid stamp value. Expected an image data URL (data:image/...) or null.' },
+          { status: 400 }
+        );
+      }
+    }
 
     console.log('[UPDATE VESSEL API] Updating vessel:', vesselId);
     console.log('[UPDATE VESSEL API] Update data:', JSON.stringify(updateData, null, 2));

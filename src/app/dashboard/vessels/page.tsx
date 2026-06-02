@@ -192,21 +192,24 @@ export default function VesselsPage() {
     } as UserProfile;
   }, [userProfileRaw]);
 
-  // Check if user has crew_limited tier (restricted access - block vessels page)
-  const isCrewLimited = useMemo(() => {
+  // Restricted-access tiers (crew_limited + vessel_linked) — both are
+  // free vessel-managed accounts that should not see the personal "My Vessels"
+  // crew page (they don't have a personal vessel history; they belong to one).
+  const isRestrictedTier = useMemo(() => {
     if (!currentUserProfile || !userProfileRaw) return false;
-    const tier = (currentUserProfile as any).subscription_tier || currentUserProfile.subscriptionTier || 'free';
+    const tier = ((currentUserProfile as any).subscription_tier || currentUserProfile.subscriptionTier || 'free').toString().toLowerCase();
     const role = (currentUserProfile as any).role || currentUserProfile.role || 'crew';
-
-    return role === 'crew' && tier === 'crew_limited' && hasActiveSubscription(userProfileRaw);
+    if (!hasActiveSubscription(userProfileRaw)) return false;
+    if (tier === 'vessel_linked') return true;
+    return role === 'crew' && tier === 'crew_limited';
   }, [currentUserProfile, userProfileRaw]);
 
-  // Redirect crew_limited users away from vessels page
+  // Redirect restricted-tier users away from vessels page
   useEffect(() => {
-    if (!isLoadingProfile && isCrewLimited) {
+    if (!isLoadingProfile && isRestrictedTier) {
       router.push('/dashboard');
     }
-  }, [isLoadingProfile, isCrewLimited, router]);
+  }, [isLoadingProfile, isRestrictedTier, router]);
 
   // Check if user is a captain (has captain role, or position contains "captain", or role is "vessel"/"admin")
   const isCaptain = useMemo(() => {

@@ -30,6 +30,8 @@ import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import type { UserProfile, VesselAssignment, Vessel, VesselGeneratedTestimonial, StateLog, Testimonial } from '@/lib/types';
 import { getActiveVesselAssignmentsByVessel, getVesselStateLogs } from '@/supabase/database/queries';
+import { hasVesselPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
+import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
 import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
 import { computeSeaTimeInDateRange } from '@/lib/sea-time-in-range';
 import {
@@ -84,6 +86,11 @@ export default function DocumentsGeneratorPage() {
       role: p.role ?? 'crew',
     } as UserProfile;
   }, [currentUserProfileRaw]);
+
+  const hasPremiumPlusTier = useMemo(
+    () => hasVesselPremiumPlusFeatures(currentUserProfileRaw),
+    [currentUserProfileRaw],
+  );
 
   const { data: vesselsCollection } = useCollection<Vessel>('vessels');
   const activeVesselId = currentUserProfile?.role === 'vessel' ? (currentUserProfile as any).active_vessel_id ?? (currentUserProfile as any).activeVesselId : null;
@@ -217,10 +224,9 @@ export default function DocumentsGeneratorPage() {
   }, [supabase, currentUserProfile?.role, activeVesselId]);
 
   // Pull the list of form-builder templates for this vessel so we can offer
-  // them in the "Document type" dropdown. Silently ignores errors — if
-  // templates can't load we just fall back to the built-in options.
+  // them in the "Document type" dropdown. Premium+ only.
   useEffect(() => {
-    if (!activeVesselId || !session?.access_token) {
+    if (!hasPremiumPlusTier || !activeVesselId || !session?.access_token) {
       setFormTemplates([]);
       return;
     }
@@ -244,7 +250,18 @@ export default function DocumentsGeneratorPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeVesselId, session?.access_token]);
+  }, [hasPremiumPlusTier, activeVesselId, session?.access_token]);
+
+  useEffect(() => {
+    if (hasPremiumPlusTier) return;
+    if (documentType.startsWith('template:')) {
+      setDocumentType('testimonial');
+      setCalculatedSeaTime(null);
+    }
+    if (pageTab === 'custom-templates') {
+      setPageTab('generator');
+    }
+  }, [hasPremiumPlusTier, documentType, pageTab]);
 
   const activeFormTemplate = useMemo(() => {
     if (!documentType.startsWith('template:')) return null;
@@ -554,13 +571,13 @@ export default function DocumentsGeneratorPage() {
       const isOfficer = role === 'captain' || role === 'admin' || officerPositions.some((op) => position.includes(op));
       if (isOfficer && selectedCrew.profile.id) {
         const { data: watchLogs } = await supabase
-          .from('watch_logs')
-          .select('watch_start')
+          .from('nav_watch_logs')
+          .select('start_time')
           .eq('user_id', selectedCrew.profile.id)
           .eq('vessel_id', activeVesselId)
-          .gte('watch_start', `${startDateStr}T00:00:00`)
-          .lte('watch_start', `${endDateStr}T23:59:59`);
-        watchLogs?.forEach((log: any) => watchDates.add(formatDate(new Date(log.watch_start), 'yyyy-MM-dd')));
+          .gte('start_time', `${startDateStr}T00:00:00`)
+          .lte('start_time', `${endDateStr}T23:59:59`);
+        watchLogs?.forEach((log: any) => watchDates.add(formatDate(new Date(log.start_time), 'yyyy-MM-dd')));
       }
       const category = getVesselCalculationCategory(vessel?.type ?? null);
       const result = computeSeaTimeInDateRange({
@@ -1243,17 +1260,27 @@ export default function DocumentsGeneratorPage() {
       </div>
 
       {/* Top-level tabs */}
-      <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'generator' | 'custom-templates')}>
+      <Tabs
+        value={pageTab}
+        onValueChange={(v) => {
+          if (v === 'custom-templates' && !hasPremiumPlusTier) return;
+          setPageTab(v as 'generator' | 'custom-templates');
+        }}
+      >
         <TabsList className="h-10 rounded-xl p-1">
           <TabsTrigger value="generator" className="rounded-lg px-4 h-8 text-sm gap-2">
             <FileText className="h-4 w-4" />
             Generator
           </TabsTrigger>
-          <TabsTrigger value="custom-templates" className="rounded-lg px-4 h-8 text-sm gap-2">
+          <TabsTrigger
+            value="custom-templates"
+            disabled={!hasPremiumPlusTier}
+            className="rounded-lg px-4 h-8 text-sm gap-2 disabled:opacity-50"
+          >
             <LayoutTemplate className="h-4 w-4" />
             Form Builder
             <Badge variant="outline" className="ml-1 h-5 rounded-md text-[10px] font-semibold border-amber-500/40 text-amber-600 dark:text-amber-400 bg-amber-500/10">
-              BETA
+              {hasPremiumPlusTier ? 'BETA' : 'Premium+'}
             </Badge>
           </TabsTrigger>
         </TabsList>
@@ -1271,15 +1298,23 @@ export default function DocumentsGeneratorPage() {
           forceMount
           className="mt-6 data-[state=inactive]:hidden"
         >
-          <CustomTemplatesTab
-            supabase={supabase}
-            session={session}
-            activeVesselId={activeVesselId}
-            vessel={vessel as any}
-            currentUserProfile={currentUserProfile}
-            crewList={crewList}
-            loadingCrew={loadingCrew}
-          />
+          {hasPremiumPlusTier ? (
+            <CustomTemplatesTab
+              supabase={supabase}
+              session={session}
+              activeVesselId={activeVesselId}
+              vessel={vessel as any}
+              currentUserProfile={currentUserProfile}
+              crewList={crewList}
+              loadingCrew={loadingCrew}
+            />
+          ) : (
+            <VesselPremiumFeatureGate
+              title="Available on Vessel Premium"
+              featureLabel="Form Builder"
+              description="Scan MCA and company forms, auto-detect fields, and save reusable templates for your vessel."
+            />
+          )}
         </TabsContent>
 
         <TabsContent
@@ -1316,7 +1351,7 @@ export default function DocumentsGeneratorPage() {
                     </span>
                   </SelectItem>
                 ))}
-                {formTemplates.length > 0 && (
+                {hasPremiumPlusTier && formTemplates.length > 0 && (
                   <div className="mt-1 border-t border-border/60 pt-1">
                     <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                       Form Builder

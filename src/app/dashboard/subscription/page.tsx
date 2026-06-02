@@ -24,6 +24,12 @@ import {
   AlertTriangle,
   Download,
   FileText,
+  Anchor,
+  Ship,
+  Link2,
+  UserCog,
+  Mail,
+  User as UserIcon,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useUser, useSupabase } from '@/supabase';
@@ -183,6 +189,9 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
       'All Standard features',
       'Advanced crew analytics',
       'AI form builder',
+      'Watch schedules',
+      'Onboard tracker',
+      'Vessel linked role accounts',
       'Priority support',
     ],
     highlighted: false,
@@ -292,6 +301,107 @@ export default function ManageSubscriptionPage() {
       hasActiveSubscription(userProfileRaw)
     );
   }, [userProfile, userProfileRaw]);
+
+  // Vessel-linked secondary accounts (Captain / Officer / Engineer / Manager
+  // owned by a vessel on the Pro/Fleet plan). These accounts don't have their
+  // own Stripe subscription — the vessel pays for them — so we show a
+  // simplified "managed by your vessel" view instead of the plan picker.
+  const isVesselLinked = useMemo(() => {
+    if (!userProfile || !userProfileRaw) return false;
+    const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toString().toLowerCase();
+    return tier === 'vessel_linked' && hasActiveSubscription(userProfileRaw);
+  }, [userProfile, userProfileRaw]);
+
+  /** Parent-vessel info shown to a vessel_linked user (vessel name, plan, manager contact). */
+  type LinkedVesselInfo = {
+    vesselId: string;
+    vesselName: string;
+    vesselType: string | null;
+    /** Role label shown on this linked account, e.g. "Captain", "Officer". */
+    linkedRoleLabel: string;
+    /** Plan held by the vessel manager — typically vessel_pro / vessel_fleet. */
+    managerTier: string | null;
+    /** Display name of the vessel manager (best-effort). */
+    managerName: string | null;
+    /** Contact email of the vessel manager. */
+    managerEmail: string | null;
+  };
+  const [linkedVesselInfo, setLinkedVesselInfo] = useState<LinkedVesselInfo | null>(null);
+  const [isLoadingLinkedInfo, setIsLoadingLinkedInfo] = useState(false);
+
+  useEffect(() => {
+    if (!isVesselLinked || !userProfileRaw) {
+      setLinkedVesselInfo(null);
+      return;
+    }
+    const managedVesselId =
+      (userProfileRaw as any).managed_by_vessel_id ||
+      (userProfileRaw as any).active_vessel_id ||
+      null;
+    if (!managedVesselId) {
+      setLinkedVesselInfo(null);
+      return;
+    }
+    let cancelled = false;
+    const linkedRoleLabel =
+      ((userProfileRaw as any).position as string | null) || 'Linked account';
+    setIsLoadingLinkedInfo(true);
+    void (async () => {
+      try {
+        const { data: vesselRow } = await supabase
+          .from('vessels')
+          .select('id, name, type, vessel_manager_id')
+          .eq('id', managedVesselId)
+          .maybeSingle();
+        if (cancelled) return;
+        const managerId = (vesselRow as any)?.vessel_manager_id || null;
+        let managerName: string | null = null;
+        let managerEmail: string | null = null;
+        let managerTier: string | null = null;
+        if (managerId) {
+          const { data: managerRow } = await supabase
+            .from('users')
+            .select('first_name, last_name, email, subscription_tier')
+            .eq('id', managerId)
+            .maybeSingle();
+          if (!cancelled && managerRow) {
+            const first = (managerRow as any).first_name || '';
+            const last = (managerRow as any).last_name || '';
+            managerName = `${first} ${last}`.trim() || null;
+            managerEmail = (managerRow as any).email || null;
+            managerTier = (managerRow as any).subscription_tier || null;
+          }
+        }
+        if (cancelled) return;
+        setLinkedVesselInfo({
+          vesselId: managedVesselId,
+          vesselName: (vesselRow as any)?.name || 'Your vessel',
+          vesselType: (vesselRow as any)?.type || null,
+          linkedRoleLabel,
+          managerTier,
+          managerName,
+          managerEmail,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        console.error('[SUBSCRIPTION PAGE] Failed to load linked vessel info:', err);
+        setLinkedVesselInfo({
+          vesselId: managedVesselId,
+          vesselName: 'Your vessel',
+          vesselType: null,
+          linkedRoleLabel,
+          managerTier: null,
+          managerName: null,
+          managerEmail: null,
+        });
+      } finally {
+        if (!cancelled) setIsLoadingLinkedInfo(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isVesselLinked, userProfileRaw]);
   
   // Log for debugging
   useEffect(() => {
@@ -952,6 +1062,182 @@ export default function ManageSubscriptionPage() {
   const currentPeriodEnd = subscription?.current_period_end
     ? new Date(subscription.current_period_end * 1000)
     : null;
+
+  // Vessel-linked secondary account — they don't have their own subscription;
+  // the vessel pays. Show a simplified "managed by your vessel" view with
+  // the parent vessel's name, the user's role on the vessel, and the
+  // vessel manager's contact info.
+  if (isVesselLinked) {
+    const vesselName = linkedVesselInfo?.vesselName || 'Your vessel';
+    const vesselType = linkedVesselInfo?.vesselType || null;
+    const linkedRoleLabel = linkedVesselInfo?.linkedRoleLabel || 'Linked account';
+    const managerTier = (linkedVesselInfo?.managerTier || '').toLowerCase();
+    const managerPlanLabel = managerTier
+      ? managerTier
+          .replace(/^vessel_/, 'Vessel ')
+          .replace(/\b\w/g, (c) => c.toUpperCase())
+      : 'Vessel plan';
+    const managerName = linkedVesselInfo?.managerName || null;
+    const managerEmail = linkedVesselInfo?.managerEmail || null;
+    // Build a friendly "you" label for the link diagram (first name → email → "Your account").
+    const ownFirstName =
+      ((userProfileRaw as any)?.first_name as string | undefined) ||
+      (userProfile?.firstName as string | undefined) ||
+      null;
+    const ownEmail = (user?.email as string | undefined) || null;
+    const youLabel = ownFirstName || ownEmail || 'Your account';
+    return (
+      <div className="container mx-auto max-w-2xl px-4 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Subscription</h1>
+          <p className="text-muted-foreground mt-2">
+            This is a vessel-linked account. There&apos;s nothing to pay or manage here.
+          </p>
+        </div>
+
+        {/* Linked-account hero card */}
+        <Card className="overflow-hidden border-primary/30">
+          {/* Top eyebrow */}
+          <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent px-6 py-5 border-b">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary">
+              <Link2 className="h-3.5 w-3.5" />
+              Vessel-linked account
+            </div>
+
+            {/* Link diagram: [You] ── linked ── [Vessel] */}
+            <div className="mt-3 flex items-stretch gap-2 sm:gap-3">
+              {/* You */}
+              <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5 rounded-xl border bg-background/70 p-3 text-center shadow-sm">
+                <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-muted text-foreground">
+                  <UserIcon className="h-4 w-4" />
+                </div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  You
+                </div>
+                <div className="w-full truncate text-sm font-semibold text-foreground" title={youLabel}>
+                  {youLabel}
+                </div>
+                <Badge variant="outline" className="font-normal">
+                  {linkedRoleLabel}
+                </Badge>
+              </div>
+
+              {/* Connector */}
+              <div className="flex flex-col items-center justify-center px-1">
+                <div className="h-px w-6 bg-primary/40 sm:w-10" aria-hidden />
+                <div className="my-1 flex h-7 w-7 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary shadow-sm">
+                  <Link2 className="h-3.5 w-3.5" />
+                </div>
+                <div className="h-px w-6 bg-primary/40 sm:w-10" aria-hidden />
+                <div className="mt-1 text-[9px] font-semibold uppercase tracking-wider text-primary">
+                  Linked
+                </div>
+              </div>
+
+              {/* Vessel */}
+              <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 p-3 text-center shadow-sm">
+                <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-primary/15 text-primary">
+                  <Ship className="h-4 w-4" />
+                </div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+                  Vessel
+                </div>
+                {isLoadingLinkedInfo && !linkedVesselInfo ? (
+                  <>
+                    <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+                  </>
+                ) : (
+                  <>
+                    <div className="w-full truncate text-sm font-semibold text-foreground" title={vesselName}>
+                      {vesselName}
+                    </div>
+                    <Badge variant="secondary" className="font-normal">
+                      {managerPlanLabel}
+                    </Badge>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <p className="mt-4 text-center text-xs text-muted-foreground">
+              This account is linked to{' '}
+              <span className="font-semibold text-foreground">{vesselName}</span>
+              {vesselType ? (
+                <>
+                  {' '}
+                  <span className="inline-flex items-center gap-1 align-middle text-muted-foreground">
+                    <Anchor className="h-3 w-3" /> {vesselType}
+                  </span>
+                </>
+              ) : null}
+              . Access and billing are handled by the vessel.
+            </p>
+          </div>
+
+          <CardContent className="space-y-4 pt-5">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <UserCog className="h-3 w-3" /> Your role on this vessel
+                </div>
+                <div className="mt-1 text-sm font-semibold text-foreground">
+                  {linkedRoleLabel}
+                </div>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Shield className="h-3 w-3" /> Paid by
+                </div>
+                <div className="mt-1 truncate text-sm font-semibold text-foreground">
+                  {vesselName}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  via the vessel&apos;s {managerPlanLabel} plan
+                </div>
+              </div>
+            </div>
+
+            {(managerName || managerEmail) && (
+              <div className="rounded-lg border bg-background p-3">
+                <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Mail className="h-3 w-3" /> Vessel manager
+                </div>
+                <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  {managerName && (
+                    <span className="text-sm font-semibold text-foreground">
+                      {managerName}
+                    </span>
+                  )}
+                  {managerEmail && (
+                    <a
+                      href={`mailto:${managerEmail}`}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      {managerEmail}
+                    </a>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Contact the vessel manager to change your access or unlink this account.
+                </p>
+              </div>
+            )}
+
+            <div className="rounded-lg border border-dashed bg-muted/20 p-3">
+              <p className="text-xs text-muted-foreground">
+                Want your own personal SeaJourney account with full crew features (sea-time tracking, visa tracker, etc.)? You can sign up separately at{' '}
+                <a className="font-medium text-primary hover:underline" href="/signup">
+                  /signup
+                </a>{' '}
+                using a different email.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">

@@ -21,8 +21,8 @@ export async function GET(request: NextRequest) {
     }
 
     let query = supabaseAdmin
-      .from('watch_logs')
-      .select('watch_start, vessel_id')
+      .from('nav_watch_logs')
+      .select('start_time, vessel_id')
       .eq('user_id', userId);
 
     if (vesselId) {
@@ -31,11 +31,11 @@ export async function GET(request: NextRequest) {
 
     if (startDate && endDate) {
       query = query
-        .gte('watch_start', `${startDate}T00:00:00`)
-        .lte('watch_start', `${endDate}T23:59:59`);
+        .gte('start_time', `${startDate}T00:00:00`)
+        .lte('start_time', `${endDate}T23:59:59`);
     }
 
-    const { data: watchLogs, error } = await query.order('watch_start', { ascending: true });
+    const { data: watchLogs, error } = await query.order('start_time', { ascending: true });
 
     if (error) {
       console.error('[API] Error fetching watch logs:', error);

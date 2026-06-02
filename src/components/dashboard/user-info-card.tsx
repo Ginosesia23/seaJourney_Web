@@ -5,7 +5,7 @@ import { useDoc, useCollection } from '@/supabase/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { User, Briefcase, Ship, Shield, Megaphone } from 'lucide-react';
+import { User, Briefcase, Ship, Shield } from 'lucide-react';
 import { format } from 'date-fns';
 import type { UserProfile, Vessel } from '@/lib/types';
 
@@ -139,30 +139,6 @@ export function UserInfoCard({ userId }: UserInfoCardProps) {
             className={getRoleBadgeClassName(userProfile.role)}
           >
             {getRoleLabel(userProfile.role)}
-          </Badge>
-        </div>
-
-        {/* users.ads: false = No-Ads, true = Ads-Showing, else Not Set */}
-        <div className="flex items-center justify-between py-2 border-b border-border/50">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Megaphone className="h-4 w-4" />
-            <span>Ads experience</span>
-          </div>
-          <Badge
-            variant="outline"
-            className={
-              userProfile.ads === false
-                ? 'bg-emerald-500/10 text-emerald-800 border-emerald-500/25 dark:text-emerald-300'
-                : userProfile.ads === true
-                  ? 'bg-amber-500/10 text-amber-900 border-amber-500/25 dark:text-amber-200'
-                  : 'font-normal text-muted-foreground'
-            }
-          >
-            {userProfile.ads === false
-              ? 'No-Ads'
-              : userProfile.ads === true
-                ? 'Ads-Showing'
-                : 'Not Set'}
           </Badge>
         </div>
 

@@ -66,6 +66,25 @@ interface ScannedField {
   fieldType?: TemplateFieldType;
   page?: number;
   bbox?: TemplateField['bbox'];
+  /**
+   * Optional binding suggestion from the AI auto-bind classifier. When
+   * confidence is high (>= AUTO_BIND_APPLY_THRESHOLD) the server has
+   * already applied it to `profileKey`. We still pass it through so the
+   * editor can show provenance ("auto-bound · 0.78 confidence") and
+   * surface lower-confidence picks as pending suggestions the user can
+   * one-click apply.
+   */
+  autoBindSuggestion?: {
+    profileKey: string | null;
+    confidence: number;
+    reason?: string | null;
+  } | null;
+  /**
+   * Heuristic flag from the AI / label parser: this field's label
+   * implies a derived value (e.g. "Total = A + B"). The editor uses
+   * this to show a "convert to calculation" prompt in the inspector.
+   */
+  isCalculableSuggestion?: boolean;
 }
 
 interface ScanResponse {
@@ -158,19 +177,56 @@ export function FormBuilderScanner({
         'checkbox',
         'signature',
       ];
+
+      // Detect the coordinate scale Gemini used across the whole batch.
+      // We look at the median of all xMax values from fields that have a bbox.
+      // A real [0,1000] form will have a median xMax well above 110.
+      // [0,1]   floats  → median xMax typically 0.5–0.9  → scale ×1000
+      // [0,100] percents → median xMax typically 50–95    → scale ×10
+      // [0,1000] correct → median xMax typically 500–950  → no scaling needed
+      const bboxedFields = all.filter(f => {
+        const b = f.bbox;
+        return b && Number.isFinite(b.xMax) && b.xMax > 0;
+      });
+      let bboxScale = 1;
+      if (bboxedFields.length > 0) {
+        const xMaxValues = bboxedFields.map(f => f.bbox!.xMax).sort((a, b) => a - b);
+        const medianXMax = xMaxValues[Math.floor(xMaxValues.length / 2)];
+        if (medianXMax < 2) {
+          bboxScale = 1000; // [0,1] float range
+        } else if (medianXMax < 110) {
+          bboxScale = 10;   // [0,100] percentage range
+        }
+        // else bboxScale = 1 → already [0,1000], no scaling needed
+        if (bboxScale !== 1) {
+          // Detected non-standard coordinate range; scaling applied silently.
+        }
+      }
+
+      const scaleBbox = (b: NonNullable<ScannedField['bbox']>) => {
+        if (bboxScale === 1) return b;
+        return {
+          xMin: Math.round(b.xMin * bboxScale),
+          yMin: Math.round(b.yMin * bboxScale),
+          xMax: Math.round(b.xMax * bboxScale),
+          yMax: Math.round(b.yMax * bboxScale),
+        };
+      };
+
       all.forEach((f) => {
         const rawPage = f.page;
         const rawBbox = f.bbox;
+        const scaledBbox = rawBbox ? scaleBbox(rawBbox) : undefined;
         const hasBbox =
-          !!rawBbox &&
-          Number.isFinite(rawBbox.xMin) &&
-          Number.isFinite(rawBbox.xMax) &&
-          Number.isFinite(rawBbox.yMin) &&
-          Number.isFinite(rawBbox.yMax) &&
-          rawBbox.xMax > rawBbox.xMin &&
-          rawBbox.yMax > rawBbox.yMin;
+          !!scaledBbox &&
+          Number.isFinite(scaledBbox.xMin) &&
+          Number.isFinite(scaledBbox.xMax) &&
+          Number.isFinite(scaledBbox.yMin) &&
+          Number.isFinite(scaledBbox.yMax) &&
+          scaledBbox.xMax > scaledBbox.xMin &&
+          scaledBbox.yMax > scaledBbox.yMin;
         const page = rawPage && rawPage > 0 ? rawPage : 1;
-        const bbox = hasBbox ? rawBbox! : makePlaceholderBbox(placeholderIndex++);
+        const bbox = hasBbox ? scaledBbox! : makePlaceholderBbox(placeholderIndex++);
         const detectedType: TemplateFieldType =
           f.fieldType && VALID_TYPES.includes(f.fieldType) ? f.fieldType : 'text';
         // Multi-row detection — if the AI stamped "— Row N —" into the
@@ -193,6 +249,14 @@ export function FormBuilderScanner({
           page,
           bbox,
           originalLabel: f.fieldName,
+          // Pass binding provenance + calc hint through to the editor.
+          // These are non-persistent in the template schema — the
+          // editor uses them for the "auto-fill summary" banner and to
+          // surface pending suggestions, but they're stripped before
+          // save. Anything we want to persist (profileKey, type, etc.)
+          // is already applied above when the AI was confident enough.
+          autoBindSuggestion: f.autoBindSuggestion ?? undefined,
+          isCalculableSuggestion: f.isCalculableSuggestion || undefined,
         });
       });
       return autoAlignTemplateFields(fields);

@@ -1036,17 +1036,17 @@ export default function ApplicationsPage() {
         const endDateStr = format(watchedEndDate, 'yyyy-MM-dd');
         
         const { data: watchLogs, error: watchError } = await supabase
-          .from('watch_logs')
-          .select('watch_start')
+          .from('nav_watch_logs')
+          .select('start_time')
           .eq('user_id', user.id)
-          .gte('watch_start', `${startDateStr}T00:00:00`)
-          .lte('watch_start', `${endDateStr}T23:59:59`);
+          .gte('start_time', `${startDateStr}T00:00:00`)
+          .lte('start_time', `${endDateStr}T23:59:59`);
 
         if (!watchError && watchLogs) {
           // Extract dates from watch logs
           const dates = new Set<string>();
           watchLogs.forEach(log => {
-            const dateStr = format(new Date(log.watch_start), 'yyyy-MM-dd');
+            const dateStr = format(new Date(log.start_time), 'yyyy-MM-dd');
             dates.add(dateStr);
           });
           setWatchDates(dates);
@@ -1865,18 +1865,18 @@ export default function ApplicationsPage() {
         try {
           // Fetch watch logs for the date range
           const { data: watchLogs, error: watchError } = await supabase
-            .from('watch_logs')
-            .select('watch_start')
+            .from('nav_watch_logs')
+            .select('start_time')
             .eq('user_id', user.id)
             .eq('vessel_id', data.vessel_id)
-            .gte('watch_start', `${startDateStr}T00:00:00`)
-            .lte('watch_start', `${endDateStr}T23:59:59`);
+            .gte('start_time', `${startDateStr}T00:00:00`)
+            .lte('start_time', `${endDateStr}T23:59:59`);
 
           if (!watchError && watchLogs) {
             // Extract dates from watch logs
             submissionWatchDates = new Set<string>();
             watchLogs.forEach(log => {
-              const dateStr = format(new Date(log.watch_start), 'yyyy-MM-dd');
+              const dateStr = format(new Date(log.start_time), 'yyyy-MM-dd');
               submissionWatchDates!.add(dateStr);
             });
             console.log('[TESTIMONIALS] Found watch dates for officer submission:', {
@@ -2263,6 +2263,7 @@ export default function ApplicationsPage() {
         gross_tonnage: vessel.gross_tonnage || null,
         call_sign: vessel.call_sign || null,
         company_contact: (vessel as any).company_contact ?? null,
+        stamp: (vessel as any).stamp ?? null,
       },
       captainProfile: captainProfile,
       companyDetails: {

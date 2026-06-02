@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Form,
   FormControl,
@@ -84,6 +84,8 @@ function VesselSignupPageInner() {
 
   const { supabase } = useSupabase();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectParam = searchParams.get('redirect');
   const { toast } = useToast();
   const { user, isUserLoading } = useUser();
 
@@ -185,12 +187,12 @@ function VesselSignupPageInner() {
   useEffect(() => {
     if (!isUserLoading) {
       if (user) {
-        router.push('/dashboard');
+        router.push(redirectParam || '/dashboard');
       } else {
         setIsCheckingUser(false);
       }
     }
-  }, [user, isUserLoading, router]);
+  }, [user, isUserLoading, router, redirectParam]);
 
   const handleSignup = async (data: VesselSignupFormValues) => {
     setIsLoading(true);
@@ -515,7 +517,7 @@ function VesselSignupPageInner() {
           description:
             'Welcome to SeaJourney! Your vessel account has been successfully created.',
         });
-        router.push('/dashboard');
+        router.push(redirectParam || '/dashboard');
       }
     } catch (error: any) {
       console.error('Vessel signup failed:', error);

@@ -80,6 +80,7 @@ export default function RevenuePage() {
     // Crew plans
     'free': 0,
     'crew_limited': 0,
+    'vessel_linked': 0,
     'standard': 4.99,
     'premium': 9.99,
     'pro': 14.99,
@@ -148,8 +149,9 @@ export default function RevenuePage() {
             const tier = (user.subscription_tier || 'free').toLowerCase();
             const price = tierPricing[tier] || 0;
             
-            // Exclude crew_limited and free from active subscription counts
-            if (tier !== 'crew_limited' && tier !== 'free') {
+            // Exclude crew_limited, vessel_linked, and free from active subscription counts —
+            // these are vessel-managed free tiers, not paying customers.
+            if (tier !== 'crew_limited' && tier !== 'vessel_linked' && tier !== 'free') {
               activeCrewSubscriptions++;
             }
             
@@ -529,7 +531,11 @@ export default function RevenuePage() {
                     return (
                       <TableRow key={tier}>
                         <TableCell className="font-medium">
-                          {tier === 'crew_limited' ? 'Crew Limited' : tier.replace(/_/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                          {tier === 'crew_limited'
+                            ? 'Crew Limited'
+                            : tier === 'vessel_linked'
+                              ? 'Vessel Linked'
+                              : tier.replace(/_/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
                         </TableCell>
                         <TableCell>
                           <Badge variant="secondary">{data.count}</Badge>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect } from 'react';
 import { Loader2, ChevronLeft, ChevronRight, Eye, EyeOff, Move, Check, Crosshair, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -129,6 +129,12 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
   const [adjustMode, setAdjustMode] = useState(false);
   const [alignMode, setAlignMode] = useState(false);
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null);
+  // The canvas pixel buffer dimensions (canvasSize) are NOT the same as the
+  // canvas's rendered CSS dimensions — `max-w-full` can scale it down. We
+  // need the rendered CSS size to position overlays and convert drag pixels to
+  // normalized [0,1000] units. Track it via ResizeObserver so it stays in sync
+  // whenever the container resizes (initial layout, sidebar toggle, etc.).
+  const [renderedSize, setRenderedSize] = useState<{ width: number; height: number } | null>(null);
   const pdfDocRef = useRef<any>(null);
   const dragRef = useRef<DragState | null>(null);
   // For align mode: we accumulate a delta between mousedown and mouseup,
@@ -255,6 +261,27 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
     setCanvasSize({ width: viewport.width, height: viewport.height });
   };
 
+  // Track the element's actual CSS rendered size via ResizeObserver so that
+  // overlay percentages and drag-delta conversions are always accurate,
+  // regardless of how `max-w-full` scales the element relative to its
+  // pixel buffer size.
+  useLayoutEffect(() => {
+    const el = isPDF ? canvasRef.current : imgRef.current;
+    if (!el) return;
+    const update = () => {
+      const { width, height } = el.getBoundingClientRect();
+      if (width > 0 && height > 0) {
+        setRenderedSize({ width, height });
+      }
+    };
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    update(); // capture immediately if already laid out
+    return () => ro.disconnect();
+  // Re-attach whenever the file or page changes (canvas element may be re-created).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPDF, canvasSize]); // canvasSize changing means a new page was rendered
+
   // For images, capture natural size once loaded.
   const handleImgLoad = () => {
     const img = imgRef.current;
@@ -333,7 +360,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
     if (!adjustMode) return;
 
     const onMouseMove = (e: MouseEvent) => {
-      if (!canvasSize) return;
+      if (!renderedSize) return;
 
       // --- Group drag (multi-select move) ------------------------------
       // Handled before single-box drag because groupDragRef + dragRef are
@@ -343,8 +370,8 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
         e.preventDefault();
         const totalDxPx = e.clientX - gdrag.startClientX;
         const totalDyPx = e.clientY - gdrag.startClientY;
-        const totalDx = (totalDxPx / canvasSize.width) * 1000;
-        const totalDy = (totalDyPx / canvasSize.height) * 1000;
+        const totalDx = (totalDxPx / renderedSize.width) * 1000;
+        const totalDy = (totalDyPx / renderedSize.height) * 1000;
         const incDx = totalDx - gdrag.lastDx;
         const incDy = totalDy - gdrag.lastDy;
         if (incDx !== 0 || incDy !== 0) {
@@ -362,8 +389,8 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
       e.preventDefault();
       const dxPx = e.clientX - drag.startClientX;
       const dyPx = e.clientY - drag.startClientY;
-      const dx = (dxPx / canvasSize.width) * 1000;
-      const dy = (dyPx / canvasSize.height) * 1000;
+      const dx = (dxPx / renderedSize.width) * 1000;
+      const dy = (dyPx / renderedSize.height) * 1000;
       const { startBbox, mode, index } = drag;
 
       let next: { yMin: number; xMin: number; yMax: number; xMax: number };
@@ -393,7 +420,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [adjustMode, canvasSize, onFieldBboxChange, onFieldsMove]);
+  }, [adjustMode, renderedSize, onFieldBboxChange, onFieldsMove]);
 
   // Lasso drag: extend the rubber-band rectangle on mousemove, and on
   // mouseup compute which overlays have their centre inside the box
@@ -419,7 +446,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
 
     const onUp = () => {
       const snap = lassoRef.current;
-      if (!snap || !canvasSize) {
+      if (!snap || !renderedSize) {
         setLasso(null);
         return;
       }
@@ -440,10 +467,10 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
       // centre falls inside it. We check overlayFields — which already
       // filters by current page — so we never select fields on pages
       // the user isn't looking at.
-      const nx1 = (x1 / canvasSize.width) * 1000;
-      const nx2 = (x2 / canvasSize.width) * 1000;
-      const ny1 = (y1 / canvasSize.height) * 1000;
-      const ny2 = (y2 / canvasSize.height) * 1000;
+      const nx1 = (x1 / renderedSize.width) * 1000;
+      const nx2 = (x2 / renderedSize.width) * 1000;
+      const ny1 = (y1 / renderedSize.height) * 1000;
+      const ny2 = (y2 / renderedSize.height) * 1000;
       const hits: number[] = [];
       for (const { field: f, globalIndex } of overlayFields) {
         const b = f.bbox;
@@ -464,7 +491,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [adjustMode, canvasSize, lasso, onLassoSelect, overlayFields]);
+  }, [adjustMode, renderedSize, lasso, onLassoSelect, overlayFields]);
 
   // ---- Align-all handling: drag anywhere on the document to shift every
   // box on the current page by the same delta. Applies incremental deltas so
@@ -490,13 +517,13 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
 
     const onMouseMove = (e: MouseEvent) => {
       const drag = alignDragRef.current;
-      if (!drag || !canvasSize) return;
+      if (!drag || !renderedSize) return;
       // Block text selection / autoscroll while actively dragging.
       e.preventDefault();
       const totalDxPx = e.clientX - drag.startClientX;
       const totalDyPx = e.clientY - drag.startClientY;
-      const totalDx = (totalDxPx / canvasSize.width) * 1000;
-      const totalDy = (totalDyPx / canvasSize.height) * 1000;
+      const totalDx = (totalDxPx / renderedSize.width) * 1000;
+      const totalDy = (totalDyPx / renderedSize.height) * 1000;
       // Apply only the INCREMENTAL delta since the last move.
       const incDx = totalDx - drag.lastDx;
       const incDy = totalDy - drag.lastDy;
@@ -517,7 +544,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [alignMode, canvasSize, currentPage, onPageShift]);
+  }, [alignMode, renderedSize, currentPage, onPageShift]);
 
   // Surface page info to the parent. We fire this on mount + every change
   // so the builder can default new fields to the visible page and show a
@@ -657,7 +684,12 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
         )}
         style={{
           display: loading && isPDF ? 'none' : 'inline-block',
-          width: canvasSize ? `${canvasSize.width}px` : 'auto',
+          // Do NOT set an explicit width here. The canvas renders at its natural
+          // CSS size (constrained by max-w-full on its container). We let the
+          // inline-block docRef shrink-wrap that, then use ResizeObserver
+          // (renderedSize) for overlay positioning. Setting width to the pdfjs
+          // pixel buffer size (canvasSize) causes a mismatch when max-w-full
+          // constrains the canvas to a smaller CSS width.
           // Disable touch scroll / pinch while in an editing mode so drags don't scroll the page.
           touchAction: alignMode || adjustMode ? 'none' : undefined,
         }}
@@ -694,7 +726,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
             but the dashed rectangle is visible across the whole
             selection area. Pointer-events-none because the lasso itself
             should never swallow clicks. */}
-        {lasso && canvasSize && (
+        {lasso && renderedSize && (
           (() => {
             const x1 = Math.min(lasso.startDocX, lasso.currentDocX);
             const y1 = Math.min(lasso.startDocY, lasso.currentDocY);
@@ -715,7 +747,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
         )}
 
         {/* Overlay layer */}
-        {showOverlay && hasOverlays && canvasSize && (
+        {showOverlay && hasOverlays && renderedSize && (
           <div className="pointer-events-none absolute inset-0">
             {overlayFields.map(({ field: f, globalIndex }, idx) => {
               const b = f.bbox!;

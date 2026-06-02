@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
     // Fetch vessel
     const { data: vessel, error: vesselError } = await supabaseAdmin
       .from('vessels')
-      .select('id, name, type, official_number, imo, flag_state, length_m, gross_tonnage, call_sign, management_company, company_address, company_contact')
+      .select('id, name, type, official_number, imo, flag_state, length_m, gross_tonnage, call_sign, management_company, company_address, company_contact, stamp')
       .eq('id', doc.vessel_id)
       .single();
 
@@ -133,6 +133,7 @@ export async function GET(req: NextRequest) {
         length_m: vessel.length_m ?? null,
         gross_tonnage: vessel.gross_tonnage ?? null,
         call_sign: vessel.call_sign || null,
+        stamp: vessel.stamp ?? null,
       },
       companyDetails: {
         name: vessel.management_company || null,

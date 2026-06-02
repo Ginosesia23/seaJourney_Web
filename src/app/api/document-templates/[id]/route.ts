@@ -12,9 +12,13 @@ import {
   type VesselDocumentTemplateRow,
 } from '@/lib/vessel-document-templates';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { formBuilderAccessDenied } from '@/lib/vessel-form-builder-access';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+const PROFILE_SELECT =
+  'id, role, active_vessel_id, subscription_tier, subscription_status, cancel_at_period_end, current_period_end';
 
 async function authenticate(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -34,7 +38,7 @@ async function authenticate(request: NextRequest) {
   }
   const { data: profile } = await supabaseAdmin
     .from('users')
-    .select('id, role, active_vessel_id')
+    .select(PROFILE_SELECT)
     .eq('id', user.id)
     .maybeSingle();
   return { user, profile };
@@ -97,6 +101,8 @@ export async function GET(
   if (!(await canRead(auth.user!.id, auth.profile as any, template))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
+  const tierDenied = formBuilderAccessDenied(auth.profile as any);
+  if (tierDenied) return tierDenied;
   return NextResponse.json({ template: mapTemplateRow(template) });
 }
 
@@ -114,6 +120,8 @@ export async function PATCH(
   if (!(await canMutate(auth.user!.id, auth.profile as any, template))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
+  const tierDenied = formBuilderAccessDenied(auth.profile as any);
+  if (tierDenied) return tierDenied;
 
   let body: any = {};
   try {
@@ -170,6 +178,8 @@ export async function DELETE(
   if (!(await canMutate(auth.user!.id, auth.profile as any, template))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
+  const tierDenied = formBuilderAccessDenied(auth.profile as any);
+  if (tierDenied) return tierDenied;
 
   // Delete the storage object first — if the row survives but the file is
   // gone the template is unusable anyway, whereas the reverse leaves an

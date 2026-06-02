@@ -413,6 +413,7 @@ export function WkThemeToggle({
 const NAV_LINKS: Array<{ href: string; label: string }> = [
   { href: '/how-to-use', label: 'How it works' },
   { href: '/for-vessels', label: 'For vessels' },
+  { href: '/request-demo', label: 'Request demo' },
   { href: '/roadmap', label: 'Roadmap' },
   { href: '/faq', label: 'FAQ' },
 ];
@@ -581,6 +582,7 @@ function WkPageFooter() {
           <WkFooterCol
             title="Company"
             links={[
+              { href: '/request-demo', label: 'Request demo' },
               { href: '/faq', label: 'FAQ' },
               { href: '/privacy-policy', label: 'Privacy' },
               { href: '/terms-of-service', label: 'Terms' },

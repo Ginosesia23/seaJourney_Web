@@ -33,10 +33,27 @@ interface WatchLog {
   id: string;
   user_id: string;
   vessel_id: string;
-  watch_start: string;
-  watch_end?: string | null;
+  start_time: string;
+  end_time?: string | null;
+  /**
+   * Derived from `(end_time - start_time)`. `nav_watch_logs` does not
+   * persist an `hours` column (unlike the old `watch_logs` table) so
+   * we compute it at fetch boundaries via `withDerivedHours()`.
+   */
   hours?: number | null;
   created_at?: string;
+}
+
+/**
+ * Add a derived `hours` field to a fetched `nav_watch_logs` row by
+ * diffing `start_time` / `end_time`. Returns `null` for in-progress
+ * watches (no end time recorded yet).
+ */
+function withDerivedHours<T extends { start_time?: string | null; end_time?: string | null }>(row: T): T & { hours: number | null } {
+  if (!row.start_time || !row.end_time) return { ...row, hours: null };
+  const ms = new Date(row.end_time).getTime() - new Date(row.start_time).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return { ...row, hours: null };
+  return { ...row, hours: Math.round((ms / 3600000) * 100) / 100 };
 }
 
 const pastWatchSchema = z.object({
@@ -197,14 +214,14 @@ export default function BridgeWatchLogPage() {
       try {
         setIsLoadingWatches(true);
         const { data, error } = await supabase
-          .from('watch_logs')
-          .select('id, user_id, vessel_id, watch_start, watch_end, hours, created_at')
+          .from('nav_watch_logs')
+          .select('id, user_id, vessel_id, start_time, end_time, created_at')
           .eq('user_id', user.id)
-          .order('watch_start', { ascending: false });
+          .order('start_time', { ascending: false });
 
         if (error) throw error;
 
-        setWatches((data || []) as WatchLog[]);
+        setWatches((data || []).map(withDerivedHours) as WatchLog[]);
       } catch (error: any) {
         console.error('Error loading watch logs:', error);
         toast({
@@ -407,7 +424,7 @@ export default function BridgeWatchLogPage() {
     setIsDeleting(true);
     try {
       const { error } = await supabase
-        .from('watch_logs')
+        .from('nav_watch_logs')
         .delete()
         .eq('id', watchToDelete.id)
         .eq('user_id', user.id);
@@ -421,13 +438,13 @@ export default function BridgeWatchLogPage() {
 
       // Reload watches
       const { data: watchData, error: fetchError } = await supabase
-        .from('watch_logs')
-        .select('id, user_id, vessel_id, watch_start, watch_end, hours, created_at')
+        .from('nav_watch_logs')
+        .select('id, user_id, vessel_id, start_time, end_time, created_at')
         .eq('user_id', user.id)
-        .order('watch_start', { ascending: false });
+        .order('start_time', { ascending: false });
 
       if (!fetchError && watchData) {
-        setWatches(watchData as WatchLog[]);
+        setWatches(watchData.map(withDerivedHours) as WatchLog[]);
       }
 
       setDeleteDialogOpen(false);
@@ -557,14 +574,13 @@ export default function BridgeWatchLogPage() {
       }
 
       const { error } = await supabase
-        .from('watch_logs')
+        .from('nav_watch_logs')
         .insert({
           user_id: user.id,
           vessel_id: data.vesselId,
-          watch_start: watchStart.toISOString(),
-          watch_end: watchEnd.toISOString(),
+          start_time: watchStart.toISOString(),
+          end_time: watchEnd.toISOString(),
           watch_type: 'bridge',
-          hours: hours,
         });
 
       if (error) throw error;
@@ -580,13 +596,13 @@ export default function BridgeWatchLogPage() {
 
       // Reload watches
       const { data: watchData, error: fetchError } = await supabase
-        .from('watch_logs')
-        .select('id, user_id, vessel_id, watch_start, watch_end, hours, created_at')
+        .from('nav_watch_logs')
+        .select('id, user_id, vessel_id, start_time, end_time, created_at')
         .eq('user_id', user.id)
-        .order('watch_start', { ascending: false });
+        .order('start_time', { ascending: false });
 
       if (!fetchError && watchData) {
-        setWatches(watchData as WatchLog[]);
+        setWatches(watchData.map(withDerivedHours) as WatchLog[]);
       }
 
       setIsFormOpen(false);
@@ -1154,7 +1170,7 @@ export default function BridgeWatchLogPage() {
               <TableBody>
                 {watches.map((watch) => {
                   const duration = formatDuration(watch.hours);
-                  const watchDate = format(new Date(watch.watch_start), 'MMM d, yyyy');
+                  const watchDate = format(new Date(watch.start_time), 'MMM d, yyyy');
                   
                   return (
                     <TableRow key={watch.id}>
@@ -1212,7 +1228,7 @@ export default function BridgeWatchLogPage() {
                 Are you sure you want to delete this watch log? This action cannot be undone.
                 {watchToDelete && (
                   <span className="mt-2 block text-sm">
-                    <span className="block">Date: {format(new Date(watchToDelete.watch_start), 'MMM d, yyyy')}</span>
+                    <span className="block">Date: {format(new Date(watchToDelete.start_time), 'MMM d, yyyy')}</span>
                     <span className="block">Vessel: {getVesselName(watchToDelete.vessel_id)}</span>
                     {watchToDelete.hours && <span className="block">Hours: {watchToDelete.hours}</span>}
                   </span>

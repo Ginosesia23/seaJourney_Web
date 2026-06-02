@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { UserProfileCard } from '@/components/dashboard/user-profile';
 import { SubscriptionCard } from '@/components/dashboard/subscription-card';
 import { UserInfoCard } from '@/components/dashboard/user-info-card';
+import { VesselStampCard } from '@/components/dashboard/vessel-stamp-card';
 import { MCAApplicationDetailsCard } from '@/components/dashboard/mca-application-details';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -550,12 +551,12 @@ function CareerTab({ userId }: { userId?: string }) {
         let watchDates = new Set<string>();
         if (isOfficer) {
           const { data: watchLogs } = await supabase
-            .from('watch_logs')
-            .select('watch_start')
+            .from('nav_watch_logs')
+            .select('start_time')
             .eq('user_id', userId);
           if (watchLogs) {
-            watchLogs.forEach((log: { watch_start: string }) => {
-              watchDates.add(format(new Date(log.watch_start), 'yyyy-MM-dd'));
+            watchLogs.forEach((log: { start_time: string }) => {
+              watchDates.add(format(new Date(log.start_time), 'yyyy-MM-dd'));
             });
           }
         }
@@ -2168,6 +2169,13 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
           <VesselStartDateCard userProfile={userProfile} />
         </CardContent>
       </Card>
+
+      {/* Ship's Stamp Card */}
+      <VesselStampCard
+        vesselId={vessel.id}
+        vesselName={vessel.name}
+        stamp={(vesselData as { stamp?: string | null } | null)?.stamp ?? null}
+      />
 
       {/* Account Information Card */}
       <Card className="rounded-xl border">

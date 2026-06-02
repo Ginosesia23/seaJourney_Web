@@ -72,6 +72,10 @@ interface CrewSubRow {
   pendingChangeEffectiveAt: string | null;
 }
 
+// Tiers an admin may manually assign via this page. Note: 'vessel_linked' is
+// intentionally NOT here — those rows are only created by the vessel-roles
+// invite flow and shouldn't be hand-assigned. They will still RENDER (e.g.
+// in the table and the summary) using formatTierName.
 const MANUAL_TIERS = [
   { value: 'free', label: 'Free' },
   { value: 'crew_limited', label: 'Crew limited' },
@@ -89,12 +93,15 @@ const MANUAL_STATUSES = [
 const SUMMARY_TIER_ORDER = [
   'free',
   'crew_limited',
+  'vessel_linked',
   'standard',
   'premium',
 ] as const;
 
 function formatTierName(tier: string) {
   if (!tier || tier === 'free') return 'Free';
+  if (tier === 'crew_limited') return 'Crew Limited';
+  if (tier === 'vessel_linked') return 'Vessel Linked';
   const cleaned = tier.replace(/^(sj_|sea_journey_)/i, '').trim();
   return cleaned
     .split('_')

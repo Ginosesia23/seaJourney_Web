@@ -813,6 +813,8 @@ export default function Home() {
           <OfficialForms />
           <CertificateTracking />
           <WatchComingSoon />
+          <WatchRotationSchedule />
+          <CrewLeavePlanner />
           <AISImport />
           <VerificationPortal />
           <Membership />
@@ -1653,9 +1655,9 @@ function VisaTracker() {
           </p>
         </div>
 
-        <div className="mx-auto mt-14 grid max-w-6xl items-start gap-10 lg:grid-cols-[5fr_4fr]">
+        <div className="mx-auto mt-14 grid min-w-0 max-w-6xl items-start gap-10 lg:grid-cols-[5fr_4fr]">
           {/* Credential fan */}
-          <div>
+          <div className="min-w-0">
             <div className="mb-4 flex items-center justify-between">
               <h3
                 className="text-sm font-semibold uppercase tracking-widest"
@@ -1682,7 +1684,7 @@ function VisaTracker() {
             />
 
             {/* Country dot pager */}
-            <div className="mt-6 flex items-center justify-center gap-3">
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2 px-1 sm:gap-3">
               {visas.map((v, i) => {
                 const isActive = i === selected;
                 return (
@@ -1690,7 +1692,7 @@ function VisaTracker() {
                     key={v.country}
                     type="button"
                     onClick={() => setSelected(i)}
-                    className="group flex items-center gap-2 rounded-full px-3 py-1.5 transition"
+                    className="group flex items-center gap-1.5 rounded-full px-2.5 py-1.5 transition sm:gap-2 sm:px-3"
                     style={{
                       backgroundColor: isActive ? 'var(--wk-accent-soft)' : 'transparent',
                       border: `1px solid ${isActive ? 'var(--wk-accent-ring)' : 'var(--wk-line)'}`,
@@ -1699,7 +1701,7 @@ function VisaTracker() {
                   >
                     <span className="text-base leading-none">{v.flag}</span>
                     <span
-                      className="text-[11px] font-semibold"
+                      className="hidden text-[11px] font-semibold sm:inline"
                       style={{
                         color: isActive ? 'var(--wk-accent)' : 'var(--wk-text-muted)',
                       }}
@@ -1714,7 +1716,7 @@ function VisaTracker() {
 
           {/* Detail panel */}
           <div
-            className="rounded-2xl p-6"
+            className="min-w-0 w-full rounded-2xl p-5 sm:p-6"
             style={{
               backgroundColor: 'var(--wk-card)',
               border: '1px solid var(--wk-line)',
@@ -1885,7 +1887,7 @@ function CredentialFan({
 
   return (
     <div
-      className="relative mx-auto h-[320px] w-full max-w-[440px] sm:h-[360px]"
+      className="relative mx-auto h-[320px] w-full max-w-[440px] overflow-hidden px-2 sm:h-[360px] sm:px-0"
       style={{ perspective: '1400px' }}
     >
       {visas.map((v, i) => {
@@ -1894,7 +1896,7 @@ function CredentialFan({
         const relative = i - selected;
         const fanOffset = offsets[Math.min(Math.abs(relative), offsets.length - 1)] *
           Math.sign(relative || 1);
-        const tx = isActive ? 0 : relative * 28;
+        const tx = isActive ? 0 : relative * 18;
         const ty = isActive ? 0 : Math.abs(relative) * 18;
         const rot = isActive ? 0 : fanOffset * 8;
         const scale = isActive ? 1 : 0.9 - Math.abs(relative) * 0.04;
@@ -1904,7 +1906,7 @@ function CredentialFan({
             key={v.country}
             type="button"
             onClick={() => setSelected(i)}
-            className="wk-cred absolute left-1/2 top-1/2 w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-2xl text-left sm:w-[340px]"
+            className="wk-cred absolute left-1/2 top-1/2 w-[min(100%,280px)] max-w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-2xl text-left sm:w-[340px] sm:max-w-none"
             style={{
               transform: `translate(-50%, -50%) translate(${tx}px, ${ty}px) rotate(${rot}deg) scale(${scale})`,
               zIndex: orderIdx,
@@ -1927,7 +1929,7 @@ function CredentialFan({
                 background: `linear-gradient(90deg, ${statusColor(v.status)}, color-mix(in srgb, ${statusColor(v.status)} 30%, transparent))`,
               }}
             />
-            <div className="p-5">
+            <div className="p-4 sm:p-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
                   <span
@@ -3895,6 +3897,490 @@ function FloatingChip({
 }
 
 // ---------------------------------------------------------------------------
+// Watch Rotation Schedule graphic
+// ---------------------------------------------------------------------------
+
+function WatchRotationGraphic() {
+  const slots = ['00–04', '04–08', '08–12', '12–16', '16–20', '20–24'];
+  const crew: Array<{ name: string; watches: number[]; color: string }> = [
+    { name: 'J. Smith',  watches: [0, 2, 4], color: '#0ea5e9' },
+    { name: 'M. Torres', watches: [1, 3, 5], color: '#8b5cf6' },
+    { name: 'A. Chen',   watches: [0, 4],    color: '#10b981' },
+    { name: 'K. Wilson', watches: [2],        color: '#d97706' },
+  ];
+
+  return (
+    <div
+      className="overflow-hidden rounded-2xl p-5"
+      style={{
+        backgroundColor: 'var(--wk-card)',
+        border: '1px solid var(--wk-line)',
+        boxShadow: 'var(--wk-shadow-md)',
+      }}
+    >
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+          Today&apos;s Watch Rota
+        </p>
+        <span
+          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+          style={{ backgroundColor: 'var(--wk-accent-soft)', color: 'var(--wk-accent)' }}
+        >
+          <Clock className="h-3 w-3" /> Live
+        </span>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div style={{ minWidth: 420 }}>
+          {/* Header: time slots */}
+          <div className="grid gap-1" style={{ gridTemplateColumns: '90px repeat(6, 1fr)' }}>
+            <div />
+            {slots.map((s) => (
+              <div
+                key={s}
+                className="pb-1 text-center text-[10px] font-bold"
+                style={{ color: 'var(--wk-text-muted)' }}
+              >
+                {s}
+              </div>
+            ))}
+          </div>
+
+          {/* Crew rows */}
+          <div className="mt-1 space-y-1.5">
+            {crew.map((c) => (
+              <div
+                key={c.name}
+                className="grid items-center gap-1"
+                style={{ gridTemplateColumns: '90px repeat(6, 1fr)' }}
+              >
+                <div
+                  className="truncate pr-2 text-xs font-medium"
+                  style={{ color: 'var(--wk-text-soft)' }}
+                >
+                  {c.name}
+                </div>
+                {slots.map((_, i) => {
+                  const on = c.watches.includes(i);
+                  return (
+                    <div
+                      key={i}
+                      className="flex h-8 items-center justify-center rounded"
+                      style={{
+                        backgroundColor: on
+                          ? `color-mix(in srgb, ${c.color} 20%, transparent)`
+                          : 'var(--wk-bg-subtle)',
+                        border: on
+                          ? `1px solid color-mix(in srgb, ${c.color} 40%, transparent)`
+                          : '1px solid var(--wk-line)',
+                      }}
+                    >
+                      {on && (
+                        <span className="text-[10px] font-bold" style={{ color: c.color }}>
+                          ON
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="mt-4 flex items-center gap-2 border-t pt-3"
+        style={{ borderColor: 'var(--wk-line)' }}
+      >
+        <Users className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--wk-accent)' }} />
+        <p className="text-xs" style={{ color: 'var(--wk-text-muted)' }}>
+          Full 24-hour coverage · 4 crew members · auto-syncs to sea-time log
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section: Watch Rotation Schedule
+// ---------------------------------------------------------------------------
+
+function WatchRotationSchedule() {
+  const features: Array<{ icon: IconType; title: string; desc: string; accent: string }> = [
+    {
+      icon: Clock,
+      title: 'Flexible Watch Patterns',
+      desc: '4-on/8-off, 6-hour splits, or custom rotations built around your vessel\'s needs.',
+      accent: '#0ea5e9',
+    },
+    {
+      icon: Users,
+      title: 'Multi-Crew Assignment',
+      desc: 'Assign watches to all crew members and see the full rota at a glance.',
+      accent: '#8b5cf6',
+    },
+    {
+      icon: Bell,
+      title: 'Handover Reminders',
+      desc: 'Automatic alerts before each watch change — no missed handovers.',
+      accent: '#10b981',
+    },
+    {
+      icon: Calendar,
+      title: 'Recurring Schedules',
+      desc: 'Set up repeating rotations and let SeaJourney handle the scheduling.',
+      accent: '#d97706',
+    },
+  ];
+
+  return (
+    <section className="py-24 sm:py-32" style={{ backgroundColor: 'var(--wk-bg)' }}>
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2">
+          <div>
+            <Eyebrow icon={LayoutGrid} accent>
+              New Feature
+            </Eyebrow>
+            <h2
+              className="font-headline mt-5 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              Watch Rotation{' '}
+              <span className="wk-gradient-text wk-gradient-text--sky">Schedule</span>
+            </h2>
+            <p className="mt-4 text-lg" style={{ color: 'var(--wk-text-soft)' }}>
+              Plan, assign, and manage your vessel&apos;s watch rota in minutes. From
+              bridge watches to engine room duties — every crew member always knows
+              when they&apos;re on.
+            </p>
+
+            <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {features.map((f) => (
+                <div
+                  key={f.title}
+                  className="rounded-xl p-4"
+                  style={{
+                    backgroundColor: 'var(--wk-card)',
+                    border: '1px solid var(--wk-line)',
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg"
+                      style={{
+                        backgroundColor: `color-mix(in srgb, ${f.accent} 14%, transparent)`,
+                        color: f.accent,
+                      }}
+                    >
+                      <f.icon className="h-5 w-5" />
+                    </span>
+                    <span
+                      className="text-sm font-semibold"
+                      style={{ color: 'var(--wk-text)' }}
+                    >
+                      {f.title}
+                    </span>
+                  </div>
+                  <p
+                    className="mt-2 text-xs leading-relaxed"
+                    style={{ color: 'var(--wk-text-soft)' }}
+                  >
+                    {f.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <PrimaryCta href="/dashboard/schedule" tone="sky">
+                View Schedule
+              </PrimaryCta>
+              <SecondaryCta href="/signup">Get Started</SecondaryCta>
+            </div>
+          </div>
+
+          <motion.div
+            initial={{ opacity: 0, x: 24 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, margin: '-60px' }}
+            transition={{ duration: 0.5 }}
+          >
+            <WatchRotationGraphic />
+          </motion.div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Crew Leave Planner graphic
+// ---------------------------------------------------------------------------
+
+function CrewLeaveGraphic() {
+  const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S', 'M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const requests: Array<{
+    crew: string;
+    start: number;
+    end: number;
+    color: string;
+    status: string;
+  }> = [
+    { crew: 'J. Smith',  start: 2,  end: 6,  color: '#10b981', status: 'Approved' },
+    { crew: 'M. Torres', start: 5,  end: 9,  color: '#f59e0b', status: 'Pending'  },
+    { crew: 'A. Chen',   start: 0,  end: 3,  color: '#8b5cf6', status: 'Approved' },
+    { crew: 'K. Wilson', start: 8,  end: 13, color: '#0ea5e9', status: 'Approved' },
+  ];
+
+  return (
+    <div
+      className="overflow-hidden rounded-2xl p-5"
+      style={{
+        backgroundColor: 'var(--wk-card)',
+        border: '1px solid var(--wk-line)',
+        boxShadow: 'var(--wk-shadow-md)',
+      }}
+    >
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+          Leave Planner — June 2025
+        </p>
+        <div className="flex items-center gap-2">
+          <span
+            className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            style={{
+              backgroundColor: 'color-mix(in srgb, #10b981 14%, transparent)',
+              color: '#10b981',
+            }}
+          >
+            Approved
+          </span>
+          <span
+            className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            style={{
+              backgroundColor: 'color-mix(in srgb, #f59e0b 14%, transparent)',
+              color: '#f59e0b',
+            }}
+          >
+            Pending
+          </span>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div style={{ minWidth: 420 }}>
+          {/* Day header */}
+          <div className="grid gap-0.5 mb-1" style={{ gridTemplateColumns: '80px repeat(14, 1fr)' }}>
+            <div />
+            {days.map((d, i) => (
+              <div
+                key={i}
+                className="text-center text-[10px] font-bold"
+                style={{ color: 'var(--wk-text-muted)' }}
+              >
+                {d}
+              </div>
+            ))}
+          </div>
+
+          {/* Date numbers */}
+          <div className="grid gap-0.5 mb-3" style={{ gridTemplateColumns: '80px repeat(14, 1fr)' }}>
+            <div className="text-[10px]" style={{ color: 'var(--wk-text-muted)' }}>
+              Jun
+            </div>
+            {Array.from({ length: 14 }, (_, i) => (
+              <div
+                key={i}
+                className="text-center text-[10px]"
+                style={{ color: 'var(--wk-text-muted)' }}
+              >
+                {i + 2}
+              </div>
+            ))}
+          </div>
+
+          {/* Crew rows */}
+          <div className="space-y-2">
+            {requests.map((r) => (
+              <div
+                key={r.crew}
+                className="grid items-center gap-0.5"
+                style={{ gridTemplateColumns: '80px repeat(14, 1fr)' }}
+              >
+                <div
+                  className="truncate pr-1 text-xs font-medium"
+                  style={{ color: 'var(--wk-text-soft)' }}
+                >
+                  {r.crew}
+                </div>
+                {Array.from({ length: 14 }, (_, i) => {
+                  const inLeave = i >= r.start && i <= r.end;
+                  const isStart = i === r.start;
+                  const isEnd = i === r.end;
+                  return (
+                    <div
+                      key={i}
+                      className="h-6"
+                      style={{
+                        backgroundColor: inLeave
+                          ? `color-mix(in srgb, ${r.color} 25%, transparent)`
+                          : 'transparent',
+                        borderTop: inLeave
+                          ? `1px solid color-mix(in srgb, ${r.color} 40%, transparent)`
+                          : 'none',
+                        borderBottom: inLeave
+                          ? `1px solid color-mix(in srgb, ${r.color} 40%, transparent)`
+                          : 'none',
+                        borderLeft: isStart
+                          ? `1px solid color-mix(in srgb, ${r.color} 40%, transparent)`
+                          : 'none',
+                        borderRight: isEnd
+                          ? `1px solid color-mix(in srgb, ${r.color} 40%, transparent)`
+                          : 'none',
+                        borderRadius: isStart && isEnd
+                          ? 8
+                          : isStart
+                          ? '8px 0 0 8px'
+                          : isEnd
+                          ? '0 8px 8px 0'
+                          : 0,
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="mt-4 flex items-center gap-2 border-t pt-3"
+        style={{ borderColor: 'var(--wk-line)' }}
+      >
+        <CheckCircle2 className="h-4 w-4 flex-shrink-0" style={{ color: '#10b981' }} />
+        <p className="text-xs" style={{ color: 'var(--wk-text-muted)' }}>
+          3 approved · 1 pending · full coverage maintained
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section: Crew Leave Planner
+// ---------------------------------------------------------------------------
+
+function CrewLeavePlanner() {
+  const features: Array<{ icon: IconType; title: string; desc: string; accent: string }> = [
+    {
+      icon: Calendar,
+      title: 'Leave Requests',
+      desc: 'Crew submit leave requests directly in the app — captains approve or decline instantly.',
+      accent: '#10b981',
+    },
+    {
+      icon: Users,
+      title: 'Conflict Detection',
+      desc: 'Automatic alerts when multiple crew members request leave at the same time.',
+      accent: '#0ea5e9',
+    },
+    {
+      icon: ClipboardCheck,
+      title: 'Captain Approvals',
+      desc: 'Full approval workflow with notes and notifications for every decision.',
+      accent: '#8b5cf6',
+    },
+    {
+      icon: Bell,
+      title: 'Leave Notifications',
+      desc: 'Crew and vessel owners notified instantly when leave status changes.',
+      accent: '#d97706',
+    },
+  ];
+
+  return (
+    <section className="wk-section-alt py-24 sm:py-32">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2">
+          <motion.div
+            initial={{ opacity: 0, x: -24 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, margin: '-60px' }}
+            transition={{ duration: 0.5 }}
+          >
+            <CrewLeaveGraphic />
+          </motion.div>
+
+          <div>
+            <Eyebrow icon={Calendar} accent>
+              New Feature
+            </Eyebrow>
+            <h2
+              className="font-headline mt-5 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              Crew Leave{' '}
+              <span className="wk-gradient-text wk-gradient-text--emerald">Planner</span>
+            </h2>
+            <p className="mt-4 text-lg" style={{ color: 'var(--wk-text-soft)' }}>
+              Manage crew holidays, shore leave, and days off with a dedicated
+              planner. No more spreadsheets or WhatsApp threads — everything in
+              one place.
+            </p>
+
+            <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {features.map((f) => (
+                <div
+                  key={f.title}
+                  className="rounded-xl p-4"
+                  style={{
+                    backgroundColor: 'var(--wk-card)',
+                    border: '1px solid var(--wk-line)',
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg"
+                      style={{
+                        backgroundColor: `color-mix(in srgb, ${f.accent} 14%, transparent)`,
+                        color: f.accent,
+                      }}
+                    >
+                      <f.icon className="h-5 w-5" />
+                    </span>
+                    <span
+                      className="text-sm font-semibold"
+                      style={{ color: 'var(--wk-text)' }}
+                    >
+                      {f.title}
+                    </span>
+                  </div>
+                  <p
+                    className="mt-2 text-xs leading-relaxed"
+                    style={{ color: 'var(--wk-text-soft)' }}
+                  >
+                    {f.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <PrimaryCta href="/dashboard/leave" tone="emerald">
+                Plan Leave
+              </PrimaryCta>
+              <SecondaryCta href="/signup">Get Started</SecondaryCta>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Section 8: AIS Import
 // ---------------------------------------------------------------------------
 
@@ -4241,9 +4727,17 @@ function VerificationPortal() {
 
 // ---------------------------------------------------------------------------
 // Section 10: Membership Summary
-//   (MembershipCTA depends on Supabase/Stripe. We show a concise, themed
-//    summary that links out to the existing /dashboard-offering page.)
+//   Unauthenticated visitors sign up first, then pick a plan on /offers.
 // ---------------------------------------------------------------------------
+
+function membershipSignupHref(tab: 'crew' | 'vessel', planName: string): string {
+  const signupPath = tab === 'vessel' ? '/signup/vessel' : '/signup';
+  const params = new URLSearchParams({
+    redirect: '/offers',
+    plan: planName,
+  });
+  return `${signupPath}?${params.toString()}`;
+}
 
 type PlanSummary = {
   name: string;
@@ -4287,7 +4781,7 @@ const vesselPlans: PlanSummary[] = [
   {
     name: 'Vessel Premium', price: '£79.99', suffix: '/ month',
     tagline: 'Advanced vessel management for growing operations.',
-    features: ['All Standard features', 'Advanced crew analytics', 'AI form builder', 'Priority support'],
+    features: ['All Standard features', 'Advanced crew analytics', 'AI form builder', 'Watch schedules', 'Onboard tracker', 'Vessel linked role accounts', 'Priority support'],
     accent: '#8b5cf6', icon: Zap, highlight: true,
   },
   {
@@ -4297,6 +4791,16 @@ const vesselPlans: PlanSummary[] = [
     accent: '#10b981', icon: TrendingUp,
   },
 ];
+
+const freeAppTier = {
+  name: 'Mobile App',
+  price: 'Free',
+  suffix: 'forever',
+  tagline: 'Download the app and start logging sea time at no cost — no web subscription required.',
+  features: ['Sea time logging on iPhone', 'Basic PDF exports', 'Digital testimonial requests'],
+  accent: '#64748b',
+  href: 'https://apps.apple.com/gb/app/seajourney/id6751553072',
+};
 
 function Membership() {
   const [tab, setTab] = useState<'crew' | 'vessel'>('crew');
@@ -4317,7 +4821,7 @@ function Membership() {
             <span className="wk-gradient-text wk-gradient-text--violet">maritime career</span>.
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-lg" style={{ color: 'var(--wk-text-soft)' }}>
-            Crew plans come with a free trial at checkout. Vessel plans come with an extended trial. Cancel anytime.
+            Start free with our iOS app, or upgrade to a web plan for advanced tools. Paid plans include a free trial at checkout. Cancel anytime.
           </p>
         </div>
 
@@ -4351,7 +4855,116 @@ function Membership() {
           </div>
         </div>
 
-        <div className="mx-auto mt-12 grid max-w-6xl items-stretch gap-5 md:grid-cols-3">
+        <div
+          className={cn(
+            'mx-auto mt-12 grid max-w-6xl items-stretch gap-5',
+            tab === 'crew' ? 'md:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-3',
+          )}
+        >
+          {tab === 'crew' && (
+            <motion.div
+              key="free-app"
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ duration: 0.4 }}
+              onMouseMove={(e) => {
+                const t = e.currentTarget as HTMLElement;
+                const r = t.getBoundingClientRect();
+                t.style.setProperty('--wk-mx', `${e.clientX - r.left}px`);
+                t.style.setProperty('--wk-my', `${e.clientY - r.top}px`);
+              }}
+              className="wk-card-hover wk-card-accent-top relative flex flex-col rounded-2xl p-6"
+              style={{
+                backgroundColor: 'var(--wk-card)',
+                border: '1px solid var(--wk-line)',
+                boxShadow: 'var(--wk-shadow-sm)',
+                ['--wk-card-accent' as string]: freeAppTier.accent,
+                ['--wk-card-glow' as string]: freeAppTier.accent,
+              } as React.CSSProperties}
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, ' + freeAppTier.accent + ' 14%, transparent)',
+                    color: freeAppTier.accent,
+                  }}
+                >
+                  <Smartphone className="h-5 w-5" />
+                </span>
+                <h3 className="font-headline min-w-0 flex-1 text-xl font-bold leading-tight" style={{ color: 'var(--wk-text)' }}>
+                  {freeAppTier.name}
+                </h3>
+              </div>
+
+              <div className="mt-3">
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, #10b981 14%, transparent)',
+                    color: '#10b981',
+                    border: '1px solid color-mix(in srgb, #10b981 30%, transparent)',
+                  }}
+                >
+                  No subscription
+                </span>
+              </div>
+
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-4xl font-bold tracking-tight" style={{ color: 'var(--wk-text)' }}>
+                  {freeAppTier.price}
+                </span>
+                <span className="text-sm font-semibold" style={{ color: 'var(--wk-text-muted)' }}>
+                  {freeAppTier.suffix}
+                </span>
+              </div>
+
+              <p className="mt-3 text-sm" style={{ color: 'var(--wk-text-soft)' }}>
+                {freeAppTier.tagline}
+              </p>
+
+              <ul
+                className="mt-5 space-y-2.5 border-t pt-5 text-sm"
+                style={{ borderColor: 'var(--wk-line)' }}
+              >
+                {freeAppTier.features.map((f) => (
+                  <li key={f} className="flex items-start gap-2.5">
+                    <span
+                      className="mt-0.5 inline-flex flex-shrink-0 items-center justify-center rounded-full"
+                      style={{
+                        backgroundColor: 'color-mix(in srgb, ' + freeAppTier.accent + ' 14%, transparent)',
+                        color: freeAppTier.accent,
+                        width: '1.125rem',
+                        height: '1.125rem',
+                      }}
+                    >
+                      <Check className="h-3 w-3" />
+                    </span>
+                    <span style={{ color: 'var(--wk-text)' }}>{f}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-auto pt-6">
+                <Link
+                  href={freeAppTier.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold"
+                  style={{
+                    background: 'var(--wk-bg-subtle)',
+                    color: 'var(--wk-text)',
+                    border: '1px solid var(--wk-line)',
+                  }}
+                >
+                  <Download className="h-4 w-4" />
+                  Download on App Store
+                </Link>
+              </div>
+            </motion.div>
+          )}
+
           {plans.map((p, i) => (
             <motion.div
               key={p.name}
@@ -4377,19 +4990,9 @@ function Membership() {
                 ['--wk-card-glow' as string]: p.accent,
               } as React.CSSProperties}
             >
-              {p.highlight && (
-                <span
-                  className="absolute right-5 top-5 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-                  style={{ backgroundColor: 'var(--wk-accent-soft)', color: 'var(--wk-accent)' }}
-                >
-                  <Star className="h-3 w-3 fill-current" />
-                  Most Popular
-                </span>
-              )}
-
               <div className="flex items-center gap-3">
                 <span
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl"
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
                   style={{
                     backgroundColor: 'color-mix(in srgb, ' + p.accent + ' 14%, transparent)',
                     color: p.accent,
@@ -4397,12 +5000,24 @@ function Membership() {
                 >
                   <p.icon className="h-5 w-5" />
                 </span>
-                <h3 className="font-headline text-xl font-bold" style={{ color: 'var(--wk-text)' }}>
+                <h3 className="font-headline min-w-0 flex-1 text-xl font-bold leading-tight" style={{ color: 'var(--wk-text)' }}>
                   {p.name}
                 </h3>
               </div>
 
-              <div className="mt-4 flex items-baseline gap-2">
+              {p.highlight && (
+                <div className="mt-3">
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+                    style={{ backgroundColor: 'var(--wk-accent-soft)', color: 'var(--wk-accent)' }}
+                  >
+                    <Star className="h-3 w-3 fill-current" />
+                    Most Popular
+                  </span>
+                </div>
+              )}
+
+              <div className={cn('flex items-baseline gap-2', p.highlight ? 'mt-2' : 'mt-4')}>
                 <span className="text-4xl font-bold tracking-tight" style={{ color: 'var(--wk-text)' }}>
                   {p.price}
                 </span>
@@ -4439,7 +5054,7 @@ function Membership() {
 
               <div className="mt-auto pt-6">
                 <Link
-                  href="/dashboard-offering"
+                  href={membershipSignupHref(tab, p.name)}
                   className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold"
                   style={{
                     background: p.highlight
@@ -4562,7 +5177,7 @@ function FinalCTA() {
 
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <PrimaryCta href="/signup">Start Free Trial</PrimaryCta>
-            <SecondaryCta href="mailto:hello@seajourneyapp.com?subject=Book%20a%20demo">
+            <SecondaryCta href="/request-demo">
               Book a Demo
             </SecondaryCta>
           </div>
@@ -4612,6 +5227,7 @@ function WkFooter() {
             <FooterCol
               title="Company"
               links={[
+                { href: '/request-demo', label: 'Request demo' },
                 { href: '/faq', label: 'FAQ' },
                 { href: '/privacy-policy', label: 'Privacy' },
                 { href: '/terms-of-service', label: 'Terms' },

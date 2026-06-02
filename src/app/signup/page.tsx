@@ -133,12 +133,12 @@ function SignupPageInner() {
   useEffect(() => {
     if (!isUserLoading) {
       if (user) {
-        router.push('/dashboard');
+        router.push(redirectParam || '/dashboard');
       } else {
         setIsCheckingUser(false);
       }
     }
-  }, [user, isUserLoading, router]);
+  }, [user, isUserLoading, router, redirectParam]);
 
   const handleSignup = async (data: SignupFormValues) => {
     setIsLoading(true);
@@ -339,7 +339,7 @@ function SignupPageInner() {
               <span className="wk-gradient-text">Create</span> your account
             </h1>
             <p className="text-sm" style={{ color: 'var(--wk-text-muted)' }}>
-              Free forever for crew. No credit card required.
+              Free to sign up — no credit card required. Choose a plan after signup, or start with our free iOS app.
             </p>
           </div>
         </div>
