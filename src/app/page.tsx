@@ -4773,7 +4773,7 @@ const crewPlans: PlanSummary[] = [
 
 const vesselPlans: PlanSummary[] = [
   {
-    name: 'Vessel Standard', price: '£35.99', suffix: '/ month',
+    name: 'Vessel Standard', price: '£49.99', suffix: '/ month',
     tagline: 'Essential vessel management for small operations.',
     features: ['Single vessel', 'Crew assignments', 'Vessel state tracking', 'Digital testimonial approvals'],
     accent: '#0ea5e9', icon: Shield,
@@ -4785,7 +4785,7 @@ const vesselPlans: PlanSummary[] = [
     accent: '#8b5cf6', icon: Zap, highlight: true,
   },
   {
-    name: 'Vessel Professional', price: '£139.99', suffix: '/ month',
+    name: 'Vessel Professional', price: '£99.99', suffix: '/ month',
     tagline: 'Complete vessel management solution.',
     features: ['Multiple role assignments', 'All Premium features', 'Generate crew documents', 'End-to-end sign-off cycle: vessel → captain → crew', 'Free crew accounts while actively tracking this vessel'],
     accent: '#10b981', icon: TrendingUp,
