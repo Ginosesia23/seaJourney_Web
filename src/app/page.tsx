@@ -5214,7 +5214,7 @@ function WkFooter() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-20 sm:gap-32 md:ml-auto">
+          <div className="grid grid-cols-1 gap-8 sm:grid-cols-3 sm:gap-12 lg:gap-16 md:ml-auto">
             <FooterCol
               title="Product"
               links={[
@@ -5229,6 +5229,11 @@ function WkFooter() {
               links={[
                 { href: '/request-demo', label: 'Request demo' },
                 { href: '/faq', label: 'FAQ' },
+              ]}
+            />
+            <FooterCol
+              title="Legal"
+              links={[
                 { href: '/privacy-policy', label: 'Privacy' },
                 { href: '/terms-of-service', label: 'Terms' },
                 { href: '/cookie-policy', label: 'Cookies' },

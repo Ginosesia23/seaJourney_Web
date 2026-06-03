@@ -557,11 +557,11 @@ function WkPageFooter() {
       }}
     >
       <div className="container mx-auto px-4 py-14 sm:px-6 lg:px-8">
-        <div className="grid gap-10 md:grid-cols-4">
-          <div className="md:col-span-2">
+        <div className="flex flex-col justify-between gap-10 md:flex-row md:items-start">
+          <div className="max-w-md">
             <Logo className="!text-[color:var(--wk-text)]" />
             <p
-              className="mt-4 max-w-md text-sm"
+              className="mt-4 text-sm"
               style={{ color: 'var(--wk-text-soft)' }}
             >
               SeaJourney is the essential app for yacht crew and maritime
@@ -570,25 +570,32 @@ function WkPageFooter() {
             </p>
           </div>
 
-          <WkFooterCol
-            title="Product"
-            links={[
-              { href: '/how-to-use', label: 'How it works' },
-              { href: '/for-vessels', label: 'For vessels' },
-              { href: '/roadmap', label: 'Roadmap' },
-              { href: '/verify', label: 'Verify records' },
-            ]}
-          />
-          <WkFooterCol
-            title="Company"
-            links={[
-              { href: '/request-demo', label: 'Request demo' },
-              { href: '/faq', label: 'FAQ' },
-              { href: '/privacy-policy', label: 'Privacy' },
-              { href: '/terms-of-service', label: 'Terms' },
-              { href: '/cookie-policy', label: 'Cookies' },
-            ]}
-          />
+          <div className="grid grid-cols-1 gap-8 sm:grid-cols-3 sm:gap-12 lg:gap-16 md:ml-auto">
+            <WkFooterCol
+              title="Product"
+              links={[
+                { href: '/how-to-use', label: 'How it works' },
+                { href: '/for-vessels', label: 'For vessels' },
+                { href: '/roadmap', label: 'Roadmap' },
+                { href: '/verify', label: 'Verify records' },
+              ]}
+            />
+            <WkFooterCol
+              title="Company"
+              links={[
+                { href: '/request-demo', label: 'Request demo' },
+                { href: '/faq', label: 'FAQ' },
+              ]}
+            />
+            <WkFooterCol
+              title="Legal"
+              links={[
+                { href: '/privacy-policy', label: 'Privacy' },
+                { href: '/terms-of-service', label: 'Terms' },
+                { href: '/cookie-policy', label: 'Cookies' },
+              ]}
+            />
+          </div>
         </div>
 
         <div
