@@ -4,16 +4,8 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import {
   Form,
   FormControl,
@@ -24,8 +16,19 @@ import {
 } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { useSupabase } from '@/supabase';
-import { Loader2, Lock } from 'lucide-react';
-import LogoOnboarding from '@/components/logo-onboarding';
+import { KeyRound, Loader2, Lock, ShieldCheck } from 'lucide-react';
+import {
+  WkAuthShell,
+  WkAsideHero,
+  WkPrimarySubmit,
+  wkInputCls,
+  wkLabelCls,
+} from '@/components/wk/wk-auth-shell';
+import {
+  getRecoveryFromHash,
+  hasRecoveryInSearch,
+  hasRecoveryInUrl,
+} from '@/lib/auth-recovery';
 
 const resetPasswordSchema = z
   .object({
@@ -43,6 +46,30 @@ const resetPasswordSchema = z
 
 type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>;
 
+const aside = (
+  <WkAsideHero
+    eyebrow="Account security"
+    title={
+      <>
+        Choose a <span className="wk-gradient-text">new password</span>.
+      </>
+    }
+    description="You're almost done. Pick a strong password you haven't used on SeaJourney before — you'll sign in with it on your next visit."
+    bullets={[
+      {
+        label: 'At least 8 characters',
+        sub: 'Mix letters and numbers for a stronger password.',
+        icon: <Lock className="h-4 w-4" />,
+      },
+      {
+        label: 'Secure reset link',
+        sub: 'This page only works from the email we sent you.',
+        icon: <ShieldCheck className="h-4 w-4" />,
+      },
+    ]}
+  />
+);
+
 export default function ResetPasswordClient() {
   const [isLoading, setIsLoading] = useState(false);
   const [isValidSession, setIsValidSession] = useState<boolean | null>(null);
@@ -59,167 +86,119 @@ export default function ResetPasswordClient() {
   useEffect(() => {
     let mounted = true;
 
-    const checkSession = async () => {
-      // 1) Check for existing session first
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session) {
-        if (mounted) setIsValidSession(true);
-        return;
+    const markValid = () => {
+      if (!mounted) return;
+      setIsValidSession(true);
+      if (window.location.hash || window.location.search) {
+        window.history.replaceState({}, '', '/reset-password');
       }
+    };
 
-      // 2) Handle URL hash parameters (Supabase sends tokens in hash after redirect)
-      const hashParams = window.location.hash;
-      if (hashParams) {
-        const params = new URLSearchParams(hashParams.substring(1));
-        const accessToken = params.get('access_token');
-        const type = params.get('type');
-        const refreshToken = params.get('refresh_token');
+    const markInvalid = () => {
+      if (!mounted) return;
+      setIsValidSession(false);
+    };
 
-        if (accessToken && type === 'recovery' && refreshToken) {
-          try {
-            const { data, error } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-
-            if (error) {
-              console.error('[RESET PASSWORD] Error setting session:', error);
-              if (mounted) {
-                setIsValidSession(false);
-                toast({
-                  title: 'Invalid Link',
-                  description:
-                    'This password reset link is invalid or has expired. Please request a new one.',
-                  variant: 'destructive',
-                });
-              }
-              return;
-            }
-
-            if (data.session && mounted) {
-              setIsValidSession(true);
-              // Clean up URL
-              window.history.replaceState({}, '', '/reset-password');
-            }
-            return;
-          } catch (error) {
-            console.error('[RESET PASSWORD] Exception setting session:', error);
-            if (mounted) setIsValidSession(false);
-            return;
-          }
+    const establishRecoverySession = async () => {
+      const fromHash = getRecoveryFromHash(window.location.hash);
+      if (fromHash) {
+        const { data, error } = await supabase.auth.setSession({
+          access_token: fromHash.accessToken,
+          refresh_token: fromHash.refreshToken,
+        });
+        if (error || !data.session) {
+          markInvalid();
+          toast({
+            title: 'Invalid Link',
+            description:
+              'This password reset link is invalid or has expired. Please request a new one.',
+            variant: 'destructive',
+          });
+          return true;
         }
+        markValid();
+        return true;
       }
 
-      // 3) Handle query parameters (some email clients or Supabase configs might use query params)
-      const searchParams = new URLSearchParams(window.location.search);
-      const tokenHash = searchParams.get('token_hash') || searchParams.get('token');
-      const typeParam = searchParams.get('type');
-      const redirectTo = searchParams.get('redirect_to');
-
-      if (tokenHash && typeParam === 'recovery') {
-        try {
+      const search = window.location.search;
+      if (hasRecoveryInSearch(search)) {
+        const params = new URLSearchParams(search);
+        const tokenHash = params.get('token_hash') || params.get('token');
+        if (tokenHash) {
           const { data, error } = await supabase.auth.verifyOtp({
             token_hash: tokenHash,
             type: 'recovery',
           });
-
           if (error || !data.session) {
-            console.error('[RESET PASSWORD] Error verifying OTP:', error);
-            if (mounted) {
-              setIsValidSession(false);
-              toast({
-                title: 'Invalid Link',
-                description:
-                  'This password reset link is invalid or has expired. Please request a new one.',
-                variant: 'destructive',
-              });
-            }
-            return;
+            markInvalid();
+            toast({
+              title: 'Invalid Link',
+              description:
+                'This password reset link is invalid or has expired. Please request a new one.',
+              variant: 'destructive',
+            });
+            return true;
           }
-
-          if (data.session && mounted) {
-            setIsValidSession(true);
-            // Clean up URL
-            window.history.replaceState({}, '', '/reset-password');
-          }
-          return;
-        } catch (error) {
-          console.error('[RESET PASSWORD] Exception verifying OTP:', error);
-          if (mounted) setIsValidSession(false);
-          return;
+          markValid();
+          return true;
         }
       }
 
-      // 4) Set up auth state change listener to catch PASSWORD_RECOVERY events
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log('[RESET PASSWORD] Auth state change:', event, !!session);
-        
-        if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
-          if (mounted) {
-            setIsValidSession(true);
-            // Clean up URL
-            window.history.replaceState({}, '', '/reset-password');
-          }
-        } else if (event === 'SIGNED_OUT') {
-          if (mounted) setIsValidSession(false);
+      return false;
+    };
+
+    let subscription: { unsubscribe: () => void } | null = null;
+
+    const run = async () => {
+      const handled = await establishRecoverySession();
+      if (handled || !mounted) return;
+
+      const { data } = supabase.auth.onAuthStateChange((event) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          markValid();
         }
       });
+      subscription = data.subscription;
 
-      // 5) Poll for session (Supabase's /auth/v1/verify might establish session server-side)
-      // Check multiple times with increasing delays to catch async session establishment
-      let checkCount = 0;
-      const maxChecks = 5;
-      
-      const pollForSession = async () => {
-        if (!mounted || checkCount >= maxChecks) {
+      let attempts = 0;
+      const poll = async () => {
+        if (!mounted || attempts >= 5) {
           if (!mounted) return;
-          
-          // Final check - if still no session, mark as invalid
-          const {
-            data: { session: finalSession },
-          } = await supabase.auth.getSession();
-          
-          if (!finalSession && mounted) {
-            setIsValidSession(false);
-          } else if (finalSession && mounted) {
-            setIsValidSession(true);
-            window.history.replaceState({}, '', '/reset-password');
+          if (hasRecoveryInUrl()) {
+            const {
+              data: { session },
+            } = await supabase.auth.getSession();
+            if (session) markValid();
+            else markInvalid();
+          } else {
+            markInvalid();
           }
           return;
         }
 
-        checkCount++;
-        const {
-          data: { session: polledSession },
-        } = await supabase.auth.getSession();
-
-        if (polledSession && mounted) {
-          setIsValidSession(true);
-          // Clean up URL
-          if (window.location.hash || window.location.search) {
-            window.history.replaceState({}, '', '/reset-password');
+        attempts += 1;
+        if (hasRecoveryInUrl()) {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (session) {
+            markValid();
+            return;
           }
-        } else if (mounted) {
-          // Check again with exponential backoff
-          setTimeout(pollForSession, Math.min(500 * Math.pow(2, checkCount - 1), 3000));
         }
+
+        setTimeout(poll, Math.min(400 * attempts, 2000));
       };
 
-      // Start polling after a short initial delay
-      setTimeout(pollForSession, 300);
-
-      return () => {
-        mounted = false;
-        subscription.unsubscribe();
-      };
+      setTimeout(poll, 300);
     };
 
-    checkSession();
+    void run();
+
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
   }, [supabase, toast]);
 
   const handleResetPassword = async (data: ResetPasswordFormValues) => {
@@ -236,7 +215,6 @@ export default function ResetPasswordClient() {
             error.message || 'Failed to reset password. Please try again.',
           variant: 'destructive',
         });
-        setIsLoading(false);
         return;
       }
 
@@ -249,7 +227,7 @@ export default function ResetPasswordClient() {
       setTimeout(() => {
         router.push('/login');
       }, 2000);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Password reset failed:', error);
       toast({
         title: 'Error',
@@ -261,125 +239,161 @@ export default function ResetPasswordClient() {
     }
   };
 
-  // Loading state while we check the session
   if (isValidSession === null) {
     return (
-      <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center">
-        <Loader2 className="h-12 w-12 animate-spin text-white" />
-      </div>
+      <WkAuthShell hideBackLink aside={aside}>
+        <div
+          className="wk-auth-card flex items-center justify-center p-10"
+          style={{ minHeight: 260 }}
+        >
+          <Loader2
+            className="h-8 w-8 animate-spin"
+            style={{ color: 'var(--wk-accent)' }}
+          />
+        </div>
+      </WkAuthShell>
     );
   }
 
-  // Invalid / expired link
   if (isValidSession === false) {
     return (
-      <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
-        <div className="mb-8">
-          <LogoOnboarding />
-        </div>
-        <Card className="w-full max-w-md border-primary/20 bg-black/20 backdrop-blur-sm">
-          <CardHeader className="text-center">
-            <CardTitle className="font-headline text-2xl">
-              Invalid Reset Link
-            </CardTitle>
-            <CardDescription>
-              This password reset link is invalid or has expired.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button
-              asChild
-              variant="outline"
-              className="w-full rounded-lg"
+      <WkAuthShell aside={aside}>
+        <div className="wk-auth-card p-8 sm:p-10">
+          <div className="flex flex-col items-center text-center">
+            <span
+              className="inline-flex h-14 w-14 items-center justify-center rounded-2xl"
+              style={{
+                backgroundColor: 'var(--wk-bad-soft)',
+                color: 'var(--wk-bad)',
+                border: '1px solid color-mix(in srgb, var(--wk-bad) 35%, transparent)',
+              }}
             >
-              <a href="/forgot-password">Request New Reset Link</a>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+              <KeyRound className="h-7 w-7" />
+            </span>
+            <h1
+              className="mt-5 text-2xl font-semibold tracking-tight"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              <span className="wk-gradient-text">Invalid reset link</span>
+            </h1>
+            <p
+              className="mt-2 text-sm"
+              style={{ color: 'var(--wk-text-soft)' }}
+            >
+              This password reset link is invalid or has expired. Request a new
+              one and open it from your email.
+            </p>
+          </div>
+
+          <div
+            className="my-6 h-px w-full"
+            style={{ backgroundColor: 'var(--wk-line)' }}
+          />
+
+          <Link href="/forgot-password" className="wk-btn wk-btn-primary w-full">
+            Request New Reset Link
+          </Link>
+
+          <p
+            className="mt-6 text-center text-sm"
+            style={{ color: 'var(--wk-text-muted)' }}
+          >
+            Remember your password?{' '}
+            <Link href="/login" className="wk-link">
+              Sign in
+            </Link>
+          </p>
+        </div>
+      </WkAuthShell>
     );
   }
 
-  // Valid session – show reset form
   return (
-    <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
-      <div className="mb-8">
-        <LogoOnboarding />
-      </div>
-      <div className="relative w-full max-w-md p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
-        <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl" />
-        <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl" />
-        <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl" />
-        <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl" />
+    <WkAuthShell aside={aside}>
+      <div className="wk-auth-card p-8 sm:p-10">
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl"
+            style={{
+              backgroundColor: 'var(--wk-accent-soft)',
+              color: 'var(--wk-accent)',
+              border: '1px solid var(--wk-accent-ring)',
+            }}
+          >
+            <Lock className="h-5 w-5" />
+          </span>
+          <div>
+            <h1
+              className="text-2xl font-semibold tracking-tight"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              <span className="wk-gradient-text">Set</span> new password
+            </h1>
+            <p className="text-sm" style={{ color: 'var(--wk-text-muted)' }}>
+              Enter your new password below.
+            </p>
+          </div>
+        </div>
 
-        <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
-          <CardHeader className="text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 mb-4">
-              <Lock className="h-6 w-6 text-primary" />
-            </div>
-            <CardTitle className="font-headline text-2xl">
-              Set New Password
-            </CardTitle>
-            <CardDescription>Enter your new password below.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(handleResetPassword)}
-                className="space-y-4"
-              >
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>New Password</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="password"
-                          placeholder="••••••••"
-                          {...field}
-                          className="rounded-lg"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="confirmPassword"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Confirm Password</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="password"
-                          placeholder="••••••••"
-                          {...field}
-                          className="rounded-lg"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="submit"
-                  className="w-full rounded-lg"
-                  disabled={isLoading}
-                  variant="default"
-                >
-                  {isLoading && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  Update Password
-                </Button>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
+        <div
+          className="my-6 h-px w-full"
+          style={{ backgroundColor: 'var(--wk-line)' }}
+        />
+
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(handleResetPassword)}
+            className="space-y-5"
+            noValidate
+          >
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field, fieldState }) => (
+                <FormItem className="space-y-1.5">
+                  <FormLabel className={wkLabelCls}>New password</FormLabel>
+                  <FormControl>
+                    <input
+                      type="password"
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                      aria-invalid={fieldState.invalid || undefined}
+                      className={wkInputCls}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage className="wk-error" />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="confirmPassword"
+              render={({ field, fieldState }) => (
+                <FormItem className="space-y-1.5">
+                  <FormLabel className={wkLabelCls}>Confirm password</FormLabel>
+                  <FormControl>
+                    <input
+                      type="password"
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                      aria-invalid={fieldState.invalid || undefined}
+                      className={wkInputCls}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage className="wk-error" />
+                </FormItem>
+              )}
+            />
+
+            <WkPrimarySubmit type="submit" loading={isLoading}>
+              Update Password
+            </WkPrimarySubmit>
+          </form>
+        </Form>
       </div>
-    </div>
+    </WkAuthShell>
   );
 }

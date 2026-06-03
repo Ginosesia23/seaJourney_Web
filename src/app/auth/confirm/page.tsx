@@ -3,10 +3,11 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { CheckCircle, Loader2 } from 'lucide-react';
-import LogoOnboarding from '@/components/logo-onboarding';
+import { CheckCircle, Loader2, Mail } from 'lucide-react';
+import {
+  WkAuthShell,
+  WkAsideHero,
+} from '@/components/wk/wk-auth-shell';
 
 function EmailConfirmPageInner() {
   const router = useRouter();
@@ -15,41 +16,24 @@ function EmailConfirmPageInner() {
   const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
-    // Check if the request came from a valid email confirmation link
-    // Valid confirmation links will have either:
-    // 1. Hash params with access_token (from Supabase email link)
-    // 2. Query params like token, type, or confirmed=true
-    // 3. A referrer from an email confirmation process
-    
     const hashParams = typeof window !== 'undefined' ? window.location.hash : '';
-    const hasHashToken = hashParams && (
-      hashParams.includes('access_token') ||
-      hashParams.includes('type=signup') ||
-      hashParams.includes('type=email') ||
-      hashParams.includes('type=recovery')
-    );
-    
-    const hasQueryParams = searchParams?.get('token') ||
-                          searchParams?.get('type') ||
-                          searchParams?.get('confirmed') === 'true';
-    
-    // Check if coming from a valid email confirmation flow
+    const hasHashToken =
+      !!hashParams &&
+      (hashParams.includes('access_token') ||
+        hashParams.includes('type=signup') ||
+        hashParams.includes('type=email'));
+
+    const hasQueryParams =
+      !!searchParams?.get('token') ||
+      !!searchParams?.get('type') ||
+      searchParams?.get('confirmed') === 'true';
+
     const isValidConfirmation = hasHashToken || hasQueryParams;
-    
-    console.log('[EMAIL CONFIRM] Validation check:', {
-      hasHashToken: !!hasHashToken,
-      hasQueryParams: !!hasQueryParams,
-      isValidConfirmation,
-      hashParams: hashParams ? 'present' : 'missing',
-      searchParams: searchParams?.toString() || 'none',
-    });
-    
+
     if (isValidConfirmation) {
       setIsValid(true);
       setIsChecking(false);
     } else {
-      // Invalid access - redirect to login after a brief moment
-      console.log('[EMAIL CONFIRM] Invalid access attempt - redirecting to login');
       setIsChecking(false);
       setTimeout(() => {
         router.replace('/login?error=invalid_confirmation_link');
@@ -57,104 +41,145 @@ function EmailConfirmPageInner() {
     }
   }, [searchParams, router]);
 
-  // Show loading while checking
+  const aside = (
+    <WkAsideHero
+      eyebrow="Welcome aboard"
+      title={
+        <>
+          You&apos;re <span className="wk-gradient-text">verified</span>.
+        </>
+      }
+      description="Your email is confirmed — sign in to start logging sea time, tracking certificates, and building your maritime record."
+      bullets={[
+        {
+          label: 'Account activated',
+          sub: 'Your SeaJourney profile is ready to use.',
+          icon: <CheckCircle className="h-4 w-4" />,
+        },
+        {
+          label: 'Sign in on web or app',
+          sub: 'Use the same email and password everywhere.',
+          icon: <Mail className="h-4 w-4" />,
+        },
+      ]}
+    />
+  );
+
   if (isChecking) {
     return (
-      <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
-        <div className="mb-8">
-          <LogoOnboarding />
+      <WkAuthShell hideBackLink aside={aside}>
+        <div
+          className="wk-auth-card flex flex-col items-center justify-center gap-4 p-10"
+          style={{ minHeight: 260 }}
+        >
+          <Loader2
+            className="h-8 w-8 animate-spin"
+            style={{ color: 'var(--wk-accent)' }}
+          />
+          <p className="text-sm" style={{ color: 'var(--wk-text-muted)' }}>
+            Verifying confirmation…
+          </p>
         </div>
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-white" />
-          <p className="text-sm text-white/80">Verifying confirmation...</p>
-        </div>
-      </div>
+      </WkAuthShell>
     );
   }
 
-  // Show error if invalid access
   if (!isValid) {
     return (
-      <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
-        <div className="mb-8">
-          <LogoOnboarding />
+      <WkAuthShell aside={aside}>
+        <div className="wk-auth-card p-8 sm:p-10 text-center">
+          <h1
+            className="text-2xl font-semibold tracking-tight"
+            style={{ color: 'var(--wk-text)' }}
+          >
+            Invalid access
+          </h1>
+          <p
+            className="mt-2 text-sm"
+            style={{ color: 'var(--wk-text-soft)' }}
+          >
+            This page can only be opened from your confirmation email. Redirecting
+            you to sign in…
+          </p>
+          <Link href="/login" className="wk-btn wk-btn-primary mt-6 inline-flex">
+            Go to sign in
+          </Link>
         </div>
-        <div className="relative w-full max-w-md p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
-          <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
-            <CardHeader className="text-center">
-              <CardTitle className="font-headline text-2xl text-white">Invalid Access</CardTitle>
-              <CardDescription className="text-white/60">
-                This page can only be accessed via a valid email confirmation link.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground text-center text-white/80">
-                Redirecting you to the login page...
-              </p>
-              <Button asChild className="w-full rounded-xl" size="lg">
-                <Link href="/login">Go to Login</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      </WkAuthShell>
     );
   }
 
-  // Show success confirmation (only if valid)
   return (
-    <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
-      <div className="mb-8">
-        <LogoOnboarding />
+    <WkAuthShell aside={aside}>
+      <div className="wk-auth-card p-8 sm:p-10">
+        <div className="flex flex-col items-center text-center">
+          <span
+            className="inline-flex h-14 w-14 items-center justify-center rounded-2xl"
+            style={{
+              backgroundColor: 'var(--wk-good-soft)',
+              color: 'var(--wk-good)',
+              border: '1px solid var(--wk-good-ring)',
+            }}
+          >
+            <CheckCircle className="h-7 w-7" />
+          </span>
+          <h1
+            className="mt-5 text-2xl font-semibold tracking-tight"
+            style={{ color: 'var(--wk-text)' }}
+          >
+            <span className="wk-gradient-text">Email confirmed!</span>
+          </h1>
+          <p
+            className="mt-2 text-sm"
+            style={{ color: 'var(--wk-text-soft)' }}
+          >
+            Your email address has been successfully verified. Sign in to start
+            tracking your maritime career.
+          </p>
+        </div>
+
+        <div
+          className="my-6 h-px w-full"
+          style={{ backgroundColor: 'var(--wk-line)' }}
+        />
+
+        <Link href="/login" className="wk-btn wk-btn-primary w-full">
+          Go to sign in
+        </Link>
+
+        <p
+          className="mt-6 text-center text-xs"
+          style={{ color: 'var(--wk-text-muted)' }}
+        >
+          Having trouble?{' '}
+          <Link href="/login" className="wk-link">
+            Contact support
+          </Link>
+        </p>
       </div>
-      <div className="relative w-full max-w-md p-1 border border-primary/20 rounded-xl bg-black/20 backdrop-blur-sm">
-        <div className="absolute -top-px -left-px h-4 w-4 border-t-2 border-l-2 border-accent rounded-tl-xl"></div>
-        <div className="absolute -top-px -right-px h-4 w-4 border-t-2 border-r-2 border-accent rounded-tr-xl"></div>
-        <div className="absolute -bottom-px -left-px h-4 w-4 border-b-2 border-l-2 border-accent rounded-bl-xl"></div>
-        <div className="absolute -bottom-px -right-px h-4 w-4 border-b-2 border-r-2 border-accent rounded-br-xl"></div>
-        
-        <Card className="w-full border-none bg-transparent text-card-foreground shadow-none rounded-xl">
-          <CardHeader className="text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-500/20 mb-4">
-              <CheckCircle className="h-8 w-8 text-green-500" />
-            </div>
-            <CardTitle className="font-headline text-2xl">Email Confirmed!</CardTitle>
-            <CardDescription>
-              Your email address has been successfully verified.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground text-center">
-              You can now log in to your SeaJourney account and start tracking your maritime career.
-            </p>
-            <Button asChild className="w-full rounded-xl" size="lg">
-              <Link href="/login">Go to Login</Link>
-            </Button>
-            <p className="text-xs text-muted-foreground text-center mt-4">
-              Having trouble?{' '}
-              <Link href="/login" className="text-primary hover:underline font-medium">
-                Contact Support
-              </Link>
-            </p>
-          </CardContent>
-        </Card>
+    </WkAuthShell>
+  );
+}
+
+function ConfirmFallback() {
+  return (
+    <WkAuthShell hideBackLink>
+      <div
+        className="wk-auth-card flex items-center justify-center p-10"
+        style={{ minHeight: 260 }}
+      >
+        <Loader2
+          className="h-8 w-8 animate-spin"
+          style={{ color: 'var(--wk-accent)' }}
+        />
       </div>
-    </div>
+    </WkAuthShell>
   );
 }
 
 export default function EmailConfirmPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="dark animated-gradient-background flex min-h-screen flex-col items-center justify-center px-4">
-          <div className="mb-8">
-            <LogoOnboarding />
-          </div>
-          <Loader2 className="h-8 w-8 animate-spin text-white" />
-        </div>
-      }
-    >
+    <Suspense fallback={<ConfirmFallback />}>
       <EmailConfirmPageInner />
     </Suspense>
   );
