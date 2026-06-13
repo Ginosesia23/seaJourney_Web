@@ -69,6 +69,13 @@ export interface Vessel {
   company_contact?: string | null;
   /** Vessel ship's stamp stored as a base64 image data URL (PNG/JPEG). */
   stamp?: string | null;
+  /** When true, daily state is derived from Datalastic AIS instead of manual logs. */
+  aisTrackingEnabled?: boolean;
+  aisLastSyncAt?: string | null;
+  aisLastNavStatus?: string | null;
+  aisLastSpeed?: number | null;
+  aisLastPositionAt?: string | null;
+  aisLastSyncError?: string | null;
 }
 
 export type DailyStatus = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';

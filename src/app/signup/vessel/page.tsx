@@ -20,13 +20,12 @@ import {
   Anchor,
   Compass,
   Loader2,
+  Radar,
   Ship,
-  Check,
-  X,
   ShieldCheck,
   Waves,
 } from 'lucide-react';
-import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
+import { UnifiedVesselSearchPicker } from '@/components/dashboard/unified-vessel-search-picker';
 import {
   WkAuthShell,
   WkAsideHero,
@@ -35,52 +34,24 @@ import {
   wkLabelCls,
 } from '@/components/wk/wk-auth-shell';
 
-const vesselSignupSchema = z
-  .object({
-    vesselId: z.string().optional(),
-    vesselName: z
-      .string()
-      .min(2, { message: 'Vessel name must be at least 2 characters long.' }),
-    vesselType: z.enum(vesselTypeValues).optional(),
-    officialNumber: z.string().optional(),
-    email: z.string().email({ message: 'Please enter a valid email.' }),
-    password: z
-      .string()
-      .min(8, { message: 'Password must be at least 8 characters long.' }),
-    agreeToTerms: z.boolean().refine((val) => val === true, {
-      message:
-        'You must agree to the Terms & Conditions and Privacy Policy to create an account.',
-    }),
-  })
-  .refine(
-    (data) => {
-      if (!data.vesselId && !data.vesselType) {
-        return false;
-      }
-      return true;
-    },
-    {
-      message:
-        'Please select an existing vessel or provide vessel type to create a new one.',
-      path: ['vesselType'],
-    },
-  );
+const vesselSignupSchema = z.object({
+  vesselId: z.string().min(1, { message: 'Please select your vessel.' }),
+  vesselName: z.string().optional(),
+  email: z.string().email({ message: 'Please enter a valid email.' }),
+  password: z
+    .string()
+    .min(8, { message: 'Password must be at least 8 characters long.' }),
+  agreeToTerms: z.boolean().refine((val) => val === true, {
+    message:
+      'You must agree to the Terms & Conditions and Privacy Policy to create an account.',
+  }),
+});
 
 type VesselSignupFormValues = z.infer<typeof vesselSignupSchema>;
-
-interface VesselOption {
-  id: string;
-  name: string;
-  type: string;
-  officialNumber?: string;
-}
 
 function VesselSignupPageInner() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingUser, setIsCheckingUser] = useState(true);
-  const [searchingVessels, setSearchingVessels] = useState(false);
-  const [vesselOptions, setVesselOptions] = useState<VesselOption[]>([]);
-  const [selectedVessel, setSelectedVessel] = useState<VesselOption | null>(null);
 
   const { supabase } = useSupabase();
   const router = useRouter();
@@ -92,96 +63,20 @@ function VesselSignupPageInner() {
   const form = useForm<VesselSignupFormValues>({
     resolver: zodResolver(vesselSignupSchema),
     defaultValues: {
-      vesselId: undefined,
+      vesselId: '',
       vesselName: '',
-      vesselType: undefined,
-      officialNumber: '',
       email: '',
       password: '',
       agreeToTerms: false,
     },
   });
 
-  const vesselName = form.watch('vesselName');
-
-  useEffect(() => {
-    const searchVessels = async () => {
-      if (!vesselName || vesselName.length < 2) {
-        setVesselOptions([]);
-        setSelectedVessel(null);
-        form.setValue('vesselId', undefined);
-        return;
-      }
-
-      if (
-        selectedVessel &&
-        selectedVessel.name.toLowerCase() === vesselName.toLowerCase()
-      ) {
-        return;
-      }
-
-      setSearchingVessels(true);
-      try {
-        const response = await fetch('/api/vessels/search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ searchTerm: vesselName }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setVesselOptions(data.vessels || []);
-        } else {
-          setVesselOptions([]);
-        }
-      } catch (error) {
-        console.error('Error searching vessels:', error);
-        setVesselOptions([]);
-      } finally {
-        setSearchingVessels(false);
-      }
-    };
-
-    const timeoutId = setTimeout(searchVessels, 300);
-    return () => clearTimeout(timeoutId);
-  }, [vesselName, selectedVessel, form]);
-
-  const handleSelectExistingVessel = async (vessel: VesselOption) => {
-    try {
-      const response = await fetch('/api/vessels/check-manager', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vesselId: vessel.id }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.hasManager) {
-          toast({
-            title: 'Vessel Already Managed',
-            description:
-              'This vessel is already being managed by another account. Please select a different vessel or create a new one.',
-            variant: 'destructive',
-          });
-          return;
-        }
-      }
-    } catch (error) {
-      console.error('Error checking vessel manager:', error);
+  const handleVesselPickerChange = (vesselId: string, vesselName: string) => {
+    form.setValue('vesselId', vesselId);
+    form.setValue('vesselName', vesselName);
+    if (vesselId) {
+      form.clearErrors('vesselId');
     }
-
-    setSelectedVessel(vessel);
-    setVesselOptions([]);
-    form.setValue('vesselId', vessel.id);
-    form.setValue('vesselName', vessel.name);
-    form.setValue('vesselType', undefined);
-    form.setValue('officialNumber', vessel.officialNumber || '');
-    form.clearErrors('vesselType');
-  };
-
-  const handleCreateNewVessel = () => {
-    setSelectedVessel(null);
-    form.setValue('vesselId', undefined);
   };
 
   useEffect(() => {
@@ -252,120 +147,67 @@ function VesselSignupPageInner() {
 
       let vesselId: string;
 
-      if (data.vesselId) {
-        const checkResponse = await fetch('/api/vessels/check-manager', {
-          method: 'POST',
+      if (!data.vesselId) {
+        toast({
+          title: 'Vessel Required',
+          description: 'Please search for and select your vessel before registering.',
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      const checkResponse = await fetch('/api/vessels/check-manager', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vesselId: data.vesselId }),
+      });
+
+      if (checkResponse.ok) {
+        const checkData = await checkResponse.json();
+        if (checkData.hasManager) {
+          toast({
+            title: 'Vessel Already Managed',
+            description:
+              'This vessel is already being managed by another account. Please select a different vessel.',
+            variant: 'destructive',
+          });
+          setIsLoading(false);
+          return;
+        }
+      } else {
+        console.error('Failed to check vessel manager status');
+      }
+
+      vesselId = data.vesselId;
+
+      try {
+        const updateResponse = await fetch('/api/vessels/update', {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ vesselId: data.vesselId }),
+          body: JSON.stringify({
+            vesselId,
+            updates: { is_official: true },
+          }),
         });
 
-        if (checkResponse.ok) {
-          const checkData = await checkResponse.json();
-          if (checkData.hasManager) {
-            toast({
-              title: 'Vessel Already Managed',
-              description:
-                'This vessel is already being managed by another account. Please select a different vessel or create a new one.',
-              variant: 'destructive',
-            });
-            setIsLoading(false);
-            return;
-          }
-        } else {
-          console.error('Failed to check vessel manager status');
-        }
-
-        vesselId = data.vesselId;
-
-        try {
-          const updateResponse = await fetch('/api/vessels/update', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              vesselId,
-              updates: { is_official: true },
-            }),
-          });
-
-          if (!updateResponse.ok) {
-            const updateError = await updateResponse.json();
-            console.error(
-              '[VESSEL SIGNUP] Error updating is_official:',
-              updateError,
-            );
-          } else {
-            console.log(
-              '[VESSEL SIGNUP] Successfully updated is_official to true for vessel:',
-              vesselId,
-            );
-          }
-        } catch (updateError) {
+        if (!updateResponse.ok) {
+          const updateError = await updateResponse.json();
           console.error(
             '[VESSEL SIGNUP] Error updating is_official:',
             updateError,
           );
+        } else {
+          console.log(
+            '[VESSEL SIGNUP] Successfully updated is_official to true for vessel:',
+            vesselId,
+          );
         }
-      } else {
-        if (!data.vesselType) {
-          toast({
-            title: 'Vessel Type Required',
-            description:
-              'Please select a vessel type or choose an existing vessel.',
-            variant: 'destructive',
-          });
-          setIsLoading(false);
-          return;
-        }
-
-        const vesselResponse = await fetch('/api/vessels/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: data.vesselName,
-            type: data.vesselType,
-            officialNumber: data.officialNumber || null,
-            isOfficial: true,
-            vesselManagerId: authData.user.id,
-          }),
-        });
-
-        if (!vesselResponse.ok) {
-          const vesselError = await vesselResponse.json();
-          console.error('[VESSEL SIGNUP] Vessel creation error:', vesselError);
-          toast({
-            title: 'Vessel Creation Failed',
-            description:
-              vesselError.error || 'Failed to create vessel. Please try again.',
-            variant: 'destructive',
-          });
-          setIsLoading(false);
-          return;
-        }
-
-        const vesselData = await vesselResponse.json();
-        vesselId = vesselData.vessel.id;
-
-        if (vesselData.alreadyExists) {
-          const checkResponse = await fetch('/api/vessels/check-manager', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ vesselId }),
-          });
-
-          if (checkResponse.ok) {
-            const checkData = await checkResponse.json();
-            if (checkData.hasManager) {
-              toast({
-                title: 'Vessel Already Managed',
-                description:
-                  'This vessel already exists and is being managed by another account. Please select it from the search results instead.',
-                variant: 'destructive',
-              });
-              setIsLoading(false);
-              return;
-            }
-          }
-        }
+      } catch (updateError) {
+        console.error(
+          '[VESSEL SIGNUP] Error updating is_official:',
+          updateError,
+        );
       }
 
       const finalCheckResponse = await fetch('/api/vessels/check-manager', {
@@ -578,6 +420,11 @@ function VesselSignupPageInner() {
               sub: 'Crew rotations, routes, and hours in one place.',
               icon: <Compass className="h-4 w-4" />,
             },
+            {
+              label: 'Automatic state from AIS',
+              sub: 'Daily vessel states sync from AIS — plus backfill past sea time on Premium.',
+              icon: <Radar className="h-4 w-4" />,
+            },
           ]}
         />
       }
@@ -627,219 +474,28 @@ function VesselSignupPageInner() {
 
               <FormField
                 control={form.control}
-                name="vesselName"
+                name="vesselId"
                 render={({ field, fieldState }) => (
                   <FormItem className="space-y-1.5">
-                    <FormLabel className={wkLabelCls}>Vessel name</FormLabel>
+                    <FormLabel className={wkLabelCls}>Your vessel</FormLabel>
                     <FormControl>
-                      <div className="relative">
-                        <input
-                          placeholder="Type vessel name to search or create new…"
-                          aria-invalid={fieldState.invalid || undefined}
-                          className={`${wkInputCls} pr-10`}
-                          {...field}
-                        />
-                        {searchingVessels ? (
-                          <Loader2
-                            className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin"
-                            style={{ color: 'var(--wk-text-muted)' }}
-                          />
-                        ) : null}
-                      </div>
+                      <UnifiedVesselSearchPicker
+                        value={field.value || ''}
+                        onChange={handleVesselPickerChange}
+                        supabase={supabase}
+                        blockManagedVessels
+                        variant="auth"
+                        placeholder="Search by name, MMSI, or IMO…"
+                      />
                     </FormControl>
+                    <p className="text-xs" style={{ color: 'var(--wk-text-muted)' }}>
+                      Search SeaJourney and AIS in one place — pick your vessel from
+                      the results.
+                    </p>
                     <FormMessage className="wk-error" />
-
-                    {/* Vessel search results */}
-                    {!selectedVessel &&
-                    vesselName &&
-                    vesselName.length >= 2 &&
-                    vesselOptions.length > 0 ? (
-                      <div
-                        className="relative z-10 mt-2 max-h-64 overflow-y-auto rounded-xl"
-                        style={{
-                          backgroundColor: 'var(--wk-bg-raised)',
-                          border: '1px solid var(--wk-line)',
-                          boxShadow: 'var(--wk-shadow-md)',
-                        }}
-                      >
-                        <div
-                          className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wider"
-                          style={{
-                            color: 'var(--wk-text-muted)',
-                            borderBottom: '1px solid var(--wk-line)',
-                            backgroundColor: 'var(--wk-card-alt)',
-                          }}
-                        >
-                          Existing vessels — tap to select
-                        </div>
-                        {vesselOptions.map((vessel) => (
-                          <button
-                            key={vessel.id}
-                            type="button"
-                            onClick={() => handleSelectExistingVessel(vessel)}
-                            className="block w-full px-4 py-3 text-left transition-colors"
-                            style={{
-                              borderBottom: '1px solid var(--wk-line)',
-                              color: 'var(--wk-text)',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.backgroundColor =
-                                'var(--wk-accent-soft)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor =
-                                'transparent';
-                            }}
-                          >
-                            <div className="text-sm font-semibold">
-                              {vessel.name}
-                            </div>
-                            <div
-                              className="text-xs"
-                              style={{ color: 'var(--wk-text-muted)' }}
-                            >
-                              {vesselTypes.find((t) => t.value === vessel.type)
-                                ?.label || vessel.type}
-                              {vessel.officialNumber
-                                ? ` · ${vessel.officialNumber}`
-                                : ''}
-                            </div>
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={handleCreateNewVessel}
-                          className="block w-full px-4 py-3 text-left text-sm font-medium transition-colors"
-                          style={{
-                            color: 'var(--wk-accent)',
-                            backgroundColor: 'var(--wk-accent-soft)',
-                          }}
-                        >
-                          + Create new vessel: &ldquo;{vesselName}&rdquo;
-                        </button>
-                      </div>
-                    ) : null}
-
-                    {/* Selected vessel pill */}
-                    {selectedVessel ? (
-                      <div
-                        className="mt-2 flex items-center justify-between rounded-xl px-3 py-2.5"
-                        style={{
-                          backgroundColor: 'var(--wk-accent-soft)',
-                          border: '1px solid var(--wk-accent-ring)',
-                        }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <span
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg"
-                            style={{
-                              backgroundColor: 'var(--wk-bg-raised)',
-                              color: 'var(--wk-accent)',
-                              border: '1px solid var(--wk-accent-ring)',
-                            }}
-                          >
-                            <Check className="h-4 w-4" />
-                          </span>
-                          <div>
-                            <div
-                              className="text-sm font-semibold"
-                              style={{ color: 'var(--wk-text)' }}
-                            >
-                              {selectedVessel.name}
-                            </div>
-                            <div
-                              className="text-xs"
-                              style={{ color: 'var(--wk-text-muted)' }}
-                            >
-                              {vesselTypes.find(
-                                (t) => t.value === selectedVessel.type,
-                              )?.label || selectedVessel.type}
-                              {selectedVessel.officialNumber
-                                ? ` · ${selectedVessel.officialNumber}`
-                                : ''}
-                            </div>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleCreateNewVessel}
-                          className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-opacity hover:opacity-80"
-                          style={{ color: 'var(--wk-accent-strong)' }}
-                        >
-                          <X className="h-3 w-3" />
-                          Change
-                        </button>
-                      </div>
-                    ) : null}
                   </FormItem>
                 )}
               />
-
-              {!selectedVessel ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="vesselType"
-                    render={({ field, fieldState }) => (
-                      <FormItem className="space-y-1.5">
-                        <FormLabel className={wkLabelCls}>
-                          Vessel type
-                        </FormLabel>
-                        <FormControl>
-                          <select
-                            aria-invalid={fieldState.invalid || undefined}
-                            className={`${wkInputCls} wk-select`}
-                            value={field.value ?? ''}
-                            onChange={(e) =>
-                              field.onChange(e.target.value || undefined)
-                            }
-                            onBlur={field.onBlur}
-                            name={field.name}
-                            ref={field.ref}
-                          >
-                            <option value="" disabled>
-                              Select vessel type
-                            </option>
-                            {vesselTypes.map((t) => (
-                              <option key={t.value} value={t.value}>
-                                {t.label}
-                              </option>
-                            ))}
-                          </select>
-                        </FormControl>
-                        <FormMessage className="wk-error" />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="officialNumber"
-                    render={({ field, fieldState }) => (
-                      <FormItem className="space-y-1.5">
-                        <FormLabel className={wkLabelCls}>
-                          Official number{' '}
-                          <span
-                            className="font-normal normal-case"
-                            style={{ color: 'var(--wk-text-muted)' }}
-                          >
-                            (optional)
-                          </span>
-                        </FormLabel>
-                        <FormControl>
-                          <input
-                            placeholder="e.g. IMO 1234567"
-                            aria-invalid={fieldState.invalid || undefined}
-                            className={wkInputCls}
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage className="wk-error" />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              ) : null}
             </section>
 
             <div

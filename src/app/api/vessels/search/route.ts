@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     // Search for vessels by name (case-insensitive)
     const { data, error } = await supabaseAdmin
       .from('vessels')
-      .select('id, name, type, imo')
+      .select('id, name, type, imo, mmsi, flag, length_m, beam, gross_tonnage, build_year')
       .ilike('name', `%${searchTerm.trim()}%`)
       .limit(10)
       .order('name', { ascending: true });
@@ -39,6 +39,12 @@ export async function POST(req: NextRequest) {
         name: v.name,
         type: v.type,
         officialNumber: v.imo,
+        mmsi: v.mmsi,
+        flag: v.flag,
+        length_m: v.length_m,
+        beam: v.beam,
+        gross_tonnage: v.gross_tonnage,
+        build_year: v.build_year,
       })),
     });
   } catch (error: any) {

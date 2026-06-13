@@ -27,6 +27,13 @@ export const VESSEL_PREMIUM_PLUS_TIERS = new Set<string>([
   'vessel_fleet',
 ]);
 
+/** Crew Premium and Professional tiers (paying individual crew accounts). */
+export const CREW_PREMIUM_PLUS_TIERS = new Set<string>([
+  'premium',
+  'pro',
+  'professional',
+]);
+
 /** True if this user is a secondary account created by a vessel (any role: captain / officer / engineer / manager). */
 export function isVesselLinkedAccount(userProfile: any): boolean {
   if (!userProfile) return false;
@@ -116,4 +123,28 @@ export function hasVesselPremiumPlusFeatures(userProfile: any): boolean {
 
   const tier = getTierLower(userProfile);
   return VESSEL_PREMIUM_PLUS_TIERS.has(tier) && hasActiveSubscription(userProfile);
+}
+
+/** AIS history import: Vessel Premium+ managers or Premium/Professional crew (not managed free tiers). */
+export function hasAisHistoryImportTier(userProfile: any): boolean {
+  if (!userProfile) return false;
+
+  const role = ((userProfile as any).role || userProfile.role || '')
+    .toString()
+    .toLowerCase();
+  if (role === 'admin') return true;
+  if (!hasActiveSubscription(userProfile)) return false;
+
+  const tier = getTierLower(userProfile);
+
+  if (role === 'vessel') {
+    return VESSEL_PREMIUM_PLUS_TIERS.has(tier);
+  }
+
+  if (role === 'crew' || role === 'captain') {
+    if (VESSEL_MANAGED_FREE_TIERS.has(tier)) return false;
+    return CREW_PREMIUM_PLUS_TIERS.has(tier);
+  }
+
+  return false;
 }

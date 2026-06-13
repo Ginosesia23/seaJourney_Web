@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc, useCollection } from '@/supabase/database';
+import { notifyCrewOfTestimonialDecision } from '@/lib/testimonial-signoff';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -862,9 +863,14 @@ export default function InboxPage() {
         }
       })();
 
+      notifyCrewOfTestimonialDecision(supabase, {
+        testimonialId: selectedTestimonial.id,
+        decision: 'approved',
+      });
+
       toast({
         title: 'Testimonial Approved',
-        description: 'The testimonial has been approved successfully.',
+        description: 'The testimonial has been approved successfully. The crew member will be notified by email.',
       });
 
       // Move to approved list and remove from pending
@@ -968,9 +974,15 @@ export default function InboxPage() {
         throw error;
       }
 
+      notifyCrewOfTestimonialDecision(supabase, {
+        testimonialId: selectedTestimonial.id,
+        decision: 'rejected',
+        rejectionReason: rejectionText,
+      });
+
       toast({
         title: 'Testimonial Rejected',
-        description: 'The testimonial has been rejected.',
+        description: 'The testimonial has been rejected. The crew member will be notified by email.',
       });
 
       // Remove from list

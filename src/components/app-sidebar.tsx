@@ -8,7 +8,6 @@ import {
   Ship,
   LifeBuoy,
   Award,
-  History,
   User,
   Users,
   Map,
@@ -78,6 +77,7 @@ import type { UserProfile } from "@/lib/types"
 import { signOutLocal } from "@/lib/auth-utils"
 import {
   hasActiveSubscription as hasActiveSubscriptionEntitlement,
+  hasAisHistoryImportTier,
   hasVesselPremiumPlusFeatures,
   isVesselLinkedAccount,
 } from "@/supabase/database/subscription-helpers"
@@ -100,7 +100,6 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     title: "Dashboard",
     items: [
       { href: "/dashboard", label: "Home", icon: Home, disabled: false },
-      { href: "/dashboard/recent-activity", label: "Recent Activity", icon: History, disabled: false, hideForRoles: ['vessel', 'admin'] },
       { href: "/dashboard/vessel-history", label: "Vessel History", icon: Ship, disabled: false, hideForRoles: ['vessel', 'admin'] },
     ]
   },
@@ -121,7 +120,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
       { href: "/dashboard/passage-logbook", label: "Passage Log", icon: Map, disabled: false },
       { href: "/dashboard/bridge-watch-log", label: "Bridge Watch", icon: Navigation, disabled: false, hideForRoles: ['vessel'] }, // Hide Bridge Watch for vessel role
       { href: "/dashboard/visa-tracker", label: "Visa Tracker", icon: Globe, disabled: false, hideForRoles: ['vessel', 'admin'] }, // Available for crew, captain roles
-      { href: "/dashboard/ais-import", label: "AIS Import", icon: Database, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/ais-import", label: "AIS Import", icon: Database, disabled: false },
     ]
   },
   {
@@ -238,7 +237,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     return group
   })
   
-  // Check if user has crew_limited tier (restricted access - only: Home, Recent Activity, Current, Calendar, Profile, Feedback)
+  // Check if user has crew_limited tier (restricted access - only: Home, Current, Calendar, Profile, Feedback)
   const isCrewLimited = React.useMemo(() => {
     if (!userProfile) return false;
     const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
@@ -312,6 +311,11 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const hasVesselPremiumPlus = React.useMemo(() => {
     if (!userProfile) return false;
     return hasVesselPremiumPlusFeatures(userProfile);
+  }, [userProfile]);
+
+  const hasAisHistoryImportAccess = React.useMemo(() => {
+    if (!userProfile) return false;
+    return hasAisHistoryImportTier(userProfile);
   }, [userProfile]);
 
   const VESSEL_PREMIUM_PLUS_NAV = new Set([
@@ -828,11 +832,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     return null
                   }
 
-                  // For crew_limited tier, only show: Home, Recent Activity, Current, Calendar, Profile, Feedback, Inbox, Documents (vessel-documents)
+                  // For crew_limited tier, only show: Home, Current, Calendar, Profile, Feedback, Inbox, Documents (vessel-documents)
                   if (isCrewLimited) {
                     const allowedHrefs = [
                       '/dashboard', 
-                      '/dashboard/recent-activity', 
                       '/dashboard/current', 
                       '/dashboard/calendar', 
                       '/dashboard/profile',
@@ -850,13 +853,13 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   // list scoped to what these accounts actually need —
                   // viewing the vessel's state, completing assigned tasks,
                   // and managing their own profile. Personal-portfolio
-                  // pages (export, certificates, proof-of-service, recent
-                  // activity) are intentionally excluded because linked
-                  // accounts don't own portable sea-time history. Captain-
-                  // linked accounts additionally see captain-only items
-                  // (signature, requests, sign-offs) because their
-                  // users.role = 'captain' matches the `requiredRole`
-                  // checks already applied above.
+                  // pages (export, certificates, proof-of-service) are
+                  // intentionally excluded because linked accounts don't
+                  // own portable sea-time history. Captain-linked accounts
+                  // additionally see captain-only items (signature,
+                  // requests, sign-offs) because their users.role =
+                  // 'captain' matches the `requiredRole` checks already
+                  // applied above.
                   if (isVesselLinked) {
                     const allowedHrefs = [
                       '/dashboard',
@@ -887,19 +890,21 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const isExport = item.href === '/dashboard/export';
                   const isSeaTimeRequest = item.href === '/dashboard/sea-time-request';
                   const isCertificates = item.href === '/dashboard/certificates';
+                  const isAisImport = item.href === '/dashboard/ais-import';
                   // vessel_linked accounts never reach this branch for the
                   // hrefs filtered out above (export, certificates,
-                  // proof-of-service, recent-activity). For the items they
-                  // *can* see we still keep the `!isVesselLinked` guard so
-                  // no item is mistakenly marked premium-locked — their
-                  // feature surface comes from the vessel's Pro/Fleet
-                  // plan, not personal billing.
+                  // proof-of-service). For the items they *can* see we still
+                  // keep the `!isVesselLinked` guard so no item is
+                  // mistakenly marked premium-locked — their feature surface
+                  // comes from the vessel's Pro/Fleet plan, not personal billing.
                   const requiresPremium =
                     (isVisaTracker || isBridgeWatch || isSeaTimeRequest || isCertificates || (isExport && !isCrewLimited)) &&
                     !hasPremiumAccess &&
                     !isCrewLimited &&
                     !isVesselLinked;
                   const passageNavLocked = isPassageLog && !hasPassageLogAccess && !isCrewLimited && !isVesselLinked;
+                  const aisImportNavLocked =
+                    isAisImport && !hasAisHistoryImportAccess && !isCrewLimited && !isVesselLinked;
                   const vesselPremiumNavLocked =
                     VESSEL_PREMIUM_PLUS_NAV.has(item.href) &&
                     userProfile?.role === 'vessel' &&
@@ -930,7 +935,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   
                   return (
                     <SidebarMenuItem key={uniqueKey}>
-                      {requiresPremium || passageNavLocked || vesselPremiumNavLocked ? (
+                      {requiresPremium || passageNavLocked || aisImportNavLocked || vesselPremiumNavLocked ? (
                         <Tooltip delayDuration={200}>
                           <TooltipTrigger asChild>
                             <div className="w-full">

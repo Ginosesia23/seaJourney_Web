@@ -3101,16 +3101,6 @@ export default function DashboardPage() {
                 <p className="text-xs text-muted-foreground">Start logging your sea time to see activity here</p>
               </div>
             )}
-            {recentActivity.length > 0 && (
-              <div className="mt-4 pt-3 border-t">
-                <Button asChild variant="ghost" className="w-full rounded-lg" size="sm">
-                  <Link href="/dashboard/recent-activity">
-                    <History className="mr-2 h-4 w-4" />
-                    View All Recent Activity
-                  </Link>
-                </Button>
-              </div>
-            )}
             </CardContent>
         </Card>
       </div>

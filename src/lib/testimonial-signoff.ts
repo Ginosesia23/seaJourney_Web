@@ -130,3 +130,62 @@ export async function requestCaptainSignoff(
     description: `Testimonial request has been sent to ${captainEmail}. The captain can view, approve, and add comments via the link in the email.`,
   });
 }
+
+/**
+ * Notify a linked SeaJourney captain (one with a `captain_user_id`) by email
+ * that a new testimonial is awaiting their sign-off in their inbox.
+ *
+ * This is fire-and-forget: any failure is logged but never surfaced to the
+ * UI, since the testimonial itself has already been created successfully
+ * and the captain will still see it in /dashboard/sign-offs.
+ */
+export async function notifyLinkedCaptain(
+  supabase: SupabaseClient,
+  testimonialId: string,
+): Promise<void> {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) return;
+    await fetch('/api/testimonials/notify-linked-captain', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ testimonialId }),
+    });
+  } catch (err) {
+    console.error('[notifyLinkedCaptain] Failed to send captain notification:', err);
+  }
+}
+
+/**
+ * Notify the crew member by email that their testimonial was approved or
+ * rejected via the in-app inbox (which updates the row directly rather than
+ * going through the captain/signoff API). Fire-and-forget.
+ */
+export async function notifyCrewOfTestimonialDecision(
+  supabase: SupabaseClient,
+  args: {
+    testimonialId: string;
+    decision: 'approved' | 'rejected';
+    rejectionReason?: string | null;
+  },
+): Promise<void> {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) return;
+    await fetch('/api/testimonials/notify-decision', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(args),
+    });
+  } catch (err) {
+    console.error('[notifyCrewOfTestimonialDecision] Failed:', err);
+  }
+}

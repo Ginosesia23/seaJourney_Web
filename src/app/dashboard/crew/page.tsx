@@ -61,7 +61,7 @@ import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOffi
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { computeSeaTimeInDateRange } from '@/lib/sea-time-in-range';
 import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
-import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
+import { requestCaptainSignoff, notifyLinkedCaptain } from '@/lib/testimonial-signoff';
 import { buildAndGenerateNavWatchApplication, navWatchApplicationDefaultValues, navWatchApplicationSchema, type NavWatchApplicationFormValues } from '@/lib/nav-watch-application';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 import { getVesselManagerCrewLimit } from '@/lib/vessel-crew-limit';
@@ -3297,12 +3297,14 @@ export default function CrewPage() {
                 )
             );
 
+            notifyLinkedCaptain(supabase, createdTestimonial.id);
+
             setSendTestimonialByEmailOpen(false);
             setVesselDocToSendToCaptain(null);
             setSendCaptainLinkedId(null);
             toast({
                 title: 'Sent in-app',
-                description: `${captainName || captainEmail} will see this testimonial on their Sign-Offs page.`,
+                description: `${captainName || captainEmail} will see this testimonial on their Sign-Offs page and be notified by email.`,
             });
         } catch (error: any) {
             toast({
@@ -4683,9 +4685,13 @@ export default function CrewPage() {
                     : member
             ));
 
+            if (createdTestimonial?.id) {
+                notifyLinkedCaptain(supabase, createdTestimonial.id);
+            }
+
             toast({
                 title: 'Sent to Captain',
-                description: `Testimonial request has been sent to ${activeCaptain.name}'s inbox. Once approved, it will receive a verification code (SJ-XXX) and appear in the testimonials list.`,
+                description: `Testimonial request has been sent to ${activeCaptain.name}'s inbox and they will be notified by email. Once approved, it will receive a verification code (SJ-XXX) and appear in the testimonials list.`,
             });
 
             setDocumentStartDate(undefined);
@@ -4944,6 +4950,8 @@ export default function CrewPage() {
                 )
             );
 
+            notifyLinkedCaptain(supabase, createdTestimonial.id);
+
             setSendTestimonialByEmailOpen(false);
             setSendCaptainLinkedId(null);
             setDocumentStartDate(undefined);
@@ -4952,7 +4960,7 @@ export default function CrewPage() {
             setShowGenerateForm(false);
             toast({
                 title: 'Sent in-app',
-                description: `${captainName || captainEmail} will see this testimonial on their Sign-Offs page.`,
+                description: `${captainName || captainEmail} will see this testimonial on their Sign-Offs page and be notified by email.`,
             });
         } catch (error: any) {
             console.error('[CREW PAGE] Error sending testimonial to linked captain:', error);

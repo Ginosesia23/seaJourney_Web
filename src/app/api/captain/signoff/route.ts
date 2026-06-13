@@ -1,7 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { sendTestimonialDecisionEmail } from '@/lib/notification-emails';
 
 export const runtime = 'nodejs';
+
+async function notifyCrewOfTestimonialDecision(args: {
+  testimonialId: string;
+  crewUserId: string;
+  vesselId: string;
+  startDate: string;
+  endDate: string;
+  decision: 'approved' | 'rejected';
+  captainName?: string | null;
+  rejectionReason?: string | null;
+}): Promise<void> {
+  try {
+    const [{ data: crewProfile }, { data: vessel }, { data: latestTestimonial }] =
+      await Promise.all([
+        supabaseAdmin
+          .from('users')
+          .select('email, first_name, last_name, username')
+          .eq('id', args.crewUserId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from('vessels')
+          .select('name')
+          .eq('id', args.vesselId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from('testimonials')
+          .select('testimonial_code')
+          .eq('id', args.testimonialId)
+          .maybeSingle(),
+      ]);
+
+    const crewEmail = (crewProfile as any)?.email;
+    if (!crewEmail) {
+      console.warn(
+        '[TESTIMONIAL DECISION] Crew member has no email; skipping notification',
+        { crewUserId: args.crewUserId, testimonialId: args.testimonialId },
+      );
+      return;
+    }
+
+    await sendTestimonialDecisionEmail({
+      to: crewEmail,
+      recipientFirstName: (crewProfile as any)?.first_name ?? null,
+      decision: args.decision,
+      vesselName: vessel?.name || 'your vessel',
+      startDate: args.startDate,
+      endDate: args.endDate,
+      captainName: args.captainName ?? null,
+      testimonialCode: (latestTestimonial as any)?.testimonial_code ?? null,
+      rejectionReason: args.rejectionReason ?? null,
+    });
+  } catch (err) {
+    console.error('[TESTIMONIAL DECISION] Failed to send crew notification:', err);
+  }
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -288,6 +344,18 @@ export async function POST(req: NextRequest) {
       { status: 500 },
     );
   }
+
+  // Notify the crew member of the captain's decision (fire-and-forget).
+  await notifyCrewOfTestimonialDecision({
+    testimonialId: data.id,
+    crewUserId: data.user_id,
+    vesselId: data.vessel_id,
+    startDate: data.start_date,
+    endDate: data.end_date,
+    decision: newStatus as 'approved' | 'rejected',
+    captainName: updateData.captain_name || data.captain_name,
+    rejectionReason: decision === 'reject' ? rejectionReason ?? null : null,
+  });
 
   // If approving, create immutable snapshot in approved_testimonials table
   if (decision === 'approve') {

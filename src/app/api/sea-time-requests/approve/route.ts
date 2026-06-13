@@ -1,5 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { sendSeaTimeRequestDecisionEmail } from '@/lib/notification-emails';
+
+async function notifyCrewOfSeaTimeDecision(
+  request: { crew_user_id: string; vessel_id: string; start_date: string; end_date: string },
+  decision: 'approved' | 'rejected',
+  options: { rejectionReason?: string | null; logsCopied?: number | null } = {},
+): Promise<void> {
+  try {
+    const [{ data: crewProfile }, { data: vessel }] = await Promise.all([
+      supabaseAdmin
+        .from('users')
+        .select('email, first_name')
+        .eq('id', request.crew_user_id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from('vessels')
+        .select('name')
+        .eq('id', request.vessel_id)
+        .maybeSingle(),
+    ]);
+    const crewEmail = (crewProfile as any)?.email;
+    if (!crewEmail) {
+      console.warn('[SEA TIME REQUEST] Crew member has no email; skipping decision notification', {
+        crewUserId: request.crew_user_id,
+      });
+      return;
+    }
+    await sendSeaTimeRequestDecisionEmail({
+      to: crewEmail,
+      recipientFirstName: (crewProfile as any)?.first_name ?? null,
+      decision,
+      vesselName: vessel?.name || 'your vessel',
+      startDate: request.start_date,
+      endDate: request.end_date,
+      rejectionReason: options.rejectionReason ?? null,
+      logsCopied: options.logsCopied ?? null,
+    });
+  } catch (err) {
+    console.error('[SEA TIME REQUEST] Failed to send crew decision email:', err);
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -60,8 +101,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Notify the crew member of the decision (rejection reason is already known here;
+    // for approval, the exact log-copy count is filled in below if available).
+    if (action === 'reject') {
+      await notifyCrewOfSeaTimeDecision(request, 'rejected', {
+        rejectionReason: rejectionReason ?? null,
+      });
+    }
+
     // If approved, copy vessel's state logs to crew member
     if (action === 'approve') {
+      // Notify crew immediately on approval (log copy count, if any, is incidental and
+      // shown in the in-app UI; we don't need to wait for it before emailing the crew).
+      await notifyCrewOfSeaTimeDecision(request, 'approved');
+
       try {
         // Get vessel manager's user_id
         const { data: vessel, error: vesselError } = await supabaseAdmin

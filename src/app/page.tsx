@@ -44,6 +44,7 @@ import {
   Moon,
   Navigation,
   Printer,
+  Radar,
   Route,
   ScanSearch,
   Search,
@@ -4381,211 +4382,336 @@ function CrewLeavePlanner() {
 }
 
 // ---------------------------------------------------------------------------
+// AIS history import graphic
+// ---------------------------------------------------------------------------
+
+function AISImportGraphic() {
+  const stateStyles: Record<string, { bg: string; text: string }> = {
+    Underway: { bg: 'color-mix(in srgb, #0ea5e9 16%, transparent)', text: '#0ea5e9' },
+    'At Anchor': { bg: 'color-mix(in srgb, #f59e0b 16%, transparent)', text: '#d97706' },
+    'In Port': { bg: 'color-mix(in srgb, #8b5cf6 16%, transparent)', text: '#7c3aed' },
+  };
+
+  const previewDays = [
+    { date: 'Mon 3 Mar', nav: 'Under way using engine · 12.4 kn', state: 'Underway', badge: 'New' },
+    { date: 'Tue 4 Mar', nav: 'At anchor', state: 'At Anchor', badge: 'New' },
+    { date: 'Wed 5 Mar', nav: 'At anchor', state: 'At Anchor', badge: 'Matches' },
+    { date: 'Thu 6 Mar', nav: 'Moored', state: 'In Port', badge: 'New' },
+    { date: 'Fri 7 Mar', nav: 'Under way using engine · 9.1 kn', state: 'Underway', badge: 'Conflict' },
+  ];
+
+  const badgeStyles: Record<string, { bg: string; text: string }> = {
+    New: { bg: 'color-mix(in srgb, #10b981 14%, transparent)', text: '#10b981' },
+    Matches: { bg: 'var(--wk-bg-subtle)', text: 'var(--wk-text-muted)' },
+    Conflict: { bg: 'color-mix(in srgb, #f59e0b 14%, transparent)', text: '#d97706' },
+  };
+
+  return (
+    <div
+      className="w-full min-w-0 overflow-hidden rounded-2xl"
+      style={{
+        backgroundColor: 'var(--wk-card)',
+        border: '1px solid var(--wk-line)',
+        boxShadow: 'var(--wk-shadow-md)',
+      }}
+    >
+      <div
+        className="flex flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+        style={{ borderColor: 'var(--wk-line)', backgroundColor: 'var(--wk-bg-subtle)' }}
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Ship className="h-4 w-4 shrink-0" style={{ color: 'var(--wk-accent)' }} />
+            <span className="truncate text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+              M/Y Serenity
+            </span>
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              style={{
+                backgroundColor: 'var(--wk-accent-soft)',
+                color: 'var(--wk-accent-strong)',
+                border: '1px solid var(--wk-accent-ring)',
+              }}
+            >
+              MMSI 235123456
+            </span>
+          </div>
+          <p className="mt-1 text-xs" style={{ color: 'var(--wk-text-muted)' }}>
+            March 2026 · reviewing before import
+          </p>
+        </div>
+        <div
+          className="inline-flex items-center gap-2 self-start rounded-lg px-3 py-1.5 text-xs font-medium sm:self-auto"
+          style={{
+            backgroundColor: 'var(--wk-card)',
+            border: '1px solid var(--wk-line)',
+            color: 'var(--wk-text-soft)',
+          }}
+        >
+          <Calendar className="h-3.5 w-3.5" style={{ color: 'var(--wk-accent)' }} />
+          Month view
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 px-4 py-4 sm:px-5">
+        {[
+          { label: 'Days with AIS', value: '26', tone: '#0ea5e9' },
+          { label: 'New to import', value: '19', tone: '#10b981' },
+          { label: 'Conflicts', value: '2', tone: '#f59e0b' },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            className="rounded-xl px-3 py-2.5"
+            style={{ backgroundColor: 'var(--wk-bg-subtle)', border: '1px solid var(--wk-line)' }}
+          >
+            <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--wk-text-muted)' }}>
+              {stat.label}
+            </div>
+            <div className="mt-0.5 text-xl font-bold tabular-nums" style={{ color: stat.tone }}>
+              {stat.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="px-4 pb-2 sm:px-5">
+        <div
+          className="overflow-hidden rounded-xl"
+          style={{ border: '1px solid var(--wk-line)' }}
+        >
+          <div
+            className="grid grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto_auto] gap-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide"
+            style={{
+              backgroundColor: 'var(--wk-bg-subtle)',
+              color: 'var(--wk-text-muted)',
+              borderBottom: '1px solid var(--wk-line)',
+            }}
+          >
+            <span>Date</span>
+            <span className="hidden sm:inline">AIS</span>
+            <span>State</span>
+            <span className="text-right">Status</span>
+          </div>
+          <div className="divide-y" style={{ borderColor: 'var(--wk-line)' }}>
+            {previewDays.map((day) => {
+              const style = stateStyles[day.state] ?? stateStyles.Underway;
+              const badge = badgeStyles[day.badge] ?? badgeStyles.New;
+              return (
+                <div
+                  key={day.date}
+                  className="grid grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2.5"
+                  style={{ backgroundColor: 'var(--wk-card)' }}
+                >
+                  <span className="text-xs font-medium" style={{ color: 'var(--wk-text)' }}>
+                    {day.date}
+                  </span>
+                  <span className="hidden truncate text-[11px] sm:inline" style={{ color: 'var(--wk-text-muted)' }}>
+                    {day.nav}
+                  </span>
+                  <span
+                    className="whitespace-nowrap rounded-md px-2 py-0.5 text-[10px] font-semibold"
+                    style={{ backgroundColor: style.bg, color: style.text }}
+                  >
+                    {day.state}
+                  </span>
+                  <span
+                    className="justify-self-end rounded-md px-2 py-0.5 text-[10px] font-semibold"
+                    style={{ backgroundColor: badge.bg, color: badge.text }}
+                  >
+                    {day.badge}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="mx-4 mb-4 flex flex-col gap-3 rounded-xl px-4 py-3 sm:mx-5 sm:flex-row sm:items-center sm:justify-between"
+        style={{
+          backgroundColor: 'var(--wk-accent-soft)',
+          border: '1px solid var(--wk-accent-ring)',
+        }}
+      >
+        <div className="flex items-start gap-2.5">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--wk-accent-strong)' }} />
+          <div>
+            <p className="text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+              19 days selected for import
+            </p>
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
+              Each day uses the last AIS position recorded — you review everything before it hits your calendar.
+            </p>
+          </div>
+        </div>
+        <span
+          className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg px-3 py-2 text-xs font-semibold sm:self-auto"
+          style={{
+            backgroundColor: 'var(--wk-card)',
+            color: 'var(--wk-accent-strong)',
+            border: '1px solid var(--wk-accent-ring)',
+          }}
+        >
+          <Upload className="h-3.5 w-3.5" />
+          Import to logs
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Section 8: AIS Import
 // ---------------------------------------------------------------------------
 
 function AISImport() {
-  const features: Array<{ icon: IconType; label: string; accent: string }> = [
-    { icon: Route,      label: 'Past Passages',    accent: '#0ea5e9' },
-    { icon: Navigation, label: 'Vessel States',    accent: '#8b5cf6' },
-    { icon: Zap,        label: 'Instant Import',    accent: '#d97706' },
-    { icon: Ship,       label: 'Complete History', accent: '#10b981' },
+  const steps = [
+    {
+      num: '1',
+      title: 'Choose a month',
+      desc: 'Pick a calendar month or custom date range for the vessel you want to backfill.',
+    },
+    {
+      num: '2',
+      title: 'Review AIS daily states',
+      desc: 'See underway, at anchor, and in port for each day — with new, matching, and conflicting rows flagged.',
+    },
+    {
+      num: '3',
+      title: 'Import to your calendar',
+      desc: 'Save selected days to your vessel or crew sea-time log with a clear [AIS import] audit trail.',
+    },
+  ];
+
+  const features: Array<{ icon: IconType; title: string; desc: string; accent: string }> = [
+    {
+      icon: Navigation,
+      title: 'Daily vessel states',
+      desc: 'Last AIS position each day mapped to underway, at anchor, in port, and more.',
+      accent: '#0ea5e9',
+    },
+    {
+      icon: Calendar,
+      title: 'Month-by-month backfill',
+      desc: 'Work through years of history one month at a time — no bulk guesswork.',
+      accent: '#8b5cf6',
+    },
+    {
+      icon: CheckCircle2,
+      title: 'Review before saving',
+      desc: 'Compare AIS proposals with existing logs and choose what to overwrite.',
+      accent: '#10b981',
+    },
+    {
+      icon: Radar,
+      title: 'Live sync + history',
+      desc: 'Vessel Premium keeps today fresh; import fills the gaps in your past.',
+      accent: '#d97706',
+    },
   ];
 
   return (
-    <section className="wk-section-alt py-24 sm:py-32">
+    <section id="ais-import" className="wk-section-alt py-24 sm:py-32">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2">
-          <div>
+        <div className="mx-auto grid min-w-0 max-w-6xl items-center gap-12 lg:grid-cols-2">
+          <motion.div
+            className="min-w-0 w-full lg:order-2"
+            initial={{ opacity: 0, x: 24 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, margin: '-60px' }}
+            transition={{ duration: 0.5 }}
+          >
+            <AISImportGraphic />
+          </motion.div>
+
+          <div className="min-w-0 lg:order-1">
             <Eyebrow icon={Database} accent>
-              For Vessel Owners
+              AIS History Import
             </Eyebrow>
             <h2
               className="font-headline mt-5 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl"
               style={{ color: 'var(--wk-text)' }}
             >
-              Import Past Vessel Data from{' '}
+              Backfill past vessel data from{' '}
               <span className="wk-gradient-text wk-gradient-text--sky">AIS</span>
             </h2>
-            <p className="mt-4 text-lg" style={{ color: 'var(--wk-text-soft)' }}>
-              Automatically import your vessel&apos;s complete operational
-              history including past passages and vessel states since launch.
-              Backfill years of data instantly — no manual entry required.
+            <p className="mt-4 text-lg leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
+              Pull historical daily vessel states from AIS, review every day side-by-side with your
+              existing logs, then import only what you need — available on Vessel Premium+ and
+              Premium crew accounts.
             </p>
 
-            <div
-              className="mt-6 rounded-xl p-4"
-              style={{
-                backgroundColor: 'var(--wk-card)',
-                border: '1px solid var(--wk-accent-ring)',
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Wrench className="h-4 w-4" style={{ color: 'var(--wk-accent)' }} />
-                  <span className="text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
-                    In Development
-                  </span>
-                </div>
-                <span className="text-sm font-bold" style={{ color: 'var(--wk-accent)' }}>
-                  32%
-                </span>
-              </div>
-              <div
-                className="mt-3 h-2 w-full overflow-hidden rounded-full"
-                style={{ backgroundColor: 'var(--wk-bg-subtle)' }}
-              >
-                <motion.div
-                  initial={{ width: 0 }}
-                  whileInView={{ width: '32%' }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 1.5, delay: 0.3, ease: 'easeOut' }}
-                  className="h-full rounded-full"
-                  style={{
-                    background: 'linear-gradient(90deg, var(--wk-accent) 0%, var(--wk-accent-strong) 100%)',
-                  }}
-                />
-              </div>
-              <p className="mt-2 text-xs" style={{ color: 'var(--wk-text-muted)' }}>
-                This feature is currently in development.
-              </p>
-            </div>
-
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              {features.map((f) => (
+            <div className="mt-8 space-y-3">
+              {steps.map((step) => (
                 <div
-                  key={f.label}
-                  className="flex items-center gap-3 rounded-lg p-3"
-                  style={{ backgroundColor: 'var(--wk-card)', border: '1px solid var(--wk-line)' }}
+                  key={step.num}
+                  className="flex gap-3 rounded-xl p-3"
+                  style={{
+                    backgroundColor: 'var(--wk-card)',
+                    border: '1px solid var(--wk-line)',
+                  }}
                 >
                   <span
-                    className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
                     style={{
-                      backgroundColor: 'color-mix(in srgb, ' + f.accent + ' 14%, transparent)',
-                      color: f.accent,
+                      backgroundColor: 'var(--wk-accent-soft)',
+                      color: 'var(--wk-accent-strong)',
+                      border: '1px solid var(--wk-accent-ring)',
                     }}
                   >
-                    <f.icon className="h-4 w-4" />
+                    {step.num}
                   </span>
-                  <span className="text-sm font-medium" style={{ color: 'var(--wk-text)' }}>
-                    {f.label}
-                  </span>
+                  <div>
+                    <p className="text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+                      {step.title}
+                    </p>
+                    <p className="mt-0.5 text-xs leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
+                      {step.desc}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {features.map((f) => (
+                <div
+                  key={f.title}
+                  className="rounded-xl p-4"
+                  style={{
+                    backgroundColor: 'var(--wk-card)',
+                    border: '1px solid var(--wk-line)',
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg"
+                      style={{
+                        backgroundColor: `color-mix(in srgb, ${f.accent} 14%, transparent)`,
+                        color: f.accent,
+                      }}
+                    >
+                      <f.icon className="h-5 w-5" />
+                    </span>
+                    <span className="text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+                      {f.title}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
+                    {f.desc}
+                  </p>
                 </div>
               ))}
             </div>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <PrimaryCta href="/for-vessels" tone="sky">Learn More</PrimaryCta>
-              <SecondaryCta href="/signup/vessel">Get Started</SecondaryCta>
+              <PrimaryCta href="/signup/vessel" tone="sky">
+                Register your vessel
+              </PrimaryCta>
+              <SecondaryCta href="/for-vessels">Learn more</SecondaryCta>
             </div>
           </div>
-
-          <motion.div
-            initial={{ opacity: 0, x: 24 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true, margin: '-60px' }}
-            transition={{ duration: 0.5 }}
-            className="rounded-2xl p-6"
-            style={{
-              backgroundColor: 'var(--wk-card)',
-              border: '1px solid var(--wk-line)',
-              boxShadow: 'var(--wk-shadow-md)',
-            }}
-          >
-            <div className="grid grid-cols-2 gap-4">
-              <div
-                className="rounded-lg p-4"
-                style={{ backgroundColor: 'var(--wk-bg-subtle)', border: '1px solid var(--wk-line)' }}
-              >
-                <div className="flex items-center gap-2">
-                  <Route className="h-4 w-4" style={{ color: 'var(--wk-accent)' }} />
-                  <span className="text-xs font-semibold" style={{ color: 'var(--wk-text-muted)' }}>
-                    Passages
-                  </span>
-                </div>
-                <div className="mt-2 text-2xl font-bold" style={{ color: 'var(--wk-text)' }}>
-                  1,247
-                </div>
-                <div className="mt-0.5 text-xs" style={{ color: 'var(--wk-good)' }}>
-                  ✓ Imported
-                </div>
-              </div>
-              <div
-                className="rounded-lg p-4"
-                style={{ backgroundColor: 'var(--wk-bg-subtle)', border: '1px solid var(--wk-line)' }}
-              >
-                <div className="flex items-center gap-2">
-                  <Navigation className="h-4 w-4" style={{ color: '#8b5cf6' }} />
-                  <span className="text-xs font-semibold" style={{ color: 'var(--wk-text-muted)' }}>
-                    States
-                  </span>
-                </div>
-                <div className="mt-2 text-2xl font-bold" style={{ color: 'var(--wk-text)' }}>
-                  3,652
-                </div>
-                <div className="mt-0.5 text-xs" style={{ color: 'var(--wk-good)' }}>
-                  ✓ Imported
-                </div>
-              </div>
-            </div>
-
-            <div
-              className="mt-4 overflow-hidden rounded-lg"
-              style={{ border: '1px solid var(--wk-line)' }}
-            >
-              <div
-                className="px-3 py-2"
-                style={{ backgroundColor: 'var(--wk-bg-subtle)', borderBottom: '1px solid var(--wk-line)' }}
-              >
-                <span className="text-xs font-semibold" style={{ color: 'var(--wk-text-muted)' }}>
-                  Recent Passages
-                </span>
-              </div>
-              <div className="space-y-2 p-3 text-xs">
-                {[
-                  { from: 'Monaco',      to: 'Porto Cervo', date: 'Jan 15' },
-                  { from: 'Porto Cervo', to: 'Palma',       date: 'Jan 20' },
-                ].map((p) => (
-                  <div key={p.from + p.to} className="flex items-center justify-between">
-                    <span style={{ color: 'var(--wk-text)' }}>
-                      {p.from} → {p.to}
-                    </span>
-                    <span style={{ color: 'var(--wk-text-muted)' }}>{p.date}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div
-              className="mt-4 border-t pt-4"
-              style={{ borderColor: 'var(--wk-line)' }}
-            >
-              <div className="flex items-center gap-2">
-                <Download className="h-4 w-4 animate-pulse" style={{ color: 'var(--wk-accent)' }} />
-                <span className="text-xs font-semibold" style={{ color: 'var(--wk-text)' }}>
-                  Import in Progress
-                </span>
-              </div>
-              <div
-                className="mt-2 h-2 w-full overflow-hidden rounded-full"
-                style={{ backgroundColor: 'var(--wk-bg-subtle)' }}
-              >
-                <motion.div
-                  initial={{ width: 0 }}
-                  whileInView={{ width: '75%' }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 2, delay: 0.5 }}
-                  className="h-full rounded-full"
-                  style={{
-                    background: 'linear-gradient(90deg, #8b5cf6 0%, var(--wk-accent) 100%)',
-                  }}
-                />
-              </div>
-              <div className="mt-1 text-xs" style={{ color: 'var(--wk-text-muted)' }}>
-                75% Complete
-              </div>
-            </div>
-          </motion.div>
         </div>
       </div>
     </section>

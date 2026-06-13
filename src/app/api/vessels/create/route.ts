@@ -1,10 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { findExistingVessel, normalizeImo, normalizeMmsi } from '@/lib/vessels/find-existing-vessel';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, type, officialNumber, isOfficial, vesselManagerId } = body;
+    const {
+      name,
+      type,
+      officialNumber,
+      isOfficial,
+      vesselManagerId,
+      mmsi,
+      call_sign,
+      flag,
+      length_m,
+      beam,
+      draft,
+      gross_tonnage,
+      build_year,
+    } = body;
 
     if (!name || !type) {
       return NextResponse.json(
@@ -14,77 +29,39 @@ export async function POST(req: NextRequest) {
     }
 
     const trimmedName = name.trim();
+    const normalizedMmsi = normalizeMmsi(mmsi);
+    const normalizedImo = normalizeImo(officialNumber);
 
-    // First, check if vessel with this name already exists
-    const { data: existingVessel, error: searchError } = await supabaseAdmin
-      .from('vessels')
-      .select('id, name, type, imo, is_official')
-      .ilike('name', trimmedName) // Case-insensitive match
-      .maybeSingle();
+    const existingVessel = await findExistingVessel(supabaseAdmin, {
+      mmsi: normalizedMmsi,
+      imo: normalizedImo,
+      name: trimmedName,
+    });
 
-    if (searchError) {
-      console.error('[CREATE VESSEL API] Search error:', searchError);
-      return NextResponse.json(
-        {
-          error: 'Failed to check for existing vessel',
-          message: searchError.message,
-        },
-        { status: 500 }
-      );
-    }
-
-    // If vessel already exists, update is_official and vessel_manager_id if vessel role user is taking control
     if (existingVessel) {
-      if (isOfficial === true) {
-        // Vessel role user is taking control - update is_official to true and set vessel_manager_id
-        const updateData: any = { is_official: true };
-        if (vesselManagerId) {
-          updateData.vessel_manager_id = vesselManagerId;
-        }
-        
-        const { data: updatedVessel, error: updateError } = await supabaseAdmin
-          .from('vessels')
-          .update(updateData)
-          .eq('id', existingVessel.id)
-          .select()
-          .single();
-
-        if (updateError) {
-          console.error('[CREATE VESSEL API] Error updating is_official:', updateError);
-        } else {
-          console.log('[CREATE VESSEL API] Updated is_official to true for vessel:', existingVessel.id);
-        }
-      }
-
-      // Fetch the latest vessel data (in case is_official was updated)
-      const { data: finalVessel } = await supabaseAdmin
-        .from('vessels')
-        .select('id, name, type, imo, is_official')
-        .eq('id', existingVessel.id)
-        .single();
-
-      return NextResponse.json({
-        success: true,
-        vessel: {
-          id: finalVessel?.id || existingVessel.id,
-          name: finalVessel?.name || existingVessel.name,
-          type: finalVessel?.type || existingVessel.type,
-          officialNumber: finalVessel?.imo || existingVessel.imo,
-        },
-        alreadyExists: true,
-        isOfficial: finalVessel?.is_official || false,
-      });
+      return respondWithExistingVessel(existingVessel, isOfficial, vesselManagerId);
     }
 
     // Vessel doesn't exist, create it
     const isOfficialValue = isOfficial === true; // Explicitly convert to boolean
     console.log('[CREATE VESSEL API] Creating new vessel with is_official:', isOfficialValue, 'isOfficial param:', isOfficial);
     
-    const insertData: any = {
+    const insertData: Record<string, unknown> = {
       name: trimmedName,
       type: type,
-      imo: officialNumber?.trim() || null,
+      imo: normalizedImo,
+      mmsi: normalizedMmsi,
     };
+    
+    if (call_sign !== undefined) insertData.call_sign = call_sign?.trim() || null;
+    if (flag !== undefined) insertData.flag = flag?.trim().toUpperCase() || null;
+    if (length_m !== undefined && length_m !== null) insertData.length_m = length_m;
+    if (beam !== undefined && beam !== null) insertData.beam = beam;
+    if (draft !== undefined && draft !== null) insertData.draft = draft;
+    if (gross_tonnage !== undefined && gross_tonnage !== null) {
+      insertData.gross_tonnage = gross_tonnage;
+    }
+    if (build_year !== undefined && build_year !== null) insertData.build_year = build_year;
     
     // Only set is_official if the column exists and we have a value
     if (isOfficialValue !== undefined) {
@@ -134,5 +111,54 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+async function respondWithExistingVessel(
+  existingVessel: {
+    id: string;
+    name: string;
+    type: string;
+    imo: string | null;
+    is_official?: boolean | null;
+    vessel_manager_id?: string | null;
+  },
+  isOfficial: boolean | undefined,
+  vesselManagerId: string | undefined,
+) {
+  if (isOfficial === true) {
+    const updateData: Record<string, unknown> = { is_official: true };
+    if (vesselManagerId) {
+      updateData.vessel_manager_id = vesselManagerId;
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('vessels')
+      .update(updateData)
+      .eq('id', existingVessel.id);
+
+    if (updateError) {
+      console.error('[CREATE VESSEL API] Error updating is_official:', updateError);
+    } else {
+      console.log('[CREATE VESSEL API] Updated is_official to true for vessel:', existingVessel.id);
+    }
+  }
+
+  const { data: finalVessel } = await supabaseAdmin
+    .from('vessels')
+    .select('id, name, type, imo, is_official')
+    .eq('id', existingVessel.id)
+    .single();
+
+  return NextResponse.json({
+    success: true,
+    vessel: {
+      id: finalVessel?.id || existingVessel.id,
+      name: finalVessel?.name || existingVessel.name,
+      type: finalVessel?.type || existingVessel.type,
+      officialNumber: finalVessel?.imo || existingVessel.imo,
+    },
+    alreadyExists: true,
+    isOfficial: finalVessel?.is_official || false,
+  });
 }
 

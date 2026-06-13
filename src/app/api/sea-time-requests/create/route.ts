@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { sendSeaTimeRequestEmail } from '@/lib/notification-emails';
 
 export async function POST(req: NextRequest) {
   try {
@@ -127,6 +128,46 @@ export async function POST(req: NextRequest) {
         { error: 'Failed to create sea time request', details: error.message },
         { status: 500 }
       );
+    }
+
+    // Notify the vessel manager by email (non-blocking – never fail the request because of email).
+    try {
+      const [{ data: managerProfile }, { data: crewProfile }] = await Promise.all([
+        supabaseAdmin
+          .from('users')
+          .select('email, first_name, last_name')
+          .eq('id', vessel.vessel_manager_id)
+          .maybeSingle(),
+        supabaseAdmin
+          .from('users')
+          .select('email, first_name, last_name, username')
+          .eq('id', crewUserId)
+          .maybeSingle(),
+      ]);
+
+      const managerEmail = managerProfile?.email;
+      if (managerEmail) {
+        const crewName =
+          [crewProfile?.first_name, crewProfile?.last_name].filter(Boolean).join(' ').trim() ||
+          (crewProfile as any)?.username ||
+          (crewProfile as any)?.email ||
+          'A crew member';
+
+        await sendSeaTimeRequestEmail({
+          to: managerEmail,
+          recipientFirstName: managerProfile?.first_name ?? null,
+          vesselName: vessel.name || 'your vessel',
+          crewName,
+          startDate,
+          endDate,
+        });
+      } else {
+        console.warn('[SEA TIME REQUEST] Vessel manager has no email; skipping notification', {
+          vesselManagerId: vessel.vessel_manager_id,
+        });
+      }
+    } catch (notifyError) {
+      console.error('[SEA TIME REQUEST] Failed to send notification email:', notifyError);
     }
 
     return NextResponse.json({

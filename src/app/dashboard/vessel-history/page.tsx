@@ -5,32 +5,22 @@ import { format, parse, differenceInDays, isAfter, isBefore, startOfDay, isSameD
 import { 
   Ship, 
   Loader2, 
-  Calendar,
-  Clock,
-  MapPin,
-  ChevronRight,
-  Briefcase,
   Plus,
-  Edit,
-  X,
   Trash2,
-  ChevronsUpDown,
-  Check
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments, createVesselAssignment, updateVesselAssignment, updateUserProfile, deleteVesselStateLogs, getVesselStateLogs } from '@/supabase/database/queries';
 import type { Vessel, VesselAssignment, UserProfile } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import { UnifiedVesselSearchPicker } from '@/components/dashboard/unified-vessel-search-picker';
+import { VesselHistoryCard } from '@/components/dashboard/vessel-history-card';
 import { useToast } from '@/hooks/use-toast';
 
 export default function VesselHistoryPage() {
@@ -74,12 +64,6 @@ export default function VesselHistoryPage() {
   const [editEndYear, setEditEndYear] = useState<string>('');
   const [editEndMonth, setEditEndMonth] = useState<string>('');
   const [editEndDay, setEditEndDay] = useState<string>('');
-  
-  // Vessel search state
-  const [isVesselSearchOpen, setIsVesselSearchOpen] = useState(false);
-  const [vesselSearchTerm, setVesselSearchTerm] = useState<string>('');
-  const [vesselSearchResults, setVesselSearchResults] = useState<Vessel[]>([]);
-  const [isSearchingVessels, setIsSearchingVessels] = useState(false);
   
   // Form state for editing assignment
   const [editStartDate, setEditStartDate] = useState<string>('');
@@ -204,40 +188,6 @@ export default function VesselHistoryPage() {
     return vessels;
   }, [vessels, assignments]);
 
-  // Search vessels when user types
-  useEffect(() => {
-    const searchVessels = async () => {
-      if (!vesselSearchTerm || vesselSearchTerm.length < 2) {
-        setVesselSearchResults([]);
-        return;
-      }
-
-      setIsSearchingVessels(true);
-      try {
-        const response = await fetch('/api/vessels/search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ searchTerm: vesselSearchTerm }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setVesselSearchResults(data.vessels || []);
-        } else {
-          setVesselSearchResults([]);
-        }
-      } catch (error) {
-        console.error('[VESSEL HISTORY] Error searching vessels:', error);
-        setVesselSearchResults([]);
-      } finally {
-        setIsSearchingVessels(false);
-      }
-    };
-
-    const timeoutId = setTimeout(searchVessels, 300); // Debounce
-    return () => clearTimeout(timeoutId);
-  }, [vesselSearchTerm]);
-
   // Helper to get days in month
   const getDaysInMonth = (year: number, month: number) => {
     return new Date(year, month + 1, 0).getDate();
@@ -275,9 +225,6 @@ export default function VesselHistoryPage() {
     setEndYear('');
     setEndMonth('');
     setEndDay('');
-    setVesselSearchTerm('');
-    setVesselSearchResults([]);
-    setIsVesselSearchOpen(false);
     setIsAddDialogOpen(true);
   };
 
@@ -323,9 +270,6 @@ export default function VesselHistoryPage() {
     setEndYear('');
     setEndMonth('');
     setEndDay('');
-    setVesselSearchTerm('');
-    setVesselSearchResults([]);
-    setIsVesselSearchOpen(false);
   };
 
   const handleCloseEditDialog = () => {
@@ -782,17 +726,22 @@ export default function VesselHistoryPage() {
   return (
     <div className="flex flex-col gap-6">
       {/* Header Section */}
-      <div className="space-y-2">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">Vessel History</h1>
-            <p className="text-muted-foreground">
-              View and manage your complete vessel assignment history, including current and previous vessels.
-            </p>
+      <div className="space-y-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/20 to-blue-600/10">
+              <Ship className="h-6 w-6 text-sky-600 dark:text-sky-400" />
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-3xl font-bold tracking-tight">Vessel History</h1>
+              <p className="max-w-xl text-muted-foreground">
+                Your complete assignment timeline — current and past vessels, dates, and roles.
+              </p>
+            </div>
           </div>
-          <Button onClick={handleOpenAddDialog} className="rounded-xl">
+          <Button onClick={handleOpenAddDialog} className="rounded-xl shrink-0">
             <Plus className="h-4 w-4 mr-2" />
-            Add Vessel Assignment
+            Add Assignment
           </Button>
         </div>
         <Separator />
@@ -804,17 +753,25 @@ export default function VesselHistoryPage() {
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       ) : !hasAssignments ? (
-        <Card className="rounded-xl border">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <div className="h-12 w-12 rounded-full bg-muted/50 flex items-center justify-center mb-3">
-              <Ship className="h-6 w-6 text-muted-foreground" />
+        <Card className="rounded-2xl border border-dashed shadow-none">
+          <CardContent className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+              <Ship className="h-8 w-8 text-muted-foreground" />
             </div>
-            <p className="text-sm font-medium text-muted-foreground mb-1">No vessel history</p>
-            <p className="text-xs text-muted-foreground">You haven't been assigned to any vessels yet</p>
+            <div className="space-y-1 max-w-sm">
+              <p className="font-semibold">No vessel history yet</p>
+              <p className="text-sm text-muted-foreground">
+                Add your first assignment to start building your sea-time record across vessels.
+              </p>
+            </div>
+            <Button onClick={handleOpenAddDialog} className="rounded-xl mt-2">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Assignment
+            </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-5">
           {sortedVesselIds.map((vesselId) => {
             const vessel = vesselMap.get(vesselId);
             const vesselAssignments = groupedAssignments.get(vesselId) || [];
@@ -824,181 +781,20 @@ export default function VesselHistoryPage() {
             if (!vessel) return null;
 
             return (
-              <Card key={vesselId} className="rounded-xl border">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <Ship className="h-6 w-6 text-primary" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <CardTitle className="text-xl mb-1">{vessel.name}</CardTitle>
-                        {vessel.type && (
-                          <CardDescription className="text-sm">{vessel.type}</CardDescription>
-                        )}
-                      </div>
-                    </div>
-                    {currentAssignment && (
-                      <Badge variant="default" className="bg-green-500/20 text-green-700 dark:text-green-400">
-                        Current
-                      </Badge>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Current Assignment */}
-                  {currentAssignment && (
-                    <div className="p-4 rounded-lg bg-green-500/5 border border-green-500/20">
-                      <div className="flex items-start gap-3">
-                        <MapPin className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-sm font-semibold text-green-700 dark:text-green-400">
-                              Current Assignment
-                            </span>
-                            {currentAssignment.position && (
-                              <Badge variant="outline" className="text-xs">
-                                {currentAssignment.position}
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="space-y-1 text-sm text-muted-foreground">
-                            <div className="flex items-center gap-2">
-                              <Calendar className="h-4 w-4" />
-                              <span>
-                                Started: {format(parse(currentAssignment.startDate, 'yyyy-MM-dd', new Date()), 'MMMM d, yyyy')}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Clock className="h-4 w-4" />
-                              <span>
-                                {getAssignmentDuration(currentAssignment)} {getAssignmentDuration(currentAssignment) === 1 ? 'day' : 'days'}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleOpenEditDialog(currentAssignment)}
-                          className="flex-shrink-0"
-                        >
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Past Assignments */}
-                  {pastAssignments.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Separator className="flex-1" />
-                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                          Previous Assignments
-                        </span>
-                        <Separator className="flex-1" />
-                      </div>
-                      {pastAssignments.map((assignment, index) => (
-                        <div
-                          key={assignment.id}
-                          className={cn(
-                            "p-4 rounded-lg border transition-colors",
-                            index < pastAssignments.length - 1 ? "border-b" : "",
-                            "hover:bg-accent/50"
-                          )}
-                        >
-                          <div className="flex items-start gap-3">
-                            <Briefcase className="h-5 w-5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-2">
-                                {assignment.position && (
-                                  <Badge variant="outline" className="text-xs">
-                                    {assignment.position}
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="space-y-1 text-sm text-muted-foreground">
-                                <div className="flex items-center gap-2">
-                                  <Calendar className="h-4 w-4" />
-                                  <span>
-                                    {format(parse(assignment.startDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')} - {' '}
-                                    {assignment.endDate 
-                                      ? format(parse(assignment.endDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')
-                                      : 'Present'}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Clock className="h-4 w-4" />
-                                  <span>
-                                    {getAssignmentDuration(assignment)} {getAssignmentDuration(assignment) === 1 ? 'day' : 'days'}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              {isCrewMember && !hasActiveAssignment && (
-                                <Button
-                                  variant="default"
-                                  size="sm"
-                                  onClick={() => handleResumeVessel(assignment)}
-                                  disabled={isResuming === assignment.id}
-                                  className="flex-shrink-0"
-                                >
-                                  {isResuming === assignment.id ? (
-                                    <>
-                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                      Resuming...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Ship className="h-4 w-4 mr-2" />
-                                      Resume
-                                    </>
-                                  )}
-                                </Button>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleOpenEditDialog(assignment)}
-                                className="flex-shrink-0"
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleOpenDeleteDialog(assignment)}
-                                className="flex-shrink-0 text-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Summary */}
-                  {vesselAssignments.length > 1 && (
-                    <div className="pt-3 border-t">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Total assignments on this vessel:</span>
-                        <span className="font-semibold">{vesselAssignments.length}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm mt-1">
-                        <span className="text-muted-foreground">Total days:</span>
-                        <span className="font-semibold">
-                          {vesselAssignments.reduce((sum, a) => sum + getAssignmentDuration(a), 0)} days
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              <VesselHistoryCard
+                key={vesselId}
+                vessel={vessel}
+                vesselAssignments={vesselAssignments}
+                currentAssignment={currentAssignment}
+                pastAssignments={pastAssignments}
+                isCrewMember={isCrewMember}
+                hasActiveAssignment={hasActiveAssignment}
+                isResuming={isResuming}
+                onEdit={handleOpenEditDialog}
+                onDelete={handleOpenDeleteDialog}
+                onResume={handleResumeVessel}
+                getAssignmentDuration={getAssignmentDuration}
+              />
             );
           })}
         </div>
@@ -1016,79 +812,18 @@ export default function VesselHistoryPage() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="vessel">Vessel</Label>
-              <Popover open={isVesselSearchOpen} onOpenChange={setIsVesselSearchOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    className={cn(
-                      "w-full justify-between rounded-xl",
-                      !newAssignmentVesselId && "text-muted-foreground"
-                    )}
-                    disabled={isLoadingVessels}
-                  >
-                    {newAssignmentVesselId
-                      ? vesselMap.get(newAssignmentVesselId)?.name || "Select vessel..."
-                      : "Search for a vessel..."}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                  <div className="p-2 border-b bg-muted/30">
-                    <Input
-                      placeholder="Search vessels..."
-                      value={vesselSearchTerm}
-                      onChange={(e) => {
-                        setVesselSearchTerm(e.target.value);
-                        setIsVesselSearchOpen(true);
-                      }}
-                      className="h-9 bg-background rounded-xl"
-                      autoFocus
-                    />
-                  </div>
-                  <div className="max-h-[300px] overflow-y-auto">
-                    {isSearchingVessels ? (
-                      <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
-                        Searching...
-                      </div>
-                    ) : vesselSearchResults.length > 0 ? (
-                      vesselSearchResults.map((vessel) => (
-                        <button
-                          key={vessel.id}
-                          onClick={() => {
-                            setNewAssignmentVesselId(vessel.id);
-                            setIsVesselSearchOpen(false);
-                            setVesselSearchTerm('');
-                          }}
-                          className="relative flex w-full cursor-pointer select-none items-center rounded-sm px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground transition-colors"
-                        >
-                          <Check
-                            className={cn(
-                              "mr-3 h-4 w-4 shrink-0",
-                              newAssignmentVesselId === vessel.id ? "opacity-100" : "opacity-0"
-                            )}
-                          />
-                          <div className="flex-1 text-left">
-                            <div className="font-medium">{vessel.name}</div>
-                            {vessel.type && (
-                              <div className="text-xs text-muted-foreground">{vessel.type}</div>
-                            )}
-                          </div>
-                        </button>
-                      ))
-                    ) : vesselSearchTerm.length >= 2 ? (
-                      <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-                        No vessels found matching "{vesselSearchTerm}"
-                      </div>
-                    ) : (
-                      <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-                        Type at least 2 characters to search vessels
-                      </div>
-                    )}
-                  </div>
-                </PopoverContent>
-              </Popover>
+              <UnifiedVesselSearchPicker
+                value={newAssignmentVesselId}
+                onChange={(id) => setNewAssignmentVesselId(id)}
+                supabase={supabase}
+                knownVessels={(vessels ?? []).map((v) => ({
+                  id: v.id,
+                  name: v.name,
+                  type: v.type,
+                }))}
+                disabled={isLoadingVessels}
+                triggerClassName="rounded-xl"
+              />
             </div>
             <div className="space-y-2">
               <Label>Start Date</Label>

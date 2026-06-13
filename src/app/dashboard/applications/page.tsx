@@ -53,7 +53,7 @@ import { generateTestimonialPDF, generateNavWatchApplicationPDF, generateMCAWatc
 import type { Vessel, UserProfile, Testimonial, TestimonialStatus, VesselAssignment, NavWatchApplication } from '@/lib/types';
 import type { StateLog } from '@/lib/types';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
-import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
+import { requestCaptainSignoff, notifyLinkedCaptain } from '@/lib/testimonial-signoff';
 
 const testimonialSchema = z.object({
   vessel_id: z.string().min(1, 'Please select a vessel.'),
@@ -1993,10 +1993,11 @@ export default function ApplicationsPage() {
           toast
         );
       } else if (captainUserId) {
-        // Active SeaJourney captain found - testimonial goes to inbox automatically, no email needed
+        // Active SeaJourney captain found - testimonial goes to inbox; also email the captain.
+        notifyLinkedCaptain(supabase, createdTestimonial.id);
         toast({
           title: 'Testimonial Request Sent',
-          description: 'Your testimonial request has been sent to the captain\'s inbox. They will be notified.',
+          description: 'Your testimonial request has been sent to the captain\'s inbox. They will be notified by email.',
         });
       } else {
         toast({

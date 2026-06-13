@@ -43,7 +43,7 @@ import {
   type TestimonialPDFFormat,
   type TestimonialPDFOutput,
 } from '@/lib/pdf-generator';
-import { requestCaptainSignoff } from '@/lib/testimonial-signoff';
+import { requestCaptainSignoff, notifyLinkedCaptain } from '@/lib/testimonial-signoff';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -992,11 +992,14 @@ export default function DocumentsGeneratorPage() {
         testimonial_code: null,
         generated_by_user_id: user?.id ?? null,
       };
-      const { error: createError } = await supabase.from('testimonials').insert(testimonialData).select().single();
+      const { data: createdTestimonial, error: createError } = await supabase.from('testimonials').insert(testimonialData).select().single();
       if (createError) throw createError;
+      if (createdTestimonial?.id) {
+        notifyLinkedCaptain(supabase, createdTestimonial.id);
+      }
       toast({
         title: 'Sent to Captain',
-        description: `Testimonial request has been sent to ${activeCaptain.name}'s inbox. Once approved, it will receive a verification code (SJ-XXX) and appear in the testimonials list.`,
+        description: `Testimonial request has been sent to ${activeCaptain.name}'s inbox. They will be notified by email. Once approved, it will receive a verification code (SJ-XXX).`,
       });
       setCalculatedSeaTime(null);
       setDocumentStartDate(undefined);

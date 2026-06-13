@@ -16,12 +16,14 @@ type VesselPremiumFeatureGateProps = {
   title: string;
   description: string;
   featureLabel?: string;
+  plansLabel?: string;
 };
 
 export function VesselPremiumFeatureGate({
   title,
   description,
   featureLabel = 'This feature',
+  plansLabel = 'Vessel Premium, Vessel Professional, and Fleet',
 }: VesselPremiumFeatureGateProps) {
   const router = useRouter();
 
@@ -33,8 +35,7 @@ export function VesselPremiumFeatureGate({
         </div>
         <CardTitle className="mt-3">{title}</CardTitle>
         <CardDescription>
-          {featureLabel} is available on <strong>Vessel Premium</strong> and{' '}
-          <strong>Vessel Professional</strong> (and Fleet). {description}
+          {featureLabel} is available on <strong>{plansLabel}</strong>. {description}
         </CardDescription>
       </CardHeader>
       <CardContent>

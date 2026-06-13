@@ -201,37 +201,43 @@ export async function getAllStateLogsForUser(
  * Create a vessel (vessels are shared, not owned by users)
  */
 export async function createVessel(
-  supabase: SupabaseClient,
+  _supabase: SupabaseClient,
   vesselData: {
     name: string;
     type: string;
     officialNumber?: string;
-    isOfficial?: boolean; // true if created by vessel role user, false if by crew member
+    isOfficial?: boolean;
+    mmsi?: string | null;
+    call_sign?: string | null;
+    flag?: string | null;
+    length_m?: number | null;
+    beam?: number | null;
+    draft?: number | null;
+    gross_tonnage?: number | null;
+    build_year?: number | null;
   }
 ) {
-  // Properly handle officialNumber - preserve the value if provided, null if empty/undefined
-  const officialNumber = vesselData.officialNumber?.trim() || null;
-  
-  const { data, error } = await supabase
-    .from('vessels')
-    .insert({
-      name: vesselData.name,
-      type: vesselData.type,
-      imo: officialNumber,
-      is_official: vesselData.isOfficial ?? false, // Default to false (crew member creation)
-    })
-    .select()
-    .single();
+  const response = await fetch('/api/vessels/find-or-create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(vesselData),
+  });
 
-  if (error) {
-    throw error;
+  const body = (await response.json().catch(() => ({}))) as {
+    vessel?: { id: string; name: string; type: string; officialNumber?: string | null };
+    error?: string;
+    message?: string;
+  };
+
+  if (!response.ok || !body.vessel) {
+    throw new Error(body.error || body.message || 'Failed to create vessel');
   }
 
   return {
-    id: data.id,
-    name: data.name,
-    type: data.type,
-    officialNumber: data.imo,
+    id: body.vessel.id,
+    name: body.vessel.name,
+    type: body.vessel.type,
+    officialNumber: body.vessel.officialNumber,
   };
 }
 
