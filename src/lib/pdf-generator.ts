@@ -1597,6 +1597,12 @@ export async function generateTestimonialPDF(
     return generateAmsa771Testimonial(data, output, options);
   }
 
+  // Non-MCA formats (SeaJourney, MLC) use the modern card-based layout that
+  // matches the design language of the Sea Service Breakdown PDF.
+  if (resolvedPdfFormat !== 'mca') {
+    return generateSeaJourneyTestimonialModern(data, output, options);
+  }
+
   const doc = new jsPDF();
 
   const startDate = format(parseDateOnly(testimonial.start_date), 'dd MMMM yyyy');
@@ -2419,6 +2425,821 @@ export async function generateTestimonialPDF(
     return;
   }
 
+  doc.save(filename);
+}
+
+/* ========================================================================== */
+/*                  MODERN SEAJOURNEY TESTIMONIAL (CARD LAYOUT)               */
+/* ========================================================================== */
+
+/**
+ * SeaJourney-branded testimonial in the modern card layout that matches the
+ * Sea Service Breakdown PDF: navy header bar with logo left and title right,
+ * rounded white/pastel cards with uppercase muted section labels, striped
+ * navy-headed tables, and a slate palette in line with the rest of the app.
+ *
+ * Used for the `seajourney` and `mlc` testimonial formats. The traditional
+ * MCA form-style layout (PART 1/2/3/4 with underline rules) is preserved
+ * inside `generateTestimonialPDF` and continues to be used for `mca`.
+ */
+async function generateSeaJourneyTestimonialModern(
+  data: TestimonialPDFData,
+  output: TestimonialPDFOutput = 'download',
+  options?: TestimonialPDFOptions,
+): Promise<Blob | void> {
+  const debug = options?.debug ?? false;
+  const { testimonial, userProfile, vessel, captainProfile, companyDetails } = data;
+
+  const fullName =
+    `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim() ||
+    userProfile.username ||
+    '—';
+
+  const startDate = format(parseDateOnly(testimonial.start_date), 'dd MMMM yyyy');
+  const endDate = format(parseDateOnly(testimonial.end_date), 'dd MMMM yyyy');
+  const generatedDate = format(new Date(), 'dd MMMM yyyy');
+
+  const approvedDate =
+    testimonial.status === 'approved' && testimonial.approved_at
+      ? format(new Date(testimonial.approved_at), 'dd MMMM yyyy')
+      : testimonial.status === 'approved' && testimonial.signoff_used_at
+      ? format(new Date(testimonial.signoff_used_at), 'dd MMMM yyyy')
+      : null;
+
+  const dobRaw = getDateOfBirthRawFromUserProfile(userProfile);
+  const dateOfBirth =
+    dobRaw && formatDateDdMmYyyyForPdf(dobRaw)
+      ? format(parseDateOnly(dobRaw), 'dd MMMM yyyy')
+      : null;
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 12;
+  const contentWidth = pageWidth - margin * 2;
+
+  const colors = {
+    navy: [15, 23, 42] as RGB,
+    blue: [37, 99, 235] as RGB,
+    purple: [126, 34, 206] as RGB,
+    text: [28, 28, 30] as RGB,
+    muted: [107, 114, 128] as RGB,
+    border: [226, 232, 240] as RGB,
+    softBg: [248, 250, 252] as RGB,
+    lightBlue: [239, 246, 255] as RGB,
+    lightPurple: [245, 243, 255] as RGB,
+    white: [255, 255, 255] as RGB,
+  };
+
+  const setText = (c: RGB) => doc.setTextColor(c[0], c[1], c[2]);
+  const setDraw = (c: RGB) => doc.setDrawColor(c[0], c[1], c[2]);
+  const setFill = (c: RGB) => doc.setFillColor(c[0], c[1], c[2]);
+  const safe = (s: string | null | undefined, fallback = '—'): string =>
+    (s && String(s).trim()) || fallback;
+
+  const drawRoundedRect = (
+    x: number,
+    yPos: number,
+    w: number,
+    h: number,
+    fillColor?: RGB,
+    drawColor?: RGB,
+  ) => {
+    if (fillColor) setFill(fillColor);
+    if (drawColor) setDraw(drawColor);
+    doc.setLineWidth(0.25);
+    const hasRoundedRect =
+      typeof (doc as unknown as { roundedRect?: unknown }).roundedRect === 'function';
+    if (hasRoundedRect) {
+      (doc as unknown as {
+        roundedRect: (
+          x: number,
+          y: number,
+          w: number,
+          h: number,
+          rx: number,
+          ry: number,
+          style: string,
+        ) => void;
+      }).roundedRect(x, yPos, w, h, 2.5, 2.5, fillColor ? 'FD' : 'S');
+    } else {
+      doc.rect(x, yPos, w, h, fillColor ? 'FD' : 'S');
+    }
+  };
+
+  const drawSectionLabel = (label: string, x: number, yPos: number) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    setText(colors.muted);
+    doc.text(label.toUpperCase(), x, yPos);
+  };
+
+  const drawField = (
+    label: string,
+    value: string,
+    x: number,
+    yPos: number,
+    width: number,
+  ): number => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    setText(colors.muted);
+    doc.text(label, x, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    setText(colors.text);
+    const lines = doc.splitTextToSize(value, width);
+    doc.text(lines, x, yPos + 4.4);
+    return yPos + 4.4 + lines.length * 4.2;
+  };
+
+  const ensureSpaceLocal = (currentY: number, needed: number): number => {
+    if (currentY + needed > pageHeight - 22) {
+      doc.addPage();
+      return 20;
+    }
+    return currentY;
+  };
+
+  // ===== Header =====
+  setFill(colors.navy);
+  doc.rect(0, 0, pageWidth, 36, 'F');
+  try {
+    const { dataURL: logoData, width: imgW, height: imgH } =
+      await loadLogoImageWithDimensions('/logo-seajourney.png');
+    const targetH = 9;
+    const aspect = imgW / imgH;
+    const logoW = aspect * targetH;
+    doc.addImage(logoData, 'PNG', margin, (36 - targetH) / 2, logoW, targetH);
+  } catch {
+    /* logo optional */
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(17);
+  doc.setTextColor(255, 255, 255);
+  doc.text('Sea Service Testimonial', pageWidth - margin, 14, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(203, 213, 225);
+  doc.text('Official certificate of service', pageWidth - margin, 21, { align: 'right' });
+  if (testimonial.testimonial_code) {
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Reference ${testimonial.testimonial_code}`, pageWidth - margin, 28, {
+      align: 'right',
+    });
+  }
+
+  let y = 44;
+
+  // ===== Card helpers (key/value spec-sheet style) =====
+  // Each card has a section label at the top, a thin colored accent rule
+  // under it, then key/value rows separated by hairline dividers.
+  const KV_LABEL_COL = 32;
+  const ROW_PAD_TOP = 3.4;
+  const ROW_LINE_H = 4.2;
+  const ROW_PAD_BOTTOM = 1.6;
+  const ROW_GAP = 1.6;
+  const CARD_HEADER_H = 13;
+  const CARD_BOTTOM_PAD = 4;
+
+  const drawCardHeader = (
+    x: number,
+    yPos: number,
+    w: number,
+    label: string,
+    accent: RGB,
+  ): number => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.4);
+    doc.setCharSpace(0.3);
+    setText(colors.navy);
+    doc.text(label.toUpperCase(), x + 4, yPos + 6);
+    doc.setCharSpace(0);
+    setDraw(accent);
+    doc.setLineWidth(0.7);
+    const labelW = (doc.getStringUnitWidth(label.toUpperCase()) * 8.4) / doc.internal.scaleFactor + 0.6;
+    doc.line(x + 4, yPos + 8, x + 4 + labelW, yPos + 8);
+    setDraw(colors.border);
+    doc.setLineWidth(0.15);
+    doc.line(x + 4, yPos + 10.4, x + w - 4, yPos + 10.4);
+    return yPos + CARD_HEADER_H;
+  };
+
+  const measureKVRow = (
+    value: string,
+    rowWidth: number,
+    isLast: boolean,
+  ): number => {
+    const valueW = Math.max(20, rowWidth - KV_LABEL_COL);
+    const lines = doc.splitTextToSize(value || '—', valueW);
+    const rowH = Math.max(5.4, ROW_PAD_TOP + lines.length * ROW_LINE_H - 0.4 + ROW_PAD_BOTTOM);
+    return rowH + (isLast ? 0 : ROW_GAP);
+  };
+
+  const drawKVRow = (
+    label: string,
+    value: string,
+    x: number,
+    yPos: number,
+    rowWidth: number,
+    isLast: boolean,
+  ): number => {
+    const valueX = x + KV_LABEL_COL;
+    const valueW = Math.max(20, rowWidth - KV_LABEL_COL);
+    const isFallback = !value || value === '—';
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setCharSpace(0.2);
+    setText(colors.muted);
+    const labelMaxW = KV_LABEL_COL - 1.5;
+    let renderedLabel = label.toUpperCase();
+    if (doc.getTextWidth(renderedLabel) > labelMaxW) {
+      doc.setCharSpace(0);
+      while (renderedLabel.length > 4 && doc.getTextWidth(renderedLabel) > labelMaxW) {
+        renderedLabel = renderedLabel.slice(0, -1);
+      }
+    }
+    doc.text(renderedLabel, x, yPos + ROW_PAD_TOP + 0.5);
+    doc.setCharSpace(0);
+
+    doc.setFont('helvetica', isFallback ? 'normal' : 'bold');
+    doc.setFontSize(9.4);
+    setText(isFallback ? colors.muted : colors.text);
+    const lines = doc.splitTextToSize(value || '—', valueW);
+    doc.text(lines, valueX, yPos + ROW_PAD_TOP + 0.5);
+
+    const rowH = Math.max(5.4, ROW_PAD_TOP + lines.length * ROW_LINE_H - 0.4 + ROW_PAD_BOTTOM);
+
+    if (!isLast) {
+      setDraw(colors.border);
+      doc.setLineWidth(0.1);
+      doc.line(x, yPos + rowH + ROW_GAP / 2, x + rowWidth, yPos + rowH + ROW_GAP / 2);
+    }
+
+    return yPos + rowH + (isLast ? 0 : ROW_GAP);
+  };
+
+  // ===== Two-column cards: Seafarer | Vessel (dynamic height) =====
+  const gap = 6;
+  const halfW = (contentWidth - gap) / 2;
+  const innerCardPad = 4;
+  const innerW = halfW - innerCardPad * 2;
+
+  const seafarerFields: Array<[string, string]> = [
+    ['Name', safe(fullName)],
+    ['Position', safe(userProfile.position)],
+    ['Email', safe(userProfile.email)],
+    ['Date of birth', safe(dateOfBirth)],
+    ['Discharge book', safe(userProfile.dischargeBookNumber)],
+  ];
+
+  const flag = (vessel as unknown as { flag?: string | null }).flag || vessel.flag_state || null;
+  const lengthGT = [
+    vessel.length_m ? `${vessel.length_m.toFixed(2)} m` : null,
+    vessel.gross_tonnage ? `${vessel.gross_tonnage.toFixed(2)} GT` : null,
+  ]
+    .filter(Boolean)
+    .join(' • ') || '—';
+
+  const vesselFields: Array<[string, string]> = [
+    ['Name', safe(vessel.name)],
+    ['Type', safe(formatVesselTypeForDisplay(vessel.type))],
+    ['Flag', safe(flag)],
+    ['Official no.', safe(vessel.officialNumber)],
+    ['Length / GT', lengthGT],
+  ];
+
+  const sumKV = (
+    fields: Array<[string, string]>,
+    rowWidth: number,
+  ): number =>
+    fields.reduce(
+      (sum, [, v], i) => sum + measureKVRow(v, rowWidth, i === fields.length - 1),
+      0,
+    );
+
+  const seafarerBodyH = sumKV(seafarerFields, innerW);
+  const vesselBodyH = sumKV(vesselFields, innerW);
+  const detailsCardH = CARD_HEADER_H + Math.max(seafarerBodyH, vesselBodyH) + CARD_BOTTOM_PAD;
+
+  drawRoundedRect(margin, y, halfW, detailsCardH, colors.white, colors.border);
+  let ly = drawCardHeader(margin, y, halfW, 'Seafarer', colors.blue);
+  for (let i = 0; i < seafarerFields.length; i++) {
+    const [label, value] = seafarerFields[i];
+    ly = drawKVRow(
+      label,
+      value,
+      margin + innerCardPad,
+      ly,
+      innerW,
+      i === seafarerFields.length - 1,
+    );
+  }
+
+  drawRoundedRect(margin + halfW + gap, y, halfW, detailsCardH, colors.white, colors.border);
+  let ry = drawCardHeader(margin + halfW + gap, y, halfW, 'Vessel', colors.purple);
+  for (let i = 0; i < vesselFields.length; i++) {
+    const [label, value] = vesselFields[i];
+    ry = drawKVRow(
+      label,
+      value,
+      margin + halfW + gap + innerCardPad,
+      ry,
+      innerW,
+      i === vesselFields.length - 1,
+    );
+  }
+
+  y += detailsCardH + 6;
+
+  // ===== Service period banner =====
+  drawRoundedRect(margin, y, contentWidth, 22, colors.lightBlue, colors.border);
+  drawSectionLabel('Service period', margin + 4, y + 6);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  setText(colors.navy);
+  doc.text(`${startDate} — ${endDate}`, margin + 4, y + 14);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  setText(colors.muted);
+  doc.text(`${testimonial.total_days} total days`, pageWidth - margin - 4, y + 14, {
+    align: 'right',
+  });
+  y += 28;
+
+  // ===== Service breakdown (striped table) =====
+  drawSectionLabel('Service breakdown', margin, y);
+  y += 4;
+
+  autoTable(doc, {
+    startY: y,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    head: [['Service type', 'Days', 'Notes']],
+    body: [
+      [
+        'Days at sea',
+        String(testimonial.at_sea_days),
+        'Underway with main propelling engines running for at least 4 hours within a 24-hour period.',
+      ],
+      [
+        'Stand-by service',
+        String(testimonial.standby_days),
+        'Ready to depart, waiting for owner. Should not exceed days at sea; max 14 consecutive days in port.',
+      ],
+      ['Shipyard service', String(testimonial.yard_days), 'Maximum 90 days per application.'],
+      [
+        'Leave of absence',
+        String(testimonial.leave_days),
+        'Recorded leave during the service period.',
+      ],
+    ],
+    styles: { fontSize: 9, cellPadding: 2.5, textColor: colors.text },
+    headStyles: { fillColor: colors.navy, textColor: colors.white },
+    columnStyles: {
+      0: { cellWidth: 50, fontStyle: 'bold' },
+      1: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+      2: { cellWidth: 'auto', textColor: colors.muted, fontSize: 8.5 },
+    },
+    theme: 'striped',
+  });
+  y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+
+  // ===== Standby periods detail (when present) =====
+  if (data.standbyPeriods && data.standbyPeriods.length > 0) {
+    y = ensureSpaceLocal(y, 30);
+    drawSectionLabel('Standby periods', margin, y);
+    y += 4;
+
+    const periodsSorted = [...data.standbyPeriods].sort((a, b) => {
+      const aT = parse(a.passageStartDate, 'yyyy-MM-dd', new Date()).getTime();
+      const bT = parse(b.passageStartDate, 'yyyy-MM-dd', new Date()).getTime();
+      return aT - bT;
+    });
+
+    const fmtDate = (s?: string | null): string =>
+      s ? format(parse(s, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy') : '—';
+
+    // If the data carries explicit in-port standby start/end dates that
+    // differ from the passage range, show a 4-column table; otherwise fall
+    // back to a tidy 3-column passage / passage / days layout.
+    const hasInPort = periodsSorted.some(
+      (p) => p.standbyStartDate || p.standbyEndDate,
+    );
+
+    if (hasInPort) {
+      const daysColW = 24;
+      const passageColW = (contentWidth - daysColW) * 0.3;
+      const inPortColW = contentWidth - daysColW - passageColW * 2;
+      autoTable(doc, {
+        startY: y,
+        margin: { left: margin, right: margin },
+        tableWidth: contentWidth,
+        head: [['Passage start', 'Passage end', 'In-port standby', 'Days']],
+        body: periodsSorted.map((p) => [
+          fmtDate(p.passageStartDate),
+          fmtDate(p.passageEndDate),
+          p.standbyStartDate || p.standbyEndDate
+            ? `${fmtDate(p.standbyStartDate)} – ${fmtDate(p.standbyEndDate)}`
+            : '—',
+          String(p.standbyDays),
+        ]),
+        styles: { fontSize: 8.5, cellPadding: 2.2, textColor: colors.text },
+        headStyles: { fillColor: colors.navy, textColor: colors.white },
+        columnStyles: {
+          0: { cellWidth: passageColW },
+          1: { cellWidth: passageColW },
+          2: { cellWidth: inPortColW, textColor: colors.muted },
+          3: { cellWidth: daysColW, halign: 'right', fontStyle: 'bold' },
+        },
+        theme: 'striped',
+      });
+    } else {
+      const daysColW = 30;
+      const dateColW = (contentWidth - daysColW) / 2;
+      autoTable(doc, {
+        startY: y,
+        margin: { left: margin, right: margin },
+        tableWidth: contentWidth,
+        head: [['Passage start', 'Passage end', 'Standby days']],
+        body: periodsSorted.map((p) => [
+          fmtDate(p.passageStartDate),
+          fmtDate(p.passageEndDate),
+          String(p.standbyDays),
+        ]),
+        styles: { fontSize: 9, cellPadding: 2.5, textColor: colors.text },
+        headStyles: { fillColor: colors.navy, textColor: colors.white },
+        columnStyles: {
+          0: { cellWidth: dateColW },
+          1: { cellWidth: dateColW },
+          2: { cellWidth: daysColW, halign: 'right', fontStyle: 'bold' },
+        },
+        theme: 'striped',
+      });
+    }
+
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 4;
+
+    const totalStandby = periodsSorted.reduce((s, p) => s + p.standbyDays, 0);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    setText(colors.muted);
+    doc.text(
+      `${periodsSorted.length} period${periodsSorted.length === 1 ? '' : 's'} • ${totalStandby} standby day${totalStandby === 1 ? '' : 's'} (already counted in the breakdown above)`,
+      margin,
+      y,
+    );
+    y += 8;
+  }
+
+  // ===== Captain's comments =====
+  y = ensureSpaceLocal(y, 70);
+  drawSectionLabel("Captain's comments", margin, y);
+  y += 4;
+
+  const renderCommentBlock = (
+    label: string,
+    text: string,
+    currentY: number,
+  ): number => {
+    const wrapped = doc.splitTextToSize(text, contentWidth - 8);
+    const blockH = Math.max(16, wrapped.length * 4.4 + 10);
+    const safeY = ensureSpaceLocal(currentY, blockH);
+    drawRoundedRect(margin, safeY, contentWidth, blockH, colors.white, colors.border);
+    drawSectionLabel(label, margin + 4, safeY + 5);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    setText(colors.text);
+    doc.text(wrapped, margin + 4, safeY + 11);
+    return safeY + blockH + 4;
+  };
+
+  y = renderCommentBlock('Conduct', safe(testimonial.captain_comment_conduct), y);
+  y = renderCommentBlock('Ability', safe(testimonial.captain_comment_ability), y);
+  y = renderCommentBlock('General', safe(testimonial.captain_comment_general), y);
+
+  // ===== Company details (full-width KV card, dynamic height) =====
+  const companyFields: Array<[string, string]> = [
+    ['Company', safe(companyDetails?.name)],
+    ['Address', safe(companyDetails?.address)],
+    ['Contact', safe(companyDetails?.contactDetails)],
+  ];
+  const companyInnerW = contentWidth - innerCardPad * 2;
+  const companyBodyH = sumKV(companyFields, companyInnerW);
+  const companyCardH = CARD_HEADER_H + companyBodyH + CARD_BOTTOM_PAD;
+
+  y = ensureSpaceLocal(y, companyCardH + 8);
+  drawRoundedRect(margin, y, contentWidth, companyCardH, colors.white, colors.border);
+  let cy = drawCardHeader(margin, y, contentWidth, 'Company details', colors.navy);
+  for (let i = 0; i < companyFields.length; i++) {
+    const [label, value] = companyFields[i];
+    cy = drawKVRow(
+      label,
+      value,
+      margin + innerCardPad,
+      cy,
+      companyInnerW,
+      i === companyFields.length - 1,
+    );
+  }
+  y += companyCardH + 8;
+
+  // ===== Declaration card =====
+  // Push to a fresh page when there isn't enough room left for the
+  // declaration paragraph + signatory block to live together.
+  y = ensureSpaceLocal(y, 130);
+
+  const declarationText =
+    'I hereby certify that the details of service stated above are, to the best of my knowledge ' +
+    "and belief, a true and accurate record of this seafarer's onboard service, based on vessel " +
+    'records and official log information. This testimonial is issued to support applications for ' +
+    'sea service verification by recognised bodies (e.g. Nautilus International) and, where ' +
+    'applicable, submission to the Maritime and Coastguard Agency (MCA).';
+  const declarationLines = doc.splitTextToSize(declarationText, contentWidth - 8);
+  const declarationH = declarationLines.length * 4.4 + 16;
+
+  drawRoundedRect(margin, y, contentWidth, declarationH, colors.lightBlue, colors.border);
+  drawSectionLabel(
+    'Declaration by master / company representative',
+    margin + 4,
+    y + 6,
+  );
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  setText(colors.text);
+  doc.text(declarationLines, margin + 4, y + 12);
+  y += declarationH + 6;
+
+  // ===== Signatory card with 3-column signature / date / stamp row =====
+  let captainName = testimonial.captain_name;
+  if (!captainName && captainProfile) {
+    const profileName =
+      `${captainProfile.firstName || ''} ${captainProfile.lastName || ''}`.trim();
+    if (profileName) captainName = profileName;
+  }
+  const captainPosition =
+    (testimonial as { captain_position?: string | null }).captain_position ||
+    captainProfile?.position ||
+    null;
+  const captainEmailDisplay = captainProfile?.email || testimonial.captain_email || null;
+  const captainSignature =
+    testimonial.captain_signature ||
+    (captainProfile as { signature?: string | null } | null | undefined)?.signature ||
+    null;
+  const vesselStamp = vessel.stamp || null;
+
+  // Card layout (modernised):
+  //   [SIGNATORY header with accent rule]
+  //   [Captain name + role chip] [position • email muted subline]
+  //   ── divider ──
+  //   [Signature framed slot 50%] [Approved date framed slot 25%] [Stamp slot 25%]
+  const slotH = 30;
+  const slotLabelOffset = 8.5;
+  const identityH = 14;
+  const signatoryH = CARD_HEADER_H + identityH + slotH + CARD_BOTTOM_PAD + 2;
+
+  y = ensureSpaceLocal(y, signatoryH);
+  drawRoundedRect(margin, y, contentWidth, signatoryH, colors.white, colors.border);
+  const sigBodyY = drawCardHeader(margin, y, contentWidth, 'Signatory', colors.blue);
+
+  // ----- Identity line: name + small role chip + subline -----
+  const identityX = margin + innerCardPad;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12.5);
+  setText(colors.navy);
+  const captainNameText = safe(captainName);
+  doc.text(captainNameText, identityX, sigBodyY + 4.8);
+  const nameWidth = doc.getTextWidth(captainNameText);
+
+  // Role chip ("MASTER") if the captain's position implies it.
+  const positionLower = (captainPosition || '').toLowerCase();
+  const isMaster =
+    positionLower.includes('captain') ||
+    positionLower.includes('master');
+  if (isMaster && captainNameText !== '—') {
+    const chipLabel = 'MASTER';
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setCharSpace(0.4);
+    const chipTextW = doc.getTextWidth(chipLabel);
+    const chipPadX = 2.4;
+    const chipW = chipTextW + chipPadX * 2;
+    const chipH = 4.4;
+    const chipX = identityX + nameWidth + 3;
+    const chipY = sigBodyY + 1.4;
+    setFill(colors.lightBlue);
+    setDraw(colors.blue);
+    doc.setLineWidth(0.2);
+    const hasRoundedRect2 =
+      typeof (doc as unknown as { roundedRect?: unknown }).roundedRect === 'function';
+    if (hasRoundedRect2) {
+      (doc as unknown as {
+        roundedRect: (
+          x: number,
+          y: number,
+          w: number,
+          h: number,
+          rx: number,
+          ry: number,
+          style: string,
+        ) => void;
+      }).roundedRect(chipX, chipY, chipW, chipH, 1.4, 1.4, 'FD');
+    } else {
+      doc.rect(chipX, chipY, chipW, chipH, 'FD');
+    }
+    setText(colors.blue);
+    doc.text(chipLabel, chipX + chipPadX, chipY + 3.1);
+    doc.setCharSpace(0);
+  }
+
+  // Subline: position • email
+  const subParts = [
+    safe(captainPosition, ''),
+    safe(captainEmailDisplay, ''),
+  ].filter((s) => s && s !== '—');
+  if (subParts.length > 0) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    setText(colors.muted);
+    doc.text(subParts.join('  •  '), identityX, sigBodyY + 9.8);
+  }
+
+  // ----- Slot row: framed Signature / Approved date / Ship's stamp -----
+  const slotY = sigBodyY + identityH;
+  const slotsAreaW = contentWidth - innerCardPad * 2;
+  const slotGap = 4;
+  const sigSlotW = slotsAreaW * 0.5 - slotGap * 0.5;
+  const dateSlotW = slotsAreaW * 0.25 - slotGap * 0.5;
+  const stampSlotW = slotsAreaW - sigSlotW - dateSlotW - slotGap * 2;
+  const sigSlotX = margin + innerCardPad;
+  const dateSlotX = sigSlotX + sigSlotW + slotGap;
+  const stampSlotX = dateSlotX + dateSlotW + slotGap;
+
+  const drawSlotFrame = (x: number, w: number, label: string) => {
+    drawRoundedRect(x, slotY, w, slotH, colors.softBg, colors.border);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setCharSpace(0.3);
+    setText(colors.muted);
+    doc.text(label.toUpperCase(), x + 3, slotY + 4.4);
+    doc.setCharSpace(0);
+  };
+
+  drawSlotFrame(sigSlotX, sigSlotW, 'Signature');
+  drawSlotFrame(dateSlotX, dateSlotW, 'Approved date');
+  drawSlotFrame(stampSlotX, stampSlotW, "Ship's stamp");
+
+  // Signature image, fit within slot keeping aspect (best-effort: jsPDF
+  // handles aspect when only one dim provided, but here we constrain by box).
+  const slotContentTop = slotY + slotLabelOffset;
+  const slotContentH = slotH - slotLabelOffset - 3;
+  if (captainSignature) {
+    try {
+      let imgFmt: 'PNG' | 'JPEG' = 'PNG';
+      if (
+        captainSignature.includes('data:image/jpeg') ||
+        captainSignature.includes('data:image/jpg')
+      ) {
+        imgFmt = 'JPEG';
+      }
+      const sigInnerW = sigSlotW - 6;
+      const sigInnerX = sigSlotX + 3;
+      doc.addImage(captainSignature, imgFmt, sigInnerX, slotContentTop, sigInnerW, slotContentH);
+    } catch (err) {
+      console.error('[Modern Testimonial PDF] Failed to embed captain signature:', err);
+      setDraw(colors.muted);
+      doc.setLineWidth(0.3);
+      doc.line(sigSlotX + 3, slotY + slotH - 4, sigSlotX + sigSlotW - 3, slotY + slotH - 4);
+    }
+  } else {
+    setDraw(colors.muted);
+    doc.setLineWidth(0.3);
+    doc.line(sigSlotX + 3, slotY + slotH - 4, sigSlotX + sigSlotW - 3, slotY + slotH - 4);
+  }
+
+  // Approved date — large bold, centred vertically and horizontally in slot.
+  if (approvedDate) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    setText(colors.navy);
+    doc.text(approvedDate, dateSlotX + dateSlotW / 2, slotY + slotH / 2 + 4, {
+      align: 'center',
+    });
+  } else {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    setText(colors.muted);
+    doc.text('Pending', dateSlotX + dateSlotW / 2, slotY + slotH / 2 + 3, {
+      align: 'center',
+    });
+  }
+
+  // Ship's stamp — centred & aspect-constrained inside the slot.
+  if (vesselStamp) {
+    try {
+      let stampFmt: 'PNG' | 'JPEG' = 'PNG';
+      if (
+        vesselStamp.includes('data:image/jpeg') ||
+        vesselStamp.includes('data:image/jpg')
+      ) {
+        stampFmt = 'JPEG';
+      }
+      const stampSize = Math.min(stampSlotW - 6, slotContentH);
+      const stampOffsetX = (stampSlotW - stampSize) / 2;
+      const stampOffsetY = slotContentTop + (slotContentH - stampSize) / 2;
+      doc.addImage(vesselStamp, stampFmt, stampSlotX + stampOffsetX, stampOffsetY, stampSize, stampSize);
+    } catch (err) {
+      console.error("[Modern Testimonial PDF] Failed to embed ship's stamp:", err);
+    }
+  }
+
+  y += signatoryH + 6;
+
+  // ===== Optional verification card =====
+  if (testimonial.official_body || testimonial.official_reference) {
+    y = ensureSpaceLocal(y, 32);
+    const verH = 28;
+    drawRoundedRect(margin, y, contentWidth, verH, colors.lightPurple, colors.border);
+    drawSectionLabel('Official verification (Nautilus / other)', margin + 4, y + 6);
+    const verHalfW = (contentWidth - 14) / 2;
+    drawField(
+      'Verifying organisation',
+      safe(testimonial.official_body),
+      margin + 4,
+      y + 12,
+      verHalfW,
+    );
+    drawField(
+      'Verification reference',
+      safe(testimonial.official_reference),
+      margin + 4 + verHalfW + 6,
+      y + 12,
+      verHalfW,
+    );
+    y += verH + 6;
+  }
+
+  // ===== Footer (every page) =====
+  const totalPages = getPageCount(doc);
+  for (let page = 1; page <= totalPages; page++) {
+    doc.setPage(page);
+    setDraw(colors.border);
+    doc.setLineWidth(0.2);
+    doc.line(margin, pageHeight - 14, pageWidth - margin, pageHeight - 14);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    setText(colors.muted);
+
+    const yLine1 = pageHeight - 9;
+    const yLine2 = pageHeight - 5;
+
+    doc.text(`Document ID: ${testimonial.id}`, margin, yLine1);
+    doc.text('www.seajourney.co.uk/verify', pageWidth / 2, yLine1, { align: 'center' });
+    doc.text(`Page ${page} of ${totalPages}`, pageWidth - margin, yLine1, { align: 'right' });
+
+    if (testimonial.testimonial_code) {
+      doc.text(`Reference: ${testimonial.testimonial_code}`, margin, yLine2);
+    }
+    doc.text(`Generated ${generatedDate}`, pageWidth - margin, yLine2, { align: 'right' });
+  }
+
+  // ===== Filename =====
+  const formatDateForFilename = (dateStr: string): string => {
+    const date = parseDateOnly(dateStr);
+    const day = date.getDate();
+    const month = format(date, 'MMM');
+    const getOrdinal = (n: number): string => {
+      const s = ['th', 'st', 'nd', 'rd'];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    };
+    return `${getOrdinal(day)} ${month}`;
+  };
+  const cleanName = (name: string): string =>
+    String(name || '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const startFn = formatDateForFilename(testimonial.start_date);
+  const endFn = formatDateForFilename(testimonial.end_date);
+  const crewName = cleanName(fullName);
+  const vesselName = cleanName(vessel.name || 'UnknownVessel');
+  const filename = `${startFn} - ${endFn} ${crewName} ${vesselName} testimonial SEAJOURNEY.pdf`;
+
+  if (debug) {
+    console.log('[Modern Testimonial PDF] generated', { id: testimonial.id, filename });
+  }
+
+  if (output === 'blob') return doc.output('blob');
+  if (output === 'newtab') {
+    doc.output('dataurlnewwindow');
+    return;
+  }
   doc.save(filename);
 }
 

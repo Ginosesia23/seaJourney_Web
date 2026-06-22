@@ -1,7 +1,7 @@
 import { fetchVesselPosition } from '@/lib/datalastic/client';
 import {
   buildAisStateNote,
-  getAisNavStatus,
+  getNormalizedAisNavStatus,
   isAisPositionStale,
   logDateForLiveAisSync,
   mapAisToDailyStatus,
@@ -69,12 +69,13 @@ export async function syncVesselStateFromAis(
     });
 
     if (isAisPositionStale(position)) {
+      const normalisedStatus = getNormalizedAisNavStatus(position) || null;
       await supabaseAdmin
         .from('vessels')
         .update({
           ais_last_sync_at: new Date().toISOString(),
           ais_last_sync_error: 'AIS position is stale (>6h); state not updated',
-          ais_last_nav_status: getAisNavStatus(position) || null,
+          ais_last_nav_status: normalisedStatus,
           ais_last_speed: position.speed ?? null,
           ais_last_position_at: position.last_position_UTC ?? null,
         })
@@ -85,7 +86,7 @@ export async function syncVesselStateFromAis(
         skipped: true,
         reason: 'Latest AIS position is older than 6 hours',
         vesselId,
-        navigationalStatus: getAisNavStatus(position) || null,
+        navigationalStatus: normalisedStatus,
         speed: position.speed ?? null,
         positionAt: position.last_position_UTC ?? null,
       };
@@ -112,12 +113,13 @@ export async function syncVesselStateFromAis(
       throw upsertError;
     }
 
+    const normalisedStatus = getNormalizedAisNavStatus(position) || null;
     await supabaseAdmin
       .from('vessels')
       .update({
         ais_last_sync_at: new Date().toISOString(),
         ais_last_sync_error: null,
-        ais_last_nav_status: getAisNavStatus(position) || null,
+        ais_last_nav_status: normalisedStatus,
         ais_last_speed: position.speed ?? null,
         ais_last_position_at: position.last_position_UTC ?? null,
       })
@@ -128,7 +130,7 @@ export async function syncVesselStateFromAis(
       vesselId,
       logDate,
       state,
-      navigationalStatus: getAisNavStatus(position) || null,
+      navigationalStatus: normalisedStatus,
       speed: position.speed ?? null,
       positionAt: position.last_position_UTC ?? null,
     };

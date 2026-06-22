@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { syncVesselStateFromAis } from '@/lib/ais/sync-vessel-state-from-ais';
+import { normalizeAisNavStatus } from '@/lib/ais/map-ais-to-state';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
   assertVesselManagerForVessel,
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
       mmsi: v.mmsi ?? null,
       imo: v.imo ?? null,
       lastSyncAt: v.ais_last_sync_at ?? null,
-      lastNavStatus: v.ais_last_nav_status ?? null,
+      lastNavStatus: normalizeAisNavStatus(v.ais_last_nav_status) || null,
       lastSpeed: v.ais_last_speed ?? null,
       lastPositionAt: v.ais_last_position_at ?? null,
       lastError: v.ais_last_sync_error ?? null,
@@ -115,7 +116,7 @@ export async function PATCH(req: NextRequest) {
       enabled: !!updated.ais_tracking_enabled,
       mmsi: updated.mmsi ?? null,
       lastSyncAt: updated.ais_last_sync_at ?? null,
-      lastNavStatus: updated.ais_last_nav_status ?? null,
+      lastNavStatus: normalizeAisNavStatus(updated.ais_last_nav_status) || null,
       lastSpeed: updated.ais_last_speed ?? null,
       lastPositionAt: updated.ais_last_position_at ?? null,
       lastError: updated.ais_last_sync_error ?? null,

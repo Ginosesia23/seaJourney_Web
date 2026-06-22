@@ -25,7 +25,7 @@ function formatStateName(state: string): string {
   const stateMap: Record<string, string> = {
     'underway': 'At Sea',
     'at-anchor': 'At Anchor',
-    'in-port': 'In Port',
+    'in-port': 'Moored / In port',
     'on-leave': 'On Leave',
     'in-yard': 'In Yard'
   };

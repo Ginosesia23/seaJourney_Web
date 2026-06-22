@@ -29,7 +29,7 @@ import { hasActiveSubscription } from '@/supabase/database/subscription-helpers'
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
   { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
   { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
-  { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
+  { value: 'in-port', label: 'Moored / In port', color: 'hsl(var(--chart-green))', icon: Building },
   { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: LifeBuoy },
   { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Wrench },
 ];
@@ -243,7 +243,7 @@ export default function DashboardPage() {
         const stateLabels: Record<string, string> = {
           underway: 'Underway',
           'at-anchor': 'At anchor',
-          'in-port': 'In port',
+          'in-port': 'Moored / In port',
           'on-leave': 'On leave',
           'in-yard': 'In yard',
         };

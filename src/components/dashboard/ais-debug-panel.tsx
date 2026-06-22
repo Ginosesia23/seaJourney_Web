@@ -14,7 +14,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-access';
-import { getAisNavStatus } from '@/lib/ais/map-ais-to-state';
+import { getAisNavStatus, normalizeAisNavStatus } from '@/lib/ais/map-ais-to-state';
 
 type AisPreviewResponse = {
   vesselId: string;
@@ -69,9 +69,11 @@ export function AisDebugPanel({ vesselId, accessToken, profileRaw }: AisDebugPan
   if (!eligible) return null;
 
   const pos = preview?.position ?? {};
-  const navStatus = getAisNavStatus(
+  const rawNavStatus = getAisNavStatus(
     pos as { navigational_status?: string | null; navigation_status?: string | null },
-  ) || '—';
+  );
+  const navStatus = normalizeAisNavStatus(rawNavStatus) || '—';
+  const navStatusRawLabel = rawNavStatus && rawNavStatus !== navStatus ? rawNavStatus : null;
   const speed = typeof pos.speed === 'number' ? `${pos.speed.toFixed(1)} kn` : '—';
   const lat = typeof pos.lat === 'number' ? pos.lat.toFixed(5) : '—';
   const lon = typeof pos.lon === 'number' ? pos.lon.toFixed(5) : '—';
@@ -140,7 +142,10 @@ export function AisDebugPanel({ vesselId, accessToken, profileRaw }: AisDebugPan
                 label="Stale?"
                 value={preview.isStale ? 'Yes (>6h old)' : 'No'}
               />
-              <DebugField label="Nav status" value={navStatus} />
+              <DebugField
+                label="Nav status"
+                value={navStatusRawLabel ? `${navStatus} (raw: ${navStatusRawLabel})` : navStatus}
+              />
               <DebugField label="Speed" value={speed} />
               <DebugField label="Lat / Lon" value={`${lat}, ${lon}`} />
               <DebugField label="Last position" value={lastPosition} />

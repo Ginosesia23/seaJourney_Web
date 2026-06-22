@@ -69,7 +69,7 @@ type PastVesselFormValues = z.infer<typeof pastVesselSchema>;
 const vesselStates: { value: DailyStatus; label: string; color: string }[] = [
   { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))' },
   { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))' },
-  { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))' },
+  { value: 'in-port', label: 'Moored / In port', color: 'hsl(var(--chart-green))' },
   { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))' },
   { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))' },
 ];

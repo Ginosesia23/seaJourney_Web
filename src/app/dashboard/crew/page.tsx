@@ -5606,7 +5606,7 @@ export default function CrewPage() {
                                                     </h4>
                                                     <div className="grid grid-cols-2 gap-2">
                                                         <MiniStatTile label="Underway" value={data.underwayDays ?? 0} tone="blue" />
-                                                        <MiniStatTile label="In port" value={data.inPortDays ?? 0} tone="green" />
+                                                        <MiniStatTile label="Moored / In port" value={data.inPortDays ?? 0} tone="green" />
                                                         <MiniStatTile label="At anchor" value={data.atAnchorDays ?? 0} tone="orange" />
                                                         <MiniStatTile label="Standby" value={data.standbyDays ?? 0} tone="purple" />
                                                     </div>

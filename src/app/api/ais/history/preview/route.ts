@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveAisImportAssignmentBounds } from '@/lib/ais/import-assignment-bounds';
-import { enrichPreviewDaysWithLocationNames } from '@/lib/ais/enrich-location-names';
 import {
   buildHistoricalImportPreview,
   parseHistoryPosition,
@@ -114,7 +113,7 @@ export async function POST(req: NextRequest) {
       existingLogs.set(row.date as string, row.state as DailyStatus);
     }
 
-    const { days, summary } = buildHistoricalImportPreview(
+    const { days, summary } = await buildHistoricalImportPreview(
       positions,
       existingLogs,
       from,
@@ -154,14 +153,12 @@ export async function POST(req: NextRequest) {
       },
     );
 
-    const daysWithLocations = await enrichPreviewDaysWithLocationNames(filteredDays);
-
     return NextResponse.json({
       vesselId,
       from,
       to,
       timezoneOffsetMinutes,
-      days: daysWithLocations,
+      days: filteredDays,
       summary: filteredSummary,
       allowedSegments: bounds.allowedSegments,
       assignmentPeriods: bounds.assignments,

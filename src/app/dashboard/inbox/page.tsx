@@ -910,7 +910,7 @@ export default function InboxPage() {
       const stateMap: Record<string, string> = {
         'underway': 'At Sea',
         'at-anchor': 'At Anchor',
-        'in-port': 'In Port',
+        'in-port': 'Moored / In port',
         'in-yard': 'In Yard',
         'on-leave': 'On Leave'
       };
@@ -3055,9 +3055,9 @@ export default function InboxPage() {
                             {comparisonData.discrepancies.slice(0, 5).map((day: any, idx: number) => (
                               <div key={idx} className="flex items-center gap-2">
                                 <span className="font-medium">{format(new Date(day.date), 'MMM d')}:</span>
-                                <span>Your log: <strong>{day.crewState === 'underway' ? 'At Sea' : day.crewState === 'at-anchor' ? 'At Anchor' : day.crewState === 'in-port' ? 'In Port' : day.crewState === 'in-yard' ? 'In Yard' : day.crewState}</strong></span>
+                                <span>Your log: <strong>{day.crewState === 'underway' ? 'At Sea' : day.crewState === 'at-anchor' ? 'At Anchor' : day.crewState === 'in-port' ? 'Moored / In port' : day.crewState === 'in-yard' ? 'In Yard' : day.crewState}</strong></span>
                                 <span>→</span>
-                                <span>Vessel log: <strong>{day.vesselState === 'underway' ? 'At Sea' : day.vesselState === 'at-anchor' ? 'At Anchor' : day.vesselState === 'in-port' ? 'In Port' : day.vesselState === 'in-yard' ? 'In Yard' : day.vesselState}</strong></span>
+                                <span>Vessel log: <strong>{day.vesselState === 'underway' ? 'At Sea' : day.vesselState === 'at-anchor' ? 'At Anchor' : day.vesselState === 'in-port' ? 'Moored / In port' : day.vesselState === 'in-yard' ? 'In Yard' : day.vesselState}</strong></span>
                               </div>
                             ))}
                             {comparisonData.discrepancies.length > 5 && (

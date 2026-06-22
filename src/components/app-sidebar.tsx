@@ -29,6 +29,7 @@ import {
   ClipboardList,
   Database,
   UserCog,
+  UserSearch,
   ShieldCheck,
   Megaphone,
   MessagesSquare,
@@ -185,6 +186,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     hideForRoles: ['crew', 'vessel'], // Hide entire section for crew members and vessel managers
     items: [
       { href: "/dashboard/platform-analytics", label: "Platform Overview", icon: BarChart3, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/users", label: "User Lookup", icon: UserSearch, requiredRole: "admin", disabled: false },
       { href: "/dashboard/crew-analytics", label: "Crew Analytics", icon: Users, requiredRole: "admin", disabled: false },
       { href: "/dashboard/login-activity", label: "Login Activity", icon: LogIn, requiredRole: "admin", disabled: false },
       { href: "/dashboard/pdf-coordinate-tool", label: "PDF coordinates", icon: Crosshair, requiredRole: "admin", disabled: false },

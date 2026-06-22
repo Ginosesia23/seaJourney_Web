@@ -9,7 +9,7 @@ import { Waves, Anchor, Building, Briefcase, Ship } from 'lucide-react';
 const vesselStates: { value: string; label: string, color: string, icon: React.FC<any> }[] = [
     { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
     { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
-    { value: 'in-port', label: 'In Port', color: 'hsl(var(--chart-green))', icon: Building },
+    { value: 'in-port', label: 'Moored / In port', color: 'hsl(var(--chart-green))', icon: Building },
     { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
     { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
 ];

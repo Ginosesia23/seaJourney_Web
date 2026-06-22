@@ -6,6 +6,7 @@ import {
   generateMCAOfficerTestimonial,
   type TestimonialPDFFormat,
 } from '@/lib/pdf-generator';
+import { buildTestimonialStandbyPeriods } from '@/lib/build-testimonial-standby-periods';
 
 function mapVesselRowToVessel(row: Record<string, unknown>): Vessel {
   return {
@@ -121,6 +122,21 @@ export async function downloadTestimonialPdfForCrewMember(
     }
   }
 
+  let standbyPeriods: Awaited<ReturnType<typeof buildTestimonialStandbyPeriods>> = [];
+  if (format === 'seajourney' || format === 'mlc') {
+    standbyPeriods = await buildTestimonialStandbyPeriods({
+      supabase,
+      vesselId: testimonial.vessel_id,
+      startDate: testimonial.start_date,
+      endDate: testimonial.end_date,
+      crewUserId: userProfile.id,
+      crewPosition: userProfile.position,
+      crewRole: userProfile.role,
+      source: 'crew',
+      hasApprovedAccess: true,
+    });
+  }
+
   const testimonialData = {
     testimonial: {
       id: testimonial.id,
@@ -179,6 +195,7 @@ export async function downloadTestimonialPdfForCrewMember(
     },
     captainProfile,
     companyDetails: companyDetailsFromVessel(vessel),
+    standbyPeriods: standbyPeriods.length > 0 ? standbyPeriods : undefined,
   };
 
   if (format === 'mca') {

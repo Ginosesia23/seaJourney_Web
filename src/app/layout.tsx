@@ -26,6 +26,23 @@ export default function RootLayout({
   return (
     <html lang="en" className="light scroll-smooth" suppressHydrationWarning>
       <head>
+        {/**
+         * Supabase recovery-link guard.
+         *
+         * Supabase password-reset emails land on the Site URL with the recovery
+         * tokens in the URL fragment (`/#access_token=…&type=recovery`). If
+         * that arrives anywhere other than /reset-password the Supabase client
+         * will silently consume the hash on init, so the user just sees the
+         * landing page and the reset form never opens. This inline script runs
+         * synchronously before any React/Supabase code mounts and forwards the
+         * hash (or `?type=recovery&token_hash=…` query) to /reset-password,
+         * preserving the tokens.
+         */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var p=window.location.pathname;if(p==='/reset-password')return;var h=window.location.hash||'';var s=window.location.search||'';var isRecHash=h.indexOf('type=recovery')>-1&&h.indexOf('access_token=')>-1;var isRecQuery=s.indexOf('type=recovery')>-1&&(s.indexOf('token_hash=')>-1||s.indexOf('token=')>-1);if(isRecHash||isRecQuery){window.location.replace('/reset-password'+s+h);}}catch(e){}})();`,
+          }}
+        />
         <link rel="icon" href="/icon.png" type="image/png" sizes="any" />
         <link rel="apple-touch-icon" href="/icon.png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />

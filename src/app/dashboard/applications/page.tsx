@@ -46,6 +46,7 @@ import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselStateLogs, getVesselAssignments } from '@/supabase/database/queries';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
+import { buildTestimonialStandbyPeriods } from '@/lib/build-testimonial-standby-periods';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { generateTestimonialPDF, generateNavWatchApplicationPDF, generateMCAWatchRatingForm, generateMCAOOWForm_MSF_4274, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, type TestimonialPDFFormat } from '@/lib/pdf-generator';
@@ -2216,6 +2217,27 @@ export default function ApplicationsPage() {
       });
     }
 
+    // Compute per-voyage standby periods so the SeaJourney/MLC PDF can render the
+    // breakdown table. Only fetch when the format actually consumes it.
+    let standbyPeriods: Awaited<ReturnType<typeof buildTestimonialStandbyPeriods>> = [];
+    if (format === 'seajourney' || format === 'mlc') {
+      try {
+        standbyPeriods = await buildTestimonialStandbyPeriods({
+          supabase,
+          vesselId: testimonial.vessel_id,
+          startDate: testimonial.start_date,
+          endDate: testimonial.end_date,
+          crewUserId: userProfile.id,
+          crewPosition: userProfile.position,
+          crewRole: userProfile.role,
+          source: 'crew',
+          hasApprovedAccess: true,
+        });
+      } catch (error) {
+        console.error('[PDF GENERATION] Failed to build standby periods:', error);
+      }
+    }
+
     // Prepare testimonial data
     const testimonialData = {
       testimonial: {
@@ -2272,6 +2294,7 @@ export default function ApplicationsPage() {
         address: (vessel as any).company_address || null,
         contactDetails: (vessel as any).company_contact || null,
       },
+      standbyPeriods: standbyPeriods.length > 0 ? standbyPeriods : undefined,
     };
 
     try {

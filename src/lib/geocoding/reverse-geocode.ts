@@ -1,11 +1,24 @@
+export type ReverseGeocodeStructured = {
+  /** Display label, e.g. "Genoa, Italy" or just "Italy" for offshore points. */
+  label: string | null;
+  /**
+   * True only when BigDataCloud resolved the position to a specific city or
+   * locality (not just a country/region). This is a much stricter signal of
+   * "vessel is in a populated coastal area" than checking whether `label` has
+   * a comma — `principalSubdivision` (state/province) is set even for points
+   * many NM offshore.
+   */
+  inPopulatedArea: boolean;
+};
+
 /** In-memory cache for the lifetime of the server process. */
-const geocodeCache = new Map<string, string | null>();
+const geocodeCache = new Map<string, ReverseGeocodeStructured | null>();
 
 function coordCacheKey(lat: number, lon: number): string {
   return `${lat.toFixed(3)},${lon.toFixed(3)}`;
 }
 
-function buildPlaceLabel(data: Record<string, unknown>): string | null {
+function buildStructuredResult(data: Record<string, unknown>): ReverseGeocodeStructured {
   const city = typeof data.city === 'string' ? data.city.trim() : '';
   const locality = typeof data.locality === 'string' ? data.locality.trim() : '';
   const region =
@@ -13,22 +26,31 @@ function buildPlaceLabel(data: Record<string, unknown>): string | null {
   const country = typeof data.countryName === 'string' ? data.countryName.trim() : '';
 
   const primary = city || locality || region;
-  if (!primary && !country) return null;
-  if (!primary) return country;
-  if (country && primary !== country && !primary.includes(country)) {
-    return `${primary}, ${country}`;
+  let label: string | null;
+  if (!primary && !country) {
+    label = null;
+  } else if (!primary) {
+    label = country;
+  } else if (country && primary !== country && !primary.includes(country)) {
+    label = `${primary}, ${country}`;
+  } else {
+    label = primary;
   }
-  return primary;
+
+  return {
+    label,
+    inPopulatedArea: Boolean(city || locality),
+  };
 }
 
 /**
- * Resolve lat/lon to a short place name (city/locality + country when available).
+ * Resolve lat/lon to a short place name plus a populated-area flag.
  * Uses BigDataCloud's free client endpoint — no API key required.
  */
-export async function reverseGeocodePlaceName(
+export async function reverseGeocodeStructured(
   lat: number,
   lon: number,
-): Promise<string | null> {
+): Promise<ReverseGeocodeStructured | null> {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
 
   const key = coordCacheKey(lat, lon);
@@ -54,19 +76,28 @@ export async function reverseGeocodePlaceName(
     }
 
     const data = (await res.json()) as Record<string, unknown>;
-    const label = buildPlaceLabel(data);
-    geocodeCache.set(key, label);
-    return label;
+    const result = buildStructuredResult(data);
+    geocodeCache.set(key, result);
+    return result;
   } catch {
     geocodeCache.set(key, null);
     return null;
   }
 }
 
-export async function reverseGeocodePlaceNamesBatch(
+/** Convenience wrapper preserving the original "label only" API. */
+export async function reverseGeocodePlaceName(
+  lat: number,
+  lon: number,
+): Promise<string | null> {
+  const r = await reverseGeocodeStructured(lat, lon);
+  return r?.label ?? null;
+}
+
+export async function reverseGeocodeStructuredBatch(
   coordinates: Array<{ lat: number; lon: number }>,
-): Promise<Map<string, string | null>> {
-  const results = new Map<string, string | null>();
+): Promise<Map<string, ReverseGeocodeStructured | null>> {
+  const results = new Map<string, ReverseGeocodeStructured | null>();
   const unique = new Map<string, { lat: number; lon: number }>();
 
   for (const { lat, lon } of coordinates) {
@@ -76,12 +107,23 @@ export async function reverseGeocodePlaceNamesBatch(
 
   await Promise.all(
     [...unique.entries()].map(async ([key, { lat, lon }]) => {
-      const name = await reverseGeocodePlaceName(lat, lon);
-      results.set(key, name);
+      const r = await reverseGeocodeStructured(lat, lon);
+      results.set(key, r);
     }),
   );
 
   return results;
+}
+
+export async function reverseGeocodePlaceNamesBatch(
+  coordinates: Array<{ lat: number; lon: number }>,
+): Promise<Map<string, string | null>> {
+  const structured = await reverseGeocodeStructuredBatch(coordinates);
+  const labels = new Map<string, string | null>();
+  for (const [key, value] of structured) {
+    labels.set(key, value?.label ?? null);
+  }
+  return labels;
 }
 
 export { coordCacheKey as geocodeCoordCacheKey };

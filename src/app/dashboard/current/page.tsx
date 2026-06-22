@@ -139,7 +139,7 @@ const POSITION_OPTIONS = [
 const vesselStates: { value: DailyStatus; label: string; color: string; icon: React.FC<any> }[] = [
   { value: 'underway', label: 'Underway', color: calendarStateSolid('underway'), icon: Waves },
   { value: 'at-anchor', label: 'At Anchor', color: calendarStateSolid('at-anchor'), icon: Anchor },
-  { value: 'in-port', label: 'In Port', color: calendarStateSolid('in-port'), icon: Building },
+  { value: 'in-port', label: 'Moored / In port', color: calendarStateSolid('in-port'), icon: Building },
   { value: 'on-leave', label: 'On Leave', color: calendarStateSolid('on-leave'), icon: Briefcase },
   { value: 'in-yard', label: 'In Yard', color: calendarStateSolid('in-yard'), icon: Wrench },
 ];

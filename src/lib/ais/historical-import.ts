@@ -1,7 +1,17 @@
 import {
   getAisNavStatus,
   mapAisToDailyStatus,
+  normalizeAisNavStatus,
 } from '@/lib/ais/map-ais-to-state';
+import {
+  analyzeAisDailyState,
+  type AisAnalyzeOptions,
+  type AisDailyConfidence,
+} from '@/lib/ais/analyze-daily-state';
+import {
+  geocodeCoordCacheKey,
+  reverseGeocodeStructuredBatch,
+} from '@/lib/geocoding/reverse-geocode';
 import type { DatalasticVesselPosition } from '@/lib/datalastic/client';
 import type { DailyStatus } from '@/lib/types';
 
@@ -12,6 +22,23 @@ export const AIS_HISTORY_MAX_DAYS = 365;
 export const AIS_DATALASTIC_MAX_DAY_SPAN = 31;
 
 export type AisHistoryChangeType = 'new' | 'same' | 'conflict';
+
+export type AisHistoryPositionSample = {
+  /** UTC time of this AIS fix (ISO 8601). */
+  timeUtc: string;
+  /** Raw nav status string returned by Datalastic, untouched. */
+  rawNavStatus: string | null;
+  /** Canonical IMO label derived from `rawNavStatus`. */
+  navStatus: string | null;
+  speed: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  destination: string | null;
+  /** Daily-state bucket this single sample would map to in isolation. */
+  proposedState: DailyStatus;
+  /** True if this is the position the day's `proposedState` was derived from. */
+  isSelectedForDay: boolean;
+};
 
 export type AisHistoryPreviewDay = {
   date: string;
@@ -25,7 +52,32 @@ export type AisHistoryPreviewDay = {
   destination: string | null;
   locationName: string | null;
   positionCount: number;
+  /** Confidence level emitted by the day-level analyzer. */
+  confidence?: AisDailyConfidence;
+  /** Human-readable reason for `proposedState`. */
+  reason?: string;
+  /** Total distance traveled across all fixes that day, NM. */
+  distanceTraveledNm?: number;
+  /** Max distance any fix is from the day's centroid, NM. */
+  radiusOfMovementNm?: number;
+  /** Mean of `position.speed` across all fixes (kn). */
+  avgSpeed?: number | null;
+  /** Peak `position.speed` across all fixes (kn). */
+  maxSpeed?: number | null;
+  /** Most-frequent canonical AIS nav status across the day. */
+  dominantNavStatus?: string | null;
+  /** Total time the vessel was actively in motion across the day (ms). */
+  underwayDurationMs?: number;
+  /**
+   * Up to ~`MAX_SAMPLES_PER_DAY` raw AIS fixes for the day, evenly downsampled
+   * across the 24h window when more positions were fetched. Used by the import
+   * UI to surface the underlying data so users can verify the proposed state.
+   */
+  samples?: AisHistoryPositionSample[];
 };
+
+/** Cap per-day samples in the preview payload — keeps responses small. */
+export const MAX_SAMPLES_PER_DAY = 48;
 
 export type AisHistoryPreviewSummary = {
   totalDays: number;
@@ -239,13 +291,33 @@ export function splitHistoryDateRange(
   return chunks;
 }
 
-export function buildHistoricalImportPreview(
+/**
+ * Pick at most `maxSamples` indexes evenly spaced across `total` items.
+ * Always includes the first and last index when total > 1. Returns indexes
+ * in ascending order, with no duplicates.
+ */
+function pickSampleIndexes(total: number, maxSamples: number): number[] {
+  if (total <= 0) return [];
+  if (total <= maxSamples) {
+    return Array.from({ length: total }, (_, i) => i);
+  }
+  const indexes = new Set<number>();
+  indexes.add(0);
+  indexes.add(total - 1);
+  const stride = (total - 1) / (maxSamples - 1);
+  for (let i = 1; i < maxSamples - 1; i++) {
+    indexes.add(Math.round(i * stride));
+  }
+  return Array.from(indexes).sort((a, b) => a - b);
+}
+
+export async function buildHistoricalImportPreview(
   positions: PositionWithTime[],
   existingLogs: Map<string, DailyStatus>,
   fromDate: string,
   toDate: string,
   timezoneOffsetMinutes: number,
-): { days: AisHistoryPreviewDay[]; summary: AisHistoryPreviewSummary } {
+): Promise<{ days: AisHistoryPreviewDay[]; summary: AisHistoryPreviewSummary }> {
   const byDate = new Map<string, PositionWithTime[]>();
 
   for (const pos of positions) {
@@ -256,19 +328,63 @@ export function buildHistoricalImportPreview(
     byDate.set(dateKey, list);
   }
 
+  const sortedDates = [...byDate.keys()].sort();
+
+  // Pre-sort each day's positions and capture end-of-day coords so we can
+  // batch-geocode them upfront. The geocoder result feeds into both the
+  // analyzer (as `locationContext`, used to disambiguate "moored in port"
+  // from "anchored offshore") and the day's `locationName` UI display.
+  const endOfDayCoords: Array<{ lat: number; lon: number }> = [];
+  const dateToCoordKey = new Map<string, string>();
+  for (const date of sortedDates) {
+    const dayPositions = byDate.get(date)!;
+    dayPositions.sort((a, b) => a.timestampMs - b.timestampMs);
+    const last = dayPositions[dayPositions.length - 1];
+    if (last && last.lat != null && last.lon != null) {
+      endOfDayCoords.push({ lat: last.lat, lon: last.lon });
+      dateToCoordKey.set(date, geocodeCoordCacheKey(last.lat, last.lon));
+    }
+  }
+  const geocodeByCoordKey =
+    endOfDayCoords.length > 0
+      ? await reverseGeocodeStructuredBatch(endOfDayCoords)
+      : new Map();
+
   const days: AisHistoryPreviewDay[] = [];
   let newDays = 0;
   let sameDays = 0;
   let conflictDays = 0;
   let positionCount = 0;
 
-  for (const date of [...byDate.keys()].sort()) {
+  let previousDay: {
+    state: DailyStatus;
+    lastLatitude: number | null;
+    lastLongitude: number | null;
+  } | null = null;
+
+  for (const date of sortedDates) {
     const dayPositions = byDate.get(date)!;
-    dayPositions.sort((a, b) => a.timestampMs - b.timestampMs);
     positionCount += dayPositions.length;
 
     const last = dayPositions[dayPositions.length - 1];
-    const proposedState = mapAisToDailyStatus(last);
+    const lastIndex = dayPositions.length - 1;
+
+    const coordKey = dateToCoordKey.get(date);
+    const geocode = coordKey ? geocodeByCoordKey.get(coordKey) ?? null : null;
+    const placeName = geocode?.label ?? null;
+    // The geocoder's `inPopulatedArea` is true only when BigDataCloud
+    // resolved the position to a specific city/locality (NOT just a
+    // country/region). That makes it a much stricter signal of "vessel is in
+    // a populated coastal area" than checking the label format.
+    const locationContext: AisAnalyzeOptions['locationContext'] = geocode
+      ? {
+          endOfDayPlaceName: placeName,
+          endOfDayInPopulatedArea: geocode.inPopulatedArea === true,
+        }
+      : null;
+
+    const analysis = analyzeAisDailyState(dayPositions, { previousDay, locationContext });
+    const proposedState = analysis.state;
     const existingState = existingLogs.get(date) ?? null;
 
     let changeType: AisHistoryChangeType = 'new';
@@ -280,19 +396,58 @@ export function buildHistoricalImportPreview(
     else if (changeType === 'same') sameDays += 1;
     else conflictDays += 1;
 
+    // Build a downsampled samples array so the UI can show "what came in" for
+    // this date. We keep first + last + evenly-spaced picks in between, plus
+    // the position the day's state was derived from.
+    const sampleIndexes = pickSampleIndexes(dayPositions.length, MAX_SAMPLES_PER_DAY);
+    if (!sampleIndexes.includes(lastIndex)) sampleIndexes.push(lastIndex);
+    sampleIndexes.sort((a, b) => a - b);
+
+    const samples: AisHistoryPositionSample[] = sampleIndexes.map((idx) => {
+      const p = dayPositions[idx];
+      const rawStatus = getAisNavStatus(p);
+      return {
+        timeUtc: new Date(p.timestampMs).toISOString(),
+        rawNavStatus: rawStatus || null,
+        navStatus: normalizeAisNavStatus(rawStatus) || null,
+        speed: typeof p.speed === 'number' ? p.speed : null,
+        latitude: p.lat ?? null,
+        longitude: p.lon ?? null,
+        destination: p.destination?.trim() || null,
+        proposedState: mapAisToDailyStatus(p),
+        isSelectedForDay: idx === lastIndex,
+      };
+    });
+
+    const lastNavRaw = getAisNavStatus(last);
     days.push({
       date,
       proposedState,
       existingState,
       changeType,
-      navStatus: getAisNavStatus(last) || null,
+      navStatus: normalizeAisNavStatus(lastNavRaw) || null,
       speed: last.speed ?? null,
       latitude: last.lat ?? null,
       longitude: last.lon ?? null,
       destination: last.destination?.trim() || null,
-      locationName: null,
+      locationName: placeName,
       positionCount: dayPositions.length,
+      confidence: analysis.confidence,
+      reason: analysis.reason,
+      distanceTraveledNm: analysis.metrics.distanceTraveledNm,
+      radiusOfMovementNm: analysis.metrics.radiusOfMovementNm,
+      avgSpeed: analysis.metrics.avgSpeed,
+      maxSpeed: analysis.metrics.maxSpeed,
+      dominantNavStatus: analysis.metrics.dominantNavStatus,
+      underwayDurationMs: analysis.metrics.underwayDurationMs,
+      samples,
     });
+
+    previousDay = {
+      state: proposedState,
+      lastLatitude: last.lat ?? null,
+      lastLongitude: last.lon ?? null,
+    };
   }
 
   return {

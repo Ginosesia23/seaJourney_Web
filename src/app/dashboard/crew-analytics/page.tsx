@@ -162,7 +162,7 @@ export default function CrewAnalyticsPage() {
         const stateLabels: Record<string, string> = {
           underway: 'Underway',
           'at-anchor': 'At anchor',
-          'in-port': 'In port',
+          'in-port': 'Moored / In port',
           'on-leave': 'On leave',
           'in-yard': 'In yard',
         };
