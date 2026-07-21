@@ -57,6 +57,8 @@ import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
 import { calendarStateSolid, calendarStateWash } from '@/lib/calendar-state-colors';
 import { AisTrackingCard } from '@/components/dashboard/ais-tracking-card';
+import { CrewAisTrackingCard } from '@/components/dashboard/crew-ais-tracking-card';
+import { CrewAisDebugPanel } from '@/components/dashboard/crew-ais-debug-panel';
 import { AisDebugPanel } from '@/components/dashboard/ais-debug-panel';
 
 const startServiceSchema = z.object({
@@ -3840,6 +3842,21 @@ export default function CurrentPage() {
                 profileRaw={userProfileRaw}
                 onEnabledChange={handleAisEnabledChange}
                 onStateUpdated={handleAisStateUpdated}
+              />
+            )}
+
+            {!isVesselAccount && currentVessel && (
+              <CrewAisTrackingCard
+                accessToken={session?.access_token ?? null}
+                profileRaw={userProfileRaw}
+                onStateUpdated={handleAisStateUpdated}
+              />
+            )}
+
+            {!isVesselAccount && currentVessel && (
+              <CrewAisDebugPanel
+                accessToken={session?.access_token ?? null}
+                profileRaw={userProfileRaw}
               />
             )}
 

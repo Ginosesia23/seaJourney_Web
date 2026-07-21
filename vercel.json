@@ -3,6 +3,10 @@
     {
       "path": "/api/ais/cron",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/ais/crew-cron",
+      "schedule": "15 * * * *"
     }
   ]
 }

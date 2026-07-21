@@ -413,9 +413,14 @@ export function analyzeAisDailyState(
       if (previousDay.state === 'at-anchor' && dominant === moored) return null;
       if (previousDay.state === 'in-port' && dominant === atAnchor) return null;
     }
+    // Only refuse carry-forward via the populated-area geocoder when today's
+    // dominant AIS status *doesn't* also say "At anchor". If AIS still reports
+    // at-anchor today, the geocoder's populated-area flag is not enough to
+    // override the crew/system signal.
     if (
       previousDay.state === 'at-anchor' &&
-      options?.locationContext?.endOfDayInPopulatedArea
+      options?.locationContext?.endOfDayInPopulatedArea &&
+      lastCluster?.dominantStatus !== atAnchor
     ) {
       return null;
     }
@@ -586,20 +591,14 @@ export function analyzeAisDailyState(
   }
 
   if (dominantNavStatus === atAnchor) {
-    // Even when "At anchor" dominates the day's fixes, prefer in-port if the
-    // geocoder placed the end-of-day position inside a populated coastal area.
-    if (options?.locationContext?.endOfDayInPopulatedArea) {
-      return {
-        state: 'in-port',
-        confidence: 'medium',
-        reason: `Stationary${placeSuffix} (populated coast) — treating as moored despite "At anchor" AIS status.`,
-        metrics,
-      };
-    }
+    // AIS "At anchor" is a deliberate crew/system signal — trust it and do NOT
+    // override with the reverse-geocoder even if the coast nearby is
+    // "populated". The geocoder heuristic is reserved for cases where nav
+    // status is missing/ambiguous (see Rule 7 below).
     return {
       state: 'at-anchor',
       confidence: 'high',
-      reason: 'AIS reported the vessel at anchor for most of the day.',
+      reason: `AIS reported the vessel at anchor${placeSuffix} for most of the day.`,
       metrics,
     };
   }

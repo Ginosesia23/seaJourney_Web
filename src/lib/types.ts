@@ -213,6 +213,30 @@ export interface AdminMessage {
   created_at: string;
 }
 
+/**
+ * Rows from `app_user_notifications`. Server inserts these; the mobile app
+ * listens for INSERTs on this table and delivers an OS push notification to
+ * the target user, plus renders them in an in-app inbox.
+ */
+export interface UserNotification {
+  id: string;
+  user_id: string;
+  title: string;
+  body: string;
+  kind: string | null;
+  metadata: Record<string, unknown> | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+/** Free-form categories used for `app_user_notifications.kind`. */
+export type UserNotificationKind =
+  | 'ais_state_change'
+  | 'sea_time'
+  | 'testimonial'
+  | 'admin_message'
+  | 'system';
+
 export interface PassageLog {
     id: string;                        // uuid PK
     crew_id: string;                   // uuid FK → profiles.id

@@ -148,3 +148,24 @@ export function hasAisHistoryImportTier(userProfile: any): boolean {
 
   return false;
 }
+
+/**
+ * Live AIS tracking for crew on their active vessel (Premium/Professional crew or
+ * captain accounts). Managed-free tiers (`crew_limited`, `vessel_linked`) do not
+ * get this — they'd need to upgrade. Vessel accounts have their own dedicated
+ * `hasVesselAisTrackingTier` gate.
+ */
+export function hasCrewAisLiveTrackingTier(userProfile: any): boolean {
+  if (!userProfile) return false;
+
+  const role = ((userProfile as any).role || userProfile.role || '')
+    .toString()
+    .toLowerCase();
+  if (role === 'admin') return true;
+  if (role !== 'crew' && role !== 'captain') return false;
+  if (!hasActiveSubscription(userProfile)) return false;
+
+  const tier = getTierLower(userProfile);
+  if (VESSEL_MANAGED_FREE_TIERS.has(tier)) return false;
+  return CREW_PREMIUM_PLUS_TIERS.has(tier);
+}

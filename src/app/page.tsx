@@ -37,8 +37,10 @@ import {
   Droplets,
   FileCheck,
   FileText,
+  Gauge,
   Globe,
   LayoutGrid,
+  MapPin,
   Menu,
   Monitor,
   Moon,
@@ -816,6 +818,7 @@ export default function Home() {
           <WatchComingSoon />
           <WatchRotationSchedule />
           <CrewLeavePlanner />
+          <LiveAISMobile />
           <AISImport />
           <VerificationPortal />
           <Membership />
@@ -4715,6 +4718,559 @@ function AISImport() {
         </div>
       </div>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section 8b: Live AIS tracking on the crew mobile app
+// ---------------------------------------------------------------------------
+
+function LiveAISMobile() {
+  const points: Array<{ icon: IconType; title: string; desc: string; accent: string }> = [
+    {
+      icon: Zap,
+      title: 'Auto-logged sea time',
+      desc: "Your vessel's live AIS state — underway, at anchor, in port — is written straight to your calendar. No taps required.",
+      accent: '#0ea5e9',
+    },
+    {
+      icon: MapPin,
+      title: 'Live position & port',
+      desc: 'See where the boat is right now, the nearest port, and the last AIS fix time — even while you sleep.',
+      accent: '#8b5cf6',
+    },
+    {
+      icon: Gauge,
+      title: 'Speed, course & heading',
+      desc: 'Real-time speed over ground, course, and true heading pulled from AIS on every fix.',
+      accent: '#10b981',
+    },
+    {
+      icon: Bell,
+      title: 'Instant state alerts',
+      desc: "Push notifications the moment your vessel changes state — arriving, anchoring, or getting under way.",
+      accent: '#d97706',
+    },
+  ];
+
+  const bullets = [
+    'No AIS receiver on board — pulled from global AIS the moment your vessel is registered',
+    "Works while your phone is asleep — states are logged even when you're off duty",
+    'Falls back to your last manual log if the vessel drops off AIS',
+    'Included on Crew Professional · already on iPhone, Android coming soon',
+  ];
+
+  return (
+    <section
+      id="live-ais-mobile"
+      className="py-24 sm:py-32"
+      style={{ backgroundColor: 'var(--wk-bg)' }}
+    >
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-3xl text-center">
+          <Eyebrow icon={Radar} accent>
+            New in the mobile app
+          </Eyebrow>
+          <h2
+            className="font-headline mt-5 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl"
+            style={{ color: 'var(--wk-text)' }}
+          >
+            Live AIS tracking,{' '}
+            <span className="wk-gradient-text wk-gradient-text--sky">right in your pocket</span>
+          </h2>
+          <p className="mx-auto mt-4 max-w-2xl text-lg" style={{ color: 'var(--wk-text-soft)' }}>
+            Crew members on Premium can now watch their vessel move in real time
+            from the SeaJourney mobile app — and every state change is logged to
+            their sea-time calendar automatically. Zero paperwork, zero missed
+            days.
+          </p>
+        </div>
+
+        <div className="mx-auto mt-14 grid max-w-6xl items-center gap-12 lg:grid-cols-2">
+          <motion.div
+            className="min-w-0 order-2 flex justify-center lg:order-1"
+            initial={{ opacity: 0, x: -24 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, margin: '-60px' }}
+            transition={{ duration: 0.5 }}
+          >
+            <LiveAISPhoneGraphic />
+          </motion.div>
+
+          <div className="min-w-0 order-1 lg:order-2">
+            <div
+              className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-widest"
+              style={{
+                backgroundColor: 'color-mix(in srgb, #10b981 12%, transparent)',
+                color: '#059669',
+                border: '1px solid color-mix(in srgb, #10b981 32%, transparent)',
+              }}
+            >
+              <span
+                className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full"
+                style={{ backgroundColor: '#10b981' }}
+              />
+              Available now for Crew Professional
+            </div>
+
+            <h3
+              className="font-headline mt-5 text-2xl font-semibold tracking-tight sm:text-3xl"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              Your vessel logs its own sea time.
+            </h3>
+            <p className="mt-3 text-base leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
+              Once your vessel is linked to SeaJourney, the mobile app subscribes
+              to its AIS feed and keeps your calendar in perfect sync — no more
+              tapping in states every evening, no more missed days when you
+              forget.
+            </p>
+
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
+              {points.map((p) => (
+                <div
+                  key={p.title}
+                  className="rounded-xl p-4"
+                  style={{
+                    backgroundColor: 'var(--wk-card)',
+                    border: '1px solid var(--wk-line)',
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg"
+                      style={{
+                        backgroundColor: `color-mix(in srgb, ${p.accent} 14%, transparent)`,
+                        color: p.accent,
+                      }}
+                    >
+                      <p.icon className="h-5 w-5" />
+                    </span>
+                    <span className="text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+                      {p.title}
+                    </span>
+                  </div>
+                  <p
+                    className="mt-2 text-xs leading-relaxed"
+                    style={{ color: 'var(--wk-text-soft)' }}
+                  >
+                    {p.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <ul className="mt-6 space-y-2.5">
+              {bullets.map((b) => (
+                <li key={b} className="flex items-start gap-2.5">
+                  <CheckCircle2
+                    className="mt-0.5 h-4 w-4 shrink-0"
+                    style={{ color: 'var(--wk-accent)' }}
+                  />
+                  <span className="text-sm leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
+                    {b}
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <PrimaryCta
+                href="https://apps.apple.com/gb/app/seajourney/id6751553072"
+                external
+                tone="sky"
+              >
+                Get the iOS App
+              </PrimaryCta>
+              <SecondaryCta href="#membership">See Crew Professional</SecondaryCta>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phone mockup showing the live-AIS "State Log" screen from the mobile app.
+// Dark UI to match the real app; a slow ticker drifts "just now" so the
+// mockup feels live without being distracting.
+// ---------------------------------------------------------------------------
+
+function LiveAISPhoneGraphic() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 1500);
+    return () => clearInterval(t);
+  }, []);
+
+  // "Last checked" ticks up so the row feels live. We show it as "just now"
+  // for the first few seconds, then a rolling seconds counter.
+  const secondsAgo = tick % 45;
+  const lastCheckedLabel =
+    secondsAgo < 6 ? 'just now' : `${secondsAgo}s ago`;
+
+  type PhoneStateKey = 'underway' | 'anchor' | 'in-port' | 'in-yard';
+  const states: Array<{
+    key: PhoneStateKey;
+    label: string;
+    icon: IconType;
+    /** solid tint applied to the icon and active-state fill */
+    tint: string;
+  }> = [
+    { key: 'underway', label: 'Underway',  icon: Compass,  tint: '#38bdf8' },
+    { key: 'anchor',   label: 'At Anchor', icon: Anchor,   tint: '#f97316' },
+    { key: 'in-port',  label: 'In Port',   icon: Building, tint: '#34d399' },
+    { key: 'in-yard',  label: 'In Yard',   icon: Wrench,   tint: '#f87171' },
+  ];
+  // Force an active state (matches the screenshot: "At Anchor" selected).
+  const activeStateKey: PhoneStateKey = 'anchor';
+
+  return (
+    <div
+      className="relative w-full max-w-[300px]"
+      style={{ aspectRatio: '9 / 19' }}
+    >
+      {/* Soft glow behind the phone */}
+      <div
+        aria-hidden
+        className="absolute inset-0 -z-10 rounded-[46px] blur-2xl"
+        style={{
+          background:
+            'radial-gradient(60% 55% at 50% 40%, color-mix(in srgb, #0ea5e9 22%, transparent), transparent 70%)',
+        }}
+      />
+
+      {/* Phone chassis */}
+      <div
+        className="relative h-full w-full rounded-[42px] p-[6px]"
+        style={{
+          background:
+            'linear-gradient(180deg, #1e293b 0%, #0f172a 60%, #020617 100%)',
+          boxShadow:
+            '0 30px 80px -24px rgba(2, 6, 23, 0.55), inset 0 0 0 1px rgba(255,255,255,0.05)',
+        }}
+      >
+        {/* Screen — dark app UI */}
+        <div
+          className="relative flex h-full w-full flex-col overflow-hidden rounded-[36px]"
+          style={{
+            background:
+              'linear-gradient(180deg, #0b1220 0%, #060a14 55%, #030612 100%)',
+            color: '#e2e8f0',
+          }}
+        >
+          {/* Status bar */}
+          <div className="flex items-center justify-between px-6 pb-1 pt-3 text-[10px] font-semibold text-white">
+            <span>22:05</span>
+            <div className="flex items-center gap-1.5 text-white">
+              {/* Signal bars */}
+              <span className="inline-flex items-end gap-[1.5px] leading-none">
+                {[3, 5, 7, 9].map((h, i) => (
+                  <span
+                    key={i}
+                    className="inline-block w-[2px] rounded-[1px]"
+                    style={{ height: `${h}px`, backgroundColor: '#ffffff' }}
+                  />
+                ))}
+              </span>
+              {/* Wifi */}
+              <svg viewBox="0 0 24 24" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2 8.5A16 16 0 0 1 22 8.5" />
+                <path d="M5 12A11 11 0 0 1 19 12" />
+                <path d="M8.5 15.5A6 6 0 0 1 15.5 15.5" />
+                <circle cx="12" cy="19" r="0.8" fill="currentColor" />
+              </svg>
+              {/* Battery with 34% inside */}
+              <span className="relative inline-flex items-center">
+                <span
+                  className="relative inline-flex h-3 w-[22px] items-center rounded-[3px] px-[2px]"
+                  style={{ border: '1px solid rgba(255,255,255,0.85)' }}
+                >
+                  <span
+                    className="inline-block h-1.5 rounded-[1px]"
+                    style={{
+                      width: '34%',
+                      backgroundColor: '#ffffff',
+                    }}
+                  />
+                  <span
+                    className="absolute inset-0 flex items-center justify-center text-[7px] font-bold leading-none"
+                    style={{ color: '#0b1220' }}
+                  >
+                    34
+                  </span>
+                </span>
+                <span
+                  className="ml-[1px] inline-block h-1.5 w-[2px] rounded-[1px]"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.85)' }}
+                />
+              </span>
+            </div>
+          </div>
+
+          {/* Screen scroll surface */}
+          <div className="flex flex-1 flex-col gap-2.5 overflow-hidden px-4 pb-2 pt-2.5">
+            {/* Page header */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-start gap-2">
+                <ClipboardCheck className="mt-0.5 h-4 w-4" style={{ color: '#94a3b8' }} />
+                <div>
+                  <div className="text-[15px] font-semibold" style={{ color: '#f1f5f9' }}>
+                    State Log
+                  </div>
+                  <div className="text-[9.5px]" style={{ color: '#64748b' }}>
+                    Track and log vessel states
+                  </div>
+                </div>
+              </div>
+              <span
+                className="inline-flex h-7 w-7 items-center justify-center rounded-lg"
+                style={{
+                  backgroundColor: 'rgba(148, 163, 184, 0.12)',
+                  color: '#cbd5e1',
+                }}
+              >
+                <Calendar className="h-3.5 w-3.5" />
+              </span>
+            </div>
+
+            {/* Active vessel card */}
+            <div
+              className="rounded-2xl px-3 py-2.5"
+              style={{
+                backgroundColor: 'rgba(148, 163, 184, 0.06)',
+                border: '1px solid rgba(148, 163, 184, 0.14)',
+              }}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl"
+                  style={{
+                    backgroundColor: 'rgba(249, 115, 22, 0.16)',
+                    color: '#fb923c',
+                    border: '1px solid rgba(249, 115, 22, 0.35)',
+                  }}
+                >
+                  <Target className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[8.5px] font-semibold uppercase tracking-widest" style={{ color: '#64748b' }}>
+                    Active Vessel
+                  </div>
+                  <div className="truncate text-[13px] font-semibold" style={{ color: '#f1f5f9' }}>
+                    M/Y Meridian
+                  </div>
+                </div>
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold"
+                  style={{
+                    backgroundColor: 'rgba(249, 115, 22, 0.10)',
+                    color: '#fdba74',
+                    border: '1px solid rgba(249, 115, 22, 0.30)',
+                  }}
+                >
+                  <span
+                    className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full"
+                    style={{ backgroundColor: '#fb923c' }}
+                  />
+                  AIS
+                </span>
+              </div>
+              <div
+                className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9.5px]"
+                style={{ color: '#94a3b8' }}
+              >
+                <span className="inline-flex items-center gap-1">
+                  <FileText className="h-2.5 w-2.5" />
+                  IMO: 9821467
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Anchor className="h-2.5 w-2.5" />
+                  Flag: Marshall Is.
+                </span>
+              </div>
+            </div>
+
+            {/* State selector: four buttons */}
+            <div className="grid grid-cols-4 gap-1.5">
+              {states.map((s) => {
+                const active = s.key === activeStateKey;
+                return (
+                  <div
+                    key={s.key}
+                    className="flex flex-col items-center gap-1 rounded-xl px-1 py-2"
+                    style={{
+                      backgroundColor: active
+                        ? 'rgba(249, 115, 22, 0.18)'
+                        : 'rgba(148, 163, 184, 0.06)',
+                      border: `1px solid ${
+                        active
+                          ? 'rgba(249, 115, 22, 0.45)'
+                          : 'rgba(148, 163, 184, 0.14)'
+                      }`,
+                    }}
+                  >
+                    <span
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-md"
+                      style={{
+                        backgroundColor: active
+                          ? 'rgba(249, 115, 22, 0.28)'
+                          : `color-mix(in srgb, ${s.tint} 16%, transparent)`,
+                        color: active ? '#fdba74' : s.tint,
+                      }}
+                    >
+                      <s.icon className="h-3 w-3" />
+                    </span>
+                    <span
+                      className="text-[8.5px] font-medium"
+                      style={{ color: active ? '#fdba74' : '#cbd5e1' }}
+                    >
+                      {s.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Drag handle */}
+            <div className="flex justify-center py-0.5">
+              <span
+                className="h-0.5 w-8 rounded-full"
+                style={{ backgroundColor: 'rgba(148, 163, 184, 0.35)' }}
+              />
+            </div>
+
+            {/* AIS tracking sheet header */}
+            <div className="flex items-center gap-2.5">
+              <span
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg"
+                style={{
+                  backgroundColor: 'rgba(249, 115, 22, 0.14)',
+                  color: '#fb923c',
+                }}
+              >
+                <Radar className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-[8.5px] font-semibold uppercase tracking-widest" style={{ color: '#64748b' }}>
+                  AIS Tracking
+                </div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[12px] font-semibold" style={{ color: '#f1f5f9' }}>
+                    M/Y Meridian
+                  </span>
+                </div>
+                <div className="mt-0.5 flex items-center gap-1 text-[9px]" style={{ color: '#94a3b8' }}>
+                  <span
+                    className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full"
+                    style={{ backgroundColor: '#22c55e' }}
+                  />
+                  Live sync active
+                </div>
+              </div>
+              <span
+                className="text-[9.5px] font-semibold"
+                style={{ color: '#fb923c' }}
+              >
+                View logs
+              </span>
+            </div>
+
+            {/* In-log vs AIS-detected mini cards */}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: 'In log', value: 'At Anchor' },
+                { label: 'AIS detected', value: 'At Anchor' },
+              ].map((c) => (
+                <div
+                  key={c.label}
+                  className="rounded-xl px-2.5 py-2"
+                  style={{
+                    backgroundColor: 'rgba(148, 163, 184, 0.06)',
+                    border: '1px solid rgba(148, 163, 184, 0.14)',
+                  }}
+                >
+                  <div className="text-[8px] font-semibold uppercase tracking-widest" style={{ color: '#64748b' }}>
+                    {c.label}
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <span
+                      className="inline-block h-3 w-[3px] rounded-full"
+                      style={{ backgroundColor: '#fb923c' }}
+                    />
+                    <span className="text-[11px] font-semibold" style={{ color: '#fdba74' }}>
+                      {c.value}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Details */}
+            <div
+              className="flex-1 min-h-0 overflow-hidden rounded-xl"
+              style={{
+                backgroundColor: 'rgba(148, 163, 184, 0.05)',
+                border: '1px solid rgba(148, 163, 184, 0.14)',
+              }}
+            >
+              <div className="divide-y" style={{ borderColor: 'rgba(148, 163, 184, 0.10)' }}>
+                {[
+                  { label: 'Last checked', value: `1 Jul, 22:05 · ${lastCheckedLabel}` },
+                  { label: 'Position', value: '39.5696° N, 2.6502° E' },
+                  { label: 'Speed', value: '0.2 kn' },
+                  { label: 'AIS reported', value: '1 Jul 2026, 22:00' },
+                  { label: 'Last change', value: 'Underway → At Anchor' },
+                  { label: 'Schedule', value: 'Every 30 min · on app open' },
+                ].map((row) => (
+                  <div
+                    key={row.label}
+                    className="flex items-baseline gap-2 px-2.5 py-1.5"
+                  >
+                    <span
+                      className="w-[62px] shrink-0 text-[8.5px] font-semibold uppercase tracking-wider"
+                      style={{ color: '#64748b' }}
+                    >
+                      {row.label}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[10px]" style={{ color: '#e2e8f0' }}>
+                      {row.value}
+                    </span>
+                  </div>
+                ))}
+                <div className="flex items-start gap-2 px-2.5 py-2">
+                  <span
+                    className="w-[62px] shrink-0 text-[8.5px] font-semibold uppercase tracking-wider"
+                    style={{ color: '#64748b' }}
+                  >
+                    Status
+                  </span>
+                  <span className="min-w-0 flex-1 text-[9.5px] leading-snug" style={{ color: '#fbbf24' }}>
+                    Manual override for today — AIS will not re-lock.
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <p
+              className="text-center text-[8.5px] italic leading-relaxed"
+              style={{ color: '#64748b' }}
+            >
+              Checks run in the background while the app is closed
+            </p>
+          </div>
+
+          {/* Home indicator */}
+          <div className="flex justify-center pb-2">
+            <div
+              className="h-1 w-24 rounded-full"
+              style={{ backgroundColor: 'rgba(226, 232, 240, 0.55)' }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
