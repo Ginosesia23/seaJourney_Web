@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
       body: message,
       kind: 'system',
       metadata: { route: '/dashboard/current', test: true },
+      bypassPreferences: true,
     });
 
     return NextResponse.json({ target: targetUserId, result });

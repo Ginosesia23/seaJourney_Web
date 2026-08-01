@@ -238,7 +238,8 @@ export function AisTrackingCard({
       } else if (enabled) {
         toast({
           title: 'AIS tracking enabled',
-          description: data.sync?.reason || 'Manual calendar logging is paused while AIS is on.',
+          description:
+            'We will poll AIS hourly and set each day automatically — no daily login needed. Underway days need 4+ hours underway.',
         });
       } else {
         toast({
@@ -279,8 +280,10 @@ export function AisTrackingCard({
               Live AIS tracking
             </CardTitle>
             <CardDescription>
-              When enabled, SeaJourney reads your vessel&apos;s AIS position and sets
-              today&apos;s state automatically. Turn off to log manually on the calendar.
+              When enabled, SeaJourney polls AIS in the background every hour and
+              sets each day automatically — no daily login required. Underway
+              days need 4+ hours underway. Turn off to log manually on the
+              calendar.
             </CardDescription>
           </div>
           {status?.enabled ? (
@@ -306,7 +309,7 @@ export function AisTrackingCard({
                   Use AIS for daily state
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Powered by Datalastic · syncs on page load and hourly while open
+                  Powered by Datalastic · hourly background sync (works while you&apos;re offline)
                 </p>
               </div>
               <Switch

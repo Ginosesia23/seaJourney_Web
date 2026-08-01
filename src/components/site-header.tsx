@@ -32,6 +32,7 @@ const routeLabels: Record<string, string> = {
   "/dashboard/applications": "Applications",
   "/dashboard/export": "Export",
   "/dashboard/world-map": "World Map",
+  "/dashboard/passages-map": "Passages Map",
   "/dashboard/calculations": "How Calculations Work",
 }
 

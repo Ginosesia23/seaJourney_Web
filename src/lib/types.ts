@@ -229,9 +229,17 @@ export interface UserNotification {
   created_at: string;
 }
 
-/** Free-form categories used for `app_user_notifications.kind`. */
+/**
+ * Free-form categories used for `app_user_notifications.kind`.
+ *
+ * These MUST match the boolean column names on
+ * `public.app_user_notification_preferences` — the server-side notification
+ * helper looks up the column of the same name to decide whether the user
+ * opted in.
+ */
 export type UserNotificationKind =
   | 'ais_state_change'
+  | 'ais_state_change_reminder'
   | 'sea_time'
   | 'testimonial'
   | 'admin_message'

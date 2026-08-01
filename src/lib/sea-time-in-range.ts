@@ -47,8 +47,13 @@ function countStatesInRange(
 }
 
 /**
- * Same sea-time rules as the Documents generator: calendar range, forward-filled states,
- * vessel calculation category (commercial vs MCA-style), standby from voyages + caps.
+ * Sea time for a crew member over a document/report date range.
+ *
+ * `useCrewLogs` identifies the data source, not the subject of the
+ * calculation. When a vessel account generates a crew testimonial from
+ * vessel logs, underway is still the crew member's at-sea service and
+ * qualifying in-port / at-anchor days are standby. Do not use the vessel
+ * manager's personal "underway + every anchored day" dashboard rule here.
  */
 export function computeSeaTimeInDateRange(options: {
   filteredLogs: StateLog[];
@@ -81,12 +86,14 @@ export function computeSeaTimeInDateRange(options: {
 
   const { voyages, standbyPeriods } = calculateStandbyDays(
     logs,
-    watchDates.size ? watchDates : undefined,
-    partOfActivePassageDates.size ? partOfActivePassageDates : undefined,
+    useCrewLogs && watchDates.size ? watchDates : undefined,
+    useCrewLogs && partOfActivePassageDates.size
+      ? partOfActivePassageDates
+      : undefined,
     {
       rangeStart,
       rangeEnd,
-      vesselManagerSeaTime: !useCrewLogs,
+      vesselManagerSeaTime: false,
     },
   );
 
@@ -162,7 +169,7 @@ export function computeSeaTimeInDateRange(options: {
         continue;
       }
       const state = effectiveState.get(dateStr) ?? logMap.get(dateStr)?.state;
-      const standbyEligible = state === 'in-port' || (useCrewLogs && state === 'at-anchor');
+      const standbyEligible = state === 'in-port' || state === 'at-anchor';
       if (standbyEligible) {
         if (!watchDates.has(dateStr) && !partOfActivePassageDates.has(dateStr)) {
           standbyDatesSet.add(dateStr);
@@ -233,15 +240,19 @@ export function computeSeaTimeInDateRange(options: {
       finalSeaDays++;
       return;
     }
-    if (watchDates.has(dateStr) && (state === 'in-port' || state === 'at-anchor')) {
+    if (
+      useCrewLogs &&
+      watchDates.has(dateStr) &&
+      (state === 'in-port' || state === 'at-anchor')
+    ) {
       finalSeaDays++;
       return;
     }
-    if (partOfActivePassageDates.has(dateStr) && state !== 'underway') {
-      finalSeaDays++;
-      return;
-    }
-    if (!useCrewLogs && state === 'at-anchor') {
+    if (
+      useCrewLogs &&
+      partOfActivePassageDates.has(dateStr) &&
+      state !== 'underway'
+    ) {
       finalSeaDays++;
       return;
     }

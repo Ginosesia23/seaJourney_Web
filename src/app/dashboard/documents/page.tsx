@@ -32,7 +32,11 @@ import type { UserProfile, VesselAssignment, Vessel, VesselGeneratedTestimonial,
 import { getActiveVesselAssignmentsByVessel, getVesselStateLogs } from '@/supabase/database/queries';
 import { hasVesselPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
-import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
+import {
+  getVesselCalculationCategory,
+  isAllDaysExceptLeaveCountAsSea,
+  VESSEL_CALCULATION_CATEGORY_LABELS,
+} from '@/lib/vessel-calculation-categories';
 import { computeSeaTimeInDateRange } from '@/lib/sea-time-in-range';
 import {
   generateTestimonialPDF,
@@ -547,6 +551,21 @@ export default function DocumentsGeneratorPage() {
     try {
       const startDateStr = formatDate(documentStartDate, 'yyyy-MM-dd');
       const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
+      const assignmentStart = selectedCrew.assignment.startDate.slice(0, 10);
+      const today = formatDate(new Date(), 'yyyy-MM-dd');
+      const recordedAssignmentEnd = (
+        selectedCrew.assignment.endDate ?? formatDate(new Date(), 'yyyy-MM-dd')
+      ).slice(0, 10);
+      const assignmentEnd =
+        recordedAssignmentEnd < today ? recordedAssignmentEnd : today;
+      if (startDateStr < assignmentStart || endDateStr > assignmentEnd) {
+        toast({
+          title: 'Date range outside service period',
+          description: `Choose dates between ${assignmentStart} and ${assignmentEnd}, when this crew member was assigned to the vessel.`,
+          variant: 'destructive',
+        });
+        return;
+      }
       // Use crew or vessel logs according to selected data source (crew only when access approved)
       const useCrewLogs = hasApprovedAccess && effectiveDataSource === 'crew';
       const targetUserId = useCrewLogs ? selectedCrew.profile.id : (vessel as any)?.vessel_manager_id || currentUserProfile?.id;
@@ -909,9 +928,13 @@ export default function DocumentsGeneratorPage() {
       const dataSourceLabel =
         calculatedSeaTime.dataSource === 'crew' ? "Crew member's logs" : 'Vessel logs';
       const category = getVesselCalculationCategory(vessel.type ?? null);
-      const calculationNote = isAllDaysExceptLeaveCountAsSea(category)
+      const usesAllOnboardDaysRule = isAllDaysExceptLeaveCountAsSea(category);
+      const seaServiceDays = usesAllOnboardDaysRule
+        ? calculatedSeaTime.atSeaDays
+        : calculatedSeaTime.underwayDays + standbyCap;
+      const calculationNote = usesAllOnboardDaysRule
         ? 'Commercial-style counting in SeaJourney: every day in the selected range except days marked on leave counts as sea service. Standby is not calculated separately for this vessel category.'
-        : 'MCA-aligned rules in SeaJourney: sea time from sea passages, officer watch where applicable, and active passage; qualifying standby days (capped by sea days); yard and leave shown separately.';
+        : 'SeaJourney crew-service calculation: logged underway days are at-sea service. Eligible in-port or at-anchor days immediately following a voyage are qualifying standby, capped by the preceding voyage and total underway days. Yard and leave are shown separately.';
 
       await generateSeaServiceBreakdownPDF(
         {
@@ -928,6 +951,10 @@ export default function DocumentsGeneratorPage() {
           inPortDays: calculatedSeaTime.inPortDays,
           standbyDays: standbyCap,
           yardDays: calculatedSeaTime.yardDays,
+          seaServiceDays,
+          seaServiceMethod: usesAllOnboardDaysRule
+            ? 'all_non_leave'
+            : 'underway_standby',
           dataSourceLabel,
           calculationNote,
           generatedByName,
@@ -1616,17 +1643,26 @@ export default function DocumentsGeneratorPage() {
             </Button>
 
             {calculatedSeaTime && (() => {
+              const category = getVesselCalculationCategory(vessel?.type ?? null);
+              const categoryDetails =
+                VESSEL_CALCULATION_CATEGORY_LABELS[category];
+              const usesAllOnboardDaysRule =
+                isAllDaysExceptLeaveCountAsSea(category);
               const standbyCappedForExport = Math.min(
                 calculatedSeaTime.standbyDays,
                 calculatedSeaTime.totalDays,
                 calculatedSeaTime.atSeaDays,
               );
-              const seaServiceUnderwayPlusStandby =
-                calculatedSeaTime.underwayDays + standbyCappedForExport;
+              const seaServiceDays = usesAllOnboardDaysRule
+                ? calculatedSeaTime.atSeaDays
+                : calculatedSeaTime.underwayDays + standbyCappedForExport;
               return (
               <Card className="bg-muted/50 border-2">
                 <CardHeader>
-                  <CardTitle className="text-base">Calculated Sea Time</CardTitle>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CardTitle className="text-base">Calculated Sea Time</CardTitle>
+                    <Badge variant="secondary">{categoryDetails.label}</Badge>
+                  </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     Using {calculatedSeaTime.dataSource === 'crew' ? "Crew Member's Logs" : 'Vessel Logs'}
                   </p>
@@ -1634,11 +1670,15 @@ export default function DocumentsGeneratorPage() {
                 <CardContent className="space-y-4">
                   <div className="rounded-lg border border-primary/30 bg-primary/5 dark:bg-primary/10 px-4 py-3">
                     <div className="text-xs font-medium text-muted-foreground">
-                      Sea service (underway + qualifying standby)
+                      {usesAllOnboardDaysRule
+                        ? 'Sea service (all onboard days except leave)'
+                        : 'Sea service (underway + qualifying standby)'}
                     </div>
-                    <div className="text-2xl font-bold text-primary">{seaServiceUnderwayPlusStandby} days</div>
+                    <div className="text-2xl font-bold text-primary">{seaServiceDays} days</div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Same total as the sea service breakdown PDF. &quot;At sea (MCA aggregate)&quot; below can be higher when passage, watch, or anchor rules count extra sea days beyond logged underway.
+                      {usesAllOnboardDaysRule
+                        ? 'Commercial-class rule: every calendar day in the service period counts, except leave.'
+                        : 'At-sea service plus qualifying standby. This is the total used in the sea service breakdown PDF.'}
                     </p>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -1647,7 +1687,11 @@ export default function DocumentsGeneratorPage() {
                       <div className="text-2xl font-bold">{calculatedSeaTime.totalDays}</div>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">At sea (MCA aggregate)</div>
+                      <div className="text-xs text-muted-foreground">
+                        {usesAllOnboardDaysRule
+                          ? 'Sea service days'
+                          : 'At sea (underway)'}
+                      </div>
                       <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{calculatedSeaTime.atSeaDays}</div>
                     </div>
                     <div className="space-y-1">

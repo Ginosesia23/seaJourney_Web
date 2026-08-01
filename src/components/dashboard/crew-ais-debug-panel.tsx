@@ -32,6 +32,19 @@ type PreviewResponse = {
   fetchedAt: string;
   isStale: boolean;
   mappedState: string;
+  resolvedState?: {
+    state: string;
+    confidence: string;
+    reason: string;
+    distanceFromPreviousNm: number | null;
+    positionChangedMeaningfully: boolean;
+  };
+  previousSampleForResolver?: {
+    state: string;
+    lat: number | null;
+    lon: number | null;
+    sampledAt: string;
+  } | null;
   logDate: string;
   positionLogDate?: string;
   position: Record<string, unknown>;
@@ -173,6 +186,49 @@ export function CrewAisDebugPanel({ accessToken, profileRaw }: CrewAisDebugPanel
 
         {preview && !error && (
           <>
+            {/* Resolved sample state — what gets INSERTED into the sample
+                table and compared for state-change notifications. This is
+                the stability-aware wrapper around the raw single-fix
+                mapping; if it disagrees with the mapped state, it means
+                position stability or geocoding overrode a noisy fix. */}
+            {preview.resolvedState && (
+              <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-4">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Resolved sample state
+                  </span>
+                  <span className="text-base font-semibold text-emerald-800 dark:text-emerald-200">
+                    {preview.resolvedState.state}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    · {preview.resolvedState.confidence}
+                  </span>
+                  {preview.resolvedState.state !== preview.mappedState && (
+                    <Badge
+                      variant="outline"
+                      className="border-emerald-500/50 text-emerald-700 dark:text-emerald-300"
+                    >
+                      Stabilized (raw: {preview.mappedState})
+                    </Badge>
+                  )}
+                </div>
+                <p className="mt-2 text-sm">{preview.resolvedState.reason}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Distance from previous fix:{' '}
+                  {preview.resolvedState.distanceFromPreviousNm != null
+                    ? `${(preview.resolvedState.distanceFromPreviousNm * 1852).toFixed(0)} m`
+                    : '—'}
+                  {' · '}Position changed meaningfully:{' '}
+                  {preview.resolvedState.positionChangedMeaningfully ? 'yes' : 'no'}
+                  {preview.previousSampleForResolver && (
+                    <>
+                      {' · '}Previous sample state: {preview.previousSampleForResolver.state}
+                    </>
+                  )}
+                </p>
+              </div>
+            )}
+
             {/* Analyzer verdict — this is what would be written to the
                 calendar right now. Shows the reason too so you can see which
                 rule fired and whether it's disagreeing with the raw single-fix

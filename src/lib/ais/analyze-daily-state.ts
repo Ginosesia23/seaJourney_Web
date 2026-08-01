@@ -111,6 +111,33 @@ const MIN_LAST_CLUSTER_DURATION_MS = 45 * 60 * 1000;
 /** Cluster-center separation above which we consider the day a relocation between two holding positions. */
 const RELOCATION_CLUSTER_GAP_NM = 0.3;
 
+/**
+ * "Sticky-stationary" carry-forward thresholds. If yesterday was stationary
+ * (at-anchor / in-port / in-yard) AND today's vessel footprint fits inside
+ * ALL of these, the boat truly hasn't moved and we lock yesterday's state —
+ * anchor-drift SOG noise, geocoder tie-breakers, and transient AIS status
+ * changes are NOT allowed to flip at-anchor ↔ in-port without real motion.
+ *
+ * This is the "state only changes when the boat moves" rule.
+ *
+ *   - RADIUS_NM    : every one of today's fixes must be within this circle
+ *                    around yesterday's last known lat/lon. Chosen a bit
+ *                    larger than the live-sample anchor-swing radius
+ *                    (~300 m) to accommodate wider tidal drift over a
+ *                    full day.
+ *   - MAX_DISTANCE : sum of consecutive-fix haversines today must stay
+ *                    under this. Catches "swung around the anchor for
+ *                    kilometres total but never left the circle" cases and
+ *                    also protects against GPS-jump noise inflating the
+ *                    footprint.
+ *   - MAX_UNDERWAY : credited underway time today must stay under this.
+ *                    A vessel that spent >30 min actually moving is not
+ *                    "in the same place".
+ */
+const STICKY_STATIONARY_RADIUS_NM = 0.3;             // ≈ 555 m
+const STICKY_STATIONARY_MAX_DISTANCE_NM = 1.0;       // ≈ 1.85 km summed
+const STICKY_STATIONARY_MAX_UNDERWAY_MS = 30 * 60 * 1000;
+
 const EARTH_RADIUS_NM = 3440.065;
 
 function toRadians(deg: number): number {
@@ -434,6 +461,62 @@ export function analyzeAisDailyState(
   };
 
   // ----- Decision rules (priority order) -----
+
+  // 0. STICKY-STATIONARY CARRY-FORWARD. Highest-priority rule. If yesterday
+  //    was stationary AND today's vessel never left a tight radius around
+  //    yesterday's last known position AND today shows negligible motion,
+  //    the boat has not actually moved. Lock yesterday's state — do NOT let
+  //    the geocoder or a transient nav-status change flip at-anchor ↔
+  //    in-port without real movement. This is the primary fix for the
+  //    "the boat sat in the same spot but the daily state flipped"
+  //    complaint.
+  //
+  //    Notes:
+  //      * We check the max drift across ALL of today's coord fixes, not
+  //        just the first — a brief GPS jump or an anchor swing during the
+  //        day should not disqualify the carry-forward. A single fix out
+  //        of the radius disqualifies (we bail early on the first outlier).
+  //      * Distance + underway caps prevent this rule from firing on a day
+  //        the vessel actually made a passage (even if it happened to end
+  //        near yesterday's last fix — e.g. a short loop returning to the
+  //        same anchorage should still register as a real day of motion).
+  //      * Runs BEFORE the sparse-data escape so a single fix that sits on
+  //        top of yesterday's position also locks in — much better than
+  //        letting the single-fix mapping flap.
+  if (
+    previousDay &&
+    STATIONARY_STATES.includes(previousDay.state) &&
+    previousDay.lastLatitude != null &&
+    previousDay.lastLongitude != null &&
+    coordPositions.length > 0 &&
+    distanceTraveledNm <= STICKY_STATIONARY_MAX_DISTANCE_NM &&
+    underwayDurationMs <= STICKY_STATIONARY_MAX_UNDERWAY_MS
+  ) {
+    let maxDriftNm = 0;
+    let withinRadius = true;
+    for (const p of coordPositions) {
+      const d = haversineNm(
+        previousDay.lastLatitude,
+        previousDay.lastLongitude,
+        p.lat,
+        p.lon,
+      );
+      if (d > maxDriftNm) maxDriftNm = d;
+      if (d > STICKY_STATIONARY_RADIUS_NM) {
+        withinRadius = false;
+        break;
+      }
+    }
+    if (withinRadius) {
+      const driftMeters = maxDriftNm * 1852;
+      return {
+        state: previousDay.state,
+        confidence: 'high',
+        reason: `Vessel has not moved from yesterday's ${humanState(previousDay.state).toLowerCase()} position (max drift ${driftMeters.toFixed(0)} m from yesterday's last fix, ${distanceTraveledNm.toFixed(2)} NM total travelled today, ${fixedHrs(underwayDurationMs)} h underway) — keeping "${humanState(previousDay.state)}".`,
+        metrics,
+      };
+    }
+  }
 
   // Sparse data — we don't have enough to do clustering. If yesterday was
   // stationary at this same position, prefer that. Otherwise fall back to the

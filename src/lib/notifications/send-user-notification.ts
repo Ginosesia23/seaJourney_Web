@@ -3,15 +3,20 @@
  *
  * How it works
  * ------------
- * Two side effects, in order:
- *   1. INSERT a row into `app_user_notifications` — the "durable inbox" the
+ * Three steps, in order:
+ *   1. CHECK `app_user_notification_preferences` — one boolean per
+ *      `UserNotificationKind`. If the user opted out of this kind we skip
+ *      the whole thing (no inbox row, no FCM push) and return
+ *      `{ ok: true, skipped: 'preference_disabled' }`. Missing row = all
+ *      defaults on (send everything). Unknown / null `kind` also sends.
+ *   2. INSERT a row into `app_user_notifications` — the "durable inbox" the
  *      mobile / web reads for unread badges + history.
- *   2. INVOKE the `user-notifications-push` Supabase Edge Function — the
+ *   3. INVOKE the `user-notifications-push` Supabase Edge Function — the
  *      function looks up the user's `users.fcm_token` and delivers an OS
  *      push via FCM v1 (same setup as `send-broadcast-push`).
  *
- * Step 2 is fire-and-forget: an FCM failure does NOT roll back the row, so
- * the notification is still delivered on the next in-app inbox load. Step 1
+ * Step 3 is fire-and-forget: an FCM failure does NOT roll back the row, so
+ * the notification is still delivered on the next in-app inbox load. Step 2
  * is required — if it fails we return an error result and do not call FCM.
  *
  * The helper NEVER throws — a failed notification should not fail the
@@ -28,6 +33,12 @@ export type SendUserNotificationInput = {
   kind?: UserNotificationKind | string | null;
   /** Optional structured payload for deep-linking / mobile UI. */
   metadata?: Record<string, unknown> | null;
+  /**
+   * When true, ignore `app_user_notification_preferences` and always send.
+   * Intended for dev/test routes and critical system messages the user can't
+   * opt out of. Defaults to false.
+   */
+  bypassPreferences?: boolean;
 };
 
 export type SendUserNotificationResult =
@@ -38,9 +49,83 @@ export type SendUserNotificationResult =
       pushed: boolean;
       pushReason?: string;
     }
+  | {
+      ok: true;
+      /** Kind was opted out via `app_user_notification_preferences`. */
+      skipped: 'preference_disabled';
+      kind: string;
+    }
   | { ok: false; reason: string };
 
 const PUSH_FUNCTION_NAME = 'user-notifications-push';
+
+/**
+ * Notification kinds that have a matching boolean column on
+ * `public.app_user_notification_preferences`. Kinds NOT in this set can't be
+ * opted out (they always send). Keep in sync with the SQL migration and the
+ * `UserNotificationKind` union in `src/lib/types.ts`.
+ */
+const PREFERENCE_COLUMNS = [
+  'ais_state_change',
+  'ais_state_change_reminder',
+  'sea_time',
+  'testimonial',
+  'admin_message',
+  'system',
+] as const;
+
+type PreferenceColumn = (typeof PREFERENCE_COLUMNS)[number];
+
+function preferenceColumnForKind(kind: string | null): PreferenceColumn | null {
+  if (!kind) return null;
+  return (PREFERENCE_COLUMNS as readonly string[]).includes(kind)
+    ? (kind as PreferenceColumn)
+    : null;
+}
+
+/**
+ * Returns `true` when the user has this kind enabled (or has no preferences
+ * row / the kind isn't opt-outable). Returns `false` ONLY when there is an
+ * explicit `false` in the preferences row.
+ *
+ * Fails open: any lookup error is logged and treated as "send" so a broken
+ * preferences table never silently swallows notifications.
+ */
+async function isNotificationKindEnabled(
+  userId: string,
+  kind: string | null,
+): Promise<boolean> {
+  const column = preferenceColumnForKind(kind);
+  if (!column) return true;
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('app_user_notification_preferences')
+      .select(column)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('[sendUserNotification] preference lookup failed', {
+        userId,
+        kind,
+        error,
+      });
+      return true;
+    }
+    if (!data) return true;
+
+    const value = (data as Record<string, unknown>)[column];
+    return value !== false;
+  } catch (err) {
+    console.warn('[sendUserNotification] preference lookup threw', {
+      userId,
+      kind,
+      err,
+    });
+    return true;
+  }
+}
 
 export async function sendUserNotification(
   input: SendUserNotificationInput,
@@ -57,7 +142,22 @@ export async function sendUserNotification(
   const kind = input.kind ?? null;
   const metadata = input.metadata ?? null;
 
-  // 1. Durable inbox row.
+  // 1. Preference gate. If the user opted out of this kind, drop the whole
+  //    thing so nothing lands in the inbox and no push fires. This is the
+  //    server-side counterpart to the mobile app's local filter — both are
+  //    driven by the same `app_user_notification_preferences` row.
+  if (!input.bypassPreferences) {
+    const enabled = await isNotificationKindEnabled(input.userId, kind);
+    if (!enabled) {
+      return {
+        ok: true,
+        skipped: 'preference_disabled',
+        kind: String(kind ?? ''),
+      };
+    }
+  }
+
+  // 2. Durable inbox row.
   let notificationId: string;
   try {
     const { data, error } = await supabaseAdmin
@@ -91,7 +191,7 @@ export async function sendUserNotification(
     return { ok: false, reason: message };
   }
 
-  // 2. FCM push via Edge Function. Never blocks the caller on failure.
+  // 3. FCM push via Edge Function. Never blocks the caller on failure.
   let pushed = false;
   let pushReason: string | undefined;
   try {

@@ -29,7 +29,6 @@ import {
   getNormalizedAisNavStatus,
   isAisPositionStale,
   logDateForLiveAisSync,
-  mapAisToDailyStatus,
 } from '@/lib/ais/map-ais-to-state';
 import {
   aggregateCrewDailyState,
@@ -37,6 +36,11 @@ import {
   type CrewDailyStateAggregate,
 } from '@/lib/ais/aggregate-crew-daily-state';
 import type { AisAnalyzeOptions } from '@/lib/ais/analyze-daily-state';
+import {
+  LIVE_SAMPLE_THRESHOLDS,
+  resolveLiveSampleState,
+  type PreviousSample,
+} from '@/lib/ais/resolve-live-sample-state';
 import { reverseGeocodeStructured } from '@/lib/geocoding/reverse-geocode';
 import { sendUserNotification } from '@/lib/notifications/send-user-notification';
 import type { DailyStatus } from '@/lib/types';
@@ -131,24 +135,75 @@ export async function syncCrewStateFromAis(
     }
 
     const logDate = logDateForLiveAisSync(options?.logDate);
-    const state = mapAisToDailyStatus(position);
     const navStatus = getNormalizedAisNavStatus(position) || null;
     const speedKn = typeof position.speed === 'number' ? position.speed : null;
     const lat = typeof position.lat === 'number' ? position.lat : null;
     const lon = typeof position.lon === 'number' ? position.lon : null;
 
-    // 0. Load the previous most-recent sample BEFORE inserting the new one —
-    //    that's what we compare against for change detection. We look back a
-    //    few days to be safe (in case the crew has sparse recent history).
+    // 0. Load the previous most-recent sample BEFORE inserting the new one.
+    //    We need its state AND its coordinates so `resolveLiveSampleState`
+    //    can run its position-stability check (the primary anti-flip-flop
+    //    heuristic). See resolve-live-sample-state.ts for the algorithm.
     const { data: prevSampleRow } = await supabaseAdmin
       .from('crew_ais_state_samples')
-      .select('state, sampled_at, nav_status')
+      .select('state, sampled_at, nav_status, lat, lon')
       .eq('user_id', userId)
       .eq('vessel_id', vesselId)
       .order('sampled_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    const previousSampleState = (prevSampleRow?.state as DailyStatus) ?? null;
+    const previousSample: PreviousSample | null = prevSampleRow
+      ? {
+          state: prevSampleRow.state as DailyStatus,
+          lat: (prevSampleRow.lat as number) ?? null,
+          lon: (prevSampleRow.lon as number) ?? null,
+          sampledAt: prevSampleRow.sampled_at as string,
+        }
+      : null;
+    const previousSampleState = previousSample?.state ?? null;
+
+    // Reverse-geocode the current position up front. The resolver uses it
+    // as a tie-breaker when AIS is ambiguous and position stability isn't
+    // enough (e.g. very first sample for a user, or after a big passage).
+    const locationContext = await loadLocationContext(lat, lon);
+
+    // Load yesterday's resolved state + last known coords BEFORE the
+    // per-sample resolver so we can pass it in as the "yesterday anchor".
+    // This is what lets the resolver lock today's samples to yesterday's
+    // state when the vessel hasn't actually moved from yesterday's spot,
+    // bypassing intra-day previous-sample flip-flops. Also reused as the
+    // analyzer's `previousDay` context further down — one query, two uses.
+    const previousDay = await loadPreviousDayContext(userId, vesselId, logDate);
+
+    // Resolve the stabilized state for this fix. Unlike `mapAisToDailyStatus`
+    // (which is a pure single-fix mapping) this considers previous position,
+    // anchor-swing tolerance, geocoded context, and yesterday's anchor to
+    // filter out drift noise.
+    const resolution = resolveLiveSampleState({
+      position,
+      previousSample,
+      yesterdayAnchor: previousDay
+        ? {
+            state: previousDay.state,
+            lat: previousDay.lastLatitude,
+            lon: previousDay.lastLongitude,
+          }
+        : null,
+      locationContext,
+    });
+    const state = resolution.state;
+
+    console.log('[crew-ais-sync] resolved sample state', {
+      userId,
+      resolvedState: state,
+      confidence: resolution.confidence,
+      reason: resolution.reason,
+      distanceNm: resolution.distanceFromPreviousNm,
+      positionChangedMeaningfully: resolution.positionChangedMeaningfully,
+      previousState: previousSampleState,
+      speedKn,
+      navStatus,
+    });
 
     // 1. Insert an hourly sample. The `(user_id, date_trunc('hour', sampled_at))`
     //    unique index makes duplicate runs within the same hour raise 23505 —
@@ -237,11 +292,9 @@ export async function syncCrewStateFromAis(
       ? storedSamples
       : [...storedSamples, freshSample];
 
-    const [previousDay, locationContext] = await Promise.all([
-      loadPreviousDayContext(userId, vesselId, logDate),
-      loadLocationContext(lat, lon),
-    ]);
-
+    // `previousDay` was loaded above (before the per-sample resolver call)
+    // so we could pass it in as the yesterday-anchor. Reuse the same object
+    // here for the daily aggregate — no need to double-query.
     const aggregate: CrewDailyStateAggregate = aggregateCrewDailyState(
       asAggregatorInput,
       { previousDay, locationContext },
@@ -334,16 +387,26 @@ export async function syncCrewStateFromAis(
 
     // 5. State-change detection → push notification.
     //    Only when:
-    //      * the fresh single-fix state differs from the previous sample's state,
-    //      * we actually recorded a new sample this hour (no notification on
-    //        re-aggregation-only "Sync now" refreshes),
-    //      * we had a previous sample to compare against (skip on the very
-    //        first sample for a user).
+    //      * the RESOLVED state (position-stability aware) differs from the
+    //        previous sample's state — not the raw single-fix mapping, so
+    //        anchor-drift SOG noise never triggers a notification;
+    //      * we actually recorded a new sample this hour (no notification
+    //        on re-aggregation-only "Sync now" refreshes);
+    //      * we had a previous sample to compare against;
+    //      * `shouldNotifyForTransition` agrees — this suppresses label
+    //        flips that aren't backed by real vessel movement (see below).
     //    Fire-and-forget — notification failures don't fail the sync.
     if (
       !alreadySampledThisHour &&
       previousSampleState &&
-      previousSampleState !== state
+      previousSampleState !== state &&
+      shouldNotifyForTransition({
+        previousState: previousSampleState,
+        newState: state,
+        resolutionConfidence: resolution.confidence,
+        distanceNm: resolution.distanceFromPreviousNm,
+        speedKn,
+      })
     ) {
       void notifyCrewOfStateChange({
         userId,
@@ -352,6 +415,18 @@ export async function syncCrewStateFromAis(
         newState: state,
         placeName: locationContext?.endOfDayPlaceName ?? null,
         speedKn,
+      });
+    } else if (
+      !alreadySampledThisHour &&
+      previousSampleState &&
+      previousSampleState !== state
+    ) {
+      console.log('[crew-ais-sync] suppressed state-change notification', {
+        userId,
+        transition: `${previousSampleState} → ${state}`,
+        reason: 'below movement/confidence threshold',
+        confidence: resolution.confidence,
+        distanceNm: resolution.distanceFromPreviousNm,
       });
     }
 
@@ -378,6 +453,60 @@ export async function syncCrewStateFromAis(
       vesselId,
     });
   }
+}
+
+/**
+ * Decide whether a transition is real enough to buzz the user's phone.
+ *
+ * We only get here when the resolved state changed AND we recorded a new
+ * hourly sample. This is the last-mile guard against "junk" transitions:
+ *
+ *   • Transitions BETWEEN stationary states (at-anchor ↔ in-port) that
+ *     aren't accompanied by real movement are almost always geo/label
+ *     flips (same location, different geocoder verdict). Suppressed.
+ *   • Transitions TO underway when the vessel hasn't actually moved and
+ *     isn't going fast are drift noise. Suppressed.
+ *   • Transitions FROM underway to a stationary state are always real —
+ *     the vessel just arrived somewhere.
+ *   • Transitions to/from in-yard (aground) are AIS-confirmed and always
+ *     material.
+ */
+function shouldNotifyForTransition(args: {
+  previousState: DailyStatus;
+  newState: DailyStatus;
+  resolutionConfidence: string;
+  distanceNm: number | null;
+  speedKn: number | null;
+}): boolean {
+  const { previousState, newState, distanceNm, speedKn } = args;
+
+  const isStationary = (s: DailyStatus) =>
+    s === 'at-anchor' || s === 'in-port' || s === 'in-yard';
+
+  // in-yard transitions are AIS-confirmed (nav code 6) — always notify.
+  if (previousState === 'in-yard' || newState === 'in-yard') return true;
+
+  // Arrived: any → stationary. Always material — the vessel just settled.
+  if (previousState === 'underway' && isStationary(newState)) return true;
+
+  // Departed: stationary → underway. Need real movement OR real speed to
+  // filter drift noise. If we have no distance info (first sample), trust
+  // the resolver's decision (it already required nav-status or speed).
+  if (isStationary(previousState) && newState === 'underway') {
+    if (distanceNm == null) return true;
+    if (distanceNm > LIVE_SAMPLE_THRESHOLDS.SAME_LOCATION_RADIUS_NM) return true;
+    if ((speedKn ?? 0) >= LIVE_SAMPLE_THRESHOLDS.UNAMBIGUOUS_UNDERWAY_KN) return true;
+    return false;
+  }
+
+  // Stationary ↔ stationary (at-anchor ↔ in-port). Only notify if the
+  // vessel actually moved to a new spot (e.g. weighed anchor and moored).
+  if (isStationary(previousState) && isStationary(newState)) {
+    if (distanceNm == null) return false;
+    return distanceNm > LIVE_SAMPLE_THRESHOLDS.SAME_LOCATION_RADIUS_NM;
+  }
+
+  return true;
 }
 
 /**

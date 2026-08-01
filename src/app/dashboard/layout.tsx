@@ -93,7 +93,8 @@ useEffect(() => {
     // They can navigate to crew page if needed
   }, [user, isLoading, hasActiveSubscription, pathname, userProfile, router]);
 
-  const isMapPage = pathname === '/dashboard/world-map';
+  const isMapPage =
+    pathname === '/dashboard/world-map' || pathname === '/dashboard/passages-map';
 
   if (isLoading) {
     return (

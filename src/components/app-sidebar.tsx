@@ -6,16 +6,13 @@ import { usePathname } from "next/navigation"
 import {
   Home,
   Ship,
-  LifeBuoy,
   Award,
   User,
   Users,
-  Map,
   Download,
   HelpCircle,
   FileText,
   MapPin,
-  ChevronRight,
   Calendar,
   Navigation,
   Inbox,
@@ -37,6 +34,14 @@ import {
   FileSignature,
   Clock,
   RefreshCw,
+  Send,
+  Route,
+  BookOpen,
+  FolderOpen,
+  Layers,
+  Anchor,
+  FileCheck,
+  ChevronRight,
 } from "lucide-react"
 
 import {
@@ -79,6 +84,7 @@ import { signOutLocal } from "@/lib/auth-utils"
 import {
   hasActiveSubscription as hasActiveSubscriptionEntitlement,
   hasAisHistoryImportTier,
+  hasPassagesMapAccess as hasPassagesMapAccessGate,
   hasVesselPremiumPlusFeatures,
   isVesselLinkedAccount,
 } from "@/supabase/database/subscription-helpers"
@@ -98,103 +104,100 @@ type NavItem = {
 
 const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vessel' | 'admin' | 'captain' | 'crew')[] }> = [
   {
-    title: "Dashboard",
+    title: "Overview",
     items: [
       { href: "/dashboard", label: "Home", icon: Home, disabled: false },
-      { href: "/dashboard/vessel-history", label: "Vessel History", icon: Ship, disabled: false, hideForRoles: ['vessel', 'admin'] },
+      { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, disabled: false, hideForRoles: ['admin'] },
+      { href: "/dashboard/vessel-history", label: "Past vessels", icon: Anchor, disabled: false, hideForRoles: ['vessel', 'admin'] },
     ]
   },
   {
-    title: "Sea Service",
-    hideForRoles: ['admin'], // Only hide for admin, vessel role needs sea time tracking
-    items: [
-      { href: "/dashboard/current", label: "Current", icon: MapPin, disabled: false },
-      { href: "/dashboard/calendar", label: "Calendar", icon: Calendar, disabled: false },
-      { href: "/dashboard/sea-time-request", label: "Request Sea Time", icon: FileText, disabled: false, hideForRoles: ['vessel'] }, // Only for crew members
-      { href: "/dashboard/export", label: "Export", icon: Download, disabled: false },
-    ]
-  },
-  {
-    title: "Logbooks",
+    title: "Sea time",
     hideForRoles: ['admin'],
     items: [
-      { href: "/dashboard/passage-logbook", label: "Passage Log", icon: Map, disabled: false },
-      { href: "/dashboard/bridge-watch-log", label: "Bridge Watch", icon: Navigation, disabled: false, hideForRoles: ['vessel'] }, // Hide Bridge Watch for vessel role
-      { href: "/dashboard/visa-tracker", label: "Visa Tracker", icon: Globe, disabled: false, hideForRoles: ['vessel', 'admin'] }, // Available for crew, captain roles
-      { href: "/dashboard/ais-import", label: "AIS Import", icon: Database, disabled: false },
+      { href: "/dashboard/current", label: "Daily log", icon: MapPin, disabled: false },
+      { href: "/dashboard/calendar", label: "Calendar", icon: Calendar, disabled: false },
+      { href: "/dashboard/sea-time-request", label: "Request access", icon: Send, disabled: false, hideForRoles: ['vessel'] },
+      { href: "/dashboard/export", label: "Export reports", icon: Download, disabled: false },
     ]
   },
   {
-    title: "Documents",
-    hideForRoles: ['admin', 'vessel'], // Hide entire section for admin and vessel manager users
+    title: "Voyages",
+    hideForRoles: ['admin'],
     items: [
-      { href: "/dashboard/applications", label: "Documents", icon: FileText, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true },
-      { href: "/dashboard/vessel-documents", label: "Documents", icon: FileText, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], crewLimitedOnly: true },
-      { href: "/dashboard/certificates", label: "Certificates", icon: Award, disabled: false, hideForCrewLimited: true },
-      { href: "/dashboard/proof-of-service", label: "Proof of Service", icon: ShieldCheck, disabled: false, hideForCrewLimited: true },
-      { href: "/dashboard/my-watch-schedule", label: "Watch Schedule", icon: Clock, disabled: false, hideForCrewLimited: true },
+      { href: "/dashboard/passage-logbook", label: "Passage log", icon: BookOpen, disabled: false },
+      { href: "/dashboard/passages-map", label: "Passage tracks", icon: Route, disabled: false, hideForRoles: ['admin'] },
+      { href: "/dashboard/bridge-watch-log", label: "Bridge watch", icon: Navigation, disabled: false, hideForRoles: ['vessel'] },
+      { href: "/dashboard/visa-tracker", label: "Visa tracker", icon: Globe, disabled: false, hideForRoles: ['vessel', 'admin'] },
+      { href: "/dashboard/ais-import", label: "AIS history", icon: Database, disabled: false },
     ]
   },
   {
-    title: "Documents",
+    title: "Career",
+    hideForRoles: ['admin', 'vessel'],
+    items: [
+      { href: "/dashboard/applications", label: "Testimonials", icon: FileSignature, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true },
+      { href: "/dashboard/apply", label: "Apply for tickets", icon: Award, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true },
+      { href: "/dashboard/vessel-documents", label: "Vessel documents", icon: FolderOpen, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], crewLimitedOnly: true },
+      { href: "/dashboard/certificates", label: "Certificates", icon: ShieldCheck, disabled: false, hideForCrewLimited: true },
+      { href: "/dashboard/proof-of-service", label: "Proof of service", icon: FileCheck, disabled: false, hideForCrewLimited: true },
+      { href: "/dashboard/my-watch-schedule", label: "My watch roster", icon: Clock, disabled: false, hideForCrewLimited: true },
+    ]
+  },
+  {
+    title: "Vessel documents",
     hideForRoles: ['crew', 'captain', 'admin'],
     items: [
-      { href: "/dashboard/documents", label: "Generator", icon: FileText, disabled: false, requiredRole: "vessel" },
+      { href: "/dashboard/documents", label: "Document generator", icon: Layers, disabled: false, requiredRole: "vessel" },
     ]
   },
   {
-    title: "Crew Management",
-    hideForRoles: ['crew'], // Hide entire section for crew members
+    title: "Crew",
+    hideForRoles: ['crew'],
     items: [
-      { href: "/dashboard/vessels", label: "My Vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] }, // Hide for vessel role
-      { href: "/dashboard/crew", label: "Crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
-      { href: "/dashboard/crew-roles", label: "Assign Roles", icon: UserCog, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'] }, // Disabled for now – re-enable when ready
-      { href: "/dashboard/requests", label: "Requests", icon: ClipboardList, requiredRole: "captain", disabled: false }, // Captains can view their requests
-      { href: "/dashboard/sign-offs", label: "Sign-Offs", icon: FileSignature, requiredRole: "captain", disabled: false }, // Linked captains review/sign vessel-routed testimonials in-app
-      { href: "/dashboard/watch-schedule", label: "Watch Schedule", icon: Clock, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
-      { href: "/dashboard/crew-rotation", label: "Onboard Tracker", icon: RefreshCw, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
-    ]
-  },
-  {
-    title: "Messages",
-    hideForRoles: ['admin'], // Hide for admin since Inbox is already in Crew Management section
-    items: [
-      { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, disabled: false }, // Available to all users
+      { href: "/dashboard/vessels", label: "My vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] },
+      { href: "/dashboard/crew", label: "Manage crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/crew-roles", label: "Assign roles", icon: UserCog, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'] },
+      { href: "/dashboard/requests", label: "Sea-time requests", icon: ClipboardList, requiredRole: "captain", disabled: false },
+      { href: "/dashboard/sign-offs", label: "Sign-offs", icon: FileSignature, requiredRole: "captain", disabled: false },
+      { href: "/dashboard/watch-schedule", label: "Crew watch roster", icon: Clock, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/crew-rotation", label: "Onboard crew", icon: RefreshCw, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
     ]
   },
   {
     title: "Account",
     items: [
-      { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false, hideForRoles: ['vessel'] }, // Hide Profile for vessel role
-      { href: "/dashboard/profile", label: "Vessel", icon: Ship, disabled: false, requiredRole: "vessel", hideForRoles: ['captain'] }, // Show Vessel page for vessel role only (not captain)
-      { href: "/dashboard/vessel-roles", label: "Roles", icon: UserCog, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] }, // Premium+ feature: vessel-linked secondary accounts
-      { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false, hideForRoles: ['vessel'] }, // Captain only; hidden for vessel accounts
+      { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false, hideForRoles: ['vessel'] },
+      { href: "/dashboard/profile", label: "Vessel profile", icon: Ship, disabled: false, requiredRole: "vessel", hideForRoles: ['captain'] },
+      { href: "/dashboard/vessel-roles", label: "Team accounts", icon: UserCog, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false, hideForRoles: ['vessel'] },
     ]
   },
   {
-    title: "Subscriptions",
-    hideForRoles: ['crew', 'vessel'],
+    title: "Revenue",
+    hideForRoles: ['crew', 'captain', 'vessel'],
     items: [
       { href: "/dashboard/revenue", label: "Revenue overview", icon: DollarSign, requiredRole: "admin", disabled: false },
-      { href: "/dashboard/crew-subscriptions", label: "Crew subscriptions", icon: CreditCard, requiredRole: "admin", disabled: false },
-      { href: "/dashboard/vessel-subscriptions", label: "Vessel subscriptions", icon: Ship, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/crew-subscriptions", label: "Crew plans", icon: CreditCard, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/vessel-subscriptions", label: "Vessel plans", icon: Ship, requiredRole: "admin", disabled: false },
       { href: "/dashboard/ad-revenue-tracking", label: "Ads tracking", icon: Megaphone, requiredRole: "admin", disabled: false },
     ]
   },
   {
-    title: "Analytics",
-    hideForRoles: ['crew', 'vessel'], // Hide entire section for crew members and vessel managers
+    title: "Platform",
+    hideForRoles: ['crew', 'captain', 'vessel'],
     items: [
-      { href: "/dashboard/platform-analytics", label: "Platform Overview", icon: BarChart3, requiredRole: "admin", disabled: false },
-      { href: "/dashboard/users", label: "User Lookup", icon: UserSearch, requiredRole: "admin", disabled: false },
-      { href: "/dashboard/crew-analytics", label: "Crew Analytics", icon: Users, requiredRole: "admin", disabled: false },
-      { href: "/dashboard/login-activity", label: "Login Activity", icon: LogIn, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/platform-analytics", label: "Platform overview", icon: BarChart3, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/users", label: "User lookup", icon: UserSearch, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/crew-analytics", label: "Crew analytics", icon: Users, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/login-activity", label: "Login activity", icon: LogIn, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/application-templates", label: "Apply templates", icon: ClipboardList, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/admin-messages", label: "Broadcasts", icon: MessagesSquare, requiredRole: "admin", disabled: false },
       { href: "/dashboard/pdf-coordinate-tool", label: "PDF coordinates", icon: Crosshair, requiredRole: "admin", disabled: false },
-      { href: "/dashboard/admin-messages", label: "Admin messages", icon: MessagesSquare, requiredRole: "admin", disabled: false },
     ]
   },
   {
-    title: "Support",
+    title: "Help",
     items: [
       { href: "/dashboard/feedback", label: "Feedback", icon: MessageSquare, disabled: false },
       { href: "/dashboard/support", label: "Support", icon: HelpCircle, disabled: true },
@@ -218,9 +221,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   // Create admin-specific navGroups with updated Vessel Management and Account sections
   const isAdmin = userProfile?.role === 'admin'
   const adminNavGroups: typeof navGroups = navGroups.map(group => {
-    if (group.title === "Crew Management") {
+    if (group.title === "Crew") {
       return {
         ...group,
+        hideForRoles: undefined,
         items: [
           { href: "/dashboard/vessels", label: "Vessels", icon: Ship, disabled: false },
           { href: "/dashboard/crew", label: "Crew", icon: Users, disabled: false },
@@ -318,6 +322,15 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const hasAisHistoryImportAccess = React.useMemo(() => {
     if (!userProfile) return false;
     return hasAisHistoryImportTier(userProfile);
+  }, [userProfile]);
+
+  /**
+   * Passages Map: gated by `hasPassagesMapAccess` in subscription-helpers.
+   * Crew Professional (+ TEMP Crew Premium) and Vessel Premium+.
+   */
+  const hasPassagesMapAccess = React.useMemo(() => {
+    if (!userProfile) return false;
+    return hasPassagesMapAccessGate(userProfile);
   }, [userProfile]);
 
   const VESSEL_PREMIUM_PLUS_NAV = new Set([
@@ -764,10 +777,6 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
             // Check if user role is in the hideForRoles array
             const shouldHide = group.hideForRoles.some(role => {
               const roleLower = role.toLowerCase();
-              // Handle crew role - if hideForRoles includes 'crew', hide for all crew members
-              if (roleLower === 'crew' && (userRole === 'crew' || userRole === 'captain')) {
-                return true;
-              }
               return userRole === roleLower;
             });
             if (shouldHide) {
@@ -775,8 +784,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
             }
           }
 
-          // For vessel accounts, show "Vessel Management" as the Account section heading (where the Vessel link lives)
-          const groupLabel = (group.title === "Account" && userProfile?.role === "vessel") ? "Vessel Management" : group.title;
+          // For vessel accounts, show "Vessel" as the Account section heading
+          const groupLabel = (group.title === "Account" && userProfile?.role === "vessel") ? "Vessel" : group.title;
           return (
           <SidebarGroup key={group.title}>
             <SidebarGroupLabel className="text-blue-300/40">
@@ -888,6 +897,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   // Note: Export is accessible to crew_limited users, so we exclude it from premium requirement for them
                   const isVisaTracker = item.href === '/dashboard/visa-tracker';
                   const isPassageLog = item.href === '/dashboard/passage-logbook';
+                  const isPassagesMap = item.href === '/dashboard/passages-map';
                   const isBridgeWatch = item.href === '/dashboard/bridge-watch-log';
                   const isExport = item.href === '/dashboard/export';
                   const isSeaTimeRequest = item.href === '/dashboard/sea-time-request';
@@ -907,6 +917,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const passageNavLocked = isPassageLog && !hasPassageLogAccess && !isCrewLimited && !isVesselLinked;
                   const aisImportNavLocked =
                     isAisImport && !hasAisHistoryImportAccess && !isCrewLimited && !isVesselLinked;
+                  // Passages Map: lock when the shared access gate fails
+                  // (crew below Professional/TEMP Premium, or vessel below Premium+).
+                  const passagesMapNavLocked =
+                    isPassagesMap && !hasPassagesMapAccess && !isCrewLimited && !isVesselLinked;
                   const vesselPremiumNavLocked =
                     VESSEL_PREMIUM_PLUS_NAV.has(item.href) &&
                     userProfile?.role === 'vessel' &&
@@ -937,7 +951,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   
                   return (
                     <SidebarMenuItem key={uniqueKey}>
-                      {requiresPremium || passageNavLocked || aisImportNavLocked || vesselPremiumNavLocked ? (
+                      {requiresPremium || passageNavLocked || aisImportNavLocked || passagesMapNavLocked || vesselPremiumNavLocked ? (
                         <Tooltip delayDuration={200}>
                           <TooltipTrigger asChild>
                             <div className="w-full">
@@ -957,11 +971,13 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                             <div className="space-y-1">
                               <p className="font-semibold">{item.label}</p>
                               <p className="text-xs text-muted-foreground">
-                                {passageNavLocked
-                                  ? 'Passage Log is available on Crew Premium and Professional plans, or with an active vessel subscription.'
-                                  : vesselPremiumNavLocked
-                                    ? 'Available on Vessel Premium and Professional plans. Upgrade to unlock watch schedules, onboard tracker, linked roles, and Form Builder.'
-                                    : 'This feature requires a Premium or Pro subscription. Upgrade to unlock advanced features.'}
+                                {passagesMapNavLocked
+                                  ? 'The Passages Map is a Crew Professional feature. Upgrade to plot every passage across all your vessels on an interactive world map.'
+                                  : passageNavLocked
+                                    ? 'Passage Log is available on Crew Premium and Professional plans, or with an active vessel subscription.'
+                                    : vesselPremiumNavLocked
+                                      ? 'Available on Vessel Premium and Professional plans. Upgrade to unlock watch schedules, onboard tracker, linked roles, and Form Builder.'
+                                      : 'This feature requires a Premium or Pro subscription. Upgrade to unlock advanced features.'}
                               </p>
                             </div>
                           </TooltipContent>

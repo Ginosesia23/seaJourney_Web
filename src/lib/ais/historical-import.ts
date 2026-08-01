@@ -18,8 +18,14 @@ import type { DailyStatus } from '@/lib/types';
 /** Max total days a user can request (fetched in API chunks). */
 export const AIS_HISTORY_MAX_DAYS = 365;
 
-/** Datalastic `/vessel_history` allows at most ~31 days between from and to. */
-export const AIS_DATALASTIC_MAX_DAY_SPAN = 31;
+/**
+ * Datalastic `/vessel_history`: `to` may be at most 30 days after `from`
+ * (YYYY-MM-DD). A 31-day calendar month (Jul 1→31) is exactly 30 days
+ * after `from` and fits in one call; anything longer (e.g. month + pad)
+ * must be chunked. We previously used 31 here, which produced invalid
+ * chunks like Jul 1→Aug 1 and could truncate/fail mid-month history.
+ */
+export const AIS_DATALASTIC_MAX_DAY_SPAN = 30;
 
 export type AisHistoryChangeType = 'new' | 'same' | 'conflict';
 
@@ -265,7 +271,12 @@ export function getMonthDateRange(
   return { from, to, monthKey };
 }
 
-/** Split a range into chunks that each satisfy Datalastic's one-month limit. */
+/**
+ * Split a range into chunks that each satisfy Datalastic's
+ * "`to` ≤ `from` + 30 days" rule. Adjacent chunks overlap by 1 day so a
+ * fix on the boundary isn't lost if the API treats either end as
+ * exclusive; callers should de-dupe positions when concatenating.
+ */
 export function splitHistoryDateRange(
   fromDate: string,
   toDate: string,
@@ -284,8 +295,18 @@ export function splitHistoryDateRange(
 
     if (chunkEnd >= toDate) break;
 
-    const nextStartMs = Date.parse(`${chunkEnd}T00:00:00Z`) + 24 * 60 * 60 * 1000;
-    chunkStart = new Date(nextStartMs).toISOString().slice(0, 10);
+    // Overlap the boundary day (not chunkEnd+1) so nothing falls in a
+    // seam between two requests.
+    const nextStartMs = Date.parse(`${chunkEnd}T00:00:00Z`);
+    const nextStart = new Date(nextStartMs).toISOString().slice(0, 10);
+    // Must advance — a zero-length step would loop forever.
+    if (nextStart <= chunkStart) {
+      chunkStart = new Date(nextStartMs + 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+    } else {
+      chunkStart = nextStart;
+    }
   }
 
   return chunks;

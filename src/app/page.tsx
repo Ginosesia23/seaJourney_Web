@@ -50,6 +50,7 @@ import {
   Route,
   ScanSearch,
   Search,
+  Send,
   Shield,
   ShieldCheck,
   Ship,
@@ -815,6 +816,7 @@ export default function Home() {
           <AIDocumentScanner />
           <OfficialForms />
           <CertificateTracking />
+          <ApplyProgress />
           <WatchComingSoon />
           <WatchRotationSchedule />
           <CrewLeavePlanner />
@@ -847,6 +849,7 @@ function WkHeader({
     { label: 'Benefits', href: '#benefits' },
     { label: 'Platform', href: '#platform' },
     { label: 'Features', href: '#features' },
+    { label: 'Apply', href: '#apply' },
     { label: 'Membership', href: '#membership' },
   ];
   return (
@@ -2686,6 +2689,346 @@ function CertificateTracking() {
         </div>
       </div>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section: Apply — progression toward your next ticket
+// ---------------------------------------------------------------------------
+
+function ApplyProgress() {
+  const features: Array<{ icon: IconType; title: string; desc: string; accent: string }> = [
+    {
+      icon: ClipboardCheck,
+      title: 'Clear requirements',
+      desc: 'See exactly what each application needs — sea time, certificates, testimonials and more.',
+      accent: '#0ea5e9',
+    },
+    {
+      icon: TrendingUp,
+      title: 'Live progress',
+      desc: 'Your checklist updates from the records already in SeaJourney as you build experience.',
+      accent: '#10b981',
+    },
+    {
+      icon: Target,
+      title: 'Next ticket focus',
+      desc: 'Track how close you are to Watch Rating, OOW, or other career milestones.',
+      accent: '#8b5cf6',
+    },
+    {
+      icon: Download,
+      title: 'Package & submit',
+      desc: 'Download a ready ZIP of evidence for manual submission while direct send is on the way.',
+      accent: '#d97706',
+    },
+  ];
+
+  return (
+    <section id="apply" className="py-24 sm:py-32" style={{ backgroundColor: 'var(--wk-bg)' }}>
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2 lg:gap-16">
+          <motion.div
+            initial={{ opacity: 0, x: -24 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, margin: '-60px' }}
+            transition={{ duration: 0.5 }}
+            className="order-2 lg:order-1"
+          >
+            <ApplyProgressGraphic />
+          </motion.div>
+
+          <div className="order-1 lg:order-2">
+            <Eyebrow icon={Send} accent>
+              New · Apply
+            </Eyebrow>
+            <h2
+              className="font-headline mt-5 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              See your path to the{' '}
+              <span className="wk-gradient-text wk-gradient-text--sky">next ticket</span>
+            </h2>
+            <p className="mt-4 text-lg leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
+              Apply shows what you need for professional applications — and how
+              far along you already are. Sea time, certificates and approved
+              testimonials feed a live checklist so you always know what is left
+              before you are ready to submit.
+            </p>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              {features.map((f) => (
+                <div
+                  key={f.title}
+                  className="rounded-xl p-4"
+                  style={{
+                    backgroundColor: 'var(--wk-card)',
+                    border: '1px solid var(--wk-line)',
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg"
+                      style={{
+                        backgroundColor:
+                          'color-mix(in srgb, ' + f.accent + ' 14%, transparent)',
+                        color: f.accent,
+                      }}
+                    >
+                      <f.icon className="h-5 w-5" />
+                    </span>
+                    <span
+                      className="text-sm font-semibold"
+                      style={{ color: 'var(--wk-text)' }}
+                    >
+                      {f.title}
+                    </span>
+                  </div>
+                  <p
+                    className="mt-2 text-xs leading-relaxed"
+                    style={{ color: 'var(--wk-text-soft)' }}
+                  >
+                    {f.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <PrimaryCta href="/signup" tone="sky">
+                Start tracking progress
+              </PrimaryCta>
+              <SecondaryCta href="/dashboard/apply">Open Apply</SecondaryCta>
+            </div>
+            <p className="mt-4 text-xs" style={{ color: 'var(--wk-text-muted)' }}>
+              Available in the crew dashboard. Packages are prepared for manual
+              submission today; direct delivery to organisations is coming.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ApplyProgressGraphic() {
+  const checklist: Array<{
+    label: string;
+    detail: string;
+    done: boolean;
+    value?: string;
+  }> = [
+    {
+      label: 'Identity profile',
+      detail: 'Name, nationality & date of birth',
+      done: true,
+    },
+    {
+      label: 'STCW Basic Safety',
+      detail: 'Valid certificate on file',
+      done: true,
+    },
+    {
+      label: 'Approved testimonials',
+      detail: '2 of 2 required',
+      done: true,
+      value: '2/2',
+    },
+    {
+      label: 'Minimum sea time',
+      detail: '142 of 180 at-sea days',
+      done: false,
+      value: '142/180',
+    },
+    {
+      label: 'Proof of service',
+      detail: 'Verification-coded vessel record',
+      done: false,
+    },
+  ];
+
+  const doneCount = checklist.filter((c) => c.done).length;
+  const percent = Math.round((doneCount / checklist.length) * 100);
+
+  return (
+    <div className="relative">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -inset-6 -z-10 rounded-[32px] opacity-70 blur-3xl"
+        style={{
+          background:
+            'radial-gradient(60% 60% at 20% 20%, color-mix(in srgb, var(--wk-accent) 22%, transparent) 0%, transparent 70%),' +
+            'radial-gradient(50% 60% at 80% 80%, color-mix(in srgb, var(--wk-accent-2) 18%, transparent) 0%, transparent 70%)',
+        }}
+      />
+
+      <div
+        className="relative overflow-hidden rounded-2xl"
+        style={{
+          backgroundColor: 'var(--wk-bg-subtle)',
+          border: '1px solid var(--wk-line)',
+          boxShadow: 'var(--wk-shadow-md)',
+        }}
+      >
+        {/* Window chrome */}
+        <div
+          className="flex items-center justify-between gap-3 border-b px-4 py-3"
+          style={{ borderColor: 'var(--wk-line)', backgroundColor: 'var(--wk-card)' }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#f87171' }} />
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#fbbf24' }} />
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#34d399' }} />
+          </div>
+          <span
+            className="font-mono text-[11px]"
+            style={{ color: 'var(--wk-text-muted)' }}
+          >
+            dashboard / apply
+          </span>
+          <Chip color="var(--wk-accent)" soft="var(--wk-accent-soft)">
+            Live
+          </Chip>
+        </div>
+
+        <div className="space-y-4 p-4 sm:p-5">
+          <div
+            className="rounded-xl p-4"
+            style={{
+              background:
+                'linear-gradient(135deg, color-mix(in srgb, #0b1628 92%, #0ea5e9) 0%, #0b1628 100%)',
+              color: '#fff',
+            }}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-wider text-sky-300/80">
+                  MCA · Watch Rating
+                </p>
+                <p className="mt-1 text-lg font-semibold tracking-tight">
+                  Deckhand Watch Rating package
+                </p>
+                <p className="mt-1 text-xs text-slate-300">
+                  {doneCount} of {checklist.length} requirements met
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-3xl font-semibold tabular-nums tracking-tight">
+                  {percent}%
+                </p>
+                <p className="text-[11px] text-slate-400">progress</p>
+              </div>
+            </div>
+            <div
+              className="mt-4 h-1.5 overflow-hidden rounded-full"
+              style={{ backgroundColor: 'rgba(255,255,255,0.12)' }}
+            >
+              <motion.div
+                className="h-full rounded-full"
+                style={{
+                  background: 'linear-gradient(90deg, #38bdf8, #34d399)',
+                  width: `${percent}%`,
+                }}
+                initial={{ width: 0 }}
+                whileInView={{ width: `${percent}%` }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.9, ease: 'easeOut' }}
+              />
+            </div>
+          </div>
+
+          <div
+            className="rounded-xl p-3"
+            style={{
+              backgroundColor: 'var(--wk-card)',
+              border: '1px solid var(--wk-line)',
+            }}
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold" style={{ color: 'var(--wk-text)' }}>
+                Sea time toward ticket
+              </p>
+              <span
+                className="font-mono text-[11px] tabular-nums"
+                style={{ color: 'var(--wk-accent-strong)' }}
+              >
+                142 / 180 days
+              </span>
+            </div>
+            <div
+              className="h-2 overflow-hidden rounded-full"
+              style={{ backgroundColor: 'var(--wk-bg-deep)' }}
+            >
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: '79%',
+                  background:
+                    'linear-gradient(90deg, var(--wk-accent), var(--wk-accent-2))',
+                }}
+              />
+            </div>
+            <p className="mt-2 text-[11px]" style={{ color: 'var(--wk-text-muted)' }}>
+              38 at-sea days remaining from approved testimonials
+            </p>
+          </div>
+
+          <ul className="space-y-2">
+            {checklist.map((item, i) => (
+              <motion.li
+                key={item.label}
+                initial={{ opacity: 0, y: 8 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.35, delay: 0.08 * i }}
+                className="flex items-start gap-3 rounded-xl px-3 py-2.5"
+                style={{
+                  backgroundColor: 'var(--wk-card)',
+                  border: '1px solid var(--wk-line)',
+                }}
+              >
+                <span
+                  className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+                  style={{
+                    backgroundColor: item.done
+                      ? 'var(--wk-good-soft)'
+                      : 'var(--wk-warm-soft)',
+                    color: item.done ? 'var(--wk-good)' : 'var(--wk-warm)',
+                  }}
+                >
+                  {item.done ? (
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <Clock className="h-3.5 w-3.5" />
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p
+                      className="text-sm font-medium"
+                      style={{ color: 'var(--wk-text)' }}
+                    >
+                      {item.label}
+                    </p>
+                    {item.value ? (
+                      <span
+                        className="shrink-0 font-mono text-[11px] tabular-nums"
+                        style={{ color: 'var(--wk-text-muted)' }}
+                      >
+                        {item.value}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--wk-text-soft)' }}>
+                    {item.detail}
+                  </p>
+                </div>
+              </motion.li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
   );
 }
 

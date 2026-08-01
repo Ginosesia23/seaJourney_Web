@@ -1195,6 +1195,9 @@ export interface SeaServiceBreakdownPDFInput {
   /** Qualifying standby (already capped when passed from Documents). */
   standbyDays: number;
   yardDays: number;
+  /** Final sea-service total after applying the vessel-class rule. */
+  seaServiceDays: number;
+  seaServiceMethod: 'underway_standby' | 'all_non_leave';
   dataSourceLabel: string;
   calculationNote: string;
   generatedByName: string;
@@ -3247,7 +3250,10 @@ async function generateSeaJourneyTestimonialModern(
 /*                            SEA TIME REPORT PDF                             */
 /* ========================================================================== */
 
-export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
+export async function generateSeaTimeTestimonial(
+  data: SeaTimeReportDataType,
+  output: 'newtab' | 'blob' = 'newtab',
+) {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -3539,6 +3545,9 @@ export async function generateSeaTimeTestimonial(data: SeaTimeReportDataType) {
     doc.text(`Page ${i} of ${pageCount}`, pageWidth - 14, footerY, { align: 'right' });
   }
 
+  if (output === 'blob') {
+    return doc.output('blob');
+  }
   doc.output('dataurlnewwindow');
 }
 
@@ -4099,23 +4108,36 @@ export async function generateSeaServiceBreakdownPDF(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   setText(colors.muted);
+  const breakdownMethodNote =
+    data.seaServiceMethod === 'all_non_leave'
+      ? 'Commercial-class rule: every calendar day in the service period counts as sea service except days on leave. Daily states are shown for reference; standby and yard are not deducted or reported separately.'
+      : 'Yacht/MCA-style rule: sea service is logged underway plus qualifying standby. Missing dates carry forward the last known state. On-leave days are included only in the total calendar length.';
   const breakdownNoteLines = doc.splitTextToSize(
-    'Logged daily states across the period (missing dates carry forward the last known state). On-leave days are not listed below; they are included only in the total calendar length. Sea service total is underway plus qualifying standby — the same combination as the SeaJourney crew breakdown.',
+    breakdownMethodNote,
     contentWidth,
   );
   doc.text(breakdownNoteLines, margin, y);
   y += breakdownNoteLines.length * 3.6 + 2;
 
-  const seaServiceTotal = data.underwayDays + data.standbyDays;
-  const breakdownRows: [string, string][] = [
-    ['Total calendar days in period', String(data.totalDays)],
-    ['Underway', String(data.underwayDays)],
-    ['Standby (qualifying days)', String(data.standbyDays)],
-    ['Sea service total (underway + standby)', String(seaServiceTotal)],
-    ['At anchor', String(data.atAnchorDays)],
-    ['In port', String(data.inPortDays)],
-    ['In yard', String(data.yardDays)],
-  ];
+  const breakdownRows: [string, string][] =
+    data.seaServiceMethod === 'all_non_leave'
+      ? [
+          ['Total calendar days in period', String(data.totalDays)],
+          ['Sea service (all onboard days except leave)', String(data.seaServiceDays)],
+          ['Underway (logged state)', String(data.underwayDays)],
+          ['At anchor (logged state)', String(data.atAnchorDays)],
+          ['In port (logged state)', String(data.inPortDays)],
+          ['In yard (included in commercial sea service)', String(data.yardDays)],
+        ]
+      : [
+          ['Total calendar days in period', String(data.totalDays)],
+          ['Underway', String(data.underwayDays)],
+          ['Standby (qualifying days)', String(data.standbyDays)],
+          ['Sea service total (underway + standby)', String(data.seaServiceDays)],
+          ['At anchor', String(data.atAnchorDays)],
+          ['In port', String(data.inPortDays)],
+          ['In yard', String(data.yardDays)],
+        ];
 
   const daysValueColW = 36;
   autoTable(doc, {

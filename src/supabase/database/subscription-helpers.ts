@@ -169,3 +169,63 @@ export function hasCrewAisLiveTrackingTier(userProfile: any): boolean {
   if (VESSEL_MANAGED_FREE_TIERS.has(tier)) return false;
   return CREW_PREMIUM_PLUS_TIERS.has(tier);
 }
+
+/**
+ * Crew Professional tier only. Used by the Passages Map (visual AIS-history
+ * map of every passage across the crew's assignments).
+ *
+ * Rationale for gating tighter than `hasCrewAisLiveTrackingTier`: rendering
+ * the map backfills Datalastic history for each vessel assignment, which is
+ * more expensive than a per-day AIS history import. We only offer this to
+ * the top crew tier so the Datalastic cost is bounded.
+ *
+ * Both `pro` and `professional` are accepted — the two slugs are treated as
+ * equivalent throughout billing/offers (see `src/app/actions.ts`).
+ * `crew_limited` / `vessel_linked` never qualify.
+ * Admins bypass for support / debugging.
+ */
+export function hasProfessionalCrewTier(userProfile: any): boolean {
+  if (!userProfile) return false;
+
+  const role = ((userProfile as any).role || userProfile.role || '')
+    .toString()
+    .toLowerCase();
+  if (role === 'admin') return true;
+  if (role !== 'crew' && role !== 'captain') return false;
+  if (!hasActiveSubscription(userProfile)) return false;
+
+  const tier = getTierLower(userProfile);
+  if (VESSEL_MANAGED_FREE_TIERS.has(tier)) return false;
+  return tier === 'professional' || tier === 'pro';
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────
+ * Passages Map access gate.
+ *
+ * Allowed:
+ *   - Crew Professional (`pro` / `professional`)
+ *   - Vessel Premium+ (`vessel_basic` / `vessel_pro` / `vessel_fleet`)
+ *   - Admins (support / debugging)
+ *
+ * ⚠️  TEMPORARY: Crew Premium is currently allowed for testing.
+ * Delete the TEMP block below to lock crew access back to Professional.
+ * ─────────────────────────────────────────────────────────────────────
+ */
+export function hasPassagesMapAccess(userProfile: any): boolean {
+  if (hasProfessionalCrewTier(userProfile)) return true;
+  if (hasVesselPremiumPlusFeatures(userProfile)) return true;
+
+  // TEMP: allow Crew Premium in for testing. Remove this block to
+  // restrict crew back to Professional-only.
+  if (!userProfile) return false;
+  const role = ((userProfile as any).role || userProfile.role || '')
+    .toString()
+    .toLowerCase();
+  if (role !== 'crew' && role !== 'captain') return false;
+  if (!hasActiveSubscription(userProfile)) return false;
+  const tier = getTierLower(userProfile);
+  if (VESSEL_MANAGED_FREE_TIERS.has(tier)) return false;
+  return tier === 'premium';
+  // END TEMP
+}

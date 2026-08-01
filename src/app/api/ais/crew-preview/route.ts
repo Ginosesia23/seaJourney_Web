@@ -14,6 +14,10 @@ import {
   aggregateCrewDailyState,
   type CrewAisSample,
 } from '@/lib/ais/aggregate-crew-daily-state';
+import {
+  resolveLiveSampleState,
+  type PreviousSample,
+} from '@/lib/ais/resolve-live-sample-state';
 import { reverseGeocodeStructured } from '@/lib/geocoding/reverse-geocode';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-helpers';
@@ -166,6 +170,44 @@ export async function GET(req: NextRequest) {
     const rawNavStatus = getAisNavStatus(position);
     const normalisedNavStatus = normalizeAisNavStatus(rawNavStatus) || null;
 
+    // Load the most recent sample overall (may be from an earlier day) so
+    // the resolver has a previous-position anchor for its stability check.
+    // Mirror what `syncCrewStateFromAis` reads.
+    const { data: latestSampleAny } = await supabaseAdmin
+      .from('crew_ais_state_samples')
+      .select('state, sampled_at, lat, lon')
+      .eq('user_id', user.id)
+      .eq('vessel_id', vesselId)
+      .order('sampled_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const previousSampleForResolver: PreviousSample | null = latestSampleAny
+      ? {
+          state: latestSampleAny.state as DailyStatus,
+          lat: (latestSampleAny.lat as number) ?? null,
+          lon: (latestSampleAny.lon as number) ?? null,
+          sampledAt: latestSampleAny.sampled_at as string,
+        }
+      : null;
+
+    // Same stabilized state the live sync would record for this fix, so the
+    // debug panel can show exactly why a state was chosen (and whether a
+    // notification would fire). Pass yesterday's state + last-known coords
+    // as the yesterday-anchor so the "locked to yesterday" tier is exercised
+    // in preview too — mirrors `syncCrewStateFromAis`.
+    const resolution = resolveLiveSampleState({
+      position,
+      previousSample: previousSampleForResolver,
+      yesterdayAnchor: previousDay
+        ? {
+            state: previousDay.state,
+            lat: previousDay.lastLatitude,
+            lon: previousDay.lastLongitude,
+          }
+        : null,
+      locationContext,
+    });
+
     // Run the aggregator on the stored samples + a synthetic sample for the
     // just-fetched position, so the panel shows the exact verdict + reason
     // that today would resolve to right now (does not persist anything).
@@ -210,6 +252,14 @@ export async function GET(req: NextRequest) {
       fetchedAt: new Date().toISOString(),
       isStale,
       mappedState,
+      resolvedState: {
+        state: resolution.state,
+        confidence: resolution.confidence,
+        reason: resolution.reason,
+        distanceFromPreviousNm: resolution.distanceFromPreviousNm,
+        positionChangedMeaningfully: resolution.positionChangedMeaningfully,
+      },
+      previousSampleForResolver,
       logDate,
       positionLogDate,
       position,

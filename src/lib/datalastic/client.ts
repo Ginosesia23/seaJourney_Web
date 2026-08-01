@@ -162,6 +162,7 @@ export async function fetchVesselHistoryRange(params: {
 }): Promise<{ positions: DatalasticVesselPosition[]; requestCount: number }> {
   const chunks = splitHistoryDateRange(params.from, params.to);
   const allPositions: DatalasticVesselPosition[] = [];
+  const seen = new Set<string>();
 
   for (const chunk of chunks) {
     const positions = await fetchVesselHistory({
@@ -170,7 +171,17 @@ export async function fetchVesselHistoryRange(params: {
       from: chunk.from,
       to: chunk.to,
     });
-    allPositions.push(...positions);
+    for (const p of positions) {
+      // Chunks overlap by 1 day — drop exact duplicates from the seam.
+      const key = [
+        p.last_position_UTC ?? p.last_position_epoch ?? '',
+        p.lat ?? '',
+        p.lon ?? '',
+      ].join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      allPositions.push(p);
+    }
   }
 
   return { positions: allPositions, requestCount: chunks.length };

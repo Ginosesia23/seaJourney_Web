@@ -5,6 +5,7 @@ import {
   generateMCADeckhandTestimonial,
   generateMCAOfficerTestimonial,
   type TestimonialPDFFormat,
+  type TestimonialPDFOutput,
 } from '@/lib/pdf-generator';
 import { buildTestimonialStandbyPeriods } from '@/lib/build-testimonial-standby-periods';
 
@@ -40,8 +41,9 @@ function companyDetailsFromVessel(v: Vessel) {
 }
 
 /**
- * Generate/download an MCA (or other format) testimonial PDF for the signed-in crew member.
+ * Generate an MCA (or other format) testimonial PDF for the signed-in crew member.
  * Mirrors dashboard applications PDF flow: vessel fetch, approved_testimonials snapshot, captain profile.
+ * Pass `output: 'blob'` to receive a Blob instead of triggering a browser download.
  */
 export async function downloadTestimonialPdfForCrewMember(
   supabase: SupabaseClient,
@@ -49,7 +51,8 @@ export async function downloadTestimonialPdfForCrewMember(
   userProfile: UserProfile,
   authUserId: string | undefined,
   format: TestimonialPDFFormat = 'mca',
-): Promise<void> {
+  output: TestimonialPDFOutput = 'download',
+): Promise<Blob | void> {
   const { data: vesselRow, error: vErr } = await supabase
     .from('vessels')
     .select('*')
@@ -238,28 +241,27 @@ export async function downloadTestimonialPdfForCrewMember(
     };
 
     if (isOfficerUser) {
-      await generateMCAOfficerTestimonial(testimonialDataWithReceipt, 'download');
-    } else {
-      await generateMCADeckhandTestimonial(testimonialDataWithReceipt, 'download');
+      return await generateMCAOfficerTestimonial(testimonialDataWithReceipt, output);
     }
-  } else {
-    const payload =
-      format === 'amsa'
-        ? {
-            ...testimonialData,
-            receiptData: {
-              documentId: testimonial.id,
-              sjCode: testimonial.testimonial_code || null,
-              documentType: 'testimonial' as const,
-              generatedAt: new Date().toISOString(),
-              generatedBy: {
-                userId: authUserId,
-                email: userProfile?.email || undefined,
-              },
-            },
-          }
-        : testimonialData;
-
-    await generateTestimonialPDF(payload, format, 'download');
+    return await generateMCADeckhandTestimonial(testimonialDataWithReceipt, output);
   }
+
+  const payload =
+    format === 'amsa'
+      ? {
+          ...testimonialData,
+          receiptData: {
+            documentId: testimonial.id,
+            sjCode: testimonial.testimonial_code || null,
+            documentType: 'testimonial' as const,
+            generatedAt: new Date().toISOString(),
+            generatedBy: {
+              userId: authUserId,
+              email: userProfile?.email || undefined,
+            },
+          },
+        }
+      : testimonialData;
+
+  return await generateTestimonialPDF(payload, format, output);
 }
