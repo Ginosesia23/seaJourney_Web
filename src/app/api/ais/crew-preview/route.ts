@@ -18,6 +18,7 @@ import {
   resolveLiveSampleState,
   type PreviousSample,
 } from '@/lib/ais/resolve-live-sample-state';
+import { findPlaceMemoryHint } from '@/lib/ais/place-memory';
 import { reverseGeocodeStructured } from '@/lib/geocoding/reverse-geocode';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-helpers';
@@ -194,7 +195,14 @@ export async function GET(req: NextRequest) {
     // debug panel can show exactly why a state was chosen (and whether a
     // notification would fire). Pass yesterday's state + last-known coords
     // as the yesterday-anchor so the "locked to yesterday" tier is exercised
-    // in preview too — mirrors `syncCrewStateFromAis`.
+    // in preview too — mirrors `syncCrewStateFromAis`. Also load place
+    // memory so returning to a known marina shows up in the reason string.
+    const placeMemory = await findPlaceMemoryHint({
+      vesselId,
+      lat: typeof position.lat === 'number' ? position.lat : null,
+      lon: typeof position.lon === 'number' ? position.lon : null,
+    });
+
     const resolution = resolveLiveSampleState({
       position,
       previousSample: previousSampleForResolver,
@@ -205,6 +213,7 @@ export async function GET(req: NextRequest) {
             lon: previousDay.lastLongitude,
           }
         : null,
+      placeMemory,
       locationContext,
     });
 
@@ -259,6 +268,7 @@ export async function GET(req: NextRequest) {
         distanceFromPreviousNm: resolution.distanceFromPreviousNm,
         positionChangedMeaningfully: resolution.positionChangedMeaningfully,
       },
+      placeMemory,
       previousSampleForResolver,
       logDate,
       positionLogDate,

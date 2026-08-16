@@ -1,59 +1,64 @@
 /**
- * Find the nearest curated port/city to a lat/lon.
+ * Find the nearest curated port/city to a lat/lon, and resolve human
+ * endpoint labels for AIS passages (sync / client-safe).
  *
- * Used to label the start/end of each passage in the hover popup as
- * "Palma → Antibes" rather than raw coordinates. When there's no
- * suitable match (open-ocean start/end, or the vessel was more than
- * `MAX_MATCH_DISTANCE_NM` from any city in our curated list), the
- * caller gets `null` and shows a fallback label like "open sea".
+ * Used to label the start/end of each passage as "Palma → Antibes"
+ * rather than "Open sea → Open sea". When nothing curated is close
+ * enough, we fall back to a short GPS coordinate label.
+ *
+ * Server routes that can call reverse geocode should use
+ * `resolveEndpointNameFromGps` in `./resolve-endpoint-name`.
  *
  * Distance thresholds
  * ───────────────────
- * MAX_MATCH_DISTANCE_NM = 40 nautical miles. That comfortably covers
- * yacht-relevant approaches — every mediterranean marina is within
- * 40 NM of *some* named city in MAJOR_CITIES — but is short enough
- * that a passage terminating mid-Atlantic doesn't get mislabelled as
- * "Casablanca".
+ * CLOSE_MATCH_NM (50) — treat as that port/marina.
+ * NEAR_MATCH_NM (140) — "Near Palma" when nothing closer; better than
+ * blank open-sea labels for coastal passages just outside a curated hub.
  *
- * Only Tier 1/2 cities are considered for start/end labelling — Tier 3
- * (secondary yacht destinations like Formentera, Cannes, Kotor) still
- * appear in the map's label layer, but are excluded here because they
- * lie close enough to bigger neighbours that the popup would flip
- * between "Palma" and "Formentera" depending on exactly where the
- * anchor dropped.
+ * All city tiers are considered for endpoint labelling (including Tier 3
+ * yacht destinations). Closest wins.
  */
 
 import { MAJOR_CITIES, type MajorCity } from './major-cities';
 
-/**
- * Nautical miles per degree of latitude — used for the cheap
- * equirectangular distance check we do BEFORE haversine to prune the
- * candidate list. 1° lat ≈ 60 NM.
- */
 const NM_PER_DEG_LAT = 60;
 
-const MAX_MATCH_DISTANCE_NM = 40;
+/** Within this range we use the city name as-is. */
+export const CLOSE_MATCH_NM = 50;
+
+/** Beyond close, still useful as "Near X" before falling back to coords. */
+export const NEAR_MATCH_NM = 140;
+
+export type NearestPortMatch = {
+  name: string;
+  distanceNm: number;
+  tier: 1 | 2 | 3;
+  country?: string;
+};
 
 /**
- * Return the closest curated port to `lat`, `lon` (within
- * MAX_MATCH_DISTANCE_NM), or `null` if there's nothing close enough.
+ * Return the closest curated port to `lat`, `lon` within
+ * `maxDistanceNm`, or `null` if nothing is close enough.
  */
 export function findNearestPort(
   lat: number,
   lon: number,
-  opts?: { maxDistanceNm?: number },
-): { name: string; distanceNm: number } | null {
-  const max = opts?.maxDistanceNm ?? MAX_MATCH_DISTANCE_NM;
-  // Convert the max distance to a rough lat-window so we can prune the
-  // candidate list to just the cities within that lat band. At
-  // higher-magnitude latitudes 1° longitude gets shorter, so we don't
-  // prune by lon here — it'd be more work than just haversineing.
+  opts?: {
+    maxDistanceNm?: number;
+    /** Default includes all tiers (1–3). Pass e.g. `[1, 2]` to exclude yacht hubs. */
+    tiers?: Array<1 | 2 | 3>;
+  },
+): NearestPortMatch | null {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+  const max = opts?.maxDistanceNm ?? CLOSE_MATCH_NM;
+  const allowed = opts?.tiers ? new Set(opts.tiers) : null;
   const maxDegLat = max / NM_PER_DEG_LAT;
 
   let best: MajorCity | null = null;
   let bestDist = Infinity;
   for (const c of MAJOR_CITIES) {
-    if (c.tier === 3) continue;
+    if (allowed && !allowed.has(c.tier)) continue;
     if (Math.abs(c.lat - lat) > maxDegLat) continue;
     const d = haversineNm(lat, lon, c.lat, c.lon);
     if (d < bestDist) {
@@ -63,13 +68,50 @@ export function findNearestPort(
   }
 
   if (!best || bestDist > max) return null;
-  return { name: best.name, distanceNm: bestDist };
+  return {
+    name: best.name,
+    distanceNm: bestDist,
+    tier: best.tier,
+    country: best.country,
+  };
+}
+
+/**
+ * Compact GPS label for endpoints with no nearby named place.
+ * Example: `43.58°N 7.13°E`
+ */
+export function formatLatLonLabel(lat: number, lon: number): string {
+  const ns = lat >= 0 ? 'N' : 'S';
+  const ew = lon >= 0 ? 'E' : 'W';
+  return `${Math.abs(lat).toFixed(2)}°${ns} ${Math.abs(lon).toFixed(2)}°${ew}`;
+}
+
+/**
+ * Sync resolver for map UI / client: curated port → "Near X" → GPS.
+ * Never returns "Open sea" when coordinates are valid.
+ */
+export function resolveEndpointLabel(
+  lat: number,
+  lon: number,
+  opts?: { closeNm?: number; nearNm?: number },
+): string {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return 'Unknown';
+
+  const closeNm = opts?.closeNm ?? CLOSE_MATCH_NM;
+  const nearNm = opts?.nearNm ?? NEAR_MATCH_NM;
+
+  const close = findNearestPort(lat, lon, { maxDistanceNm: closeNm });
+  if (close) return close.name;
+
+  const near = findNearestPort(lat, lon, { maxDistanceNm: nearNm });
+  if (near) return `Near ${near.name}`;
+
+  return formatLatLonLabel(lat, lon);
 }
 
 /**
  * Convenience: given a passage's start + end coordinates, return a
- * short "Palma → Antibes" label (or "Palma → open sea" / null when
- * neither endpoint matches).
+ * short "Palma → Antibes" / "Near Genoa → 43.12°N 8.40°E" label.
  */
 export function passagePortLabel(
   startLat: number,
@@ -77,19 +119,21 @@ export function passagePortLabel(
   endLat: number,
   endLon: number,
 ): string | null {
-  const s = findNearestPort(startLat, startLon);
-  const e = findNearestPort(endLat, endLon);
-  if (!s && !e) return null;
-  const startLabel = s?.name ?? 'Open sea';
-  const endLabel = e?.name ?? 'Open sea';
-  if (s && e && s.name === e.name) return `${s.name} (round trip)`;
+  if (
+    ![startLat, startLon, endLat, endLon].every((n) => Number.isFinite(n))
+  ) {
+    return null;
+  }
+  const startLabel = resolveEndpointLabel(startLat, startLon);
+  const endLabel = resolveEndpointLabel(endLat, endLon);
+  if (startLabel === endLabel) return `${startLabel} (round trip)`;
   return `${startLabel} → ${endLabel}`;
 }
 
 /**
  * Standard haversine distance between two lat/lon points, in nautical
- * miles. Kept local (rather than pulling from `analyze-daily-state`) so
- * this module doesn't drag AIS state analysis into the client bundle.
+ * miles. Kept local so this module doesn't drag AIS state analysis into
+ * the client bundle.
  */
 function haversineNm(
   lat1: number,

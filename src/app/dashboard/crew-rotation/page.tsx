@@ -1679,128 +1679,10 @@ export default function CrewRotationPage() {
     nextTransition: Date | null;
   } | null>(null);
 
-  // ---- Auto leave-period bookkeeping -----------------------------------
-  // Whenever a crew member is toggled off-board from this page we want
-  // that absence to appear in their Leave Periods on the crew page (so
-  // the vessel manager has a single source of truth for time away from
-  // the boat). When they're toggled back on-board we close the most
-  // recent auto-recorded period out so its length reflects reality.
-  const recordLeaveFromToggle = useCallback(
-    async (
-      crewUserId: string,
-      newOnboard: boolean,
-      leaveEndDate: Date | null,
-    ) => {
-      if (!supabase || !activeVesselId || !user?.id) return;
-
-      const today = startOfDay(new Date());
-      const todayIso = format(today, 'yyyy-MM-dd');
-      const openEndIso = format(
-        leaveEndDate ?? manualSignOffOverrideUntil(today),
-        'yyyy-MM-dd',
-      );
-
-      if (!newOnboard) {
-        try {
-          const { data: openLeaves, error: fetchErr } = await supabase
-            .from('crew_leave_periods')
-            .select('id, end_date')
-            .eq('crew_user_id', crewUserId)
-            .eq('vessel_id', activeVesselId)
-            .gte('end_date', todayIso)
-            .like('notes', `${ONBOARD_TOGGLE_LEAVE_MARKER}%`)
-            .order('start_date', { ascending: false })
-            .limit(1);
-
-          if (fetchErr) {
-            console.warn(
-              '[ONBOARD TRACKER] Could not look up auto leave periods:',
-              fetchErr.message,
-            );
-            return;
-          }
-
-          const open = openLeaves?.[0];
-          if (open) {
-            if (open.end_date < openEndIso) {
-              await supabase
-                .from('crew_leave_periods')
-                .update({ end_date: openEndIso })
-                .eq('id', open.id);
-            }
-            return;
-          }
-
-          const { error } = await supabase
-            .from('crew_leave_periods')
-            .insert({
-              crew_user_id: crewUserId,
-              vessel_id: activeVesselId,
-              vessel_user_id: user.id,
-              start_date: todayIso,
-              end_date: openEndIso,
-              notes: `${ONBOARD_TOGGLE_LEAVE_MARKER} Off-board via Onboard Tracker`,
-            });
-          if (error) {
-            console.warn(
-              '[ONBOARD TRACKER] Could not auto-record leave period:',
-              error.message,
-            );
-          }
-        } catch (err) {
-          console.warn(
-            '[ONBOARD TRACKER] Leave period insert exception:',
-            err,
-          );
-        }
-        return;
-      }
-
-      // Going on-board → close the most recent open auto-recorded leave.
-      try {
-        const { data: openLeaves, error: fetchErr } = await supabase
-          .from('crew_leave_periods')
-          .select('id, start_date, end_date, notes')
-          .eq('crew_user_id', crewUserId)
-          .eq('vessel_id', activeVesselId)
-          .gte('end_date', todayIso)
-          .like('notes', `${ONBOARD_TOGGLE_LEAVE_MARKER}%`)
-          .order('start_date', { ascending: false })
-          .limit(1);
-
-        if (fetchErr) {
-          console.warn(
-            '[ONBOARD TRACKER] Could not look up auto leave periods:',
-            fetchErr.message,
-          );
-          return;
-        }
-
-        const open = openLeaves?.[0];
-        if (!open) return;
-
-        if (open.start_date >= todayIso) {
-          await supabase
-            .from('crew_leave_periods')
-            .delete()
-            .eq('id', open.id);
-        } else {
-          const yesterdayIso = format(addDays(today, -1), 'yyyy-MM-dd');
-          await supabase
-            .from('crew_leave_periods')
-            .update({ end_date: yesterdayIso })
-            .eq('id', open.id);
-        }
-      } catch (err) {
-        console.warn(
-          '[ONBOARD TRACKER] Leave period close exception:',
-          err,
-        );
-      }
-    },
-    [supabase, activeVesselId, user?.id],
-  );
-
+  // ---- Days owed bookkeeping -------------------------------------------
+  // Leave periods are opened/closed by POST /api/crew-rotation/onboard-status.
+  // Days owed is still recorded client-side when the manager opts in from
+  // the conflict dialog.
   const recordDaysOwedFromOverride = useCallback(
     async (
       crewUserId: string,
@@ -1914,10 +1796,10 @@ export default function CrewRotationPage() {
   );
 
   // ---- Low-level write --------------------------------------------------
-  // Single funnel for every onboard mutation made from this page. It
-  // updates the row optimistically (so the toggle is snappy) and
-  // optionally writes `onboard_override_until` so the sync route will
-  // honour the manual choice until that timestamp passes.
+  // Single funnel for every onboard mutation made from this page. Optimistic
+  // UI update, then POST /api/crew-rotation/onboard-status which updates the
+  // assignment, leave periods, crew daily logs (when access approved), and
+  // notifies the crew member.
   const applyOnboardChange = useCallback(
     async (
       assignmentId: string,
@@ -1951,19 +1833,44 @@ export default function CrewRotationPage() {
       );
 
       try {
-        const { error } = await supabase
-          .from('vessel_assignments')
-          .update({ onboard: newValue, onboard_override_until: overrideIso })
-          .eq('id', assignmentId);
-        if (error) throw error;
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token || !activeVesselId) {
+          throw new Error('Not signed in or no active vessel.');
+        }
 
+        const res = await fetch('/api/crew-rotation/onboard-status', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            assignmentId,
+            vesselId: activeVesselId,
+            crewUserId,
+            onboard: newValue,
+            overrideUntil: overrideIso,
+            leaveEndDate: effectiveLeaveEnd
+              ? format(effectiveLeaveEnd, 'yyyy-MM-dd')
+              : null,
+            skipSignOffLeave,
+          }),
+        });
+
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            (payload as { error?: string })?.error ??
+              'Could not update onboard status.',
+          );
+        }
+
+        if (previousValue !== newValue && newValue) {
+          await closeDaysOwedOnReturn(crewUserId);
+        }
         if (previousValue !== newValue) {
-          if (!(skipSignOffLeave && !newValue)) {
-            await recordLeaveFromToggle(crewUserId, newValue, effectiveLeaveEnd);
-          }
-          if (newValue) {
-            await closeDaysOwedOnReturn(crewUserId);
-          }
           await refreshLeavePeriods();
           await refreshDaysOwedPeriods();
         }
@@ -1985,7 +1892,13 @@ export default function CrewRotationPage() {
         setTogglingAssignmentId(null);
       }
     },
-    [supabase, recordLeaveFromToggle, closeDaysOwedOnReturn, refreshLeavePeriods, refreshDaysOwedPeriods],
+    [
+      supabase,
+      activeVesselId,
+      closeDaysOwedOnReturn,
+      refreshLeavePeriods,
+      refreshDaysOwedPeriods,
+    ],
   );
 
   // ---- Toggle entry point ----------------------------------------------
@@ -2009,7 +1922,9 @@ export default function CrewRotationPage() {
         await applyOnboardChange(assignmentId, member.userId, currentValue, newValue, null);
         toast({
           title: newValue ? 'Marked onboard' : 'Marked off-board',
-          description: 'Onboard status updated.',
+          description: newValue
+            ? 'Onboard status updated. The crew member has been notified.'
+            : 'Leave recorded. The crew member has been notified.',
         });
         return;
       }
@@ -2031,7 +1946,9 @@ export default function CrewRotationPage() {
         );
         toast({
           title: newValue ? 'Marked onboard' : 'Marked off-board',
-          description: 'Back in sync with the rotation pattern.',
+          description: newValue
+            ? 'Back in sync with the rotation pattern. The crew member has been notified.'
+            : 'Leave recorded and synced with rotation. The crew member has been notified.',
         });
         return;
       }

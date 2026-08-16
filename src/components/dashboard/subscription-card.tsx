@@ -279,23 +279,23 @@ export function SubscriptionCard() {
   const vesselLimitForFleet = getVesselLimitForFleet();
   
   return (
-    <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-slate-50 dark:bg-card">
-        <CardHeader>
+    <Card className="rounded-xl border shadow-none">
+        <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
-              <Sparkles className="h-5 w-5 text-primary" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border bg-muted/30">
+              <Sparkles className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
-              <CardTitle className="text-xl">Subscription</CardTitle>
-              <CardDescription className="mt-0.5">
+              <CardTitle className="text-sm font-semibold tracking-tight">Subscription</CardTitle>
+              <CardDescription className="text-xs">
                 Plan & billing
               </CardDescription>
             </div>
           </div>
                 <Badge 
                     className={cn(
-              "rounded-xl capitalize text-xs font-medium",
+              "rounded-lg capitalize text-xs font-medium",
               isPastDue
                 ? 'bg-orange-500/20 text-orange-700 border-orange-500/30 dark:text-orange-400'
                 : isActive && cancelAtPeriodEnd

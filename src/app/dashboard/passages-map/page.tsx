@@ -23,6 +23,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Map as MapLibreMap,
   LngLatBounds,
@@ -52,11 +53,14 @@ import {
   ChevronUp,
   Maximize2,
   Download,
+  BookMarked,
+  BookPlus,
 } from 'lucide-react';
 
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -65,8 +69,15 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert';
+import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import type { UserProfile } from '@/lib/types';
+import {
+  buildAisPassageFingerprint,
+  isAisVoyageLinkedToLogbook,
+  type LogbookLinkRow,
+} from '@/lib/passages/ais-logbook-link';
 import {
   buildOfflineWorldStyle,
   getOfflineBordersGeoJson,
@@ -89,16 +100,31 @@ import {
   type MapLabelHandle,
 } from '@/lib/passages-map/map-labels';
 import {
+  collectTrackPlaceSamples,
+  dedupeDiscoveredPlaces,
+  loadCachedDiscoveredPlaces,
+  mergeDiscoveredPlaces,
+  resolveSampleFromCurated,
+  saveCachedDiscoveredPlaces,
+  type DiscoveredPlace,
+} from '@/lib/passages-map/discover-places';
+import {
   ensurePassageArrowImage,
   PASSAGE_ARROW_IMAGE_ID,
 } from '@/lib/passages-map/passage-icons';
 import { passagePortLabel } from '@/lib/passages-map/nearest-port';
-import { scrubAlongTrack } from '@/lib/passages-map/scrub-along-track';
+import { scrubAlongTrack, sampleAtProgress, type ScrubSample } from '@/lib/passages-map/scrub-along-track';
 import { buildTripTitle } from '@/lib/passages-map/trip-title';
 import {
   buildVoyageCardPng,
   downloadBlob,
 } from '@/lib/passages-map/export-voyage-card';
+import { selectionPaletteForVesselColor } from '@/lib/passages-map/vessel-colors';
+import { smoothLineCoordinates } from '@/lib/passages-map/smooth-track';
+import {
+  PassageTimelineBar,
+  type PassageTimelineMeta,
+} from '@/components/passages-map/passage-timeline-bar';
 
 // Point MapLibre at a stable, self-hosted worker URL BEFORE any Map
 // instance can be created. Without this, MapLibre's auto-detected
@@ -410,15 +436,21 @@ const LIVE_POLL_MS = 60_000;
 export default function PassagesMapPage() {
   const { user, isUserLoading } = useUser();
   const { session } = useSupabase();
+  const { toast } = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: userProfile, isLoading: isProfileLoading } = useDoc<UserProfile>(
     'users',
     user?.id,
   );
+  const { isEnabled: isFeatureEnabled, isLoading: isFlagsLoading } =
+    useFeatureFlags();
 
   const eligible = React.useMemo(
     () => hasPassagesMapAccess(userProfile),
     [userProfile],
   );
+  const featureOn = isFeatureEnabled('passages_map');
   const isVesselAccount = React.useMemo(() => {
     const role = (
       (userProfile as { role?: string } | null)?.role ||
@@ -433,11 +465,33 @@ export default function PassagesMapPage() {
   const [live, setLive] = React.useState<LiveResponse | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [logbookFingerprints, setLogbookFingerprints] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const [logbookLinks, setLogbookLinks] = React.useState<LogbookLinkRow[]>([]);
+  const [promotingKey, setPromotingKey] = React.useState<string | null>(null);
+  const [isSyncingLogbook, setIsSyncingLogbook] = React.useState(false);
+  const [logbookMissingDismissed, setLogbookMissingDismissed] =
+    React.useState(false);
   const [hiddenVessels, setHiddenVessels] = React.useState<Set<string>>(new Set());
   /** When set, that vessel's tracks stay full-strength; others dim. */
   const [focusedVesselId, setFocusedVesselId] = React.useState<string | null>(
     null,
   );
+  /** Selected passage for timeline scrub + row highlight. */
+  const [selectedPassage, setSelectedPassage] = React.useState<{
+    vesselId: string;
+    passageIndex: number;
+  } | null>(null);
+  const [scrubProgress, setScrubProgress] = React.useState(0);
+  const [scrubSample, setScrubSample] = React.useState<ScrubSample | null>(null);
+  const handleScrubProgress = React.useCallback((p: number) => {
+    setScrubProgress(p);
+    // Drive MapLibre imperatively first so the marker tracks the
+    // pointer even if React state flush is slightly deferred.
+    const sample = canvasRef.current?.scrubToProgress(p) ?? null;
+    setScrubSample(sample);
+  }, []);
   const [styleId, setStyleId] = React.useState<MapStyleId>(DEFAULT_STYLE_ID);
   // Collapse the sidebar body (month nav, vessels, stats) while keeping
   // the header strip visible. State lives here so expand/collapse doesn't
@@ -452,6 +506,10 @@ export default function PassagesMapPage() {
     null,
   );
   const [isExporting, setIsExporting] = React.useState(false);
+  /** Town/port labels unlocked by sailing — grows as tracks load. */
+  const [discoveredPlaces, setDiscoveredPlaces] = React.useState<
+    DiscoveredPlace[]
+  >([]);
 
   const showTripToast = React.useCallback(
     (next: { title: string; vesselName: string; colorHex: string }) => {
@@ -483,6 +541,79 @@ export default function PassagesMapPage() {
     mode: 'month',
     month: currentMonthKeyClient(),
   }));
+
+  // Deep-link from Passage Logbook: ?month=YYYY-MM&vessel=<uuid>
+  const deepLinkAppliedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (deepLinkAppliedRef.current) return;
+    const month = searchParams?.get('month')?.trim();
+    const vessel = searchParams?.get('vessel')?.trim();
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      deepLinkAppliedRef.current = true;
+      setView({ mode: 'month', month });
+    }
+    if (vessel) {
+      deepLinkAppliedRef.current = true;
+      setFocusedVesselId(vessel);
+    }
+  }, [searchParams]);
+
+  const logbookMissingCount = React.useMemo(() => {
+    if (!tracks?.vessels?.length) return 0;
+    let missing = 0;
+    for (const vessel of tracks.vessels) {
+      for (const feature of vessel.featureCollection?.features ?? []) {
+        if (feature.geometry?.type !== 'LineString') continue;
+        const start = String(feature.properties?.startTime ?? '');
+        const end = String(feature.properties?.endTime ?? '');
+        if (!start || !end) continue;
+        const fingerprint = buildAisPassageFingerprint(
+          vessel.vesselId,
+          start,
+          end,
+        );
+        const linked = isAisVoyageLinkedToLogbook(
+          {
+            vesselId: vessel.vesselId,
+            startTime: start,
+            endTime: end,
+            fingerprint,
+          },
+          logbookFingerprints,
+          logbookLinks,
+        );
+        if (!linked) missing += 1;
+      }
+    }
+    return missing;
+  }, [tracks, logbookFingerprints, logbookLinks]);
+
+  const selectedPassageMeta = React.useMemo((): PassageTimelineMeta | null => {
+    if (!selectedPassage || !tracks?.vessels?.length) return null;
+    const vessel = tracks.vessels.find(
+      (v) => v.vesselId === selectedPassage.vesselId,
+    );
+    const feature =
+      vessel?.featureCollection?.features?.[selectedPassage.passageIndex];
+    if (!vessel || !feature) return null;
+    const routeLabel =
+      deriveRouteLabelFromLineFeature(feature) ?? 'Selected passage';
+    return {
+      vesselId: vessel.vesselId,
+      passageIndex: selectedPassage.passageIndex,
+      vesselName: vessel.vesselName,
+      colorHex: vessel.colorHex,
+      routeLabel,
+      startTime: strOrUndef(feature.properties?.startTime),
+      endTime: strOrUndef(feature.properties?.endTime),
+      distanceNm: numOrUndef(feature.properties?.distanceNm),
+    };
+  }, [selectedPassage, tracks]);
+
+  React.useEffect(() => {
+    // Re-show banner when missing count increases (new months loaded).
+    setLogbookMissingDismissed(false);
+  }, [tracks?.totals?.passageCount]);
 
   const handleExportVoyageCard = React.useCallback(async () => {
     if (isExporting) return;
@@ -534,6 +665,91 @@ export default function PassagesMapPage() {
     }
   }, []);
 
+  React.useEffect(() => {
+    if (!eligible || !session?.access_token || !user?.id) return;
+    if (!tracks?.vessels?.length) return;
+
+    let cancelled = false;
+
+    const samples = collectTrackPlaceSamples(
+      tracks.vessels.map((v) => v.featureCollection),
+    );
+    if (samples.length === 0) return;
+
+    // Instant curated ports from local data + any previously unlocked places.
+    const cached = loadCachedDiscoveredPlaces(user.id);
+    const curated = samples
+      .map((s) => resolveSampleFromCurated(s))
+      .filter((p): p is DiscoveredPlace => p != null);
+    const seed = mergeDiscoveredPlaces(cached, curated);
+    setDiscoveredPlaces(seed);
+
+    const knownKeys = new Set(seed.map((p) => p.cellKey));
+    const unknown = samples.filter((s) => !knownKeys.has(s.cellKey));
+    if (unknown.length === 0) {
+      saveCachedDiscoveredPlaces(user.id, seed);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const res = await fetch('/api/passages-map/places', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ samples: unknown }),
+        });
+        if (!res.ok || cancelled) return;
+        const json = (await res.json()) as {
+          places?: DiscoveredPlace[];
+        };
+        if (cancelled) return;
+        const incoming = Array.isArray(json.places) ? json.places : [];
+        const merged = mergeDiscoveredPlaces(seed, incoming);
+        const finalPlaces = dedupeDiscoveredPlaces(merged);
+        saveCachedDiscoveredPlaces(user.id, finalPlaces);
+        setDiscoveredPlaces(finalPlaces);
+      } catch {
+        /* discovery is progressive polish — never block the map */
+        saveCachedDiscoveredPlaces(user.id, seed);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [eligible, session?.access_token, user?.id, tracks?.vessels]);
+
+  React.useEffect(() => {
+    if (!eligible || !session?.access_token || !user?.id) return;
+    // Hydrate from server once so places unlocked on another device show up.
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/passages-map/places', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok || cancelled) return;
+        const json = (await res.json()) as { places?: DiscoveredPlace[] };
+        if (cancelled || !Array.isArray(json.places) || json.places.length === 0) {
+          return;
+        }
+        setDiscoveredPlaces((prev) => {
+          const merged = mergeDiscoveredPlaces(prev, json.places!);
+          saveCachedDiscoveredPlaces(user.id, merged);
+          return merged;
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [eligible, session?.access_token, user?.id]);
+
   const fetchTracks = React.useCallback(
     async (
       selection: ViewSelection,
@@ -565,6 +781,137 @@ export default function PassagesMapPage() {
     },
     [session?.access_token],
   );
+
+  const fetchLogbookLinks = React.useCallback(async () => {
+    if (!session?.access_token) return;
+    try {
+      const res = await fetch('/api/passages-map/promote', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        fingerprints?: string[];
+        links?: LogbookLinkRow[];
+      };
+      setLogbookFingerprints(new Set(json.fingerprints ?? []));
+      setLogbookLinks(json.links ?? []);
+    } catch {
+      /* ignore — logbook links are optional UI chrome */
+    }
+  }, [session?.access_token]);
+
+  React.useEffect(() => {
+    if (!eligible || !session?.access_token) return;
+    void fetchLogbookLinks();
+  }, [eligible, session?.access_token, fetchLogbookLinks]);
+
+  const promotePassageToLogbook = React.useCallback(
+    async (opts: {
+      vesselId: string;
+      startTime: string;
+      endTime: string;
+      distanceNm?: number;
+      avgSpeedKn?: number | null;
+      maxSpeedKn?: number | null;
+      pointCount?: number;
+      coordinates?: [number, number][];
+    }) => {
+      if (!session?.access_token) return;
+      const fingerprint = buildAisPassageFingerprint(
+        opts.vesselId,
+        opts.startTime,
+        opts.endTime,
+      );
+      setPromotingKey(fingerprint);
+      try {
+        const res = await fetch('/api/passages-map/promote', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(opts),
+        });
+        const json = (await res.json()) as {
+          ok?: boolean;
+          alreadyLinked?: boolean;
+          error?: string;
+          fingerprint?: string;
+        };
+        if (!res.ok) throw new Error(json.error || 'Failed to save to logbook');
+        setLogbookFingerprints((prev) => {
+          const next = new Set(prev);
+          next.add(json.fingerprint || fingerprint);
+          return next;
+        });
+        await fetchLogbookLinks();
+        toast({
+          title: json.alreadyLinked ? 'Already in logbook' : 'Saved to Passage Log',
+          description: json.alreadyLinked
+            ? 'Linked — add weather and notes in the logbook.'
+            : 'Add weather and notes in the logbook.',
+          action: (
+            <ToastAction
+              altText="Open logbook"
+              onClick={() => router.push('/dashboard/passage-logbook')}
+            >
+              Open logbook
+            </ToastAction>
+          ),
+        });
+      } catch (err) {
+        toast({
+          title: 'Could not save to logbook',
+          description: err instanceof Error ? err.message : 'Please try again.',
+          variant: 'destructive',
+        });
+      } finally {
+        setPromotingKey(null);
+      }
+    },
+    [session?.access_token, toast, fetchLogbookLinks, router],
+  );
+
+  const syncAllToLogbook = React.useCallback(async () => {
+    if (!session?.access_token || isSyncingLogbook) return;
+    setIsSyncingLogbook(true);
+    try {
+      const res = await fetch('/api/passages-map/sync-logbook', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        createdCount?: number;
+        skippedCount?: number;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error || 'Failed to sync logbook');
+      await fetchLogbookLinks();
+      toast({
+        title:
+          (json.createdCount ?? 0) > 0
+            ? 'Added to Passage Log'
+            : 'Logbook already up to date',
+        description:
+          json.message ||
+          `Created ${json.createdCount ?? 0}, already linked ${json.skippedCount ?? 0}.`,
+      });
+    } catch (err) {
+      toast({
+        title: 'Could not sync to logbook',
+        description: err instanceof Error ? err.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSyncingLogbook(false);
+    }
+  }, [session?.access_token, isSyncingLogbook, fetchLogbookLinks, toast]);
 
   // Re-fetch whenever the selected view changes (initial load OR the user
   // clicks prev/next/all). We intentionally DON'T watch `tracks` here —
@@ -796,6 +1143,9 @@ export default function PassagesMapPage() {
           e.preventDefault();
           canvasRef.current?.clearHover();
           setFocusedVesselId(null);
+          setSelectedPassage(null);
+          setScrubSample(null);
+          setScrubProgress(0);
           break;
         case '[':
           e.preventDefault();
@@ -822,7 +1172,16 @@ export default function PassagesMapPage() {
     if (!stillThere) setFocusedVesselId(null);
   }, [tracks?.vessels, focusedVesselId]);
 
-  if (isUserLoading || isProfileLoading) {
+  if (isUserLoading || isProfileLoading || isFlagsLoading) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Disabled features are redirected by dashboard layout; keep a quiet guard.
+  if (!featureOn) {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -864,6 +1223,7 @@ export default function PassagesMapPage() {
         hiddenVessels={hiddenVessels}
         focusedVesselId={focusedVesselId}
         styleId={styleId}
+        discoveredPlaces={discoveredPlaces}
         // Re-fit whenever the selected view finishes loading — not on
         // every vessel-hide toggle, which would feel jarring.
         fitToken={
@@ -872,6 +1232,20 @@ export default function PassagesMapPage() {
             : `${view.mode}:${view.mode === 'month' ? view.month : 'all'}:${tracks?.totals.passageCount ?? 0}`
         }
         sidebarCollapsed={sidebarCollapsed}
+        timelineActive={Boolean(selectedPassage)}
+        onPassageSelect={(sel) => {
+          setSelectedPassage(sel);
+          setScrubProgress(0);
+          requestAnimationFrame(() => {
+            const sample = canvasRef.current?.scrubToProgress(0) ?? null;
+            setScrubSample(sample);
+          });
+        }}
+        onPassageClear={() => {
+          setSelectedPassage(null);
+          setScrubSample(null);
+          setScrubProgress(0);
+        }}
       />
 
       {/*
@@ -910,6 +1284,61 @@ export default function PassagesMapPage() {
           </div>
         </div>
       )}
+
+      {!isLoading &&
+        !logbookMissingDismissed &&
+        !selectedPassage &&
+        logbookMissingCount > 0 &&
+        (tracks?.totals.passageCount ?? 0) > 0 && (
+          <div className="absolute bottom-6 left-1/2 z-20 w-[min(92vw,440px)] -translate-x-1/2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex items-start gap-3 rounded-2xl border border-sky-400/25 bg-slate-950/92 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl">
+              <BookPlus className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-white">
+                  {logbookMissingCount} voyage
+                  {logbookMissingCount === 1 ? '' : 's'} not in Passage Log
+                </p>
+                <p className="mt-0.5 text-xs text-white/55">
+                  Keep map tracks and your logbook in sync.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 rounded-lg"
+                    disabled={isSyncingLogbook}
+                    onClick={() => void syncAllToLogbook()}
+                  >
+                    {isSyncingLogbook ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <BookPlus className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    Add all to logbook
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 rounded-lg text-white/70 hover:bg-white/10 hover:text-white"
+                    onClick={() => router.push('/dashboard/passage-logbook')}
+                  >
+                    Open logbook
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 rounded-lg text-white/50 hover:bg-white/10 hover:text-white"
+                    onClick={() => setLogbookMissingDismissed(true)}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
       <PassagesLegendOverlay
         tracks={tracks}
@@ -975,6 +1404,8 @@ export default function PassagesMapPage() {
           if ((tracks?.vessels.length ?? 0) > 1) {
             setFocusedVesselId(vesselId);
           }
+          setSelectedPassage({ vesselId, passageIndex });
+          setScrubProgress(0);
           const vessel = tracks?.vessels.find((v) => v.vesselId === vesselId);
           const feature = vessel?.featureCollection?.features?.[passageIndex];
           if (vessel && feature) {
@@ -993,10 +1424,39 @@ export default function PassagesMapPage() {
             });
           }
           canvasRef.current?.flyToPassage(vesselId, passageIndex);
+          // Seed timeline at start so the live marker appears immediately.
+          requestAnimationFrame(() => {
+            const sample = canvasRef.current?.scrubToProgress(0) ?? null;
+            setScrubSample(sample);
+          });
         }}
+        selectedPassage={selectedPassage}
+        logbookFingerprints={logbookFingerprints}
+        logbookLinks={logbookLinks}
+        promotingKey={promotingKey}
+        isSyncingLogbook={isSyncingLogbook}
+        onPromotePassage={promotePassageToLogbook}
+        onSyncAllToLogbook={() => void syncAllToLogbook()}
         onFitToVisible={() => canvasRef.current?.fitToVisible()}
         onExportVoyageCard={() => void handleExportVoyageCard()}
       />
+
+      {selectedPassageMeta && (
+        <div className="pointer-events-none absolute bottom-5 left-1/2 z-30 w-[min(92vw,720px)] -translate-x-1/2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <PassageTimelineBar
+            meta={selectedPassageMeta}
+            progress={scrubProgress}
+            sample={scrubSample}
+            onProgressChange={handleScrubProgress}
+            onClose={() => {
+              canvasRef.current?.clearHover();
+              setSelectedPassage(null);
+              setScrubSample(null);
+              setScrubProgress(0);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1015,14 +1475,20 @@ export default function PassagesMapPage() {
 export type PassagesMapCanvasHandle = {
   /**
    * Animate the camera to fit the passage's bbox, then open its popup
-   * and set feature-state hover so the line reads as "selected". No-op
-   * if the vessel or passage isn't currently rendered on the map.
+   * and highlight the line in the selection colour. No-op if the vessel
+   * or passage isn't currently rendered on the map.
    */
   flyToPassage: (vesselId: string, passageIndex: number) => void;
   /** Fit the camera to every currently-visible vessel track. */
   fitToVisible: () => void;
-  /** Clear hover highlight + dismiss the popup. */
+  /** Clear hover + selection highlight and dismiss the popup. */
   clearHover: () => void;
+  /**
+   * Drive the scrub marker / trail to a distance progress along the
+   * currently selected passage (0 = start, 1 = end). Returns the sample
+   * used for the timeline readout, or null if nothing is selected.
+   */
+  scrubToProgress: (progress: number) => ScrubSample | null;
   /** Capture the current map view as a framed voyage-card PNG. */
   exportVoyageCard: (stats: {
     title: string;
@@ -1042,9 +1508,18 @@ const PassagesMapCanvas = React.forwardRef<
     hiddenVessels: Set<string>;
     focusedVesselId: string | null;
     styleId: MapStyleId;
+    /** Town/port labels unlocked by sailing near them. */
+    discoveredPlaces: DiscoveredPlace[];
     /** When this token changes (and is non-null), re-fit the camera. */
     fitToken: string | null;
     sidebarCollapsed: boolean;
+    /** When true, mouseleave keeps the scrub marker (timeline owns it). */
+    timelineActive?: boolean;
+    onPassageSelect?: (sel: {
+      vesselId: string;
+      passageIndex: number;
+    }) => void;
+    onPassageClear?: () => void;
   }
 >(function PassagesMapCanvas(
   {
@@ -1053,8 +1528,12 @@ const PassagesMapCanvas = React.forwardRef<
     hiddenVessels,
     focusedVesselId,
     styleId,
+    discoveredPlaces,
     fitToken,
     sidebarCollapsed,
+    timelineActive = false,
+    onPassageSelect,
+    onPassageClear,
   },
   ref,
 ) {
@@ -1070,12 +1549,19 @@ const PassagesMapCanvas = React.forwardRef<
   const focusedVesselIdRef = React.useRef(focusedVesselId);
   const styleIdRef = React.useRef(styleId);
   const sidebarCollapsedRef = React.useRef(sidebarCollapsed);
+  const timelineActiveRef = React.useRef(timelineActive);
+  const onPassageSelectRef = React.useRef(onPassageSelect);
+  const onPassageClearRef = React.useRef(onPassageClear);
+  const discoveredPlacesRef = React.useRef(discoveredPlaces);
   // HTML Markers for live vessel pins (pulsing). Kept out of MapLibre
   // style layers so the pulse animation is pure CSS.
   const liveMarkersRef = React.useRef<Map<string, Marker>>(new Map());
   React.useEffect(() => {
     vesselsRef.current = vessels;
   }, [vessels]);
+  React.useEffect(() => {
+    discoveredPlacesRef.current = discoveredPlaces;
+  }, [discoveredPlaces]);
   React.useEffect(() => {
     liveVesselsRef.current = liveVessels;
   }, [liveVessels]);
@@ -1091,6 +1577,15 @@ const PassagesMapCanvas = React.forwardRef<
   React.useEffect(() => {
     sidebarCollapsedRef.current = sidebarCollapsed;
   }, [sidebarCollapsed]);
+  React.useEffect(() => {
+    timelineActiveRef.current = timelineActive;
+  }, [timelineActive]);
+  React.useEffect(() => {
+    onPassageSelectRef.current = onPassageSelect;
+  }, [onPassageSelect]);
+  React.useEffect(() => {
+    onPassageClearRef.current = onPassageClear;
+  }, [onPassageClear]);
   // Track which sources/layers we own so we can teardown cleanly when
   // vessels change (e.g. after a refresh returns different segments).
   const ownedSourceIdsRef = React.useRef<Set<string>>(new Set());
@@ -1104,6 +1599,13 @@ const PassagesMapCanvas = React.forwardRef<
     vesselId: string;
     featureId: number;
     kind?: 'past' | 'live';
+  } | null>(null);
+  // Sticky selection from sidebar click / map click — survives mouseleave
+  // so the chosen track stays highlighted (blue or green) until another
+  // passage is chosen or Esc.
+  const selectedPassageRef = React.useRef<{
+    vesselId: string;
+    featureId: number;
   } | null>(null);
   // Coalesce scrub setData / popup HTML writes to one per animation
   // frame so mousemove doesn't thrash MapLibre + the DOM.
@@ -1124,6 +1626,10 @@ const PassagesMapCanvas = React.forwardRef<
   // the first successful map load; disposed on unmount. Retheme is
   // called from the style-swap effect so labels match the current tone.
   const labelHandleRef = React.useRef<MapLabelHandle | null>(null);
+
+  React.useEffect(() => {
+    labelHandleRef.current?.syncDiscoveredPlaces(discoveredPlaces);
+  }, [discoveredPlaces]);
 
   // Which style tier the map is currently rendering. Starts on 'offline'
   // (bundled topojson, always works). We attempt to upgrade to 'remote'
@@ -1209,24 +1715,26 @@ const PassagesMapCanvas = React.forwardRef<
       map.addSource('offline-land', {
         type: 'geojson',
         data: landGeo,
-        buffer: 64,
-        tolerance: 0.1,
+        buffer: 128,
+        // Keep tiles sharp — default 0.375 over-simplifies coastlines
+        // once the 10m upgrade lands.
+        tolerance: 0,
       });
 
       const coastlineGeo = getOfflineCoastlineGeoJson();
       map.addSource('offline-coastline', {
         type: 'geojson',
         data: coastlineGeo,
-        buffer: 64,
-        tolerance: 0.1,
+        buffer: 128,
+        tolerance: 0,
       });
 
       const bordersGeo = getOfflineBordersGeoJson();
       map.addSource('offline-borders', {
         type: 'geojson',
         data: bordersGeo,
-        buffer: 64,
-        tolerance: 0.1,
+        buffer: 128,
+        tolerance: 0,
       });
 
       const theme = OFFLINE_THEME_FOR_STYLE[styleIdRef.current] ?? 'dark';
@@ -1313,6 +1821,8 @@ const PassagesMapCanvas = React.forwardRef<
     }
   }, []);
 
+  const remoteUpgradeAbortRef = React.useRef<AbortController | null>(null);
+
   /**
    * Try to upgrade the current basemap to the richer remote vector-tile
    * style. If the remote URL is unreachable within
@@ -1334,7 +1844,11 @@ const PassagesMapCanvas = React.forwardRef<
       if (!cfg.remoteStyleUrl) return;
       const remoteUrl = cfg.remoteStyleUrl;
 
+      // Cancel any in-flight probe from a previous basemap choice so a
+      // late response can't overwrite the style the user just picked.
+      remoteUpgradeAbortRef.current?.abort();
       const controller = new AbortController();
+      remoteUpgradeAbortRef.current = controller;
       const timeoutId = window.setTimeout(
         () => controller.abort(),
         REMOTE_STYLE_UPGRADE_TIMEOUT_MS,
@@ -1348,6 +1862,7 @@ const PassagesMapCanvas = React.forwardRef<
           // meantime AND the map is still alive.
           if (mapRef.current !== map) return;
           if (styleIdRef.current !== styleId) return;
+          if (remoteUpgradeAbortRef.current !== controller) return;
           styleTierRef.current = 'remote';
           // eslint-disable-next-line no-console
           console.info('[passages-map] upgrading to remote tiles', {
@@ -1355,11 +1870,14 @@ const PassagesMapCanvas = React.forwardRef<
             remoteUrl,
           });
           styleLoadedRef.current = false;
+          countryOverlayInstalledRef.current = false;
           ownedSourceIdsRef.current.clear();
+          vesselLineLayerIdsRef.current.clear();
           map.setStyle(remoteUrl);
         })
         .catch((err) => {
           window.clearTimeout(timeoutId);
+          if (controller.signal.aborted) return;
           // eslint-disable-next-line no-console
           console.info(
             '[passages-map] remote tile upgrade unavailable — staying offline',
@@ -1681,8 +2199,70 @@ const PassagesMapCanvas = React.forwardRef<
           scrubRafRef.current = 0;
         }
         scrubPendingRef.current = null;
-        if (hoveredPassageRef.current) clearPassageHover(map);
-        map.getCanvas().style.cursor = '';
+        if (hoveredPassageRef.current) {
+          // Timeline owns the scrub marker while a passage is selected —
+          // only clear transient hover chrome, keep the live scrub point.
+          if (timelineActiveRef.current && selectedPassageRef.current) {
+            clearPastFeatureHover(map);
+            hoveredPassageRef.current = null;
+            map.getCanvas().style.cursor = '';
+          } else {
+            clearPassageHover(map);
+            map.getCanvas().style.cursor = '';
+          }
+        } else {
+          map.getCanvas().style.cursor = '';
+        }
+      });
+
+      // Click a track to lock selection colour (same as sidebar fly-to).
+      map.on('click', (e) => {
+        const layerIds: string[] = [];
+        for (const id of vesselLineLayerIdsRef.current) {
+          if (map.getLayer(id)) layerIds.push(id);
+        }
+        if (layerIds.length === 0) return;
+        let features: any[] = [];
+        try {
+          const pad = 12;
+          const box: [[number, number], [number, number]] = [
+            [e.point.x - pad, e.point.y - pad],
+            [e.point.x + pad, e.point.y + pad],
+          ];
+          features = map.queryRenderedFeatures(box, { layers: layerIds });
+        } catch {
+          return;
+        }
+        if (features.length === 0) return;
+        features.sort((a, b) => {
+          const rank = (f: any) => {
+            const id = String(f?.layer?.id ?? '');
+            if (id.endsWith(':line')) return 0;
+            if (id.endsWith(':sheen')) return 1;
+            if (id.endsWith(':casing')) return 2;
+            return 3;
+          };
+          return rank(a) - rank(b);
+        });
+        const focusId = focusedVesselIdRef.current;
+        const feat =
+          (focusId
+            ? features.find((f) => (f as any).source === `passages:${focusId}`)
+            : null) ?? features[0]!;
+        const sourceId = (feat as any).source as string | undefined;
+        const featureId = Number((feat as any).id);
+        if (!sourceId?.startsWith('passages:') || !Number.isFinite(featureId)) {
+          return;
+        }
+        const vesselId = sourceId.slice('passages:'.length);
+        const nextSel = { vesselId, featureId };
+        setPassageSelectedState(map, nextSel, selectedPassageRef.current);
+        selectedPassageRef.current = nextSel;
+        raiseVesselTrackLayers(map, vesselId);
+        onPassageSelectRef.current?.({
+          vesselId,
+          passageIndex: featureId,
+        });
       });
 
       function clearPastFeatureHover(m: MapLibreMap) {
@@ -1732,6 +2312,7 @@ const PassagesMapCanvas = React.forwardRef<
           vesselLineLayerIdsRef.current,
           vesselMetaRef.current,
           focusedVesselIdRef.current,
+          selectedPassageRef.current,
         );
         applyLiveOverlay(
           map,
@@ -1762,6 +2343,7 @@ const PassagesMapCanvas = React.forwardRef<
             vesselLineLayerIdsRef.current,
             vesselMetaRef.current,
             focusedVesselIdRef.current,
+            selectedPassageRef.current,
           );
           applyLiveOverlay(
             map,
@@ -1778,6 +2360,9 @@ const PassagesMapCanvas = React.forwardRef<
         if (!labelHandleRef.current) {
           const tone = MAP_STYLES[styleIdRef.current].tone;
           labelHandleRef.current = installMapLabels(map, tone);
+          labelHandleRef.current.syncDiscoveredPlaces(
+            discoveredPlacesRef.current,
+          );
         }
         fitToVessels(
           map,
@@ -1816,6 +2401,7 @@ const PassagesMapCanvas = React.forwardRef<
             vesselLineLayerIdsRef.current,
             vesselMetaRef.current,
             focusedVesselIdRef.current,
+            selectedPassageRef.current,
           );
           applyLiveOverlay(
             map,
@@ -1921,6 +2507,7 @@ const PassagesMapCanvas = React.forwardRef<
       vesselLineLayerIdsRef.current,
       vesselMetaRef.current,
       focusedVesselId,
+      selectedPassageRef.current,
     );
   }, [vessels, hiddenVessels, styleId, focusedVesselId]);
 
@@ -2005,6 +2592,7 @@ const PassagesMapCanvas = React.forwardRef<
         vesselLineLayerIdsRef.current,
         vesselMetaRef.current,
         focusedVesselIdRef.current,
+        selectedPassageRef.current,
       );
       applyLiveOverlay(
         map,
@@ -2017,10 +2605,15 @@ const PassagesMapCanvas = React.forwardRef<
       labelHandleRef.current?.retheme(MAP_STYLES[styleId].tone);
       // eslint-disable-next-line no-console
       console.info('[passages-map] basemap theme applied', { styleId });
+      // After the offline theme is on screen, probe the matching remote
+      // tile style — success upgrades in place; failure is silent.
+      tryRemoteUpgrade(map, styleId);
     };
 
     const doSwap = () => {
       if (cancelled) return;
+      // Abort any remote upgrade still probing the previous theme.
+      remoteUpgradeAbortRef.current?.abort();
       styleLoadedRef.current = false;
       styleTierRef.current = 'offline';
       countryOverlayInstalledRef.current = false;
@@ -2086,7 +2679,7 @@ const PassagesMapCanvas = React.forwardRef<
       cancelled = true;
       detachReady?.();
     };
-  }, [styleId, installCountryOverlay]);
+  }, [styleId, installCountryOverlay, tryRemoteUpgrade]);
 
   // Imperative handle exposed to the parent so the sidebar's passage
   // list can trigger fly-to-passage animations. All map state (source
@@ -2135,17 +2728,21 @@ const PassagesMapCanvas = React.forwardRef<
             [bbox[2], bbox[3]],
           ],
           {
-            padding: fitPadding(sidebarCollapsedRef.current),
+            padding: fitPadding(
+              sidebarCollapsedRef.current,
+              timelineActiveRef.current,
+            ),
             duration: 900,
             maxZoom: 11,
           },
         );
 
-        // Highlight the passage as if the user were hovering it:
-        //   1. Move feature-state hover to this passage so the line
-        //      paint expression bumps opacity.
-        //   2. Open the popup at the passage midpoint so the details
-        //      are visible without the user having to hover the line.
+        // Sticky contrasting selection + transient hover for the popup scrub.
+        const nextSel = { vesselId, featureId: passageIndex };
+        setPassageSelectedState(map, nextSel, selectedPassageRef.current);
+        selectedPassageRef.current = nextSel;
+        raiseVesselTrackLayers(map, vesselId);
+
         const prev = hoveredPassageRef.current;
         if (prev && (prev.vesselId !== vesselId || prev.featureId !== passageIndex)) {
           map.setFeatureState(
@@ -2212,10 +2809,75 @@ const PassagesMapCanvas = React.forwardRef<
             /* source may have been torn down */
           }
         }
+        setPassageSelectedState(map, null, selectedPassageRef.current);
+        selectedPassageRef.current = null;
         clearScrubMarker(map);
         hoveredPassageRef.current = null;
         popupRef.current?.remove();
         map.getCanvas().style.cursor = '';
+        onPassageClearRef.current?.();
+      },
+      scrubToProgress(progress) {
+        const map = mapRef.current;
+        const sel = selectedPassageRef.current;
+        if (!map || !sel) return null;
+        const vessel = vesselsRef.current.find((v) => v.vesselId === sel.vesselId);
+        const feature = vessel?.featureCollection?.features?.[sel.featureId];
+        if (!vessel || !feature) return null;
+        const coords = lineCoordinatesFromFeature(feature);
+        if (!coords || coords.length < 2) return null;
+        const sample = sampleAtProgress(coords, progress, {
+          startTime: strOrUndef(feature.properties?.startTime),
+          endTime: strOrUndef(feature.properties?.endTime),
+          durationMs: numOrUndef(feature.properties?.durationMs),
+          avgSpeedKn: numOrNull(feature.properties?.avgSpeedKn),
+        });
+        if (!sample) return null;
+        const accent = vessel.colorHex;
+        setScrubMarker(map, sample.lon, sample.lat, accent, sample.bearingDeg);
+        setScrubTrail(map, coords, sample.distanceFromStartNm, accent);
+        const routeLabel =
+          deriveRouteLabelFromLineFeature(feature) ?? undefined;
+        const meta = vesselMetaRef.current.get(sel.vesselId);
+        if (popupRef.current) {
+          popupRef.current
+            .setLngLat({ lng: sample.lon, lat: sample.lat })
+            .setOffset(22)
+            .setHTML(
+              renderPassagePopupHtml({
+                vesselName: meta?.name ?? vessel.vesselName,
+                colorHex: accent,
+                passageIndex: sel.featureId,
+                startTime: strOrUndef(feature.properties?.startTime),
+                endTime: strOrUndef(feature.properties?.endTime),
+                durationMs: numOrUndef(feature.properties?.durationMs),
+                distanceNm: numOrUndef(feature.properties?.distanceNm),
+                avgSpeedKn: numOrNull(feature.properties?.avgSpeedKn),
+                maxSpeedKn: numOrNull(feature.properties?.maxSpeedKn),
+                pointCount: numOrUndef(feature.properties?.pointCount),
+                routeLabel,
+                scrub: {
+                  lat: sample.lat,
+                  lon: sample.lon,
+                  atMs: sample.atMs,
+                  speedKn: sample.speedKn,
+                  bearingDeg: sample.bearingDeg,
+                  progress: sample.progress,
+                  distanceFromStartNm: sample.distanceFromStartNm,
+                  distanceRemainingNm: sample.distanceRemainingNm,
+                  remainingMs: sample.remainingMs,
+                  totalDistanceNm: sample.totalDistanceNm,
+                },
+              }),
+            )
+            .addTo(map);
+        }
+        followScrubCamera(map, sample.lon, sample.lat, {
+          sidebarCollapsed: sidebarCollapsedRef.current,
+          timelineActive: timelineActiveRef.current,
+        });
+        map.triggerRepaint();
+        return sample;
       },
       async exportVoyageCard(stats) {
         const map = mapRef.current;
@@ -2239,7 +2901,7 @@ const PassagesMapCanvas = React.forwardRef<
     <>
       <div
         ref={containerRef}
-        className="passages-map-canvas absolute inset-0 h-full w-full bg-[#0b1220]"
+        className="passages-map-canvas absolute inset-0 h-full w-full bg-[#070e1a]"
       />
       {/*
         Restyle MapLibre's default controls to match the premium overlay:
@@ -2337,6 +2999,7 @@ function applyVesselLayers(
   vesselLineLayerIds: Set<string>,
   vesselMeta: Map<string, { name: string; colorHex: string }>,
   focusedVesselId: string | null = null,
+  selectedPassage: { vesselId: string; featureId: number } | null = null,
 ) {
   const desiredSourceIds = new Set<string>();
   const tone = MAP_STYLES[styleId].tone;
@@ -2362,6 +3025,7 @@ function applyVesselLayers(
     // other vessel so the selected one stays readable for scrubbing.
     const dim =
       focusedVesselId && focusedVesselId !== vessel.vesselId ? 0.16 : 1;
+    const sel = selectionPaletteForVesselColor(vessel.colorHex);
     desiredSourceIds.add(sourceId);
     vesselLineLayerIds.add(lineLayerId);
     vesselLineLayerIds.add(casingLayerId);
@@ -2396,7 +3060,10 @@ function applyVesselLayers(
               'line-sort-key': ['coalesce', ['get', 'passageIndex'], 0],
             },
             paint: {
-              'line-color': paint.casingColor,
+              'line-color': selectedAwareColor(
+                paint.casingColor,
+                sel.casing,
+              ),
               'line-opacity': paint.casingOpacity,
               'line-width': widthAtZoom(
                 paint.lineWidthLow + paint.casingExtra,
@@ -2424,8 +3091,11 @@ function applyVesselLayers(
               'line-sort-key': ['coalesce', ['get', 'passageIndex'], 0],
             },
             paint: {
-              'line-color': paint.sheenColor,
-              'line-opacity': hoverBoostedOpacity(
+              'line-color': selectedAwareColor(
+                paint.sheenColor,
+                sel.sheen,
+              ),
+              'line-opacity': hoverOrSelectedBoostedOpacity(
                 paint.sheenOpacity,
                 paint.hoverSheenOpacityBoost,
               ),
@@ -2446,8 +3116,8 @@ function applyVesselLayers(
       // tracks read as chart ink instead of neon tubes on the ocean.
       // Opacity feature-state is reliable; wrapping `line-width`
       // interpolate in a feature-state `case` is NOT across MapLibre
-      // validators and can silently zero the layer — so hover only
-      // boosts opacity.
+      // validators and can silently zero the layer — so hover/selection
+      // only boosts opacity (and colour via selectedAwareColor).
       map.addLayer({
         id: glowLayerId,
         type: 'line',
@@ -2458,8 +3128,11 @@ function applyVesselLayers(
           'line-sort-key': ['coalesce', ['get', 'passageIndex'], 0],
         },
         paint: {
-          'line-color': vessel.colorHex,
-          'line-opacity': hoverBoostedOpacity(
+          'line-color': selectedAwareColor(
+            vessel.colorHex,
+            sel.glow,
+          ),
+          'line-opacity': hoverOrSelectedBoostedOpacity(
             paint.glowOpacity,
             paint.hoverGlowOpacityBoost,
           ),
@@ -2477,7 +3150,10 @@ function applyVesselLayers(
           'line-sort-key': ['coalesce', ['get', 'passageIndex'], 0],
         },
         paint: {
-          'line-color': paint.casingColor,
+          'line-color': selectedAwareColor(
+            paint.casingColor,
+            sel.casing,
+          ),
           'line-opacity': paint.casingOpacity,
           'line-width': widthAtZoom(
             paint.lineWidthLow + paint.casingExtra,
@@ -2495,8 +3171,11 @@ function applyVesselLayers(
           'line-sort-key': ['coalesce', ['get', 'passageIndex'], 0],
         },
         paint: {
-          'line-color': vessel.colorHex,
-          'line-opacity': hoverBoostedOpacity(
+          'line-color': selectedAwareColor(
+            vessel.colorHex,
+            sel.line,
+          ),
+          'line-opacity': hoverOrSelectedBoostedOpacity(
             paint.lineOpacity,
             paint.hoverLineOpacityBoost,
           ),
@@ -2513,8 +3192,11 @@ function applyVesselLayers(
           'line-sort-key': ['coalesce', ['get', 'passageIndex'], 0],
         },
         paint: {
-          'line-color': paint.sheenColor,
-          'line-opacity': hoverBoostedOpacity(
+          'line-color': selectedAwareColor(
+            paint.sheenColor,
+            sel.sheen,
+          ),
+          'line-opacity': hoverOrSelectedBoostedOpacity(
             paint.sheenOpacity,
             paint.hoverSheenOpacityBoost,
           ),
@@ -2648,8 +3330,13 @@ function applyVesselLayers(
     if (map.getLayer(glowLayerId)) {
       map.setPaintProperty(
         glowLayerId,
+        'line-color',
+        selectedAwareColor(vessel.colorHex, sel.glow),
+      );
+      map.setPaintProperty(
+        glowLayerId,
         'line-opacity',
-        hoverBoostedOpacity(
+        hoverOrSelectedBoostedOpacity(
           paint.glowOpacity * dim,
           paint.hoverGlowOpacityBoost * dim,
         ),
@@ -2662,7 +3349,11 @@ function applyVesselLayers(
       );
     }
     if (map.getLayer(casingLayerId)) {
-      map.setPaintProperty(casingLayerId, 'line-color', paint.casingColor);
+      map.setPaintProperty(
+        casingLayerId,
+        'line-color',
+        selectedAwareColor(paint.casingColor, sel.casing),
+      );
       map.setPaintProperty(
         casingLayerId,
         'line-opacity',
@@ -2680,8 +3371,13 @@ function applyVesselLayers(
     if (map.getLayer(lineLayerId)) {
       map.setPaintProperty(
         lineLayerId,
+        'line-color',
+        selectedAwareColor(vessel.colorHex, sel.line),
+      );
+      map.setPaintProperty(
+        lineLayerId,
         'line-opacity',
-        hoverBoostedOpacity(
+        hoverOrSelectedBoostedOpacity(
           paint.lineOpacity * dim,
           paint.hoverLineOpacityBoost * dim,
         ),
@@ -2693,11 +3389,15 @@ function applyVesselLayers(
       );
     }
     if (map.getLayer(sheenLayerId)) {
-      map.setPaintProperty(sheenLayerId, 'line-color', paint.sheenColor);
+      map.setPaintProperty(
+        sheenLayerId,
+        'line-color',
+        selectedAwareColor(paint.sheenColor, sel.sheen),
+      );
       map.setPaintProperty(
         sheenLayerId,
         'line-opacity',
-        hoverBoostedOpacity(
+        hoverOrSelectedBoostedOpacity(
           paint.sheenOpacity * dim,
           paint.hoverSheenOpacityBoost * dim,
         ),
@@ -2809,6 +3509,12 @@ function applyVesselLayers(
     // "Vessel" instead of the real name for a beat otherwise. Cheap to
     // keep the small metadata around across refreshes.
   }
+
+  // setData clears feature-state — re-apply sticky selection so the
+  // highlight colour survives month refreshes / vessel list updates.
+  if (selectedPassage) {
+    setPassageSelectedState(map, selectedPassage, null);
+  }
 }
 
 /** Move a vessel's track stack above sibling vessels (glow → endpoints). */
@@ -2855,23 +3561,66 @@ function widthAtZoom(low: number, high: number): any {
 
 /**
  * Line-opacity expression: `base` at rest, `base + boost` when the
- * feature's `hover` state is true (clamped to 1). `feature-state` is
- * well-supported inside `line-opacity` in MapLibre v6, so this is the
- * safest place to visually signal hover without risking a paint
- * validator regression that would drop the whole layer.
+ * feature is hovered OR selected (clamped to 1). `feature-state` is
+ * well-supported inside `line-opacity` in MapLibre v6.
  *
  * Pass `boost === 0` to just wrap a plain opacity value — the case
  * expression is still valid and the paint stays flat.
  */
-function hoverBoostedOpacity(base: number, boost: number): any {
+function hoverOrSelectedBoostedOpacity(base: number, boost: number): any {
   if (boost === 0) return base;
-  const hovered = Math.min(1, base + boost);
+  const active = Math.min(1, base + boost);
+  const selected = Math.min(1, base + boost + 0.12);
   return [
     'case',
+    ['boolean', ['feature-state', 'selected'], false],
+    selected,
     ['boolean', ['feature-state', 'hover'], false],
-    hovered,
+    active,
     base,
   ];
+}
+
+/** Swap to the selection colour when `selected` feature-state is set. */
+function selectedAwareColor(restColor: string, selectedColor: string): any {
+  return [
+    'case',
+    ['boolean', ['feature-state', 'selected'], false],
+    selectedColor,
+    restColor,
+  ];
+}
+
+function setPassageSelectedState(
+  map: MapLibreMap,
+  next: { vesselId: string; featureId: number } | null,
+  prev: { vesselId: string; featureId: number } | null,
+) {
+  if (
+    prev &&
+    (!next ||
+      prev.vesselId !== next.vesselId ||
+      prev.featureId !== next.featureId)
+  ) {
+    try {
+      map.setFeatureState(
+        { source: `passages:${prev.vesselId}`, id: prev.featureId },
+        { selected: false },
+      );
+    } catch {
+      /* source may have been torn down */
+    }
+  }
+  if (next) {
+    try {
+      map.setFeatureState(
+        { source: `passages:${next.vesselId}`, id: next.featureId },
+        { selected: true },
+      );
+    } catch {
+      /* source may have been torn down */
+    }
+  }
 }
 
 /**
@@ -3160,7 +3909,10 @@ function applyLiveOverlay(
       trackFeatures.push({
         type: 'Feature',
         id: 0,
-        geometry: { type: 'LineString', coordinates: bridged },
+        geometry: {
+          type: 'LineString',
+          coordinates: smoothLineCoordinates(bridged),
+        },
         properties: {
           kind: 'live-active',
           ...trackProps,
@@ -3707,7 +4459,10 @@ function pixelDistanceToNm(map: MapLibreMap, px: number): number {
   }
 }
 
-function fitPadding(_sidebarCollapsed?: boolean): {
+function fitPadding(
+  sidebarCollapsed = false,
+  timelineActive = false,
+): {
   top: number;
   right: number;
   bottom: number;
@@ -3716,10 +4471,76 @@ function fitPadding(_sidebarCollapsed?: boolean): {
   return {
     top: 48,
     right: 48,
-    bottom: 48,
-    // Leave room for the legend panel (header always stays visible).
-    left: 360,
+    bottom: timelineActive ? 150 : 48,
+    // Leave room for the legend panel when expanded.
+    left: sidebarCollapsed ? 56 : 360,
   };
+}
+
+/**
+ * Keep the scrub marker in frame during timeline play / drag.
+ * Only pans when the point drifts outside a soft "safe" inset so the
+ * camera doesn't fight the user while the boat is already on screen.
+ *
+ * Uses jumpTo (not easeTo) so continuous scrubbing stays responsive —
+ * animated easeTo was delaying map paints until the gesture ended.
+ */
+function followScrubCamera(
+  map: MapLibreMap,
+  lon: number,
+  lat: number,
+  opts: { sidebarCollapsed: boolean; timelineActive: boolean },
+) {
+  const padding = fitPadding(opts.sidebarCollapsed, opts.timelineActive);
+  const canvas = map.getCanvas();
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (w < 80 || h < 80) return;
+
+  let point: { x: number; y: number };
+  try {
+    point = map.project([lon, lat]);
+  } catch {
+    return;
+  }
+
+  const usableW = Math.max(1, w - padding.left - padding.right);
+  const usableH = Math.max(1, h - padding.top - padding.bottom);
+  const insetX = Math.max(56, usableW * 0.22);
+  const insetY = Math.max(56, usableH * 0.22);
+  const minX = padding.left + insetX;
+  const maxX = w - padding.right - insetX;
+  const minY = padding.top + insetY;
+  const maxY = h - padding.bottom - insetY;
+
+  if (
+    point.x >= minX &&
+    point.x <= maxX &&
+    point.y >= minY &&
+    point.y <= maxY
+  ) {
+    return;
+  }
+
+  const targetScreenX = padding.left + usableW * 0.5;
+  const targetScreenY = padding.top + usableH * 0.48;
+  const cur = map.getCenter();
+  let curPx: { x: number; y: number };
+  try {
+    curPx = map.project(cur);
+  } catch {
+    return;
+  }
+  const nextCenter = map.unproject([
+    curPx.x + (point.x - targetScreenX),
+    curPx.y + (point.y - targetScreenY),
+  ]);
+
+  try {
+    map.jumpTo({ center: nextCenter });
+  } catch {
+    /* map may be disposing */
+  }
 }
 
 function fitToVessels(
@@ -3780,6 +4601,13 @@ function PassagesLegendOverlay({
   onFlyToPassage,
   onFitToVisible,
   onExportVoyageCard,
+  selectedPassage,
+  logbookFingerprints,
+  logbookLinks,
+  promotingKey,
+  isSyncingLogbook,
+  onPromotePassage,
+  onSyncAllToLogbook,
 }: {
   tracks: TracksResponse | null;
   live: LiveResponse | null;
@@ -3810,6 +4638,22 @@ function PassagesLegendOverlay({
   onFlyToPassage: (vesselId: string, passageIndex: number) => void;
   onFitToVisible: () => void;
   onExportVoyageCard: () => void;
+  selectedPassage: { vesselId: string; passageIndex: number } | null;
+  logbookFingerprints: Set<string>;
+  logbookLinks: LogbookLinkRow[];
+  promotingKey: string | null;
+  isSyncingLogbook: boolean;
+  onPromotePassage: (opts: {
+    vesselId: string;
+    startTime: string;
+    endTime: string;
+    distanceNm?: number;
+    avgSpeedKn?: number | null;
+    maxSpeedKn?: number | null;
+    pointCount?: number;
+    coordinates?: [number, number][];
+  }) => void;
+  onSyncAllToLogbook: () => void;
 }) {
   const vessels = tracks?.vessels ?? [];
   const liveByVessel = React.useMemo(() => {
@@ -3841,104 +4685,113 @@ function PassagesLegendOverlay({
           collapsed ? 'max-h-none' : 'max-h-full',
         )}
       >
-        {/* Header — always visible; collapse hides everything below */}
+        {/* Header — title + collapse only */}
         <div
           className={cn(
-            'flex items-start justify-between gap-2 px-4 pb-3 pt-4',
+            'flex items-center justify-between gap-2 px-3 py-2.5',
             !collapsed && 'border-b border-white/10',
           )}
         >
-          <button
-            type="button"
-            onClick={onToggleCollapsed}
-            className="min-w-0 flex-1 rounded-lg text-left outline-none transition-colors hover:bg-white/[0.03] focus-visible:ring-2 focus-visible:ring-sky-400/40"
-            title={collapsed ? 'Show controls (])' : 'Hide controls ([)'}
-          >
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-5 items-center rounded-md border border-sky-400/20 bg-sky-400/10 px-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-sky-200/90">
-                {isVesselAccount ? 'Vessel Premium+' : 'Professional'}
-              </span>
-              <span className="inline-flex h-5 items-center rounded-md border border-white/10 bg-white/[0.04] px-1.5 text-[9px] font-medium uppercase tracking-[0.14em] text-white/55">
-                {view.mode === 'all' ? 'All time' : monthLabelTitleCase(view.month)}
-              </span>
-            </div>
-            <h1 className="mt-2 text-[17px] font-semibold tracking-tight text-white">
-              Passage Map
+          <div className="min-w-0">
+            <h1 className="truncate text-[15px] font-semibold tracking-tight text-white">
+              Passage Tracks
             </h1>
-            <p className="mt-1 text-[11px] leading-relaxed text-white/50">
+            <p className="truncate text-[10px] text-white/45">
               {view.mode === 'all'
-                ? isVesselAccount
-                  ? 'Cached AIS passages for your managed vessel(s).'
-                  : 'Cached passages across your service, coloured per vessel.'
-                : isVesselAccount
-                  ? 'AIS passages for the selected month.'
-                  : 'AIS passages for the selected month. Leave days are excluded.'}
+                ? 'All cached passages'
+                : monthLabelTitleCase(view.month)}
+              {selectedPassage ? ' · scrubbing' : ''}
             </p>
-          </button>
-          <div className="flex shrink-0 items-center gap-0.5">
-            {!collapsed && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-white/60 hover:bg-white/10 hover:text-white"
-                  disabled={isLoading || !totals || totals.passageCount === 0}
-                  onClick={onFitToVisible}
-                  title="Fit map to visible passages (F)"
-                >
-                  <Maximize2 className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-white/60 hover:bg-white/10 hover:text-white"
-                  disabled={
-                    isExporting || isLoading || !totals || totals.passageCount === 0
-                  }
-                  onClick={onExportVoyageCard}
-                  title="Export voyage card PNG"
-                >
-                  {isExporting ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Download className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-white/60 hover:bg-white/10 hover:text-white"
-                  disabled={isLoading}
-                  onClick={onRefreshAll}
-                  title={
-                    view.mode === 'all'
-                      ? 'Refresh cache (no Datalastic calls)'
-                      : 'Refresh this month (may hit Datalastic)'
-                  }
-                >
-                  <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
-                </Button>
-              </>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-white/60 hover:bg-white/10 hover:text-white"
-              onClick={onToggleCollapsed}
-              title={collapsed ? 'Show controls (])' : 'Hide controls ([)'}
-              aria-expanded={!collapsed}
-            >
-              {collapsed ? (
-                <ChevronDown className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronUp className="h-3.5 w-3.5" />
-              )}
-            </Button>
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0 text-white/60 hover:bg-white/10 hover:text-white"
+            onClick={onToggleCollapsed}
+            title={collapsed ? 'Expand panel (])' : 'Collapse panel ([)'}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronUp className="h-4 w-4" />
+            )}
+          </Button>
         </div>
 
         {!collapsed && (
           <>
+        {/* Compact tools: navigate map + basemap */}
+        <div className="flex items-center gap-1 border-b border-white/10 px-2 py-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-white/60 hover:bg-white/10 hover:text-white"
+            disabled={isLoading || !totals || totals.passageCount === 0}
+            onClick={onFitToVisible}
+            title="Fit map (F)"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-white/60 hover:bg-white/10 hover:text-white"
+            disabled={isLoading}
+            onClick={onRefreshAll}
+            title={
+              view.mode === 'all'
+                ? 'Refresh cache'
+                : 'Refresh this month'
+            }
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-white/60 hover:bg-white/10 hover:text-white"
+            disabled={
+              isExporting || isLoading || !totals || totals.passageCount === 0
+            }
+            onClick={onExportVoyageCard}
+            title="Export voyage card"
+          >
+            {isExporting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-white/60 hover:bg-white/10 hover:text-white"
+            disabled={
+              isSyncingLogbook ||
+              isLoading ||
+              !totals ||
+              totals.passageCount === 0
+            }
+            onClick={onSyncAllToLogbook}
+            title="Add all to Passage Log"
+          >
+            {isSyncingLogbook ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <BookPlus className="h-3.5 w-3.5" />
+            )}
+          </Button>
+          <div className="ml-auto">
+            <StyleSwitcher current={styleId} onChange={onStyleChange} />
+          </div>
+        </div>
+
         <MonthNavigator
           view={view}
           availableMonths={availableMonths}
@@ -3953,65 +4806,32 @@ function PassagesLegendOverlay({
           canGoNext={canGoNext}
         />
 
-        <StyleSwitcher current={styleId} onChange={onStyleChange} />
-
         {totals && (
-          <div className="border-b border-white/10 px-4 py-3">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-              <StatBlock label="Passages" value={totals.passageCount.toLocaleString()} />
-              <StatBlock
-                label="Distance"
-                value={`${Math.round(totals.totalDistanceNm).toLocaleString()} NM`}
-              />
-              <StatBlock
-                label="Avg passage"
-                value={
-                  tripStats.avgDistanceNm != null
-                    ? `${Math.round(tripStats.avgDistanceNm).toLocaleString()} NM`
-                    : '—'
-                }
-              />
-              <StatBlock
-                label="Longest"
-                value={
-                  tripStats.longestNm != null
-                    ? `${Math.round(tripStats.longestNm).toLocaleString()} NM`
-                    : '—'
-                }
-              />
-            </div>
-            {(tripStats.portsVisited > 0 || tripStats.longestRoute) && (
-              <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/5 pt-2.5 text-[10px] text-white/45">
-                {tripStats.portsVisited > 0 && (
-                  <span>
-                    <span className="tabular-nums text-white/70">{tripStats.portsVisited}</span>{' '}
-                    port{tripStats.portsVisited === 1 ? '' : 's'} visited
-                  </span>
-                )}
-                {tripStats.longestRoute && (
-                  <>
-                    {tripStats.portsVisited > 0 && (
-                      <span aria-hidden className="text-white/20">·</span>
-                    )}
-                    <span className="truncate" title={tripStats.longestRoute}>
-                      Longest:{' '}
-                      <span className="text-white/70">{tripStats.longestRoute}</span>
-                    </span>
-                  </>
-                )}
-              </div>
+          <div className="flex items-center gap-3 border-b border-white/10 px-3 py-2 text-[11px] text-white/55">
+            <span>
+              <span className="font-semibold tabular-nums text-white">
+                {totals.passageCount.toLocaleString()}
+              </span>{' '}
+              passages
+            </span>
+            <span className="text-white/20">·</span>
+            <span>
+              <span className="font-semibold tabular-nums text-white">
+                {Math.round(totals.totalDistanceNm).toLocaleString()}
+              </span>{' '}
+              NM
+            </span>
+            {tripStats.portsVisited > 0 && (
+              <>
+                <span className="text-white/20">·</span>
+                <span>
+                  <span className="font-semibold tabular-nums text-white">
+                    {tripStats.portsVisited}
+                  </span>{' '}
+                  ports
+                </span>
+              </>
             )}
-          </div>
-        )}
-
-        {tracks?.excludedByLeave && tracks.excludedByLeave.passageCount > 0 && (
-          <div className="border-b border-white/10 bg-amber-500/[0.06] px-4 py-2.5 text-[11px] leading-relaxed text-amber-100/70">
-            <span className="font-medium text-amber-100/90">
-              {tracks.excludedByLeave.passageCount} passage
-              {tracks.excludedByLeave.passageCount === 1 ? '' : 's'}
-            </span>{' '}
-            hidden while on leave (
-            {Math.round(tracks.excludedByLeave.distanceNm).toLocaleString()} NM).
           </div>
         )}
 
@@ -4181,17 +5001,6 @@ function PassagesLegendOverlay({
                               <span>mo cached</span>
                             </>
                           )}
-                          {v.excludedByLeave && v.excludedByLeave.passageCount > 0 && (
-                            <>
-                              <span aria-hidden className="text-white/25">·</span>
-                              <span
-                                className="rounded-sm bg-amber-500/10 px-1 py-px text-[10px] font-medium text-amber-200/90"
-                                title={`${v.excludedByLeave.passageCount} passage${v.excludedByLeave.passageCount === 1 ? '' : 's'} hidden — you were on leave (${Math.round(v.excludedByLeave.distanceNm).toLocaleString()} NM)`}
-                              >
-                                −{v.excludedByLeave.passageCount} leave
-                              </span>
-                            </>
-                          )}
                         </div>
                         {skipReasons.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap gap-1">
@@ -4217,9 +5026,22 @@ function PassagesLegendOverlay({
                         <VesselPassageList
                           vessel={v}
                           isHidden={isHidden}
+                          selectedPassageIndex={
+                            selectedPassage?.vesselId === v.vesselId
+                              ? selectedPassage.passageIndex
+                              : null
+                          }
+                          forceOpen={
+                            selectedPassage?.vesselId === v.vesselId ||
+                            focusedVesselId === v.vesselId
+                          }
+                          logbookFingerprints={logbookFingerprints}
+                          logbookLinks={logbookLinks}
+                          promotingKey={promotingKey}
                           onFlyToPassage={(passageIndex) =>
                             onFlyToPassage(v.vesselId, passageIndex)
                           }
+                          onPromotePassage={onPromotePassage}
                         />
                       </div>
                     </div>
@@ -4231,7 +5053,7 @@ function PassagesLegendOverlay({
         </div>
 
         <div className="hidden border-t border-white/5 px-3 py-2 text-[9px] uppercase tracking-[0.12em] text-white/30 sm:block">
-          ← → months · A all · C current · F fit · Esc clear · click name to focus
+          Click a passage to scrub · ← → months · Esc clear
         </div>
           </>
         )}
@@ -4258,11 +5080,32 @@ function PassagesLegendOverlay({
 function VesselPassageList({
   vessel,
   isHidden,
+  selectedPassageIndex,
+  forceOpen = false,
+  logbookFingerprints,
+  logbookLinks,
+  promotingKey,
   onFlyToPassage,
+  onPromotePassage,
 }: {
   vessel: VesselResponse;
   isHidden: boolean;
+  selectedPassageIndex?: number | null;
+  forceOpen?: boolean;
+  logbookFingerprints: Set<string>;
+  logbookLinks: LogbookLinkRow[];
+  promotingKey: string | null;
   onFlyToPassage: (passageIndex: number) => void;
+  onPromotePassage: (opts: {
+    vesselId: string;
+    startTime: string;
+    endTime: string;
+    distanceNm?: number;
+    avgSpeedKn?: number | null;
+    maxSpeedKn?: number | null;
+    pointCount?: number;
+    coordinates?: [number, number][];
+  }) => void;
 }) {
   const features = vessel.featureCollection?.features ?? [];
   if (features.length === 0) return null;
@@ -4287,49 +5130,122 @@ function VesselPassageList({
   if (rows.length === 0) return null;
 
   return (
-    <details className="passages-list mt-2 overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02] open:bg-white/[0.03]">
+    <details
+      className="passages-list mt-2 overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02] open:bg-white/[0.03]"
+      open={forceOpen || undefined}
+    >
       <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] font-medium text-white/55 marker:content-none [&::-webkit-details-marker]:hidden hover:text-white/85">
         <span>
-          View {rows.length} passage{rows.length === 1 ? '' : 's'}
+          {rows.length} passage{rows.length === 1 ? '' : 's'}
+          {typeof selectedPassageIndex === 'number' ? ' · scrubbing' : ''}
         </span>
         <span className="text-white/25">▾</span>
       </summary>
-      <ul className="max-h-52 overflow-y-auto border-t border-white/5">
+      <ul className="max-h-56 overflow-y-auto border-t border-white/5">
         {rows.map(({ index, feature }) => {
           const start = String(feature.properties?.startTime ?? '');
+          const end = String(feature.properties?.endTime ?? '');
           const distance = numOrUndef(feature.properties?.distanceNm);
           const routeLabel = deriveRouteLabelFromLineFeature(feature);
           const dateLabel = formatShortDate(start);
+          const fingerprint =
+            start && end
+              ? buildAisPassageFingerprint(vessel.vesselId, start, end)
+              : '';
+          const inLogbook =
+            !!start &&
+            !!end &&
+            isAisVoyageLinkedToLogbook(
+              {
+                vesselId: vessel.vesselId,
+                startTime: start,
+                endTime: end,
+                fingerprint,
+              },
+              logbookFingerprints,
+              logbookLinks,
+            );
+          const isPromoting = promotingKey === fingerprint;
+          const isSelected = selectedPassageIndex === index;
+          const coords =
+            feature.geometry?.type === 'LineString'
+              ? (feature.geometry.coordinates as [number, number][])
+              : undefined;
           return (
-            <li key={index}>
-              <button
-                type="button"
-                disabled={isHidden}
-                onClick={() => onFlyToPassage(index)}
+            <li key={index} className="border-b border-white/[0.04] last:border-0">
+              <div
                 className={cn(
-                  'flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-[11px] transition-colors',
-                  'hover:bg-sky-400/[0.08] disabled:cursor-not-allowed disabled:opacity-40',
+                  'flex items-stretch gap-1 pr-1',
+                  isSelected && 'bg-sky-400/10',
                 )}
-                title={
-                  isHidden
-                    ? 'Un-hide this vessel to fly to its passages'
-                    : 'Fly to this passage'
-                }
               >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-white/88">
-                    {routeLabel ?? 'Open-sea passage'}
-                  </div>
-                  {dateLabel && (
-                    <div className="mt-0.5 text-[10px] text-white/40">{dateLabel}</div>
+                <button
+                  type="button"
+                  disabled={isHidden}
+                  onClick={() => onFlyToPassage(index)}
+                  className={cn(
+                    'flex min-w-0 flex-1 items-center justify-between gap-2 px-2.5 py-2 text-left text-[11px] transition-colors',
+                    'hover:bg-sky-400/[0.08] disabled:cursor-not-allowed disabled:opacity-40',
+                    isSelected && 'text-sky-100',
                   )}
-                </div>
-                {typeof distance === 'number' && (
-                  <span className="shrink-0 rounded-md bg-white/[0.04] px-1.5 py-0.5 tabular-nums text-white/60">
-                    {Math.round(distance).toLocaleString()} NM
-                  </span>
+                  title={
+                    isHidden
+                      ? 'Un-hide this vessel to fly to its passages'
+                      : isSelected
+                        ? 'Selected — use the bottom timeline to scrub'
+                        : 'Select & scrub this passage'
+                  }
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 truncate font-medium text-white/88">
+                      <span className="truncate">{routeLabel ?? 'Passage'}</span>
+                      {inLogbook && (
+                        <span
+                          className="inline-flex shrink-0 items-center gap-0.5 rounded bg-emerald-500/15 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-emerald-300/90"
+                          title="Already in Passage Log"
+                        >
+                          <BookMarked className="h-2.5 w-2.5" />
+                          Log
+                        </span>
+                      )}
+                    </div>
+                    {dateLabel && (
+                      <div className="mt-0.5 text-[10px] text-white/40">{dateLabel}</div>
+                    )}
+                  </div>
+                  {typeof distance === 'number' && (
+                    <span className="shrink-0 rounded-md bg-white/[0.04] px-1.5 py-0.5 tabular-nums text-white/60">
+                      {Math.round(distance).toLocaleString()} NM
+                    </span>
+                  )}
+                </button>
+                {!inLogbook && start && end && (
+                  <button
+                    type="button"
+                    disabled={isHidden || isPromoting || !fingerprint}
+                    onClick={() =>
+                      onPromotePassage({
+                        vesselId: vessel.vesselId,
+                        startTime: start,
+                        endTime: end,
+                        distanceNm: distance,
+                        avgSpeedKn: numOrNull(feature.properties?.avgSpeedKn),
+                        maxSpeedKn: numOrNull(feature.properties?.maxSpeedKn),
+                        pointCount: numOrUndef(feature.properties?.pointCount),
+                        coordinates: coords,
+                      })
+                    }
+                    className="my-1 mr-1 inline-flex shrink-0 items-center justify-center rounded-md px-1.5 text-sky-300/80 hover:bg-sky-400/10 hover:text-sky-200 disabled:opacity-40"
+                    title="Save to Passage Log (avoid duplicate manual entry)"
+                  >
+                    {isPromoting ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <BookPlus className="h-3.5 w-3.5" />
+                    )}
+                  </button>
                 )}
-              </button>
+              </div>
             </li>
           );
         })}
@@ -4364,31 +5280,28 @@ function StyleSwitcher({
   current: MapStyleId;
   onChange: (next: MapStyleId) => void;
 }) {
+  const currentStyle = MAP_STYLES[current];
+  const CurrentIcon = currentStyle.icon;
   return (
-    <div className="border-b border-white/10 p-3">
-      <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
-        {(Object.keys(MAP_STYLES) as MapStyleId[]).map((id) => {
-          const style = MAP_STYLES[id];
-          const Icon = style.icon;
-          const active = current === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => onChange(id)}
-              title={`${style.label} — ${style.hint}`}
-              className={cn(
-                'flex flex-1 items-center justify-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11px] font-medium transition-all',
-                active
-                  ? 'bg-white text-slate-900 shadow-sm shadow-black/20'
-                  : 'text-white/60 hover:bg-white/5 hover:text-white',
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              <span>{style.label}</span>
-            </button>
-          );
-        })}
+    <div className="relative">
+      <label className="sr-only" htmlFor="passages-map-style">
+        Map basemap
+      </label>
+      <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] pl-1.5 pr-1">
+        <CurrentIcon className="h-3.5 w-3.5 text-white/55" />
+        <select
+          id="passages-map-style"
+          value={current}
+          onChange={(e) => onChange(e.target.value as MapStyleId)}
+          className="h-8 max-w-[7.5rem] cursor-pointer appearance-none bg-transparent py-1 pr-5 text-[11px] font-medium text-white/85 outline-none"
+          title="Map basemap style"
+        >
+          {(Object.keys(MAP_STYLES) as MapStyleId[]).map((id) => (
+            <option key={id} value={id} className="bg-slate-950 text-white">
+              {MAP_STYLES[id].label}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   );
@@ -4406,17 +5319,6 @@ function currentMonthKeyClient(): string {
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
   return `${y}-${m}-01`;
-}
-
-/** "2026-07-01" → "JULY 2026". Handles null gracefully. */
-function monthLabelFromKey(monthKey: string | null): string {
-  if (!monthKey) return '—';
-  const [y, m] = monthKey.split('-').map(Number);
-  if (!y || !m) return monthKey;
-  const d = new Date(Date.UTC(y, m - 1, 1));
-  return d
-    .toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' })
-    .toUpperCase();
 }
 
 /** "2026-07-01" → "July 2026" (title case, for loading pills / badges). */
@@ -4469,7 +5371,7 @@ function computeTripStats(
       if (route) {
         for (const part of route.split('→')) {
           const name = part.replace('(round trip)', '').trim();
-          if (name && name !== 'Open sea') ports.add(name);
+          if (name && name !== 'Open sea' && name !== 'Unknown') ports.add(name);
         }
       }
     }
@@ -4484,9 +5386,8 @@ function computeTripStats(
 }
 
 /**
- * Month picker — prev / next arrows + a big month label + jump to
- * current month + toggle "All time" + a scrollable strip of month
- * dots (filled = cached, hollow = not yet fetched).
+ * Month picker — prev/next + labeled month select (no tiny dots) +
+ * Current / All Time modes.
  */
 function MonthNavigator({
   view,
@@ -4516,29 +5417,27 @@ function MonthNavigator({
   const isAll = view.mode === 'all';
   const currentKey = currentMonthKeyClient();
   const isOnCurrent = !isAll && view.month === currentKey;
-  const dotsRef = React.useRef<HTMLDivElement | null>(null);
+  const selectValue = isAll ? '__all__' : view.month;
 
-  // Keep the selected month's dot scrolled into view as the user
-  // browses. Without this, a long career of months would leave the
-  // active dot off-screen on the left edge.
-  React.useEffect(() => {
-    if (isAll || !view.month || !dotsRef.current) return;
-    const el = dotsRef.current.querySelector<HTMLElement>(
-      `[data-month="${view.month}"]`,
-    );
-    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-  }, [isAll, view.mode === 'month' ? view.month : null]);
+  // Ensure the active month is always in the option list even if the
+  // server hasn't returned availableMonths yet.
+  const monthOptions = React.useMemo(() => {
+    const set = new Set(availableMonths);
+    if (view.mode === 'month') set.add(view.month);
+    set.add(currentKey);
+    return Array.from(set).sort();
+  }, [availableMonths, view.mode, view.mode === 'month' ? view.month : null, currentKey]);
 
   return (
-    <div className="border-b border-white/10 p-3">
-      <div className="flex items-center justify-between gap-2">
+    <div className="space-y-2 border-b border-white/10 px-3 py-2.5">
+      <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={onPrev}
-          disabled={!canGoPrev || isLoading}
+          disabled={!canGoPrev || isLoading || isAll}
           className={cn(
-            'flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors',
-            canGoPrev && !isLoading
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/70 transition-colors',
+            canGoPrev && !isLoading && !isAll
               ? 'hover:bg-white/10 hover:text-white'
               : 'cursor-not-allowed opacity-30',
           )}
@@ -4546,27 +5445,54 @@ function MonthNavigator({
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <div className="min-w-0 flex-1 text-center">
-          <p className="truncate text-sm font-semibold tracking-wide text-white">
-            {isAll ? 'All Time' : monthLabelFromKey(view.month)}
-          </p>
-          <p className="mt-0.5 text-[10px] uppercase tracking-widest text-white/40">
-            {isAll
-              ? `${cachedMonths.size} month${cachedMonths.size === 1 ? '' : 's'} cached`
-              : isOnCurrent
-                ? 'current month'
-                : cachedMonths.has(view.month)
-                  ? 'cached'
-                  : 'will fetch on open'}
-          </p>
-        </div>
+
+        <label className="sr-only" htmlFor="passages-map-month">
+          Month
+        </label>
+        <select
+          id="passages-map-month"
+          value={selectValue}
+          disabled={isLoading}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === '__all__') onAll();
+            else onGoToMonth(v);
+          }}
+          className={cn(
+            'h-8 min-w-0 flex-1 cursor-pointer rounded-lg border border-white/10',
+            'bg-white/[0.04] px-2.5 text-[12px] font-medium text-white outline-none',
+            'hover:bg-white/[0.06] focus:border-sky-400/40 focus:ring-1 focus:ring-sky-400/30',
+            'disabled:cursor-wait disabled:opacity-60',
+          )}
+        >
+          <option value="__all__" className="bg-slate-950 text-white">
+            All time ({cachedMonths.size} mo)
+          </option>
+          {monthOptions.map((m) => {
+            const cached = cachedMonths.has(m);
+            const label = monthLabelTitleCase(m);
+            const suffix =
+              m === currentKey
+                ? ' · now'
+                : cached
+                  ? ' · cached'
+                  : '';
+            return (
+              <option key={m} value={m} className="bg-slate-950 text-white">
+                {label}
+                {suffix}
+              </option>
+            );
+          })}
+        </select>
+
         <button
           type="button"
           onClick={onNext}
-          disabled={!canGoNext || isLoading}
+          disabled={!canGoNext || isLoading || isAll}
           className={cn(
-            'flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors',
-            canGoNext && !isLoading
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/70 transition-colors',
+            canGoNext && !isLoading && !isAll
               ? 'hover:bg-white/10 hover:text-white'
               : 'cursor-not-allowed opacity-30',
           )}
@@ -4576,86 +5502,36 @@ function MonthNavigator({
         </button>
       </div>
 
-      {/* Month dots — filled = has cached data, hollow = candidate. */}
-      {availableMonths.length > 1 && (
-        <div
-          ref={dotsRef}
-          className="mt-2.5 flex items-center gap-1 overflow-x-auto px-1 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          role="listbox"
-          aria-label="Months"
-        >
-          {availableMonths.map((m) => {
-            const cached = cachedMonths.has(m);
-            const active = !isAll && view.month === m;
-            const isCurrent = m === currentKey;
-            return (
-              <button
-                key={m}
-                type="button"
-                data-month={m}
-                role="option"
-                aria-selected={active}
-                disabled={isLoading}
-                onClick={() => onGoToMonth(m)}
-                title={`${monthLabelTitleCase(m)}${cached ? ' · cached' : ' · not fetched yet'}${isCurrent ? ' · current' : ''}`}
-                className={cn(
-                  'h-2.5 w-2.5 shrink-0 rounded-full transition-all',
-                  active
-                    ? 'scale-125 bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.55)]'
-                    : cached
-                      ? 'bg-white/45 hover:bg-white/70'
-                      : 'border border-white/30 bg-transparent hover:border-white/55',
-                  isCurrent && !active && 'ring-1 ring-sky-400/40 ring-offset-1 ring-offset-slate-950',
-                )}
-              />
-            );
-          })}
-        </div>
-      )}
-
-      <div className="mt-2.5 flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
+      <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={onCurrent}
           disabled={isOnCurrent || isLoading}
           className={cn(
-            'flex-1 rounded-full px-2 py-1 text-[11px] font-medium transition-all',
+            'flex-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors',
             isOnCurrent
-              ? 'bg-white text-slate-900 shadow-sm shadow-black/20'
-              : 'text-white/60 hover:bg-white/5 hover:text-white',
+              ? 'bg-sky-400/15 text-sky-200'
+              : 'bg-white/[0.03] text-white/60 hover:bg-white/[0.06] hover:text-white',
           )}
           title="Jump to the current month (C)"
         >
-          Current
+          This month
         </button>
         <button
           type="button"
           onClick={onAll}
           disabled={isAll || isLoading}
           className={cn(
-            'flex-1 rounded-full px-2 py-1 text-[11px] font-medium transition-all',
+            'flex-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors',
             isAll
-              ? 'bg-white text-slate-900 shadow-sm shadow-black/20'
-              : 'text-white/60 hover:bg-white/5 hover:text-white',
+              ? 'bg-sky-400/15 text-sky-200'
+              : 'bg-white/[0.03] text-white/60 hover:bg-white/[0.06] hover:text-white',
           )}
           title="Show every cached passage (A)"
         >
-          All Time
+          All time
         </button>
       </div>
-    </div>
-  );
-}
-
-function StatBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/35">
-        {label}
-      </p>
-      <p className="mt-0.5 text-[15px] font-semibold tabular-nums tracking-tight text-white">
-        {value}
-      </p>
     </div>
   );
 }

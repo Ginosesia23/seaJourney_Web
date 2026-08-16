@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/card';
 import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-access';
 import { getAisNavStatus, normalizeAisNavStatus } from '@/lib/ais/map-ais-to-state';
+import { AisDebugGate } from '@/components/dashboard/ais-debug-gate';
 
 type AisPreviewResponse = {
   vesselId: string;
@@ -34,15 +35,31 @@ type AisDebugPanelProps = {
   profileRaw: unknown;
 };
 
-/** Temporary debug UI — remove when AIS mapping is verified. */
+/** AIS debug UI — hidden behind a local PIN gate on the live site. */
 export function AisDebugPanel({ vesselId, accessToken, profileRaw }: AisDebugPanelProps) {
   const eligible = hasVesselAisTrackingTier(profileRaw);
+  if (!eligible) return null;
+
+  return (
+    <AisDebugGate>
+      <AisDebugPanelBody vesselId={vesselId} accessToken={accessToken} />
+    </AisDebugGate>
+  );
+}
+
+function AisDebugPanelBody({
+  vesselId,
+  accessToken,
+}: {
+  vesselId: string;
+  accessToken: string | null;
+}) {
   const [preview, setPreview] = useState<AisPreviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const loadPreview = useCallback(async () => {
-    if (!accessToken || !eligible) return;
+    if (!accessToken) return;
     setLoading(true);
     setError(null);
     const logDate = format(new Date(), 'yyyy-MM-dd');
@@ -60,13 +77,11 @@ export function AisDebugPanel({ vesselId, accessToken, profileRaw }: AisDebugPan
     } finally {
       setLoading(false);
     }
-  }, [accessToken, eligible, vesselId]);
+  }, [accessToken, vesselId]);
 
   useEffect(() => {
     void loadPreview();
   }, [loadPreview]);
-
-  if (!eligible) return null;
 
   const pos = preview?.position ?? {};
   const rawNavStatus = getAisNavStatus(
@@ -89,7 +104,7 @@ export function AisDebugPanel({ vesselId, accessToken, profileRaw }: AisDebugPan
           <div className="space-y-1">
             <CardTitle className="flex items-center gap-2 text-base">
               <Bug className="h-4 w-4 text-amber-600" />
-              AIS debug (temporary)
+              AIS debug
             </CardTitle>
             <CardDescription>
               Live Datalastic response — read-only, does not change your state log.

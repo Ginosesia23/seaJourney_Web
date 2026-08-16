@@ -37,6 +37,12 @@
  *      check so a bad prior sample (e.g. a geocoder-driven flip) can't
  *      poison the whole day.
  *
+ *   2b. PLACE MEMORY. If the vessel has sat stationary near this lat/lon
+ *      before (within a ~0.4 nm buffer — GPS never repeats exact coords),
+ *      reuse that remembered state when AIS is ambiguous and we're not
+ *      already locked by yesterday / a stable previous sample. Helps when
+ *      returning to a marina after a passage.
+ *
  *   3. POSITION STABILITY. When AIS is ambiguous (unknown/undefined nav
  *      status, or underway status with drifting speed) and no yesterday
  *      anchor applies, compare the current lat/lon to the previous
@@ -46,9 +52,9 @@
  *
  *   4. GEO / SPEED FALLBACK. Only when the vessel HAS moved significantly
  *      or we have no previous sample AND no yesterday anchor,
- *      disambiguate stationary states using the geocoded location:
- *      populated coastal area → in-port, offshore → at-anchor. High
- *      sustained speed → underway.
+ *      disambiguate stationary states using place memory first, then the
+ *      geocoded location: populated coastal area → in-port, offshore →
+ *      at-anchor. High sustained speed → underway.
  *
  * The resolver also returns whether the underlying position changed
  * meaningfully, so the notification layer can suppress "state changed"
@@ -63,6 +69,10 @@ import {
   mapAisToDailyStatus,
 } from '@/lib/ais/map-ais-to-state';
 import { haversineNm } from '@/lib/ais/analyze-daily-state';
+import {
+  PLACE_MEMORY_RADIUS_NM,
+  type PlaceMemoryHint,
+} from '@/lib/ais/place-memory';
 
 /**
  * Anchor-swing / GPS noise threshold. A vessel on a normal 5:1 anchor
@@ -132,6 +142,12 @@ export type ResolveLiveSampleStateInput = {
    * sample or the geocoder say. Pass `null` to skip this check.
    */
   yesterdayAnchor?: YesterdayAnchor | null;
+  /**
+   * Optional. Historical stationary state near the current fix (within
+   * {@link PLACE_MEMORY_RADIUS_NM}). Used when AIS is ambiguous and we are
+   * arriving / sitting without a reliable yesterday or previous-sample lock.
+   */
+  placeMemory?: PlaceMemoryHint | null;
   locationContext?: {
     endOfDayPlaceName?: string | null;
     endOfDayInPopulatedArea?: boolean;
@@ -148,6 +164,8 @@ export type LiveSampleStateResolution = {
    *   - yesterday-anchor   : locked to yesterday's stationary state because
    *                          today's fix hasn't moved from yesterday's
    *                          position. Highest-priority stability signal.
+   *   - place-memory       : reused a historical stationary state from a
+   *                          prior visit within ~0.4 nm of this fix.
    *   - position-stable    : carried forward from previous sample — vessel
    *                          hasn't moved since the last fix.
    *   - moved-underway     : previous sample was different, position
@@ -160,6 +178,7 @@ export type LiveSampleStateResolution = {
     | 'explicit-ais'
     | 'explicit-underway'
     | 'yesterday-anchor'
+    | 'place-memory'
     | 'position-stable'
     | 'moved-underway'
     | 'geo-inferred'
@@ -210,12 +229,40 @@ function distanceFromPreviousNm(
 export function resolveLiveSampleState(
   input: ResolveLiveSampleStateInput,
 ): LiveSampleStateResolution {
-  const { position, previousSample, yesterdayAnchor, locationContext } = input;
+  const {
+    position,
+    previousSample,
+    yesterdayAnchor,
+    placeMemory,
+    locationContext,
+  } = input;
   const speed = typeof position.speed === 'number' ? position.speed : 0;
   const canonical = getNormalizedAisNavStatus(position);
   const distanceNm = distanceFromPreviousNm(position, previousSample);
   const positionChangedMeaningfully =
     distanceNm != null && distanceNm > SAME_LOCATION_RADIUS_NM;
+
+  const placeMemoryUsable =
+    !!placeMemory &&
+    (placeMemory.state === 'at-anchor' ||
+      placeMemory.state === 'in-port' ||
+      placeMemory.state === 'in-yard') &&
+    placeMemory.distanceNm <= PLACE_MEMORY_RADIUS_NM &&
+    speed < UNAMBIGUOUS_UNDERWAY_KN;
+
+  const applyPlaceMemory = (why: string): LiveSampleStateResolution => ({
+    state: placeMemory!.state,
+    confidence: 'place-memory',
+    reason: `${why} Remembered ${placeMemory!.state} from a prior visit ${(
+      placeMemory!.distanceNm * 1852
+    ).toFixed(0)} m away${
+      placeMemory!.placeName ? ` (${placeMemory!.placeName})` : ''
+    } · ${placeMemory!.visitCount} prior fix${
+      placeMemory!.visitCount === 1 ? '' : 'es'
+    }.`,
+    distanceFromPreviousNm: distanceNm,
+    positionChangedMeaningfully,
+  });
 
   /**
    * Distance from yesterday's last known position, or null if we don't
@@ -350,9 +397,12 @@ export function resolveLiveSampleState(
   ) {
     // Special case: previous was "underway" but vessel is now stationary
     // in the same spot. That's a genuine transition — the vessel just
-    // arrived and stopped moving. Downgrade to at-anchor / in-port using
-    // geocoding if available; otherwise default to at-anchor.
+    // arrived and stopped moving. Prefer place memory (been here before),
+    // then geocoding; otherwise default to at-anchor.
     if (previousSample.state === 'underway' && speed < STATIONARY_SPEED_CEILING_KN) {
+      if (placeMemoryUsable) {
+        return applyPlaceMemory('Vessel has stopped after being underway.');
+      }
       const inPop = locationContext?.endOfDayInPopulatedArea === true;
       return {
         state: inPop ? 'in-port' : 'at-anchor',
@@ -402,7 +452,7 @@ export function resolveLiveSampleState(
 
   // ─── Tier 4: GEO / SPEED FALLBACK ────────────────────────────────────
   // We're here when: no previous sample, OR previous sample far away, OR
-  // speed is unambiguously high. Decide from motion + geocoding.
+  // speed is unambiguously high. Decide from motion + place memory + geocoding.
 
   // Unambiguous underway: high speed regardless of nav status flakiness.
   if (speed >= UNAMBIGUOUS_UNDERWAY_KN) {
@@ -413,6 +463,12 @@ export function resolveLiveSampleState(
       distanceFromPreviousNm: distanceNm,
       positionChangedMeaningfully,
     };
+  }
+
+  // Returning to / sitting at a known place after a passage (previous fix
+  // far away, or first sample). Prefer remembered state over generic geo.
+  if (placeMemoryUsable) {
+    return applyPlaceMemory('Ambiguous AIS near a known place.');
   }
 
   // Vessel is stationary-ish and we have no reliable AIS status.
@@ -456,4 +512,5 @@ export const LIVE_SAMPLE_THRESHOLDS = {
   UNAMBIGUOUS_UNDERWAY_KN,
   STATIONARY_SPEED_CEILING_KN,
   YESTERDAY_ANCHOR_RADIUS_NM,
+  PLACE_MEMORY_RADIUS_NM,
 } as const;

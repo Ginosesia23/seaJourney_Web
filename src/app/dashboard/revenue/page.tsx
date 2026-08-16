@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import type { UserProfile } from '@/lib/types';
 import { format, subMonths, startOfMonth, endOfMonth, eachMonthOfInterval } from 'date-fns';
+import { getSubscriptionTierPricingMap } from '@/app/actions';
+import { lookupTierPriceGbp } from '@/lib/subscription-tier-pricing';
 
 /** Matches Ads tracking: `false` = No-Ads purchase. */
 function normalizeAdsFlag(value: unknown): boolean | null {
@@ -75,23 +77,6 @@ export default function RevenuePage() {
 
   const isAdmin = userProfile?.role === 'admin';
 
-  // Pricing map for subscription tiers (monthly prices in GBP)
-  const tierPricing: Record<string, number> = {
-    // Crew plans
-    'free': 0,
-    'crew_limited': 0,
-    'vessel_linked': 0,
-    'standard': 4.99,
-    'premium': 9.99,
-    'pro': 14.99,
-    'professional': 14.99,
-    // Vessel plans
-    'vessel_lite': 49.99,
-    'vessel_basic': 99.99,
-    'vessel_pro': 299.99,
-    'vessel_fleet': 799.99,
-  };
-
   useEffect(() => {
     if (!isAdmin || !user?.id) {
       setIsLoading(false);
@@ -101,7 +86,7 @@ export default function RevenuePage() {
     const fetchRevenueData = async () => {
       setIsLoading(true);
       try {
-        const [crewRes, vesselRes, noAdsRes] = await Promise.all([
+        const [crewRes, vesselRes, noAdsRes, tierPricing] = await Promise.all([
           supabase
             .from('users')
             .select('id, subscription_status, subscription_tier, created_at, role')
@@ -111,6 +96,7 @@ export default function RevenuePage() {
             .select('id, subscription_status, subscription_tier, created_at, role')
             .eq('role', 'vessel'),
           supabase.from('users').select('ads').neq('role', 'admin'),
+          getSubscriptionTierPricingMap(),
         ]);
 
         const allUsers = crewRes.data;
@@ -147,7 +133,7 @@ export default function RevenuePage() {
         allUsers?.forEach(user => {
           if ((user.subscription_status || '').toLowerCase() === 'active') {
             const tier = (user.subscription_tier || 'free').toLowerCase();
-            const price = tierPricing[tier] || 0;
+            const price = lookupTierPriceGbp(tierPricing, tier);
             
             // Exclude crew_limited, vessel_linked, and free from active subscription counts —
             // these are vessel-managed free tiers, not paying customers.
@@ -174,7 +160,7 @@ export default function RevenuePage() {
         allVesselAccounts?.forEach(vessel => {
           if ((vessel.subscription_status || '').toLowerCase() === 'active') {
             const tier = (vessel.subscription_tier || 'free').toLowerCase();
-            const price = tierPricing[tier] || 0;
+            const price = lookupTierPriceGbp(tierPricing, tier);
             
             // Exclude free tiers from active subscription counts
             if (tier !== 'free') {
@@ -220,7 +206,7 @@ export default function RevenuePage() {
             if (isActive && createdAt && createdAt <= monthEnd) {
               monthSubscriptions++;
               const tier = (account.subscription_tier || 'free').toLowerCase();
-              const price = tierPricing[tier] || 0;
+              const price = lookupTierPriceGbp(tierPricing, tier);
               monthRevenue += price;
             }
           });

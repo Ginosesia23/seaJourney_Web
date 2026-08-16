@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { format, differenceInHours, parse, startOfDay, endOfDay, isAfter, isBefore, eachDayOfInterval, parseISO, addYears } from 'date-fns';
-import { PlusCircle, Loader2, Ship, MapPin, Calendar, Clock, ArrowRight, Edit, Trash2, CheckCircle2, CalendarDays, Navigation, Wind, Waves, Route, TrendingUp, Download, AlertTriangle } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { format, differenceInHours, differenceInCalendarDays, parse, startOfDay, endOfDay, isAfter, isBefore, eachDayOfInterval, parseISO, addYears } from 'date-fns';
+import { PlusCircle, Loader2, Ship, MapPin, Calendar, ArrowRight, Edit, Trash2, Navigation, Wind, Waves, Route, TrendingUp, Download, AlertTriangle, Map as MapIcon, BookPlus, Link2, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
+import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -21,6 +21,12 @@ import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
@@ -35,9 +41,68 @@ import {
   getVesselAssignments,
 } from '@/supabase/database/queries';
 import type { Vessel, UserProfile, PassageLog, StateLog, VesselAssignment } from '@/lib/types';
-import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { hasActiveSubscription, hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import {
+  findLinkedOrOverlappingPassage,
+  isAisSourcedPassage,
+  passageSourceLabel,
+  isPlaceholderPort,
+} from '@/lib/passages/ais-logbook-link';
+import { resolveEndpointLabel } from '@/lib/passages-map/nearest-port';
+import {
+  collapseDatesToLeavePeriods,
+  timeRangeOverlapsLeave,
+  type LeavePeriod,
+} from '@/lib/passages-map/filter-by-leave-periods';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { cn } from '@/lib/utils';
 import { generatePassageLogPDF, type PassageLogExportData } from '@/lib/pdf-generator';
+
+/** Prefer stored port; for Open sea / empty use GPS when available. */
+function displayPassagePort(
+  port: string | null | undefined,
+  lat?: number | null,
+  lon?: number | null,
+  trackCoords?: [number, number] | null,
+): string {
+  if (!isPlaceholderPort(port) && port?.trim()) return port.trim();
+  const useLat = lat ?? trackCoords?.[1] ?? null;
+  const useLon = lon ?? trackCoords?.[0] ?? null;
+  if (
+    useLat != null &&
+    useLon != null &&
+    Number.isFinite(useLat) &&
+    Number.isFinite(useLon)
+  ) {
+    return resolveEndpointLabel(useLat, useLon);
+  }
+  return port?.trim() || '—';
+}
+
+/** One-line date range for compact history rows. */
+function formatCompactPassageDates(startIso: string, endIso: string): string {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const sameDay = format(start, 'yyyy-MM-dd') === format(end, 'yyyy-MM-dd');
+  if (sameDay) {
+    return `${format(start, 'd MMM yyyy')} ${format(start, 'HH:mm')}–${format(end, 'HH:mm')}`;
+  }
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${format(start, 'd MMM HH:mm')} → ${format(end, 'd MMM yyyy HH:mm')}`;
+  }
+  return `${format(start, 'd MMM yyyy HH:mm')} → ${format(end, 'd MMM yyyy HH:mm')}`;
+}
+
+function trackEndpointCoord(
+  trackData: unknown,
+  which: 'start' | 'end',
+): [number, number] | null {
+  const coords = (trackData as { coordinates?: [number, number][] } | null)
+    ?.coordinates;
+  if (!coords || coords.length < 2) return null;
+  return which === 'start' ? coords[0]! : coords[coords.length - 1]!;
+}
 
 const passageSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
@@ -81,6 +146,26 @@ const seaStateOptions = [
   { value: 'phenomenal', label: 'Phenomenal (10+)' },
 ];
 
+/** Deep-link to Passage Tracks for a logbook row with AIS linkage. */
+function passagesMapHrefForLog(passage: PassageLog): string | null {
+  const hasLink =
+    Boolean(passage.ais_fingerprint) ||
+    isAisSourcedPassage(passage.source) ||
+    Boolean(
+      passage.track_data &&
+        typeof passage.track_data === 'object' &&
+        (passage.track_data as { aisFingerprint?: string }).aisFingerprint,
+    );
+  if (!hasLink) return null;
+  const month = String(passage.start_time || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return null;
+  const params = new URLSearchParams({
+    month,
+    vessel: passage.vessel_id,
+  });
+  return `/dashboard/passages-map?${params.toString()}`;
+}
+
 /** Premium+ crew tiers that can use the passage log (excludes Standard, free, crew_limited). */
 const PASSAGE_LOG_CREW_TIERS = new Set(['premium', 'pro', 'professional']);
 
@@ -97,8 +182,159 @@ function passageOverlapsAssignment(passage: PassageLog, a: VesselAssignment): bo
 
 function filterPassagesForCrewAssignments(passages: PassageLog[], assignments: VesselAssignment[]): PassageLog[] {
   if (assignments.length === 0) return [];
-  return passages.filter((p) => assignments.some((a) => passageOverlapsAssignment(p, a)));
+  const assignedVesselIds = new Set(assignments.map((a) => a.vesselId));
+  return passages.filter((p) => {
+    // AIS-linked rows always show if the vessel is (or was) assigned —
+    // map tracks can sit slightly outside assignment day bounds.
+    if (
+      p.ais_fingerprint ||
+      isAisSourcedPassage(p.source) ||
+      (p.track_data as { aisFingerprint?: string } | null)?.aisFingerprint
+    ) {
+      return assignedVesselIds.has(p.vessel_id);
+    }
+    return assignments.some((a) => passageOverlapsAssignment(p, a));
+  });
 }
+
+/** Drop passages that overlap leave — user was not onboard those dates. */
+function filterPassagesOutsideLeave(
+  passages: PassageLog[],
+  leaveByVessel: Map<string, LeavePeriod[]>,
+): PassageLog[] {
+  if (leaveByVessel.size === 0) return passages;
+  return passages.filter((p) => {
+    const leave = leaveByVessel.get(p.vessel_id) ?? [];
+    if (leave.length === 0) return true;
+    return !timeRangeOverlapsLeave(p.start_time, p.end_time, leave);
+  });
+}
+
+async function loadLeavePeriodsByVessel(
+  supabase: SupabaseClient,
+  userId: string,
+  vesselIds: string[],
+): Promise<Map<string, LeavePeriod[]>> {
+  const leaveByVessel = new Map<string, LeavePeriod[]>();
+  if (vesselIds.length === 0) return leaveByVessel;
+
+  const [{ data: leaveRows }, { data: onLeaveLogs }] = await Promise.all([
+    supabase
+      .from('crew_leave_periods')
+      .select('vessel_id, start_date, end_date')
+      .eq('crew_user_id', userId)
+      .in('vessel_id', vesselIds),
+    supabase
+      .from('daily_state_logs')
+      .select('vessel_id, date')
+      .eq('user_id', userId)
+      .eq('state', 'on-leave')
+      .in('vessel_id', vesselIds),
+  ]);
+
+  for (const row of leaveRows ?? []) {
+    const vesselId = String((row as { vessel_id: string }).vessel_id);
+    const startDate = String((row as { start_date: string }).start_date).slice(0, 10);
+    const endDate = String((row as { end_date: string }).end_date).slice(0, 10);
+    let list = leaveByVessel.get(vesselId);
+    if (!list) {
+      list = [];
+      leaveByVessel.set(vesselId, list);
+    }
+    list.push({ vesselId, startDate, endDate });
+  }
+
+  const datesByVessel = new Map<string, string[]>();
+  for (const row of onLeaveLogs ?? []) {
+    const vesselId = String((row as { vessel_id: string }).vessel_id);
+    const d = String((row as { date: string }).date).slice(0, 10);
+    let list = datesByVessel.get(vesselId);
+    if (!list) {
+      list = [];
+      datesByVessel.set(vesselId, list);
+    }
+    list.push(d);
+  }
+  for (const [vesselId, dates] of datesByVessel) {
+    const derived = collapseDatesToLeavePeriods(vesselId, dates);
+    if (derived.length === 0) continue;
+    const existing = leaveByVessel.get(vesselId) ?? [];
+    leaveByVessel.set(vesselId, [...existing, ...derived]);
+  }
+
+  return leaveByVessel;
+}
+
+/** Format yyyy-MM-dd dates as readable ranges, e.g. "3–5 Jan 2026, 12 Jan 2026". */
+function formatConflictDateList(dates: string[]): string {
+  if (dates.length === 0) return '';
+  const sorted = [...dates].sort();
+  const ranges: { start: string; end: string }[] = [];
+  let rangeStart = sorted[0]!;
+  let prev = sorted[0]!;
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i]!;
+    const prevDate = parse(prev, 'yyyy-MM-dd', new Date());
+    const curDate = parse(cur, 'yyyy-MM-dd', new Date());
+    if (differenceInCalendarDays(curDate, prevDate) === 1) {
+      prev = cur;
+      continue;
+    }
+    ranges.push({ start: rangeStart, end: prev });
+    rangeStart = cur;
+    prev = cur;
+  }
+  ranges.push({ start: rangeStart, end: prev });
+
+  return ranges
+    .map(({ start, end }) => {
+      const startDate = parse(start, 'yyyy-MM-dd', new Date());
+      const endDate = parse(end, 'yyyy-MM-dd', new Date());
+      if (start === end) return format(startDate, 'd MMM yyyy');
+      if (startDate.getFullYear() === endDate.getFullYear() && startDate.getMonth() === endDate.getMonth()) {
+        return `${format(startDate, 'd')}–${format(endDate, 'd MMM yyyy')}`;
+      }
+      if (startDate.getFullYear() === endDate.getFullYear()) {
+        return `${format(startDate, 'd MMM')} – ${format(endDate, 'd MMM yyyy')}`;
+      }
+      return `${format(startDate, 'd MMM yyyy')} – ${format(endDate, 'd MMM yyyy')}`;
+    })
+    .join(', ');
+}
+
+type EnrichProposal = {
+  passageId: string;
+  vesselId: string;
+  status: 'enrichable' | 'matched_complete' | 'no_match';
+  method?: 'fingerprint' | 'overlap';
+  overlapRatio?: number;
+  log: {
+    startTime: string;
+    endTime: string;
+    distanceNm: number | null;
+    avgSpeedKnots: number | null;
+    departurePort: string | null;
+    arrivalPort: string | null;
+    source: string | null;
+  };
+  ais?: {
+    startTime: string;
+    endTime: string;
+    distanceNm: number | null;
+    avgSpeedKn: number | null;
+    departurePort: string | null;
+    arrivalPort: string | null;
+  };
+  fieldsFilled?: string[];
+  proposed?: {
+    startTime?: string;
+    endTime?: string;
+    distanceNm?: number;
+    avgSpeedKnots?: number;
+    departurePort?: string;
+    arrivalPort?: string;
+  };
+};
 
 export default function PassageLogbookPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -115,11 +351,36 @@ export default function PassageLogbookPage() {
   const [stateLogsByVessel, setStateLogsByVessel] = useState<Record<string, StateLog[]>>({});
   const [syncingPassageId, setSyncingPassageId] = useState<string | null>(null);
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
+  const [isEnrichDialogOpen, setIsEnrichDialogOpen] = useState(false);
+  const [isScanningAis, setIsScanningAis] = useState(false);
+  const [isApplyingEnrich, setIsApplyingEnrich] = useState(false);
+  const [enrichProposals, setEnrichProposals] = useState<EnrichProposal[]>([]);
+  const [enrichSummary, setEnrichSummary] = useState<{
+    total: number;
+    enrichable: number;
+    matchedComplete: number;
+    noMatch: number;
+  } | null>(null);
+  const [enrichAisCount, setEnrichAisCount] = useState(0);
+  const [selectedEnrichIds, setSelectedEnrichIds] = useState<Set<string>>(new Set());
+  const [isImportingFromMap, setIsImportingFromMap] = useState(false);
+  const [calendarConflictsOpen, setCalendarConflictsOpen] = useState(false);
+  const [underwayWithoutPassageOpen, setUnderwayWithoutPassageOpen] = useState(false);
+  const [mapMissingCount, setMapMissingCount] = useState<number | null>(null);
+  const [mapCachedMonthCount, setMapCachedMonthCount] = useState<number | null>(null);
+  const [mapEnrichableCount, setMapEnrichableCount] = useState<number | null>(null);
+  const [expandedPassageId, setExpandedPassageId] = useState<string | null>(null);
+  const [expandedHistoryMonths, setExpandedHistoryMonths] = useState<Set<string>>(
+    () => new Set([format(new Date(), 'yyyy-MM')]),
+  );
+  const [historyMonthsInitialized, setHistoryMonthsInitialized] = useState(false);
 
   const { user } = useUser();
   const { supabase } = useSupabase();
   const { toast } = useToast();
-  const router = useRouter();
+  const { isEnabled: isFeatureEnabled, isLoading: isFlagsLoading } =
+    useFeatureFlags();
+  const passageLogFeatureOn = isFeatureEnabled('passage_logbook');
 
   // Fetch user profile to check subscription tier
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -175,6 +436,18 @@ export default function PassageLogbookPage() {
       data = await getPassageLogs(supabase, user.id);
       if (role !== 'admin' && role !== 'vessel') {
         data = filterPassagesForCrewAssignments(data, assignments);
+        const vesselIds = Array.from(
+          new Set([
+            ...assignments.map((a) => a.vesselId),
+            ...data.map((p) => p.vessel_id),
+          ]),
+        );
+        const leaveByVessel = await loadLeavePeriodsByVessel(
+          supabase,
+          user.id,
+          vesselIds,
+        );
+        data = filterPassagesOutsideLeave(data, leaveByVessel);
       }
     }
     setPassages(data);
@@ -307,6 +580,169 @@ export default function PassageLogbookPage() {
     return PASSAGE_LOG_CREW_TIERS.has(tier) && entitled;
   }, [userProfile, userProfileRaw]);
 
+  const canMatchAis = useMemo(
+    () =>
+      Boolean(
+        userProfileRaw &&
+          hasPassagesMapAccess(userProfileRaw) &&
+          isFeatureEnabled('passages_map'),
+      ),
+    [userProfileRaw, isFeatureEnabled],
+  );
+
+  const refreshMapMissingCount = useCallback(async () => {
+    if (!canMatchAis) {
+      setMapMissingCount(null);
+      setMapCachedMonthCount(null);
+      setMapEnrichableCount(null);
+      return;
+    }
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) return;
+      const res = await fetch('/api/passages-map/sync-logbook', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      setMapMissingCount(
+        typeof json.missingCount === 'number' ? json.missingCount : 0,
+      );
+      setMapCachedMonthCount(
+        typeof json.cachedMonthCount === 'number' ? json.cachedMonthCount : 0,
+      );
+      setMapEnrichableCount(
+        typeof json.enrichableCount === 'number' ? json.enrichableCount : 0,
+      );
+    } catch {
+      /* optional chrome */
+    }
+  }, [canMatchAis, supabase]);
+
+  useEffect(() => {
+    if (!hasAccess || !canMatchAis) return;
+    void refreshMapMissingCount();
+  }, [hasAccess, canMatchAis, passages.length, refreshMapMissingCount]);
+
+  const importFromPassagesMap = useCallback(async () => {
+    setIsImportingFromMap(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Not signed in');
+      const res = await fetch('/api/passages-map/sync-logbook', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Import failed');
+      toast({
+        title:
+          (json.createdCount ?? 0) > 0
+            ? 'Imported from Passages Map'
+            : 'Logbook already up to date',
+        description:
+          json.message ||
+          `Created ${json.createdCount ?? 0}, skipped ${json.skippedCount ?? 0}.`,
+      });
+      await loadPassagesData();
+      await refreshMapMissingCount();
+    } catch (err) {
+      toast({
+        title: 'Could not import from map',
+        description: err instanceof Error ? err.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsImportingFromMap(false);
+    }
+  }, [supabase, toast, loadPassagesData, refreshMapMissingCount]);
+
+  const scanAisMatches = useCallback(async () => {
+    setIsScanningAis(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Not signed in');
+      const res = await fetch('/api/passages-map/enrich', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to match AIS tracks');
+      const proposals = (json.proposals || []) as EnrichProposal[];
+      setEnrichProposals(proposals);
+      setEnrichSummary(json.summary ?? null);
+      setEnrichAisCount(json.aisPassageCount ?? 0);
+      setSelectedEnrichIds(
+        new Set(proposals.filter((p) => p.status === 'enrichable').map((p) => p.passageId)),
+      );
+    } catch (err) {
+      toast({
+        title: 'AIS match failed',
+        description: err instanceof Error ? err.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsScanningAis(false);
+    }
+  }, [supabase, toast]);
+
+  const openEnrichDialog = useCallback(async () => {
+    setIsEnrichDialogOpen(true);
+    setEnrichProposals([]);
+    setEnrichSummary(null);
+    await scanAisMatches();
+  }, [scanAisMatches]);
+
+  const applyAisEnrichment = useCallback(async () => {
+    if (selectedEnrichIds.size === 0) {
+      toast({
+        title: 'Nothing selected',
+        description: 'Select at least one matched passage to fill from AIS.',
+      });
+      return;
+    }
+    setIsApplyingEnrich(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Not signed in');
+      const res = await fetch('/api/passages-map/enrich', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          passageIds: [...selectedEnrichIds],
+          updateTimes: true,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to apply AIS data');
+      toast({
+        title: 'Passages updated from AIS',
+        description: `Filled ${json.updatedCount ?? 0} passage${(json.updatedCount ?? 0) === 1 ? '' : 's'} with distance, times, and speed where missing.`,
+      });
+      setIsEnrichDialogOpen(false);
+      await loadPassagesData();
+      await refreshMapMissingCount();
+    } catch (err) {
+      toast({
+        title: 'Could not apply AIS data',
+        description: err instanceof Error ? err.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsApplyingEnrich(false);
+    }
+  }, [selectedEnrichIds, supabase, toast, loadPassagesData, refreshMapMissingCount]);
+
   const onSubmit = async (data: PassageFormValues) => {
     if (!user?.id || !hasAccess) {
       const role = (userProfile as any)?.role || userProfile?.role || 'crew';
@@ -353,7 +789,7 @@ export default function PassageLogbookPage() {
           weatherSummary: data.weatherSummary || undefined,
           seaState: data.seaState || undefined,
           notes: data.notes || undefined,
-          source: 'manual',
+          source: editingPassage.source || 'manual',
         });
 
         toast({
@@ -361,6 +797,23 @@ export default function PassageLogbookPage() {
           description: 'Your passage has been updated successfully.',
         });
       } else {
+        const overlap = findLinkedOrOverlappingPassage(passages, {
+          vesselId,
+          startTime: data.startTime.toISOString(),
+          endTime: data.endTime.toISOString(),
+        });
+        if (overlap) {
+          toast({
+            title: 'Passage already recorded',
+            description: isAisSourcedPassage(overlap.source)
+              ? 'This voyage already exists from the AIS map. Edit that logbook entry instead of creating a duplicate.'
+              : 'An overlapping passage already exists for this vessel and date range.',
+            variant: 'destructive',
+          });
+          setIsSaving(false);
+          return;
+        }
+
         await createPassageLog(supabase, {
           crewId: user.id,
           vesselId,
@@ -516,6 +969,26 @@ export default function PassageLogbookPage() {
     return (passage.distance_nm / hours).toFixed(1);
   };
 
+  const passageTypeLabel = (value?: string | null) =>
+    passageTypes.find((t) => t.value === value)?.label || value || null;
+
+  const seaStateLabel = (value?: string | null) =>
+    seaStateOptions.find((s) => s.value === value)?.label || value || null;
+
+  const formatCoordPair = (lat?: number | null, lon?: number | null) => {
+    if (
+      lat == null ||
+      lon == null ||
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lon)
+    ) {
+      return null;
+    }
+    const ns = lat >= 0 ? 'N' : 'S';
+    const ew = lon >= 0 ? 'E' : 'W';
+    return `${Math.abs(lat).toFixed(3)}°${ns} ${Math.abs(lon).toFixed(3)}°${ew}`;
+  };
+
   const handleExport = async () => {
     if (!user?.id || !userProfile) return;
 
@@ -664,6 +1137,58 @@ export default function PassageLogbookPage() {
     };
   }, [passages]);
 
+  const historyMonthStats = useMemo(() => {
+    const byMonth = new Map<string, { count: number; distanceNm: number }>();
+    for (const p of passages) {
+      const key = format(new Date(p.start_time), 'yyyy-MM');
+      const cur = byMonth.get(key) ?? { count: 0, distanceNm: 0 };
+      cur.count += 1;
+      cur.distanceNm += p.distance_nm || 0;
+      byMonth.set(key, cur);
+    }
+    return byMonth;
+  }, [passages]);
+
+  const passagesByMonth = useMemo(() => {
+    const map = new Map<string, PassageLog[]>();
+    for (const p of passages) {
+      const key = format(new Date(p.start_time), 'yyyy-MM');
+      const list = map.get(key);
+      if (list) list.push(p);
+      else map.set(key, [p]);
+    }
+    return Array.from(map.entries()).map(([monthKey, items]) => ({
+      monthKey,
+      items,
+      stats: historyMonthStats.get(monthKey),
+      labelDate: new Date(items[0]!.start_time),
+    }));
+  }, [passages, historyMonthStats]);
+
+  // Expand the newest month that has passages if the current calendar month is empty
+  useEffect(() => {
+    if (historyMonthsInitialized || passages.length === 0) return;
+    const currentKey = format(new Date(), 'yyyy-MM');
+    const hasCurrent = passages.some(
+      (p) => format(new Date(p.start_time), 'yyyy-MM') === currentKey,
+    );
+    if (!hasCurrent) {
+      const latestKey = format(new Date(passages[0]!.start_time), 'yyyy-MM');
+      setExpandedHistoryMonths(new Set([latestKey]));
+    }
+    setHistoryMonthsInitialized(true);
+  }, [passages, historyMonthsInitialized]);
+
+  const toggleHistoryMonth = useCallback((monthKey: string) => {
+    setExpandedHistoryMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(monthKey)) next.delete(monthKey);
+      else next.add(monthKey);
+      return next;
+    });
+    setExpandedPassageId(null);
+  }, []);
+
   // Passage dates that are not set to Underway in the calendar (conflicts)
   const passageConflicts = useMemo(() => {
     const conflicts: { passage: PassageLog; datesNotUnderway: string[] }[] = [];
@@ -702,12 +1227,38 @@ export default function PassageLogbookPage() {
         if (!inPassage) out.push({ vesselId, date: dateStr });
       }
     }
-    return out;
+    return out.sort((a, b) => a.date.localeCompare(b.date) || a.vesselId.localeCompare(b.vesselId));
   }, [passages, stateLogsByVessel]);
 
-  const isLoading = isLoadingProfile || isLoadingVessels;
+  const underwayWithoutPassageByVessel = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const { vesselId, date } of underwayDaysWithoutPassage) {
+      const list = map.get(vesselId) ?? [];
+      list.push(date);
+      map.set(vesselId, list);
+    }
+    return [...map.entries()]
+      .map(([vesselId, dates]) => ({ vesselId, dates: [...dates].sort() }))
+      .sort((a, b) => a.vesselId.localeCompare(b.vesselId));
+  }, [underwayDaysWithoutPassage]);
+
+  const isLoading = isLoadingProfile || isLoadingVessels || isFlagsLoading;
+  const hasMissingImports = (mapMissingCount ?? 0) > 0;
+  const hasEnrichableMatches = (mapEnrichableCount ?? 0) > 0;
+  const aisMonthsLoaded = (mapCachedMonthCount ?? 0) > 0;
+  const toolbarBtn =
+    'h-8 rounded-lg px-3 text-xs font-medium shadow-none';
 
   if (isLoading || isLoadingPassages) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Disabled features are redirected by dashboard layout; keep a quiet guard.
+  if (!passageLogFeatureOn) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -753,7 +1304,9 @@ export default function PassageLogbookPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Passage Log Book</h1>
             <p className="text-muted-foreground">
-            Record and track your voyages between ports
+            {canMatchAis
+              ? 'AIS tracks on Passage Tracks are the source of truth for geometry. This log holds notes, weather, and documentary details.'
+              : 'Record voyages between ports with notes, weather, and distance for your records.'}
           </p>
           </div>
         </div>
@@ -761,21 +1314,120 @@ export default function PassageLogbookPage() {
 
       {/* Calendar sync conflicts */}
       {passageConflicts.length > 0 && (
-        <Alert variant="destructive" className="rounded-xl border-amber-500/50 bg-amber-500/5">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Calendar conflict</AlertTitle>
-          <AlertDescription>
-            {passageConflicts.length} passage{passageConflicts.length !== 1 ? 's' : ''} have dates that are not set to Underway in the calendar. Passages and vessel state should match: passage dates should be Underway. Use &quot;Set to Underway&quot; below to fix.
-          </AlertDescription>
-        </Alert>
+        <Collapsible open={calendarConflictsOpen} onOpenChange={setCalendarConflictsOpen}>
+          <Alert variant="destructive" className="rounded-xl border-amber-500/50 bg-amber-500/5">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle className="flex flex-wrap items-center gap-2 pr-0">
+              <span>Calendar conflict</span>
+              <CollapsibleTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-xs font-normal text-amber-900 hover:bg-amber-500/10 dark:text-amber-200"
+                >
+                  {calendarConflictsOpen ? 'Hide days' : 'Show days'}
+                  <ChevronDown
+                    className={cn(
+                      'h-3.5 w-3.5 transition-transform',
+                      calendarConflictsOpen && 'rotate-180',
+                    )}
+                  />
+                </Button>
+              </CollapsibleTrigger>
+            </AlertTitle>
+            <AlertDescription>
+              <p>
+                {passageConflicts.length} passage{passageConflicts.length !== 1 ? 's' : ''} have dates that are not set to Underway in the calendar. Passages and vessel state should match: passage dates should be Underway. Use &quot;Set to Underway&quot; below to fix.
+              </p>
+              <CollapsibleContent>
+                <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto border-t border-amber-500/20 pt-3 text-sm">
+                  {passageConflicts.map(({ passage, datesNotUnderway }) => (
+                    <li key={passage.id} className="rounded-lg bg-amber-500/10 px-3 py-2">
+                      <div className="font-medium text-foreground">
+                        {passage.departure_port || '—'} → {passage.arrival_port || '—'}
+                        <span className="ml-1.5 font-normal text-muted-foreground">
+                          · {getVesselName(passage.vessel_id)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {datesNotUnderway.length} day{datesNotUnderway.length !== 1 ? 's' : ''} not Underway:{' '}
+                        <span className="text-foreground/90">
+                          {formatConflictDateList(datesNotUnderway)}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </CollapsibleContent>
+            </AlertDescription>
+          </Alert>
+        </Collapsible>
       )}
       {/* Underway days with no passage (vice versa) */}
       {underwayDaysWithoutPassage.length > 0 && (
-        <Alert className="rounded-xl border-blue-500/30 bg-blue-500/5">
-          <Waves className="h-4 w-4" />
-          <AlertTitle>Underway with no passage</AlertTitle>
-          <AlertDescription>
-            {underwayDaysWithoutPassage.length} day{underwayDaysWithoutPassage.length !== 1 ? 's' : ''} in the calendar are set to Underway but not covered by a passage. Consider logging a passage for these dates or updating the calendar on the Calendar page.
+        <Collapsible open={underwayWithoutPassageOpen} onOpenChange={setUnderwayWithoutPassageOpen}>
+          <Alert className="rounded-xl border-blue-500/30 bg-blue-500/5">
+            <Waves className="h-4 w-4" />
+            <AlertTitle className="flex flex-wrap items-center gap-2 pr-0">
+              <span>Underway with no passage</span>
+              <CollapsibleTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-xs font-normal"
+                >
+                  {underwayWithoutPassageOpen ? 'Hide days' : 'Show days'}
+                  <ChevronDown
+                    className={cn(
+                      'h-3.5 w-3.5 transition-transform',
+                      underwayWithoutPassageOpen && 'rotate-180',
+                    )}
+                  />
+                </Button>
+              </CollapsibleTrigger>
+            </AlertTitle>
+            <AlertDescription>
+              <p>
+                {underwayDaysWithoutPassage.length} day{underwayDaysWithoutPassage.length !== 1 ? 's' : ''} in the calendar are set to Underway but not covered by a passage. Consider logging a passage for these dates or updating the calendar on the Calendar page.
+              </p>
+              <CollapsibleContent>
+                <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto border-t border-blue-500/20 pt-3 text-sm">
+                  {underwayWithoutPassageByVessel.map(({ vesselId, dates }) => (
+                    <li key={vesselId} className="rounded-lg bg-blue-500/10 px-3 py-2">
+                      <div className="font-medium text-foreground">
+                        {getVesselName(vesselId)}
+                        <span className="ml-1.5 font-normal text-muted-foreground">
+                          · {dates.length} day{dates.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        <span className="text-foreground/90">{formatConflictDateList(dates)}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </CollapsibleContent>
+            </AlertDescription>
+          </Alert>
+        </Collapsible>
+      )}
+
+      {canMatchAis && mapCachedMonthCount === 0 && (
+        <Alert className="rounded-xl border-amber-500/30 bg-amber-500/5">
+          <MapIcon className="h-4 w-4" />
+          <AlertTitle>No AIS months loaded yet</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              Load months on Passage Tracks first so Import and Match can see your AIS voyages.
+            </span>
+            <Button type="button" size="sm" className="shrink-0 rounded-xl" asChild>
+              <Link href="/dashboard/passages-map">
+                <MapIcon className="h-4 w-4 mr-2" />
+                Open Passage Tracks
+              </Link>
+            </Button>
           </AlertDescription>
         </Alert>
       )}
@@ -833,18 +1485,255 @@ export default function PassageLogbookPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {(canMatchAis || passages.length > 0) && (
+        <div className="inline-flex w-fit flex-wrap items-center gap-0.5 rounded-xl border bg-muted/30 p-1">
+          {canMatchAis && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={toolbarBtn}
+              asChild
+            >
+              <Link href="/dashboard/passages-map">
+                <MapIcon className="h-3.5 w-3.5 mr-1.5" />
+                Map
+              </Link>
+            </Button>
+          )}
+          {canMatchAis && aisMonthsLoaded && hasMissingImports && (
+            <Button
+              type="button"
+              size="sm"
+              className={toolbarBtn}
+              disabled={isImportingFromMap}
+              onClick={() => void importFromPassagesMap()}
+              title="Import AIS voyages that are not in the logbook yet"
+            >
+              {isImportingFromMap ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <BookPlus className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Import
+              <span className="ml-1 tabular-nums opacity-80">{mapMissingCount}</span>
+            </Button>
+          )}
+          {canMatchAis && aisMonthsLoaded && hasEnrichableMatches && (
+            <Dialog
+              open={isEnrichDialogOpen}
+              onOpenChange={(open) => {
+                setIsEnrichDialogOpen(open);
+                if (!open) {
+                  setEnrichProposals([]);
+                  setSelectedEnrichIds(new Set());
+                }
+              }}
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={toolbarBtn}
+                onClick={() => void openEnrichDialog()}
+                title="Fill existing logbook rows from matching AIS tracks"
+              >
+                <Link2 className="h-3.5 w-3.5 mr-1.5" />
+                Match
+                <span className="ml-1 tabular-nums text-muted-foreground">
+                  {mapEnrichableCount}
+                </span>
+              </Button>
+              <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+                <DialogHeader>
+                  <DialogTitle>Match existing entries with AIS</DialogTitle>
+                  <DialogDescription>
+                    Compare your logbook rows to cached Passage Tracks. Matching voyages
+                    can fill missing distance, times, and average speed without creating duplicates.
+                    Use &quot;Import missing from map&quot; to add brand-new AIS voyages.
+                  </DialogDescription>
+                </DialogHeader>
+                {isScanningAis ? (
+                  <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Matching against AIS tracks…
+                  </div>
+                ) : (
+                  <div className="space-y-4 overflow-y-auto flex-1 min-h-0 py-2">
+                    {enrichSummary && (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-sm">
+                        <div className="rounded-lg border p-2">
+                          <div className="font-semibold text-sky-700">{enrichSummary.enrichable}</div>
+                          <div className="text-xs text-muted-foreground">Can fill</div>
+                        </div>
+                        <div className="rounded-lg border p-2">
+                          <div className="font-semibold">{enrichSummary.matchedComplete}</div>
+                          <div className="text-xs text-muted-foreground">Already complete</div>
+                        </div>
+                        <div className="rounded-lg border p-2">
+                          <div className="font-semibold text-muted-foreground">{enrichSummary.noMatch}</div>
+                          <div className="text-xs text-muted-foreground">No AIS match</div>
+                        </div>
+                        <div className="rounded-lg border p-2">
+                          <div className="font-semibold">{enrichAisCount}</div>
+                          <div className="text-xs text-muted-foreground">AIS passages</div>
+                        </div>
+                      </div>
+                    )}
+                    {enrichAisCount === 0 && (
+                      <Alert>
+                        <MapIcon className="h-4 w-4" />
+                        <AlertTitle>No AIS tracks cached yet</AlertTitle>
+                        <AlertDescription className="flex flex-col gap-2">
+                          <span>
+                            Open Passage Tracks and load months for your vessels first, then run Match again.
+                          </span>
+                          <Button type="button" size="sm" variant="outline" className="w-fit rounded-xl" asChild>
+                            <Link href="/dashboard/passages-map">Open Passage Tracks</Link>
+                          </Button>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {enrichProposals.filter((p) => p.status === 'enrichable').length === 0 &&
+                      enrichAisCount > 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          No logbook rows need filling from a matching AIS track right now.
+                        </p>
+                      )}
+                    <ul className="space-y-2">
+                      {enrichProposals
+                        .filter((p) => p.status === 'enrichable')
+                        .map((p) => {
+                          const checked = selectedEnrichIds.has(p.passageId);
+                          const vesselName = getVesselName(p.vesselId);
+                          return (
+                            <li
+                              key={p.passageId}
+                              className="rounded-lg border p-3 text-sm space-y-2"
+                            >
+                              <div className="flex items-start gap-3">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(v) => {
+                                    setSelectedEnrichIds((prev) => {
+                                      const next = new Set(prev);
+                                      if (v) next.add(p.passageId);
+                                      else next.delete(p.passageId);
+                                      return next;
+                                    });
+                                  }}
+                                  className="mt-0.5"
+                                />
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  <div className="font-medium truncate">
+                                    {vesselName}: {p.log.departurePort || '—'} → {p.log.arrivalPort || '—'}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    Match {(p.overlapRatio != null ? Math.round(p.overlapRatio * 100) : 100)}%
+                                    {p.method === 'fingerprint' ? ' (linked)' : ' (dates)'}
+                                  </div>
+                                  <div className="grid sm:grid-cols-2 gap-2 text-xs">
+                                    <div className="rounded bg-muted/50 p-2">
+                                      <div className="font-medium mb-1">Logbook</div>
+                                      <div>
+                                        {format(new Date(p.log.startTime), 'MMM d HH:mm')} →{' '}
+                                        {format(new Date(p.log.endTime), 'MMM d HH:mm')}
+                                      </div>
+                                      <div>
+                                        {p.log.distanceNm != null
+                                          ? `${p.log.distanceNm.toFixed(1)} NM`
+                                          : 'No distance'}
+                                        {p.log.avgSpeedKnots != null
+                                          ? ` · ${p.log.avgSpeedKnots.toFixed(1)} kn`
+                                          : ''}
+                                      </div>
+                                    </div>
+                                    <div className="rounded bg-sky-500/10 p-2">
+                                      <div className="font-medium mb-1 text-sky-800">From AIS</div>
+                                      {p.ais && (
+                                        <>
+                                          <div>
+                                            {format(new Date(p.ais.startTime), 'MMM d HH:mm')} →{' '}
+                                            {format(new Date(p.ais.endTime), 'MMM d HH:mm')}
+                                          </div>
+                                          <div>
+                                            {p.ais.distanceNm != null
+                                              ? `${p.ais.distanceNm.toFixed(1)} NM`
+                                              : '—'}
+                                            {p.ais.avgSpeedKn != null
+                                              ? ` · ${p.ais.avgSpeedKn.toFixed(1)} kn`
+                                              : ''}
+                                          </div>
+                                          {(p.ais.departurePort || p.ais.arrivalPort) && (
+                                            <div className="truncate">
+                                              {p.ais.departurePort || 'Open sea'} →{' '}
+                                              {p.ais.arrivalPort || 'Open sea'}
+                                            </div>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {p.fieldsFilled && p.fieldsFilled.length > 0 && (
+                                    <div className="text-[11px] text-muted-foreground">
+                                      Will update: {p.fieldsFilled.filter((f) => f !== 'aisFingerprint').join(', ')}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </li>
+                          );
+                        })}
+                    </ul>
+                  </div>
+                )}
+                <DialogFooter className="gap-2 sm:gap-0">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void scanAisMatches()}
+                    disabled={isScanningAis || isApplyingEnrich}
+                  >
+                    Rescan
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => void applyAisEnrichment()}
+                    disabled={
+                      isScanningAis ||
+                      isApplyingEnrich ||
+                      selectedEnrichIds.size === 0
+                    }
+                  >
+                    {isApplyingEnrich ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Applying…
+                      </>
+                    ) : (
+                      `Fill ${selectedEnrichIds.size || ''} selected`
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {passages.length > 0 && (
           <Dialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" className="rounded-xl">
-                <Download className="h-4 w-4 mr-2" />
-                Export Passages
+              <Button variant="ghost" size="sm" className={toolbarBtn}>
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                Export
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>Export Passage Log</DialogTitle>
+                <DialogDescription>
+                  Download an official PDF extract dated today, with passages
+                  sorted and grouped by calendar month.
+                </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
@@ -946,9 +1835,14 @@ export default function PassageLogbookPage() {
 
                 <div className="pt-2">
                   <p className="text-xs text-muted-foreground">
-                    {exportFilter === 'all' && `Exporting all ${passages.length} passages`}
-                    {exportFilter === 'vessel' && (userProfile?.role as string) !== 'vessel' && exportVesselId && `Exporting passages for ${getVesselName(exportVesselId)}`}
-                    {exportFilter === 'date' && `Exporting passages between selected dates`}
+                    {exportFilter === 'all' &&
+                      `Official PDF of all ${passages.length} passages, grouped by month`}
+                    {exportFilter === 'vessel' &&
+                      (userProfile?.role as string) !== 'vessel' &&
+                      exportVesselId &&
+                      `Official PDF for ${getVesselName(exportVesselId)}, grouped by month`}
+                    {exportFilter === 'date' &&
+                      'Official PDF for the selected dates, grouped by month'}
                   </p>
                 </div>
               </div>
@@ -974,14 +1868,16 @@ export default function PassageLogbookPage() {
                   ) : (
                     <>
                       <Download className="h-4 w-4 mr-2" />
-                      Export
+                      Download PDF
                     </>
                   )}
                 </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          )}
         </div>
+        )}
 
         <Dialog open={isFormOpen} onOpenChange={(open) => {
           setIsFormOpen(open);
@@ -992,10 +1888,10 @@ export default function PassageLogbookPage() {
             form.setValue('vesselId', (userProfile as any).activeVesselId);
           }
         }}>
-          <DialogTrigger asChild className="rounded-xl">
-          <Button>
-              <PlusCircle className="h-4 w-4 mr-2 rounded-xl" />
-              Add Passage
+          <DialogTrigger asChild>
+          <Button size="sm" className="h-8 rounded-xl px-3">
+              <PlusCircle className="h-3.5 w-3.5 mr-1.5" />
+              Add
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -1386,12 +2282,38 @@ export default function PassageLogbookPage() {
             <MapPin className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
             <h3 className="text-lg font-semibold mb-2">No passages logged yet</h3>
             <p className="text-muted-foreground mb-4">
-              Start tracking your voyages by logging your first passage.
+              {canMatchAis
+                ? 'Import voyages from Passage Tracks, or add a manual passage with notes and weather.'
+                : 'Start tracking your voyages by logging your first passage.'}
             </p>
-            <Button onClick={() => setIsFormOpen(true)}>
-              <PlusCircle className="h-4 w-4 mr-2" />
-              Log First Passage
-            </Button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {canMatchAis && hasMissingImports && (
+                <Button
+                  type="button"
+                  disabled={isImportingFromMap}
+                  onClick={() => void importFromPassagesMap()}
+                >
+                  {isImportingFromMap ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <BookPlus className="h-4 w-4 mr-2" />
+                  )}
+                  Import {mapMissingCount} from map
+                </Button>
+              )}
+              {canMatchAis && (
+                <Button variant="outline" asChild>
+                  <Link href="/dashboard/passages-map">
+                    <MapIcon className="h-4 w-4 mr-2" />
+                    Open Passage Tracks
+                  </Link>
+                </Button>
+              )}
+              <Button variant={hasMissingImports ? 'outline' : 'default'} onClick={() => setIsFormOpen(true)}>
+                <PlusCircle className="h-4 w-4 mr-2" />
+                {canMatchAis ? 'Add manual passage' : 'Log First Passage'}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : (
@@ -1400,91 +2322,184 @@ export default function PassageLogbookPage() {
             <CardTitle>Passage History</CardTitle>
             <CardDescription>
               {passages.length} {passages.length === 1 ? 'passage' : 'passages'} recorded
+              {' · '}
+              click a month to expand or collapse
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
-                <TableRow>
-                  {!isVesselAccount && <TableHead>Vessel</TableHead>}
-                  <TableHead>Route</TableHead>
-                  <TableHead>Dates</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Distance</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Calendar</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="h-8 w-7 px-2 py-1.5" />
+                  {!isVesselAccount && (
+                    <TableHead className="h-8 px-2 py-1.5 text-xs">Vessel</TableHead>
+                  )}
+                  <TableHead className="h-8 px-2 py-1.5 text-xs">Route</TableHead>
+                  <TableHead className="h-8 px-2 py-1.5 text-xs">Dates</TableHead>
+                  <TableHead className="h-8 px-2 py-1.5 text-xs">Duration</TableHead>
+                  <TableHead className="h-8 px-2 py-1.5 text-xs">Distance</TableHead>
+                  <TableHead className="h-8 px-2 py-1.5 text-xs">Source</TableHead>
+                  <TableHead className="h-8 px-2 py-1.5 text-xs">Status</TableHead>
+                  <TableHead className="h-8 px-2 py-1.5 text-xs">Calendar</TableHead>
+                  <TableHead className="h-8 px-2 py-1.5 text-right text-xs">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {passages.map((passage) => {
+                {passagesByMonth.map(({ monthKey, items, stats, labelDate }) => {
+                  const monthOpen = expandedHistoryMonths.has(monthKey);
+                  return (
+                    <Fragment key={monthKey}>
+                      <TableRow
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => toggleHistoryMonth(monthKey)}
+                        aria-expanded={monthOpen}
+                      >
+                        <TableCell
+                          colSpan={isVesselAccount ? 9 : 10}
+                          className="bg-muted/60 px-3 py-2 text-left"
+                        >
+                          <div className="flex items-center gap-2">
+                            {monthOpen ? (
+                              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            ) : (
+                              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            )}
+                            <span className="text-xs font-semibold tracking-wide text-foreground">
+                              {format(labelDate, 'MMMM yyyy')}
+                            </span>
+                            {stats && (
+                              <span className="text-[11px] text-muted-foreground">
+                                {stats.count}{' '}
+                                {stats.count === 1 ? 'passage' : 'passages'}
+                                {stats.distanceNm > 0
+                                  ? ` · ${stats.distanceNm.toFixed(0)} NM`
+                                  : ''}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {monthOpen
+                        ? items.map((passage) => {
                   const status = getPassageStatus(passage);
                   const duration = calculateDuration(passage.start_time, passage.end_time);
                   const avgSpeed = calculateAvgSpeed(passage);
                   const conflict = passageConflicts.find((c) => c.passage.id === passage.id);
                   const isSyncing = syncingPassageId === passage.id;
+                  const isExpanded = expandedPassageId === passage.id;
+                  const colSpan = isVesselAccount ? 9 : 10;
+                  const depLabel = displayPassagePort(
+                    passage.departure_port,
+                    passage.departure_lat,
+                    passage.departure_lon,
+                    trackEndpointCoord(passage.track_data, 'start'),
+                  );
+                  const arrLabel = displayPassagePort(
+                    passage.arrival_port,
+                    passage.arrival_lat,
+                    passage.arrival_lon,
+                    trackEndpointCoord(passage.track_data, 'end'),
+                  );
+                  const depCoord = formatCoordPair(
+                    passage.departure_lat ??
+                      trackEndpointCoord(passage.track_data, 'start')?.[1],
+                    passage.departure_lon ??
+                      trackEndpointCoord(passage.track_data, 'start')?.[0],
+                  );
+                  const arrCoord = formatCoordPair(
+                    passage.arrival_lat ??
+                      trackEndpointCoord(passage.track_data, 'end')?.[1],
+                    passage.arrival_lon ??
+                      trackEndpointCoord(passage.track_data, 'end')?.[0],
+                  );
+                  const typeLabel = passageTypeLabel(passage.passage_type);
+                  const seaLabel = seaStateLabel(passage.sea_state);
+                  const storedAvg =
+                    passage.avg_speed_knots != null &&
+                    Number.isFinite(Number(passage.avg_speed_knots))
+                      ? Number(passage.avg_speed_knots).toFixed(1)
+                      : avgSpeed;
+                  const compactBadge =
+                    'h-5 gap-0.5 px-1.5 py-0 text-[10px] font-medium leading-none';
+
                   return (
-                    <TableRow key={passage.id}>
+                    <Fragment key={passage.id}>
+                    <TableRow
+                      className={cn(
+                        'cursor-pointer transition-colors',
+                        isExpanded ? 'bg-muted/40' : 'hover:bg-muted/30',
+                      )}
+                      onClick={() =>
+                        setExpandedPassageId((prev) =>
+                          prev === passage.id ? null : passage.id,
+                        )
+                      }
+                      aria-expanded={isExpanded}
+                    >
+                      <TableCell className="w-7 px-2 py-1.5 pr-0">
+                        {isExpanded ? (
+                          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                        )}
+                      </TableCell>
                       {!isVesselAccount && (
-                        <TableCell className="font-medium">
-                          <div className="flex items-center gap-2">
-                            <Ship className="h-4 w-4 text-muted-foreground" />
+                        <TableCell className="whitespace-nowrap px-2 py-1.5 font-medium">
+                          <div className="flex items-center gap-1.5">
+                            <Ship className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             {getVesselName(passage.vessel_id)}
                           </div>
                         </TableCell>
                       )}
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div>
-                            <span className="font-medium">{passage.departure_port || '—'}</span>
-                            {passage.departure_country && (
-                              <span className="text-xs text-muted-foreground ml-1">({passage.departure_country})</span>
+                      <TableCell className="max-w-[220px] px-2 py-1.5">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate font-medium">{depLabel}</span>
+                          <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          <span className="truncate font-medium">{arrLabel}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap px-2 py-1.5 text-xs text-muted-foreground tabular-nums">
+                        {formatCompactPassageDates(passage.start_time, passage.end_time)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap px-2 py-1.5">
+                        {duration}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap px-2 py-1.5">
+                        {passage.distance_nm ? (
+                          <span>
+                            {passage.distance_nm.toFixed(1)} NM
+                            {avgSpeed && (
+                              <span className="text-xs text-muted-foreground">
+                                {' '}
+                                · {avgSpeed} kn
+                              </span>
                             )}
-                          </div>
-                          <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                          <div>
-                            <span className="font-medium">{passage.arrival_port || '—'}</span>
-                            {passage.arrival_country && (
-                              <span className="text-xs text-muted-foreground ml-1">({passage.arrival_country})</span>
-                            )}
-                          </div>
-                        </div>
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3 text-muted-foreground" />
-                            {format(new Date(passage.start_time), 'MMM d, yyyy HH:mm')}
-                          </div>
-                          <div className="flex items-center gap-1 text-muted-foreground">
-                            <ArrowRight className="h-3 w-3" />
-                            {format(new Date(passage.end_time), 'MMM d, yyyy HH:mm')}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-3 w-3 text-muted-foreground" />
-                          {duration}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          {passage.distance_nm ? (
-                            <>
-                              {passage.distance_nm.toFixed(1)} NM
-                              {avgSpeed && (
-                                <div className="text-xs text-muted-foreground">
-                                  {avgSpeed} kts avg
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
+                      <TableCell className="px-2 py-1.5">
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            compactBadge,
+                            isAisSourcedPassage(passage.source)
+                              ? 'border-sky-500/40 bg-sky-500/10 text-sky-800'
+                              : passage.source === 'calendar'
+                                ? 'border-violet-500/30 bg-violet-500/10 text-violet-800'
+                                : 'text-muted-foreground',
                           )}
-                        </div>
+                          title={
+                            isAisSourcedPassage(passage.source)
+                              ? 'Linked from AIS Passages Map'
+                              : undefined
+                          }
+                        >
+                          {passageSourceLabel(passage.source)}
+                        </Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="px-2 py-1.5">
                         <Badge
                           variant={
                             status === 'completed'
@@ -1493,79 +2508,200 @@ export default function PassageLogbookPage() {
                               ? 'secondary'
                               : 'outline'
                           }
-                          className={
+                          className={cn(
+                            compactBadge,
                             status === 'completed'
                               ? 'bg-green-500/20 text-green-700 border-green-500/30'
                               : status === 'in-progress'
                               ? 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30'
-                              : ''
-                          }
-                        >
-                          {status === 'completed' ? (
-                            <>
-                              <CheckCircle2 className="h-3 w-3 mr-1" />
-                              Completed
-                            </>
-                          ) : status === 'in-progress' ? (
-                            <>
-                              <Clock className="h-3 w-3 mr-1" />
-                              In Progress
-                            </>
-                          ) : (
-                            <>
-                              <CalendarDays className="h-3 w-3 mr-1" />
-                              Planned
-                            </>
+                              : '',
                           )}
+                        >
+                          {status === 'completed'
+                            ? 'Done'
+                            : status === 'in-progress'
+                              ? 'Underway'
+                              : 'Planned'}
                         </Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="px-2 py-1.5">
                         {conflict ? (
-                          <div className="flex flex-col gap-1">
-                            <Badge variant="outline" className="w-fit text-amber-600 border-amber-500/50 bg-amber-500/10">
-                              {conflict.datesNotUnderway.length} day{conflict.datesNotUnderway.length !== 1 ? 's' : ''} not Underway
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <Badge
+                              variant="outline"
+                              title={`${conflict.datesNotUnderway.length} day${conflict.datesNotUnderway.length !== 1 ? 's' : ''} not set to Underway`}
+                              className={cn(
+                                compactBadge,
+                                'text-amber-600 border-amber-500/50 bg-amber-500/10',
+                              )}
+                            >
+                              {conflict.datesNotUnderway.length}d
                             </Badge>
                             <Button
                               variant="outline"
                               size="sm"
-                              className="rounded-lg h-8 text-xs"
-                              onClick={() => handleSetPassageToUnderway(passage)}
+                              title="Set these dates to Underway"
+                              className="h-6 rounded-md px-2 text-[10px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSetPassageToUnderway(passage);
+                              }}
                               disabled={isSyncing}
                             >
                               {isSyncing ? (
-                                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                <Loader2 className="h-3 w-3 animate-spin" />
                               ) : (
-                                <Waves className="h-3 w-3 mr-1" />
+                                'Fix'
                               )}
-                              Set to Underway
                             </Button>
                           </div>
                         ) : (
-                          <Badge variant="secondary" className="w-fit text-green-700 border-green-500/30 bg-green-500/10">
-                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                          <Badge
+                            variant="secondary"
+                            className={cn(
+                              compactBadge,
+                              'text-green-700 border-green-500/30 bg-green-500/10',
+                            )}
+                          >
                             Synced
                           </Badge>
                         )}
                       </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
+                      <TableCell className="px-2 py-1.5 text-right">
+                        <div
+                          className="flex items-center justify-end gap-0.5"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {canMatchAis && passagesMapHrefForLog(passage) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              title="Open on Passage Tracks"
+                              asChild
+                            >
+                              <Link href={passagesMapHrefForLog(passage)!}>
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </Link>
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="h-7 w-7"
                             onClick={() => handleEdit(passage)}
                           >
-                            <Edit className="h-4 w-4" />
+                            <Edit className="h-3.5 w-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="h-7 w-7"
                             onClick={() => handleDelete(passage.id)}
                           >
-                            <Trash2 className="h-4 w-4 text-destructive" />
+                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
                           </Button>
                         </div>
                       </TableCell>
                     </TableRow>
+                    {isExpanded && (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell
+                          colSpan={colSpan}
+                          className="bg-muted/20 border-b p-0"
+                        >
+                          <div className="grid gap-4 px-4 py-4 sm:grid-cols-2 lg:grid-cols-3">
+                            <div className="space-y-1">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Route detail
+                              </div>
+                              <p className="text-sm font-medium">
+                                {depLabel} → {arrLabel}
+                              </p>
+                              {(depCoord || arrCoord) && (
+                                <p className="text-xs text-muted-foreground tabular-nums">
+                                  {depCoord || '—'} → {arrCoord || '—'}
+                                </p>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Timing
+                              </div>
+                              <p className="text-sm">
+                                {format(new Date(passage.start_time), 'PPp')}
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                to {format(new Date(passage.end_time), 'PPp')} · {duration}
+                              </p>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Performance
+                              </div>
+                              <p className="text-sm">
+                                {passage.distance_nm != null
+                                  ? `${Number(passage.distance_nm).toFixed(1)} NM`
+                                  : 'Distance not set'}
+                                {storedAvg ? ` · ${storedAvg} kn avg` : ''}
+                              </p>
+                              {passage.engine_hours != null && (
+                                <p className="text-xs text-muted-foreground">
+                                  Engine hours: {Number(passage.engine_hours).toFixed(1)}
+                                </p>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                                <Route className="h-3 w-3" />
+                                Passage type
+                              </div>
+                              <p className="text-sm">{typeLabel || '—'}</p>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                                <Wind className="h-3 w-3" />
+                                Weather
+                              </div>
+                              <p className="text-sm whitespace-pre-wrap">
+                                {passage.weather_summary?.trim() || '—'}
+                              </p>
+                              {seaLabel && (
+                                <p className="text-xs text-muted-foreground">
+                                  Sea state: {seaLabel}
+                                </p>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Source
+                              </div>
+                              <p className="text-sm">
+                                {passageSourceLabel(passage.source)}
+                              </p>
+                              {passage.ais_fingerprint && (
+                                <p className="text-[10px] text-muted-foreground break-all">
+                                  AIS link: {passage.ais_fingerprint}
+                                </p>
+                              )}
+                            </div>
+                            <div className="space-y-1 sm:col-span-2 lg:col-span-3">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Notes
+                              </div>
+                              <p className="text-sm whitespace-pre-wrap">
+                                {passage.notes?.trim() || 'No notes yet.'}
+                              </p>
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    </Fragment>
+                  );
+                        })
+                        : null}
+                    </Fragment>
                   );
                 })}
               </TableBody>

@@ -950,6 +950,7 @@ function transformPassageLog(dbLog: any): PassageLog {
     sea_state: dbLog.sea_state,
     notes: dbLog.notes,
     source: dbLog.source,
+    ais_fingerprint: dbLog.ais_fingerprint ?? null,
     track_data: dbLog.track_data,
     created_at: dbLog.created_at,
     updated_at: dbLog.updated_at,
@@ -1040,6 +1041,7 @@ export async function createPassageLog(
     notes?: string;
     source?: string;
     trackData?: any;
+    aisFingerprint?: string | null;
   }
 ): Promise<PassageLog> {
   const startTime = typeof passageData.startTime === 'string' 
@@ -1074,6 +1076,7 @@ export async function createPassageLog(
       notes: passageData.notes || null,
       source: passageData.source || 'manual',
       track_data: passageData.trackData || null,
+      ais_fingerprint: passageData.aisFingerprint || null,
     })
     .select()
     .single();
@@ -1110,6 +1113,7 @@ export async function updatePassageLog(
     notes?: string;
     source?: string;
     trackData?: any;
+    aisFingerprint?: string | null;
   }>
 ): Promise<PassageLog> {
   const updateData: any = {};
@@ -1142,6 +1146,7 @@ export async function updatePassageLog(
   if (updates.notes !== undefined) updateData.notes = updates.notes || null;
   if (updates.source !== undefined) updateData.source = updates.source || null;
   if (updates.trackData !== undefined) updateData.track_data = updates.trackData || null;
+  if (updates.aisFingerprint !== undefined) updateData.ais_fingerprint = updates.aisFingerprint || null;
 
   const { data, error } = await supabase
     .from('passage_logs')

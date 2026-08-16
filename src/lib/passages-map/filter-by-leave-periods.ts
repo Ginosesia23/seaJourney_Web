@@ -13,12 +13,10 @@
  *
  * Exclusion semantic
  * ──────────────────
- * A passage is excluded if its FULL `[startTime, endTime]` interval
- * lies within the union of the crew's leave periods for that vessel.
- * Partial overlaps (started before leave began, or ended after leave
- * ended) are kept — the user was probably onboard for at least part of
- * the passage. This matches the user's stated intent: "do not show
- * passages that fall within the users leave period".
+ * A passage is excluded if its `[startTime, endTime]` interval
+ * OVERLAPS any leave period for that vessel. While on leave the user
+ * is not onboard — AIS movement belongs to another rotation and must
+ * not appear on their map or land in their Passage Logbook.
  *
  * Leave date semantics
  * ────────────────────
@@ -95,22 +93,113 @@ function mergeIntervals(intervals: MsInterval[]): MsInterval[] {
 }
 
 /**
- * True if `[passageStart, passageEnd]` is fully inside any of the
- * (already-merged) leave intervals.
+ * True if `[passageStart, passageEnd]` overlaps any merged leave
+ * interval (half-open). Touching at an endpoint (passage ends exactly
+ * when leave starts) is NOT an overlap.
  */
-function passageIsFullyInsideLeave(
+function passageOverlapsLeave(
   passageStartMs: number,
   passageEndMs: number,
   merged: MsInterval[],
 ): boolean {
+  const pEnd = Math.max(passageEndMs, passageStartMs);
   for (const iv of merged) {
-    if (passageStartMs >= iv.startMs && passageEndMs <= iv.endMs) return true;
-    // Early exit: intervals are sorted, so if the next interval starts
-    // after the passage ends, none of the remaining ones will contain
-    // this passage either.
-    if (iv.startMs > passageEndMs) break;
+    if (passageStartMs < iv.endMs && pEnd > iv.startMs) return true;
+    if (iv.startMs > pEnd) break;
   }
   return false;
+}
+
+/**
+ * Public helper for logbook / promote / sync routes: does this ISO
+ * time range fall on any leave period?
+ */
+export function timeRangeOverlapsLeave(
+  startIso: string,
+  endIso: string,
+  leavePeriods: readonly LeavePeriod[],
+): boolean {
+  if (leavePeriods.length === 0) return false;
+  const startMs = Date.parse(startIso);
+  const endMs = Date.parse(endIso);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return false;
+  const intervals: MsInterval[] = [];
+  for (const p of leavePeriods) {
+    const iv = leavePeriodToInterval(p);
+    if (iv) intervals.push(iv);
+  }
+  if (intervals.length === 0) return false;
+  return passageOverlapsLeave(startMs, endMs, mergeIntervals(intervals));
+}
+
+/**
+ * True when every millisecond of `[rangeStartMs, rangeEndMs)` is
+ * covered by the union of leave intervals. Used to skip Datalastic
+ * fetches for months the crew spent entirely on leave.
+ */
+export function rangeFullyCoveredByLeave(
+  rangeStartMs: number,
+  rangeEndMs: number,
+  leavePeriods: readonly LeavePeriod[],
+): boolean {
+  if (!(rangeEndMs > rangeStartMs) || leavePeriods.length === 0) return false;
+  const intervals: MsInterval[] = [];
+  for (const p of leavePeriods) {
+    const iv = leavePeriodToInterval(p);
+    if (iv) intervals.push(iv);
+  }
+  const merged = mergeIntervals(intervals);
+  if (merged.length === 0) return false;
+
+  let cursor = rangeStartMs;
+  for (const iv of merged) {
+    if (iv.endMs <= cursor) continue;
+    if (iv.startMs > cursor) return false; // uncovered gap
+    cursor = Math.max(cursor, iv.endMs);
+    if (cursor >= rangeEndMs) return true;
+  }
+  return cursor >= rangeEndMs;
+}
+
+/**
+ * Collapse consecutive `YYYY-MM-DD` dates into inclusive leave periods.
+ * Used when deriving leave from `daily_state_logs` on-leave rows.
+ */
+export function collapseDatesToLeavePeriods(
+  vesselId: string,
+  dates: readonly string[],
+): LeavePeriod[] {
+  const sorted = Array.from(
+    new Set(
+      dates
+        .map((d) => d.slice(0, 10))
+        .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+    ),
+  ).sort();
+  if (sorted.length === 0) return [];
+
+  const out: LeavePeriod[] = [];
+  let start = sorted[0]!;
+  let prev = sorted[0]!;
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i]!;
+    const prevMs = Date.parse(`${prev}T00:00:00.000Z`);
+    const curMs = Date.parse(`${cur}T00:00:00.000Z`);
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (
+      Number.isFinite(prevMs) &&
+      Number.isFinite(curMs) &&
+      curMs === prevMs + dayMs
+    ) {
+      prev = cur;
+      continue;
+    }
+    out.push({ vesselId, startDate: start, endDate: prev });
+    start = cur;
+    prev = cur;
+  }
+  out.push({ vesselId, startDate: start, endDate: prev });
+  return out;
 }
 
 /**
@@ -132,7 +221,7 @@ export type LeaveFilterResult = {
 };
 
 /**
- * Drop passages that fall fully within any leave period. Recomputed
+ * Drop passages that overlap any leave period. Recomputed
  * FeatureCollection preserves feature ordering for the ones we keep;
  * no other properties are mutated.
  *
@@ -172,7 +261,7 @@ export function filterFeaturesByLeavePeriods(
       kept.push(feat);
       continue;
     }
-    if (passageIsFullyInsideLeave(startMs, endMs, merged)) {
+    if (passageOverlapsLeave(startMs, endMs, merged)) {
       excludedCount += 1;
       excludedDistanceNm +=
         typeof feat.properties.distanceNm === 'number'

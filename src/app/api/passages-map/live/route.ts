@@ -30,6 +30,7 @@ import {
   buildActiveLiveTrack,
   type LiveSamplePoint,
 } from '@/lib/passages-map/build-live-track';
+import { assignOrderedVesselColors } from '@/lib/passages-map/vessel-colors';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -74,36 +75,6 @@ type LiveResponse = {
   trackingEnabled: boolean;
   message?: string;
 };
-
-function vesselColorHex(vesselId: string): string {
-  let hash = 0;
-  for (let i = 0; i < vesselId.length; i++) {
-    hash = (hash * 31 + vesselId.charCodeAt(i)) >>> 0;
-  }
-  const hue = hash % 360;
-  return hslToHex(hue, 68, 48);
-}
-
-function hslToHex(h: number, s: number, l: number): string {
-  const sN = s / 100;
-  const lN = l / 100;
-  const c = (1 - Math.abs(2 * lN - 1)) * sN;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = lN - c / 2;
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  if (h < 60) [r, g, b] = [c, x, 0];
-  else if (h < 120) [r, g, b] = [x, c, 0];
-  else if (h < 180) [r, g, b] = [0, c, x];
-  else if (h < 240) [r, g, b] = [0, x, c];
-  else if (h < 300) [r, g, b] = [x, 0, c];
-  else [r, g, b] = [c, 0, x];
-  const to255 = (n: number) => Math.round((n + m) * 255);
-  return `#${[to255(r), to255(g), to255(b)]
-    .map((n) => n.toString(16).padStart(2, '0'))
-    .join('')}`;
-}
 
 function numOrNull(v: unknown): number | null {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -179,9 +150,9 @@ export async function GET(req: NextRequest) {
         .active_vessel_id;
       if (activeVesselId) managedIds.add(activeVesselId);
       vesselIds = Array.from(managedIds);
-      trackingEnabled = ((managedRaw ?? []) as {
-        ais_tracking_enabled?: boolean | null;
-      }).some((v) => Boolean(v.ais_tracking_enabled));
+      trackingEnabled = (
+        (managedRaw ?? []) as { ais_tracking_enabled?: boolean | null }[]
+      ).some((v) => Boolean(v.ais_tracking_enabled));
       emptyScopeMessage =
         'No managed vessel found — live position unavailable.';
     } else {
@@ -227,10 +198,16 @@ export async function GET(req: NextRequest) {
     // Vessel accounts don't write crew AIS samples yet — return the
     // vessel roster so the UI can still reconcile, without a live pin.
     if (isVesselAccount) {
+      const colors = assignOrderedVesselColors(
+        vesselIds.map((id) => ({
+          id,
+          name: vesselNameById.get(id) ?? null,
+        })),
+      );
       const vessels: LiveVessel[] = vesselIds.map((vesselId) => ({
         vesselId,
         vesselName: vesselNameById.get(vesselId) ?? 'Unnamed vessel',
-        colorHex: vesselColorHex(vesselId),
+        colorHex: colors.get(vesselId)?.colorHex ?? '#2563eb',
         live: null,
         activeTrack: null,
       }));
@@ -283,6 +260,13 @@ export async function GET(req: NextRequest) {
     }
 
     const now = Date.now();
+    const vesselColors = assignOrderedVesselColors(
+      vesselIds.map((id) => ({
+        id,
+        name: vesselNameById.get(id) ?? null,
+      })),
+    );
+
     const vessels: LiveVessel[] = [];
 
     for (const vesselId of vesselIds) {
@@ -338,7 +322,7 @@ export async function GET(req: NextRequest) {
       vessels.push({
         vesselId,
         vesselName: vesselNameById.get(vesselId) ?? 'Unnamed vessel',
-        colorHex: vesselColorHex(vesselId),
+        colorHex: vesselColors.get(vesselId)?.colorHex ?? '#2563eb',
         live,
         activeTrack,
       });

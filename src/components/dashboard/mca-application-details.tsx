@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, FileText, Info, Edit, Save } from 'lucide-react';
+import { Loader2, Edit, Save } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format, parse, getYear, getMonth, getDate, setYear, setMonth, setDate, isValid } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -419,26 +419,21 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
   }
 
   return (
-    <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-      <CardHeader>
+    <Card className="rounded-xl border shadow-none">
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
-            <FileText className="h-5 w-5 text-blue-400" />
-          </div>
-          <div>
-            <CardTitle className="text-xl">
-              {isCrewMode ? 'Crew member details' : 'Crew details'}
+          <div className="min-w-0">
+            <CardTitle className="text-sm font-semibold tracking-tight">
+              {isCrewMode ? 'Crew member details' : 'Official details'}
             </CardTitle>
-            <CardDescription className="mt-1">
+            <CardDescription className="mt-0.5 text-xs">
               {isCrewMode
-                ? 'Add or edit this member’s details (e.g. date of birth, address). They are used for AMSA, MCA, Nav Watch, and other generated documents.'
-                : 'Save your details once — we use them to fill PDFs and applications (including date of birth, address, and discharge book number).'}
+                ? 'Used for AMSA, MCA, Nav Watch, and other generated documents.'
+                : 'Used to fill PDFs and applications (DOB, address, discharge book).'}
             </CardDescription>
           </div>
-          </div>
           {!isEditing ? (
-            <Button type="button" onClick={() => setIsEditing(true)} variant="default" className="rounded-xl shrink-0">
+            <Button type="button" onClick={() => setIsEditing(true)} size="sm" className="rounded-lg shrink-0">
               <Edit className="h-4 w-4 mr-2" />
               Edit
             </Button>
@@ -446,28 +441,18 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
         </div>
       </CardHeader>
       <CardContent>
-        <div className="mb-6 p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/30">
-          <div className="flex items-start gap-3">
-            <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                {isCrewMode ? 'Why add these details?' : 'Why save these details?'}
-              </p>
-              <p className="text-xs text-blue-700 dark:text-blue-300">
-                {isCrewMode
-                  ? 'These details feed vessel-generated PDFs and applications for this crew member (AMSA, MCA, Nav Watch, and similar).'
-                  : 'These details are used whenever you generate official PDFs and applications from SeaJourney, so keeping them accurate saves time.'}
-              </p>
-            </div>
-          </div>
-        </div>
+        <p className="mb-5 text-xs text-muted-foreground leading-relaxed">
+          {isCrewMode
+            ? 'Keep these accurate so vessel-generated documents for this crew member fill correctly.'
+            : 'Save once — SeaJourney reuses these fields whenever you generate official documents.'}
+        </p>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
             {/* Personal Information Section */}
             <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-foreground">Personal Information</h3>
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Personal</h3>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <FormField
                   control={form.control}
                   name="title"
@@ -695,7 +680,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
 
             {/* Contact Information Section */}
             <div className="space-y-4 pt-4 border-t">
-              <h3 className="text-sm font-semibold text-foreground">Contact Information</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contact</h3>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                 <FormField
                   control={form.control}
@@ -741,7 +726,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
 
             {/* Address Section */}
             <div className="space-y-4 pt-4 border-t">
-              <h3 className="text-sm font-semibold text-foreground">Address</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Address</h3>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                 <FormField
                   control={form.control}

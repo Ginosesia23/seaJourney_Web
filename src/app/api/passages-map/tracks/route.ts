@@ -54,6 +54,7 @@ import { createClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import { isFeatureEnabledServer } from '@/lib/feature-flags/server';
 import { DatalasticApiError, fetchVesselHistoryRange } from '@/lib/datalastic/client';
 import { todayDateKey } from '@/lib/vessel-assignment-dates';
 import { parseHistoryPosition } from '@/lib/ais/historical-import';
@@ -76,9 +77,13 @@ import {
 import {
   aggregateBucketStats,
   bboxOfFeatureCollection,
+  collapseDatesToLeavePeriods,
   filterFeaturesByLeavePeriods,
+  rangeFullyCoveredByLeave,
   type LeavePeriod,
 } from '@/lib/passages-map/filter-by-leave-periods';
+import { assignOrderedVesselColors } from '@/lib/passages-map/vessel-colors';
+import { smoothPassageFeatureCollection } from '@/lib/passages-map/smooth-track';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -155,11 +160,9 @@ type VesselResponse = {
   skipReason?: string;
   /**
    * Transparency for leave-period filtering: how many passages we
-   * removed from THIS vessel's response because they fell entirely
-   * inside one of the crew member's logged leave periods. The UI
-   * uses this to show a small "N hidden while on leave" note so
-   * users know why their sea-time is smaller than the raw AIS
-   * history suggests.
+   * removed from THIS vessel's response because they overlapped the
+   * crew member's leave periods (manual leave rows + on-leave daily
+   * logs). The UI shows a small "N hidden while on leave" note.
    */
   excludedByLeave?: {
     passageCount: number;
@@ -193,39 +196,7 @@ type TracksResponse = {
   message?: string;
 };
 
-// ─── Colour helpers (unchanged from prior version). ───────────────────
-
-function vesselColorHex(vesselId: string): string {
-  let hash = 0;
-  for (let i = 0; i < vesselId.length; i++) {
-    hash = (hash * 31 + vesselId.charCodeAt(i)) >>> 0;
-  }
-  const hue = hash % 360;
-  return hslToHex(hue, 68, 48);
-}
-
-function hslToHex(h: number, s: number, l: number): string {
-  const sN = s / 100;
-  const lN = l / 100;
-  const c = (1 - Math.abs(2 * lN - 1)) * sN;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = lN - c / 2;
-
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  if (h < 60) [r, g, b] = [c, x, 0];
-  else if (h < 120) [r, g, b] = [x, c, 0];
-  else if (h < 180) [r, g, b] = [0, c, x];
-  else if (h < 240) [r, g, b] = [0, x, c];
-  else if (h < 300) [r, g, b] = [x, 0, c];
-  else [r, g, b] = [c, 0, x];
-
-  const to255 = (n: number) => Math.round((n + m) * 255);
-  return `#${[to255(r), to255(g), to255(b)]
-    .map((n) => n.toString(16).padStart(2, '0'))
-    .join('')}`;
-}
+// ─── Colour helpers live in `@/lib/passages-map/vessel-colors`. ─────
 
 function emptyTotals(): VesselResponse['totals'] {
   return {
@@ -365,6 +336,20 @@ async function authenticate(req: NextRequest): Promise<
             'The Passages Map requires Crew Professional or Vessel Premium and above.',
         },
         { status: 402 },
+      ),
+    };
+  }
+
+  const role = String(profile.role || '').toLowerCase();
+  const flagOn = await isFeatureEnabledServer('passages_map', {
+    isAdmin: role === 'admin',
+  });
+  if (!flagOn) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'Passages Map is temporarily unavailable.' },
+        { status: 403 },
       ),
     };
   }
@@ -523,6 +508,9 @@ export async function GET(req: NextRequest) {
 
     // Leave periods only apply to crew/captain personal history. Vessel
     // accounts plot the vessel's own continuous track.
+    // Sources: explicit `crew_leave_periods` rows + consecutive
+    // `daily_state_logs` marked on-leave (covers onboard-toggle leave
+    // that may not yet be mirrored into the periods table).
     const leaveByVessel = new Map<string, LeavePeriod[]>();
     if (!scope.isVesselAccount) {
       const { data: leaveRowsRaw, error: leaveErr } = await supabaseAdmin
@@ -553,7 +541,49 @@ export async function GET(req: NextRequest) {
         }
         list.push({ vesselId: row.vessel_id, startDate, endDate });
       }
+
+      const { data: onLeaveLogsRaw, error: onLeaveErr } = await supabaseAdmin
+        .from('daily_state_logs')
+        .select('vessel_id, date')
+        .eq('user_id', auth.userId)
+        .eq('state', 'on-leave')
+        .in('vessel_id', vesselIds);
+      if (onLeaveErr) {
+        console.warn(
+          '[passages-map/tracks] on-leave state-log query failed',
+          onLeaveErr,
+        );
+      } else {
+        const datesByVessel = new Map<string, string[]>();
+        for (const row of (onLeaveLogsRaw ?? []) as {
+          vessel_id: string;
+          date: string;
+        }[]) {
+          const d = String(row.date).slice(0, 10);
+          let list = datesByVessel.get(row.vessel_id);
+          if (!list) {
+            list = [];
+            datesByVessel.set(row.vessel_id, list);
+          }
+          list.push(d);
+        }
+        for (const [vesselId, dates] of datesByVessel) {
+          const derived = collapseDatesToLeavePeriods(vesselId, dates);
+          if (derived.length === 0) continue;
+          const existing = leaveByVessel.get(vesselId) ?? [];
+          leaveByVessel.set(vesselId, [...existing, ...derived]);
+        }
+      }
     }
+
+    // Stable colour roster — alphabetical by name, then id — so vessel
+    // #1 is always blue, #2 green, etc. regardless of activity sort.
+    const vessels = Array.from(vesselIds)
+      .map((id) => vesselById.get(id))
+      .filter((v): v is VesselRow => !!v);
+    const vesselColors = assignOrderedVesselColors(
+      vessels.map((v) => ({ id: v.id, name: v.name })),
+    );
 
     // 3. Handle explicit refresh (delete cache rows before we load them).
     if (refresh) {
@@ -588,9 +618,6 @@ export async function GET(req: NextRequest) {
 
     // 5. Fetch strategy branch.
     let datalasticChunks = 0;
-    const vessels = Array.from(vesselIds)
-      .map((id) => vesselById.get(id))
-      .filter((v): v is VesselRow => !!v);
 
     const vesselResponses: VesselResponse[] = [];
 
@@ -621,6 +648,7 @@ export async function GET(req: NextRequest) {
         source,
         leaveByVessel.get(vessel.id) ?? [],
         samplesByVessel.get(vessel.id) ?? [],
+        vesselColors.get(vessel.id)?.colorHex ?? '#2563eb',
         skipReason,
       );
 
@@ -691,6 +719,39 @@ export async function GET(req: NextRequest) {
             ),
           );
           continue;
+        }
+
+        // Entire onboard window for this month was leave — don't spend
+        // a Datalastic chunk on voyages the user wasn't aboard for.
+        // Still serve a filtered cache row if one already exists.
+        const leaveForVessel = leaveByVessel.get(vessel.id) ?? [];
+        if (!cached && leaveForVessel.length > 0) {
+          const range = monthKeyToFetchRange(month);
+          const rangeStartMs = Date.parse(`${range.from}T00:00:00.000Z`);
+          const rangeEndExclusiveMs =
+            Date.parse(`${range.to}T00:00:00.000Z`) + 24 * 60 * 60 * 1000;
+          if (
+            Number.isFinite(rangeStartMs) &&
+            Number.isFinite(rangeEndExclusiveMs) &&
+            rangeFullyCoveredByLeave(
+              rangeStartMs,
+              rangeEndExclusiveMs,
+              leaveForVessel,
+            )
+          ) {
+            vesselResponses.push(
+              buildVesselResponse(
+                vessel,
+                emptyBucket(month),
+                collectCachedMonthsForVessel(cacheByKey, vessel.id).map(
+                  (r) => r.month_key,
+                ),
+                'skipped',
+                'On leave for this month — AIS history skipped.',
+              ),
+            );
+            continue;
+          }
         }
 
         // Need to fetch. Cost guard first.
@@ -1031,6 +1092,7 @@ function assembleVesselResponse(
   source: VesselResponse['source'],
   leavePeriods: readonly LeavePeriod[] = [],
   recentSamples: readonly RawAisFix[] = [],
+  colorHex: string = '#2563eb',
   skipReason?: string,
 ): VesselResponse {
   // Stitch fragments → extend with hourly samples → cut any chords that
@@ -1043,14 +1105,16 @@ function assembleVesselResponse(
   working = splitFeaturesOnLandCrossings(working);
   const filtered = filterFeaturesByLeavePeriods(working, leavePeriods);
 
-  const usedFc = filtered.featureCollection;
-  const usedTotals = aggregateBucketStats(usedFc);
+  // Soften sharp AIS joins for map display. Totals stay on pre-smooth
+  // properties (true sailed distance from raw fixes).
+  const usedFc = smoothPassageFeatureCollection(filtered.featureCollection);
+  const usedTotals = aggregateBucketStats(filtered.featureCollection);
   const usedBbox = bboxOfFeatureCollection(usedFc);
 
   return {
     vesselId: vessel.id,
     vesselName: vessel.name || 'Unnamed vessel',
-    colorHex: vesselColorHex(vessel.id),
+    colorHex,
     featureCollection: usedFc,
     bbox: usedBbox,
     totals: usedTotals,

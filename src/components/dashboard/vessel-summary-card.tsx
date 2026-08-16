@@ -4,8 +4,7 @@
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Ship, Anchor, Calendar, Waves, Building, Briefcase, Wrench, PlayCircle, Loader2, Trash2, ShieldCheck, Pencil } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Ship, Anchor, Calendar, Waves, Building, Briefcase, Wrench, PlayCircle, Loader2, Trash2, CreditCard, Pencil, Users } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
 
@@ -36,9 +35,14 @@ type VesselSummaryCardProps = {
     isResuming?: boolean;
     onDelete?: (vesselId: string, vesselName: string) => void;
     showDeleteButton?: boolean;
-    isActivelyManaged?: boolean;
+    /** Vessel manager has an active subscription */
+    isSubscribed?: boolean;
     /** Admin: open full vessel edit dialog */
     onAdminEdit?: () => void;
+    onViewActiveCrew?: () => void;
+    onViewPastCrew?: () => void;
+    activeCrewCount?: number;
+    pastCrewCount?: number;
 };
 
 export function VesselSummaryCard({ 
@@ -48,9 +52,15 @@ export function VesselSummaryCard({
     isResuming = false,
     onDelete,
     showDeleteButton = false,
-    isActivelyManaged = false,
+    isSubscribed = false,
     onAdminEdit,
+    onViewActiveCrew,
+    onViewPastCrew,
+    activeCrewCount = 0,
+    pastCrewCount = 0,
 }: VesselSummaryCardProps) {
+    const showCrewCounts = activeCrewCount > 0 || pastCrewCount > 0 || onViewActiveCrew || onViewPastCrew;
+
     return (
         <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow flex flex-col h-full">
             <CardHeader>
@@ -60,11 +70,16 @@ export function VesselSummaryCard({
                             <Ship className="h-6 w-6 text-primary" />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <CardTitle className="text-xl font-semibold truncate">{vesselSummary.name}</CardTitle>
-                                {isActivelyManaged && (
-                                    <Badge variant="default" className="bg-blue-600 hover:bg-blue-700 text-white border-0 p-0 h-5 w-5 rounded-full flex items-center justify-center shrink-0">
-                                        <ShieldCheck className="h-3 w-3" />
+                                {isSubscribed && (
+                                    <Badge
+                                      variant="default"
+                                      className="bg-emerald-600 hover:bg-emerald-700 text-white border-0 gap-1 px-1.5 h-5 text-[10px] shrink-0"
+                                      title="Vessel manager has an active subscription"
+                                    >
+                                        <CreditCard className="h-3 w-3" />
+                                        Subscribed
                                     </Badge>
                                 )}
                             </div>
@@ -94,6 +109,48 @@ export function VesselSummaryCard({
                         <p className="text-xs text-muted-foreground">At Sea Days</p>
                     </div>
                 </div>
+                {showCrewCounts && (
+                    <div className="flex items-center justify-around text-center gap-2">
+                        <div className="px-2 flex-1">
+                            {onViewActiveCrew && activeCrewCount > 0 ? (
+                                <button
+                                    type="button"
+                                    onClick={onViewActiveCrew}
+                                    className="w-full rounded-lg py-1 hover:bg-muted/60 transition-colors"
+                                >
+                                    <p className="text-lg font-bold text-primary underline-offset-2 hover:underline">{activeCrewCount}</p>
+                                    <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                                        <Users className="h-3 w-3" />
+                                        Active crew
+                                    </p>
+                                </button>
+                            ) : (
+                                <>
+                                    <p className="text-lg font-bold">{activeCrewCount}</p>
+                                    <p className="text-xs text-muted-foreground">Active crew</p>
+                                </>
+                            )}
+                        </div>
+                        <div className="border-l h-10" />
+                        <div className="px-2 flex-1">
+                            {onViewPastCrew && pastCrewCount > 0 ? (
+                                <button
+                                    type="button"
+                                    onClick={onViewPastCrew}
+                                    className="w-full rounded-lg py-1 hover:bg-muted/60 transition-colors"
+                                >
+                                    <p className="text-lg font-bold text-primary underline-offset-2 hover:underline">{pastCrewCount}</p>
+                                    <p className="text-xs text-muted-foreground">Past crew</p>
+                                </button>
+                            ) : (
+                                <>
+                                    <p className="text-lg font-bold">{pastCrewCount}</p>
+                                    <p className="text-xs text-muted-foreground">Past crew</p>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                )}
                 <div>
                      <h4 className="text-sm font-medium mb-2">Day Breakdown</h4>
                      <div className="space-y-2">

@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-helpers';
+import { AisDebugGate } from '@/components/dashboard/ais-debug-gate';
 
 type PreviewSample = {
   id: string;
@@ -44,6 +45,15 @@ type PreviewResponse = {
     lat: number | null;
     lon: number | null;
     sampledAt: string;
+  } | null;
+  placeMemory?: {
+    state: string;
+    lat: number;
+    lon: number;
+    distanceNm: number;
+    source: string;
+    visitCount: number;
+    placeName?: string | null;
   } | null;
   logDate: string;
   positionLogDate?: string;
@@ -81,20 +91,28 @@ type CrewAisDebugPanelProps = {
 };
 
 /**
- * Temporary crew-side AIS debug panel. Shows the raw Datalastic response for
- * the crew's active vessel, plus every input that goes into the analyzer:
- * previous-day state + coords, reverse-geocoded location context, and all of
- * today's stored samples. Read-only — does not record a sample or update the
- * calendar. Delete this component once the crew tracker is verified.
+ * Crew-side AIS debug panel. Hidden behind a local PIN gate on the live
+ * site; only fetches Datalastic after unlock. Read-only — does not record
+ * a sample or update the calendar.
  */
 export function CrewAisDebugPanel({ accessToken, profileRaw }: CrewAisDebugPanelProps) {
   const eligible = hasCrewAisLiveTrackingTier(profileRaw);
+  if (!eligible) return null;
+
+  return (
+    <AisDebugGate>
+      <CrewAisDebugPanelBody accessToken={accessToken} />
+    </AisDebugGate>
+  );
+}
+
+function CrewAisDebugPanelBody({ accessToken }: { accessToken: string | null }) {
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const loadPreview = useCallback(async () => {
-    if (!accessToken || !eligible) return;
+    if (!accessToken) return;
     setLoading(true);
     setError(null);
     const logDate = format(new Date(), 'yyyy-MM-dd');
@@ -112,13 +130,11 @@ export function CrewAisDebugPanel({ accessToken, profileRaw }: CrewAisDebugPanel
     } finally {
       setLoading(false);
     }
-  }, [accessToken, eligible]);
+  }, [accessToken]);
 
   useEffect(() => {
     void loadPreview();
   }, [loadPreview]);
-
-  if (!eligible) return null;
 
   const pos = preview?.position ?? {};
   const navStatus = preview?.normalisedNavStatus || '—';
@@ -141,7 +157,7 @@ export function CrewAisDebugPanel({ accessToken, profileRaw }: CrewAisDebugPanel
           <div className="space-y-1">
             <CardTitle className="flex items-center gap-2 text-base">
               <Bug className="h-4 w-4 text-amber-600" />
-              Crew AIS debug (temporary)
+              Crew AIS debug
             </CardTitle>
             <CardDescription>
               Live Datalastic response for your active vessel + full analyzer
@@ -225,6 +241,31 @@ export function CrewAisDebugPanel({ accessToken, profileRaw }: CrewAisDebugPanel
                       {' · '}Previous sample state: {preview.previousSampleForResolver.state}
                     </>
                   )}
+                </p>
+              </div>
+            )}
+
+            {preview.placeMemory && (
+              <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Place memory
+                </p>
+                <p className="mt-1">
+                  Prior <span className="font-semibold">{preview.placeMemory.state}</span>
+                  {' · '}
+                  {(preview.placeMemory.distanceNm * 1852).toFixed(0)} m away
+                  {' · '}
+                  {preview.placeMemory.visitCount} visit
+                  {preview.placeMemory.visitCount === 1 ? '' : 's'}
+                  {' · '}
+                  {preview.placeMemory.source}
+                  {preview.placeMemory.placeName
+                    ? ` · ${preview.placeMemory.placeName}`
+                    : ''}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Match buffer ≈ 740 m (0.4 nm) — GPS never repeats exact
+                  coordinates.
                 </p>
               </div>
             )}

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { PlusCircle, Loader2, Ship, ChevronDown, Search, LayoutGrid, List, PlayCircle, Trash2, CalendarIcon, ShieldCheck, ChevronsUpDown, Check, Edit, XCircle } from 'lucide-react';
+import { PlusCircle, Loader2, Ship, ChevronDown, Search, LayoutGrid, List, PlayCircle, Trash2, CalendarIcon, ShieldCheck, ChevronsUpDown, Check, Edit, XCircle, CreditCard } from 'lucide-react';
 import { format, eachDayOfInterval, startOfDay, endOfDay, parse, isAfter, isSameDay, isBefore } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -18,7 +18,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { createVessel, getVesselStateLogs, getVesselSeaService, updateUserProfile, deleteVesselStateLogs, updateStateLogsBatch, getVesselAssignment, getVesselAssignments, updateVesselAssignment, createVesselAssignment, getActiveVesselAssignmentsByVessel } from '@/supabase/database/queries';
+import { createVessel, getVesselStateLogs, getVesselSeaService, updateUserProfile, deleteVesselStateLogs, updateStateLogsBatch, getVesselAssignment, getVesselAssignments, updateVesselAssignment, createVesselAssignment } from '@/supabase/database/queries';
+import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import type { Vessel, StateLog, UserProfile, SeaServiceRecord, DailyStatus, VesselAssignment } from '@/lib/types';
@@ -40,6 +41,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+
+type VesselPeopleMember = {
+  userId: string;
+  name: string;
+  email: string | null;
+  role: string | null;
+  position: string | null;
+  startDate: string | null;
+  endDate: string | null;
+};
+
+function displayPersonName(u: {
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+}): string {
+  const full = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
+  return full || u.email || 'Unknown';
+}
 
 const vesselSchema = z.object({
   name: z.string().min(2, 'Vessel name is required.'),
@@ -99,10 +119,21 @@ export default function VesselsPage() {
   const [isSavingVessel, setIsSavingVessel] = useState(false);
   const [vesselAssignments, setVesselAssignments] = useState<Map<string, { startDate: string; endDate: string | null; assignmentId?: string }>>(new Map()); // vesselId -> assignment dates
   const [allVesselAssignments, setAllVesselAssignments] = useState<VesselAssignment[]>([]); // Full assignment objects for editing
-  const [activelyManagedVessels, setActivelyManagedVessels] = useState<Set<string>>(new Set()); // vesselId -> is actively managed
+  const [subscribedVesselIds, setSubscribedVesselIds] = useState<Set<string>>(new Set());
   const [vesselCrewCounts, setVesselCrewCounts] = useState<Map<string, number>>(new Map()); // vesselId -> crew count (for admin)
   /** Distinct non–vessel-account users with an ended assignment on this vessel (tracked as past). */
   const [vesselPastPeopleCounts, setVesselPastPeopleCounts] = useState<Map<string, number>>(new Map());
+  const [vesselActivePeople, setVesselActivePeople] = useState<
+    Map<string, VesselPeopleMember[]>
+  >(new Map());
+  const [vesselPastPeople, setVesselPastPeople] = useState<
+    Map<string, VesselPeopleMember[]>
+  >(new Map());
+  const [peopleDialog, setPeopleDialog] = useState<{
+    vesselId: string;
+    vesselName: string;
+    kind: 'active' | 'past';
+  } | null>(null);
   const [isEditStartDateDialogOpen, setIsEditStartDateDialogOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState<{ vesselId: string; assignment: VesselAssignment } | null>(null);
   const [isUpdatingStartDate, setIsUpdatingStartDate] = useState(false);
@@ -289,237 +320,176 @@ export default function VesselsPage() {
     return currentUserProfile?.role === 'admin';
   }, [currentUserProfile?.role]);
 
-  // Fetch actively managed vessels (vessels with active assignments)
-  // Also fetch crew counts for admin users
+  // Crew counts, people lists, and which vessels have an active paid subscription
   useEffect(() => {
-    console.log('[VESSELS] useEffect triggered:', { 
-      allVesselsLength: allVessels?.length || 0, 
-      isAdmin,
-      hasSupabase: !!supabase 
-    });
-    
     if (!allVessels || allVessels.length === 0) {
-      console.log('[VESSELS] No vessels, clearing counts');
-      setActivelyManagedVessels(new Set());
-      if (isAdmin) {
-        setVesselCrewCounts(new Map());
-      }
+      setSubscribedVesselIds(new Set());
+      setVesselCrewCounts(new Map());
       setVesselPastPeopleCounts(new Map());
+      setVesselActivePeople(new Map());
+      setVesselPastPeople(new Map());
       return;
     }
 
-    const fetchActivelyManagedVessels = async () => {
-      const managedVessels = new Set<string>();
+    const fetchVesselPeopleAndSubs = async () => {
       const crewCounts = new Map<string, number>();
-      
-      // Initialize all vessels with 0 crew count for admin
-      if (isAdmin) {
-        allVessels.forEach(vessel => {
-          crewCounts.set(vessel.id, 0);
-        });
-      }
-      
-      if (isAdmin) {
-        // For admin users, fetch all active assignments at once (more efficient and works better with RLS)
-        // Then fetch user roles to exclude vessel accounts from crew count
-        console.log('[VESSELS] Admin user detected, fetching all active assignments...');
-        try {
-          const { data: allActiveAssignments, error: assignmentsError } = await supabase
-            .from('vessel_assignments')
-            .select('vessel_id, user_id')
-            .is('end_date', null);
-          
-          console.log('[VESSELS] Query result:', { 
-            data: allActiveAssignments, 
-            error: assignmentsError,
-            count: allActiveAssignments?.length || 0 
-          });
-          
-          if (assignmentsError) {
-            console.error('[VESSELS] Error fetching all active assignments:', assignmentsError);
-          } else {
-            console.log('[VESSELS] Fetched active assignments:', allActiveAssignments?.length || 0, allActiveAssignments);
-            
-            if (!allActiveAssignments || allActiveAssignments.length === 0) {
-              console.log('[VESSELS] No active assignments found');
-            } else {
-              // Fetch user roles to filter out vessel accounts
-              const userIds = [...new Set((allActiveAssignments || []).map((a: any) => a.user_id))];
-              console.log('[VESSELS] Fetching user roles for', userIds.length, 'users');
-              
-              if (userIds.length === 0) {
-                console.log('[VESSELS] No user IDs to fetch');
-              } else {
-                const { data: usersData, error: usersError } = await supabase
-                  .from('users')
-                  .select('id, role')
-                  .in('id', userIds);
-                
-                if (usersError) {
-                  console.error('[VESSELS] Error fetching user roles:', usersError);
-                  // Fallback: count all assignments (vessel accounts rarely have assignments anyway)
-                  console.log('[VESSELS] Falling back to counting all assignments');
-                  const assignmentCounts = new Map<string, number>();
-                  (allActiveAssignments || []).forEach((assignment: any) => {
-                    const vesselId = assignment.vessel_id;
-                    assignmentCounts.set(vesselId, (assignmentCounts.get(vesselId) || 0) + 1);
-                    managedVessels.add(vesselId);
-                  });
-                  assignmentCounts.forEach((count, vesselId) => {
-                    crewCounts.set(vesselId, count);
-                  });
-                } else {
-                  console.log('[VESSELS] Fetched user roles:', usersData?.length || 0);
-                  
-                  // Create a map of user_id -> role for quick lookup
-                  const userRoleMap = new Map<string, string>();
-                  (usersData || []).forEach((u: any) => {
-                    userRoleMap.set(u.id, u.role);
-                  });
-                  
-                  // Count assignments per vessel, excluding vessel accounts
-                  const assignmentCounts = new Map<string, number>();
-                  (allActiveAssignments || []).forEach((assignment: any) => {
-                    const userRole = userRoleMap.get(assignment.user_id);
-                    // Only count if user is not a vessel account (or if role not found, count it anyway)
-                    if (userRole !== 'vessel') {
-                      const vesselId = assignment.vessel_id;
-                      assignmentCounts.set(vesselId, (assignmentCounts.get(vesselId) || 0) + 1);
-                      managedVessels.add(vesselId);
-                    }
-                  });
-                  
-                  console.log('[VESSELS] Assignment counts per vessel (excluding vessel accounts):', Array.from(assignmentCounts.entries()));
-                  
-                  // Update crew counts
-                  assignmentCounts.forEach((count, vesselId) => {
-                    crewCounts.set(vesselId, count);
-                  });
-                  
-                  console.log('[VESSELS] Final crew counts per vessel:', Array.from(crewCounts.entries()));
-                }
-              }
-            }
-            console.log('[VESSELS] All vessels:', allVessels.map(v => ({ id: v.id, name: v.name })));
-          }
-        } catch (error) {
-          console.error('[VESSELS] Error fetching active assignments:', error);
-        }
-      } else {
-        // For non-admin users, also fetch crew counts from vessel_assignments
-        // Fetch all active assignments for all vessels
-        try {
-          const { data: allActiveAssignments, error: assignmentsError } = await supabase
-            .from('vessel_assignments')
-            .select('vessel_id, user_id')
-            .is('end_date', null);
-          
-          if (assignmentsError) {
-            console.error('[VESSELS] Error fetching active assignments for non-admin:', assignmentsError);
-          } else if (allActiveAssignments) {
-            // Fetch user roles to filter out vessel accounts
-            const userIds = [...new Set((allActiveAssignments || []).map((a: any) => a.user_id))];
-            
-            if (userIds.length > 0) {
-              const { data: usersData, error: usersError } = await supabase
-                .from('users')
-                .select('id, role')
-                .in('id', userIds);
-              
-              if (!usersError && usersData) {
-                // Create a map of user_id -> role for quick lookup
-                const userRoleMap = new Map<string, string>();
-                usersData.forEach((u: any) => {
-                  userRoleMap.set(u.id, u.role);
-                });
-                
-                // Count assignments per vessel, excluding vessel accounts
-                const assignmentCounts = new Map<string, number>();
-                allActiveAssignments.forEach((assignment: any) => {
-                  const userRole = userRoleMap.get(assignment.user_id);
-                  // Only count if user is not a vessel account
-                  if (userRole !== 'vessel') {
-                    const vesselId = assignment.vessel_id;
-                    assignmentCounts.set(vesselId, (assignmentCounts.get(vesselId) || 0) + 1);
-                    managedVessels.add(vesselId);
-                  }
-                });
-                
-                // Update crew counts for non-admin users too
-                assignmentCounts.forEach((count, vesselId) => {
-                  crewCounts.set(vesselId, count);
-                });
-              }
-            }
-          }
-          
-          // Also check each vessel individually for actively managed status
-          await Promise.all(allVessels.map(async (vessel) => {
-            try {
-              const activeAssignments = await getActiveVesselAssignmentsByVessel(supabase, vessel.id);
-              if (activeAssignments && activeAssignments.length > 0) {
-                managedVessels.add(vessel.id);
-              }
-            } catch (error) {
-              console.error(`[VESSELS] Error checking active assignments for vessel ${vessel.id}:`, error);
-            }
-          }));
-        } catch (error) {
-          console.error('[VESSELS] Error fetching crew counts for non-admin:', error);
-        }
-      }
-      
-      setActivelyManagedVessels(managedVessels);
-      // Set crew counts for all users (admin and non-admin)
-      console.log('[VESSELS] Setting crew counts:', Array.from(crewCounts.entries()));
-      setVesselCrewCounts(crewCounts);
-      console.log('[VESSELS] Crew counts set, map size:', crewCounts.size);
+      const pastCounts = new Map<string, number>();
+      const activePeople = new Map<string, VesselPeopleMember[]>();
+      const pastPeople = new Map<string, VesselPeopleMember[]>();
+      const subscribed = new Set<string>();
 
-      // Past tracking: distinct people (non-vessel accounts) with end_date set on this vessel
-      const pastPeopleCounts = new Map<string, number>();
-      allVessels.forEach((v) => pastPeopleCounts.set(v.id, 0));
+      allVessels.forEach((v) => {
+        crewCounts.set(v.id, 0);
+        pastCounts.set(v.id, 0);
+        activePeople.set(v.id, []);
+        pastPeople.set(v.id, []);
+      });
+
+      const vesselIds = allVessels.map((v) => v.id);
+
       try {
-        const { data: pastRows, error: pastErr } = await supabase
-          .from('vessel_assignments')
-          .select('vessel_id, user_id')
-          .not('end_date', 'is', null);
+        const [
+          { data: activeRows, error: activeErr },
+          { data: pastRows, error: pastErr },
+        ] = await Promise.all([
+          supabase
+            .from('vessel_assignments')
+            .select('vessel_id, user_id, start_date, end_date')
+            .in('vessel_id', vesselIds)
+            .is('end_date', null),
+          supabase
+            .from('vessel_assignments')
+            .select('vessel_id, user_id, start_date, end_date')
+            .in('vessel_id', vesselIds)
+            .not('end_date', 'is', null),
+        ]);
 
-        if (pastErr) {
-          console.error('[VESSELS] Error fetching past vessel assignments:', pastErr);
-        } else if (pastRows && pastRows.length > 0) {
-          const pastUserIds = [...new Set(pastRows.map((r: { user_id: string }) => r.user_id))];
-          const { data: pastUsersData, error: pastUsersErr } = await supabase
+        if (activeErr) console.error('[VESSELS] active assignments', activeErr);
+        if (pastErr) console.error('[VESSELS] past assignments', pastErr);
+
+        const allUserIds = [
+          ...new Set([
+            ...(activeRows || []).map((r: { user_id: string }) => r.user_id),
+            ...(pastRows || []).map((r: { user_id: string }) => r.user_id),
+          ]),
+        ];
+
+        const userMap = new Map<
+          string,
+          {
+            id: string;
+            role: string | null;
+            first_name: string | null;
+            last_name: string | null;
+            email: string | null;
+            position: string | null;
+          }
+        >();
+
+        if (allUserIds.length > 0) {
+          const { data: usersData, error: usersErr } = await supabase
             .from('users')
-            .select('id, role')
-            .in('id', pastUserIds);
-
-          if (pastUsersErr) {
-            console.error('[VESSELS] Error fetching roles for past assignments:', pastUsersErr);
+            .select('id, role, first_name, last_name, email, position')
+            .in('id', allUserIds);
+          if (usersErr) {
+            console.error('[VESSELS] users for assignments', usersErr);
           } else {
-            const pastRoleMap = new Map<string, string>();
-            (pastUsersData || []).forEach((u: { id: string; role: string }) => pastRoleMap.set(u.id, u.role));
-            const distinctByVessel = new Map<string, Set<string>>();
-            pastRows.forEach((row: { vessel_id: string; user_id: string }) => {
-              if (pastRoleMap.get(row.user_id) === 'vessel') return;
-              if (!distinctByVessel.has(row.vessel_id)) {
-                distinctByVessel.set(row.vessel_id, new Set());
-              }
-              distinctByVessel.get(row.vessel_id)!.add(row.user_id);
+            (usersData || []).forEach((u: any) => userMap.set(u.id, u));
+          }
+        }
+
+        const pushMember = (
+          map: Map<string, VesselPeopleMember[]>,
+          row: {
+            vessel_id: string;
+            user_id: string;
+            start_date: string | null;
+            end_date: string | null;
+          },
+          dedupe: Map<string, Set<string>>,
+        ) => {
+          const u = userMap.get(row.user_id);
+          if (u?.role === 'vessel') return;
+          if (!dedupe.has(row.vessel_id)) dedupe.set(row.vessel_id, new Set());
+          const seen = dedupe.get(row.vessel_id)!;
+          if (seen.has(row.user_id)) return;
+          seen.add(row.user_id);
+          const list = map.get(row.vessel_id) || [];
+          list.push({
+            userId: row.user_id,
+            name: u ? displayPersonName(u) : 'Unknown',
+            email: u?.email ?? null,
+            role: u?.role ?? null,
+            position: u?.position ?? null,
+            startDate: row.start_date,
+            endDate: row.end_date,
+          });
+          map.set(row.vessel_id, list);
+        };
+
+        const activeDedupe = new Map<string, Set<string>>();
+        (activeRows || []).forEach((row: any) =>
+          pushMember(activePeople, row, activeDedupe),
+        );
+        const pastDedupe = new Map<string, Set<string>>();
+        (pastRows || []).forEach((row: any) =>
+          pushMember(pastPeople, row, pastDedupe),
+        );
+
+        activePeople.forEach((list, vesselId) => {
+          list.sort((a, b) => a.name.localeCompare(b.name));
+          crewCounts.set(vesselId, list.length);
+        });
+        pastPeople.forEach((list, vesselId) => {
+          list.sort((a, b) => a.name.localeCompare(b.name));
+          pastCounts.set(vesselId, list.length);
+        });
+      } catch (e) {
+        console.error('[VESSELS] people fetch failed', e);
+      }
+
+      // Active subscription badge: based on the vessel manager account
+      try {
+        const managerIds = [
+          ...new Set(
+            allVessels
+              .map((v: any) => v.vessel_manager_id || v.vesselManagerId)
+              .filter(Boolean) as string[],
+          ),
+        ];
+        if (managerIds.length > 0) {
+          const { data: managers, error: mgrErr } = await supabase
+            .from('users')
+            .select(
+              'id, subscription_tier, subscription_status, cancel_at_period_end, current_period_end',
+            )
+            .in('id', managerIds);
+          if (mgrErr) {
+            console.error('[VESSELS] managers for subscription', mgrErr);
+          } else {
+            const activeManagers = new Set<string>();
+            (managers || []).forEach((m: any) => {
+              if (hasActiveSubscription(m)) activeManagers.add(m.id);
             });
-            distinctByVessel.forEach((set, vesselId) => {
-              pastPeopleCounts.set(vesselId, set.size);
+            allVessels.forEach((v: any) => {
+              const mid = v.vessel_manager_id || v.vesselManagerId;
+              if (mid && activeManagers.has(mid)) subscribed.add(v.id);
             });
           }
         }
       } catch (e) {
-        console.error('[VESSELS] Past assignment counts:', e);
+        console.error('[VESSELS] subscription badge fetch failed', e);
       }
-      setVesselPastPeopleCounts(pastPeopleCounts);
+
+      setVesselCrewCounts(crewCounts);
+      setVesselPastPeopleCounts(pastCounts);
+      setVesselActivePeople(activePeople);
+      setVesselPastPeople(pastPeople);
+      setSubscribedVesselIds(subscribed);
     };
 
-    console.log('[VESSELS] Calling fetchActivelyManagedVessels');
-    fetchActivelyManagedVessels();
-  }, [allVessels, supabase, isAdmin]);
+    void fetchVesselPeopleAndSubs();
+  }, [allVessels, supabase]);
 
   // Fetch captaincy requests for vessels (if user is captain)
   // Fetch ALL requests for this captain, not just for vessels they've logged time on
@@ -1309,7 +1279,7 @@ export default function VesselsPage() {
                   isResuming={resumingVesselId === vessel.id}
                   onDelete={(vesselId, vesselName) => setVesselToDelete({ id: vesselId, name: vesselName })}
                   showDeleteButton={true}
-                  isActivelyManaged={activelyManagedVessels.has(vessel.id)}
+                  isSubscribed={subscribedVesselIds.has(vessel.id)}
                   onAdminEdit={
                     isAdmin && fullVessel
                       ? () => {
@@ -1318,6 +1288,28 @@ export default function VesselsPage() {
                         }
                       : undefined
                   }
+                  onViewActiveCrew={
+                    (vesselCrewCounts.get(vessel.id) ?? 0) > 0
+                      ? () =>
+                          setPeopleDialog({
+                            vesselId: vessel.id,
+                            vesselName: vessel.name,
+                            kind: 'active',
+                          })
+                      : undefined
+                  }
+                  onViewPastCrew={
+                    (vesselPastPeopleCounts.get(vessel.id) ?? 0) > 0
+                      ? () =>
+                          setPeopleDialog({
+                            vesselId: vessel.id,
+                            vesselName: vessel.name,
+                            kind: 'past',
+                          })
+                      : undefined
+                  }
+                  activeCrewCount={vesselCrewCounts.get(vessel.id) ?? 0}
+                  pastCrewCount={vesselPastPeopleCounts.get(vessel.id) ?? 0}
                 />
               );
             })}
@@ -1431,9 +1423,14 @@ export default function VesselsPage() {
                                     <TableCell className="font-medium">
                                                 <div className="flex items-center gap-2">
                                                   {vessel.name}
-                                                  {activelyManagedVessels.has(vessel.id) && (
-                                                    <Badge variant="default" className="bg-blue-600 hover:bg-blue-700 text-white border-0 p-0 h-5 w-5 rounded-full flex items-center justify-center">
-                                                      <ShieldCheck className="h-3 w-3" />
+                                                  {subscribedVesselIds.has(vessel.id) && (
+                                                    <Badge
+                                                      variant="default"
+                                                      className="bg-emerald-600 hover:bg-emerald-700 text-white border-0 gap-1 px-1.5 h-5 text-[10px]"
+                                                      title="Vessel manager has an active subscription"
+                                                    >
+                                                      <CreditCard className="h-3 w-3" />
+                                                      Subscribed
                                                     </Badge>
                                                   )}
                                                 </div>
@@ -1443,11 +1440,52 @@ export default function VesselsPage() {
                                         {vesselTypes.find(t => t.value === vessel.type)?.label || vessel.type}
                                                 </Badge>
                                     </TableCell>
-                                            <TableCell className="text-muted-foreground">
-                                              {crewCount > 0 ? `${crewCount} ${crewCount === 1 ? 'crew member' : 'crew members'}` : '—'}
+                                            <TableCell
+                                              className="text-muted-foreground"
+                                              onClick={(e) => {
+                                                if (crewCount <= 0) return;
+                                                e.stopPropagation();
+                                                setPeopleDialog({
+                                                  vesselId: vessel.id,
+                                                  vesselName: vessel.name,
+                                                  kind: 'active',
+                                                });
+                                              }}
+                                            >
+                                              {crewCount > 0 ? (
+                                                <button
+                                                  type="button"
+                                                  className="text-left font-medium text-foreground underline-offset-2 hover:underline hover:text-primary"
+                                                >
+                                                  {crewCount}{' '}
+                                                  {crewCount === 1 ? 'crew member' : 'crew members'}
+                                                </button>
+                                              ) : (
+                                                '—'
+                                              )}
                                             </TableCell>
-                                            <TableCell className="text-muted-foreground tabular-nums">
-                                              {pastPeopleCount > 0 ? pastPeopleCount : '—'}
+                                            <TableCell
+                                              className="text-muted-foreground tabular-nums"
+                                              onClick={(e) => {
+                                                if (pastPeopleCount <= 0) return;
+                                                e.stopPropagation();
+                                                setPeopleDialog({
+                                                  vesselId: vessel.id,
+                                                  vesselName: vessel.name,
+                                                  kind: 'past',
+                                                });
+                                              }}
+                                            >
+                                              {pastPeopleCount > 0 ? (
+                                                <button
+                                                  type="button"
+                                                  className="text-left font-medium text-foreground underline-offset-2 hover:underline hover:text-primary"
+                                                >
+                                                  {pastPeopleCount}
+                                                </button>
+                                              ) : (
+                                                '—'
+                                              )}
                                             </TableCell>
                                             {isAdmin && (
                                               <TableCell>
@@ -2094,6 +2132,87 @@ export default function VesselsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Active / past crew people list */}
+      <Dialog
+        open={!!peopleDialog}
+        onOpenChange={(open) => {
+          if (!open) setPeopleDialog(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-[520px] rounded-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {peopleDialog?.kind === 'active' ? 'Active crew' : 'Past crew'}
+              {peopleDialog ? ` — ${peopleDialog.vesselName}` : ''}
+            </DialogTitle>
+            <DialogDescription>
+              {peopleDialog?.kind === 'active'
+                ? 'People currently assigned to this vessel.'
+                : 'People with an ended assignment on this vessel.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto space-y-2 py-2">
+            {(() => {
+              if (!peopleDialog) return null;
+              const list =
+                peopleDialog.kind === 'active'
+                  ? vesselActivePeople.get(peopleDialog.vesselId) ?? []
+                  : vesselPastPeople.get(peopleDialog.vesselId) ?? [];
+              if (list.length === 0) {
+                return (
+                  <p className="text-sm text-muted-foreground py-6 text-center">
+                    No {peopleDialog.kind === 'active' ? 'active' : 'past'} crew found.
+                  </p>
+                );
+              }
+              return list.map((person) => (
+                <div
+                  key={person.userId}
+                  className="flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    {isAdmin ? (
+                      <Link
+                        href={`/dashboard/users/${person.userId}`}
+                        className="font-medium text-sm hover:underline text-foreground"
+                        onClick={() => setPeopleDialog(null)}
+                      >
+                        {person.name}
+                      </Link>
+                    ) : (
+                      <p className="font-medium text-sm">{person.name}</p>
+                    )}
+                    {person.email && (
+                      <p className="text-xs text-muted-foreground truncate">{person.email}</p>
+                    )}
+                    {(person.position || person.role) && (
+                      <p className="text-xs text-muted-foreground">
+                        {[person.position, person.role].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right text-xs text-muted-foreground shrink-0 tabular-nums">
+                    {person.startDate && (
+                      <p>
+                        {format(parse(person.startDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
+                        {person.endDate
+                          ? ` – ${format(parse(person.endDate, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}`
+                          : ' – present'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setPeopleDialog(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AdminVesselEditDialog
         open={adminEditVesselOpen}

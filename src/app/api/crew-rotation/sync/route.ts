@@ -7,6 +7,7 @@ import {
   ONBOARD_TOGGLE_LEAVE_MARKER,
   type CrewRotationRow,
 } from '@/lib/crew-rotation';
+import { ensureTodayOnLeaveForOpenToggleLeaves } from '@/lib/crew-rotation/onboard-leave-side-effects';
 
 /**
  * POST /api/crew-rotation/sync
@@ -198,7 +199,16 @@ export async function POST(req: NextRequest) {
       await Promise.all(writes);
     }
 
-    return NextResponse.json({ updated: updates });
+    // Keep crew daily_state_logs in sync for open Onboard Tracker leave
+    // periods when the crew member has approved sea-time access.
+    let leaveLogsTouched = 0;
+    try {
+      leaveLogsTouched = await ensureTodayOnLeaveForOpenToggleLeaves(vesselId);
+    } catch (leaveErr) {
+      console.warn('[CREW ROTATION SYNC] leave-log fill failed', leaveErr);
+    }
+
+    return NextResponse.json({ updated: updates, leaveLogsTouched });
   } catch (err: any) {
     console.error('[CREW ROTATION SYNC] Exception:', err);
     return NextResponse.json(

@@ -49,17 +49,33 @@ export default function LoginPage() {
 
   const checkUserAndRedirect = async (userId: string) => {
     try {
-      const userProfile = await getUserProfile(supabase, userId);
+      // After a fresh sign-in the auth client may still be settling the
+      // session into storage; retry briefly so a transient empty error
+      // doesn't bounce the user into a broken dashboard state.
+      let userProfile: Awaited<ReturnType<typeof getUserProfile>> | null = null;
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          userProfile = await getUserProfile(supabase, userId);
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+        }
+      }
+      if (!userProfile) {
+        throw lastError ?? new Error('User profile unavailable');
+      }
+
       if (userProfile.role === 'vessel') {
         router.push('/dashboard/crew');
       } else if (userProfile.role === 'admin') {
         router.push('/dashboard');
+      } else if (userProfile.subscriptionStatus === 'active') {
+        router.push('/dashboard');
       } else {
-        if (userProfile.subscriptionStatus === 'active') {
-          router.push('/dashboard');
-        } else {
-          router.push('/offers');
-        }
+        router.push('/offers');
       }
     } catch (error) {
       console.error('Failed to fetch user profile for redirection:', error);
@@ -69,11 +85,12 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!isUserLoading && user) {
-      checkUserAndRedirect(user.id);
+      void checkUserAndRedirect(user.id);
     } else if (!isUserLoading && !user) {
       setIsCheckingUser(false);
     }
-  }, [user, isUserLoading, router, supabase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- redirect when auth identity settles
+  }, [user, isUserLoading]);
 
   const handleLogin = async (data: LoginFormValues) => {
     setIsLoading(true);
@@ -147,6 +164,12 @@ export default function LoginPage() {
           title: 'Welcome Back!',
           description: 'You have been successfully logged in.',
         });
+
+        // Redirect from the just-established session rather than waiting
+        // solely on the auth-state effect (which can race after a prior
+        // broken local logout).
+        setIsCheckingUser(true);
+        await checkUserAndRedirect(authData.user.id);
       }
     } catch (error: any) {
       console.error('Login failed:', error);

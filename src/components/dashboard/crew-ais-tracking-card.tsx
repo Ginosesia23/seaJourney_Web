@@ -2,31 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { format, parseISO } from 'date-fns';
-import {
-  Activity,
-  Anchor,
-  CheckCircle2,
-  Loader2,
-  Radio,
-  RefreshCw,
-  Ship,
-  Waves,
-} from 'lucide-react';
+import { Loader2, Radio, RefreshCw } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
+import { AisWrongStateReportButton } from '@/components/dashboard/ais-wrong-state-report-button';
 import { hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-helpers';
+import type { DailyStatus } from '@/lib/types';
 
 /** Auto-sync at most once per hour while this page is open. */
 const CREW_AIS_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
@@ -69,6 +55,7 @@ type CrewAisStatus = {
 type Props = {
   accessToken: string | null;
   profileRaw: unknown;
+  todayState?: DailyStatus | string | null;
   onStateUpdated?: () => void;
 };
 
@@ -83,6 +70,7 @@ const STATE_LABELS: Record<string, string> = {
 export function CrewAisTrackingCard({
   accessToken,
   profileRaw,
+  todayState,
   onStateUpdated,
 }: Props) {
   const eligible = hasCrewAisLiveTrackingTier(profileRaw);
@@ -273,210 +261,112 @@ export function CrewAisTrackingCard({
   const latestSample = status?.samples?.length
     ? status.samples[status.samples.length - 1]
     : null;
-
-  // Count states in today's samples for the little tally display.
-  const stateCounts: Record<string, number> = {};
-  for (const s of status?.samples ?? []) {
-    stateCounts[s.state] = (stateCounts[s.state] ?? 0) + 1;
-  }
-  const sortedStates = Object.entries(stateCounts).sort((a, b) => b[1] - a[1]);
-  // The analyzer's verdict is the source of truth for the "sea day" badge —
-  // it may fire even if we only have 4 hourly samples of underway, and it may
-  // NOT fire even if a few samples say underway (analyzer needs ≥ 4h total).
   const resolvedState = status?.todayDailyState ?? null;
-  const isSeaDay = resolvedState === 'underway';
-  // Try to extract "Xh underway" from the notes for a nicer badge.
   const underwayHoursMatch = status?.todayNotes?.match(/(\d+(?:\.\d+)?)h underway/);
   const underwayHours = underwayHoursMatch ? underwayHoursMatch[1] : null;
+  const liveBits = [
+    active?.vesselName || null,
+    latestSample?.navStatus || null,
+    latestSample?.speedKn != null
+      ? `${Number(latestSample.speedKn).toFixed(1)} kn`
+      : null,
+    resolvedState
+      ? `today ${STATE_LABELS[resolvedState] || resolvedState}`
+      : null,
+    underwayHours ? `${underwayHours}h underway` : null,
+    status?.lastSyncAt
+      ? `synced ${format(parseISO(status.lastSyncAt), 'd MMM · HH:mm')}`
+      : null,
+  ].filter(Boolean);
 
   return (
-    <Card className="rounded-xl border shadow-sm">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Radio className="h-4 w-4 text-sky-500" />
-              Live AIS tracking (your vessel)
-            </CardTitle>
-            <CardDescription>
-              We poll your active vessel&apos;s AIS position every hour and set
-              your daily state automatically. The analyser weighs{' '}
-              <strong>hours underway</strong> (≥ 4h = sea day),{' '}
-              <strong>position clusters</strong>, movement between anchor and
-              berth, previous-day carry-forward, and reverse-geocoded location
-              — the same algorithm as the AIS import page.
-            </CardDescription>
-          </div>
-          {status?.enabled ? (
-            <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">
-              Active
-            </Badge>
-          ) : (
-            <Badge variant="secondary">Manual</Badge>
-          )}
+    <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
+      {loading ? (
+        <div className="flex h-9 items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Loading AIS…
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading AIS settings…
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-              <div className="space-y-0.5">
-                <Label
-                  htmlFor="crew-ais-tracking-toggle"
-                  className="text-sm font-medium"
-                >
-                  Use AIS for daily state
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  {active?.vesselName ? (
-                    <>
-                      Tracking <strong>{active.vesselName}</strong>
-                      {active.mmsi ? ` · MMSI ${active.mmsi}` : ''}
-                    </>
-                  ) : (
-                    'No active vessel assignment — set one on Current Service.'
-                  )}
-                </p>
-              </div>
-              <Switch
-                id="crew-ais-tracking-toggle"
-                checked={!!status?.enabled}
-                disabled={toggling || !active || !hasIdentifier}
-                onCheckedChange={handleToggle}
-              />
+      ) : (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+          <div className="flex min-w-0 flex-1 gap-3">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+              <Radio className="h-4 w-4" />
             </div>
-
-            {!active && (
-              <p className="text-sm text-amber-700 dark:text-amber-400">
-                Add an active vessel assignment before enabling live AIS tracking.
-              </p>
-            )}
-            {active && !hasIdentifier && (
-              <p className="text-sm text-amber-700 dark:text-amber-400">
-                Your vessel needs an MMSI or IMO on file. Ask your captain or
-                vessel manager to add it on the vessel profile.
-              </p>
-            )}
-
-            {status?.enabled && (
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-lg border p-3">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Ship className="h-3.5 w-3.5" />
-                    Latest AIS status
-                  </div>
-                  <p className="mt-1 text-sm font-medium truncate">
-                    {latestSample?.navStatus || '—'}
-                  </p>
-                </div>
-                <div className="rounded-lg border p-3">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Waves className="h-3.5 w-3.5" />
-                    Speed
-                  </div>
-                  <p className="mt-1 text-sm font-medium">
-                    {latestSample?.speedKn != null
-                      ? `${Number(latestSample.speedKn).toFixed(1)} kn`
-                      : '—'}
-                  </p>
-                </div>
-                <div className="rounded-lg border p-3">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Anchor className="h-3.5 w-3.5" />
-                    Last sample
-                  </div>
-                  <p className="mt-1 text-sm font-medium">
-                    {latestSample?.sampledAt
-                      ? format(parseISO(latestSample.sampledAt), 'd MMM, HH:mm')
-                      : '—'}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {status?.enabled && (status.samples.length ?? 0) > 0 && (
-              <div className="rounded-lg border bg-muted/20 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <Activity className="h-4 w-4 text-sky-500" />
-                    Today&apos;s samples
-                    <span className="text-xs font-normal text-muted-foreground">
-                      · {status.samples.length} recorded
-                    </span>
-                  </div>
-                  {isSeaDay && (
-                    <Badge className="bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30">
-                      <CheckCircle2 className="mr-1 h-3 w-3" />
-                      Sea day{underwayHours ? ` · ${underwayHours}h underway` : ''}
-                    </Badge>
-                  )}
-                </div>
-                {resolvedState && (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Today saved as{' '}
-                    <span className="font-medium text-foreground">
-                      {STATE_LABELS[resolvedState] || resolvedState}
-                    </span>
-                    {underwayHours && !isSeaDay
-                      ? ` · ${underwayHours}h underway (below 4h)`
-                      : ''}
-                  </p>
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">Live AIS tracking</span>
+                {status?.enabled ? (
+                  <Badge className="h-5 border-emerald-500/30 bg-emerald-500/15 px-1.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                    Active
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                    Manual
+                  </Badge>
                 )}
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {sortedStates.map(([state, count]) => (
-                    <div
-                      key={state}
-                      className="rounded-md border bg-background px-2 py-1 text-xs"
-                    >
-                      <span className="font-medium">
-                        {STATE_LABELS[state] || state}
-                      </span>
-                      <span className="ml-1 text-muted-foreground">
-                        × {count}h
-                      </span>
-                    </div>
-                  ))}
-                </div>
               </div>
+              {!active ? (
+                <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+                  Add an active vessel assignment before enabling tracking.
+                </p>
+              ) : !hasIdentifier ? (
+                <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+                  Your vessel needs an MMSI or IMO on file.
+                </p>
+              ) : status?.lastError ? (
+                <p className="text-xs leading-relaxed text-destructive">{status.lastError}</p>
+              ) : status?.enabled && liveBits.length > 0 ? (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {liveBits.join(' · ')}
+                </p>
+              ) : (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Hourly samples set your daily state when enabled (≥ 4h underway = sea day).
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3 sm:pt-0.5">
+            {status?.enabled && active?.vesselId && (
+              <AisWrongStateReportButton
+                accessToken={accessToken}
+                vesselId={active.vesselId}
+                accountType="crew"
+                aisEnabled={!!status.enabled}
+                detectedState={todayState ?? resolvedState}
+                aisNavStatus={latestSample?.navStatus}
+                aisSpeedKn={latestSample?.speedKn}
+              />
             )}
-
-            {status?.lastError && (
-              <p className="text-xs text-destructive">{status.lastError}</p>
-            )}
-
-            {status?.lastSyncAt && (
-              <p className="text-xs text-muted-foreground">
-                Last sync {format(parseISO(status.lastSyncAt), 'd MMM yyyy · HH:mm')}
-              </p>
-            )}
-
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="rounded-lg"
+              className="h-8 px-2 text-xs"
               disabled={!status?.enabled || syncing}
               onClick={() => void runSync()}
             >
               {syncing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Syncing…
-                </>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Sync now
-                </>
+                <RefreshCw className="h-3.5 w-3.5" />
               )}
+              <span className="ml-1.5">Sync</span>
             </Button>
-          </>
-        )}
-      </CardContent>
-    </Card>
+            <Label
+              htmlFor="crew-ais-tracking-toggle"
+              className="text-xs text-muted-foreground"
+            >
+              Use AIS
+            </Label>
+            <Switch
+              id="crew-ais-tracking-toggle"
+              checked={!!status?.enabled}
+              disabled={toggling || !active || !hasIdentifier}
+              onCheckedChange={handleToggle}
+            />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,25 +1,37 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useDoc, useCollection } from '@/supabase/database';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useDoc } from '@/supabase/database';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { User, Briefcase, Ship, Shield } from 'lucide-react';
+import { Briefcase, Ship, Shield, User } from 'lucide-react';
 import { format } from 'date-fns';
 import type { UserProfile, Vessel } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 interface UserInfoCardProps {
   userId: string | undefined;
+  /** Override card title (default: Account status) */
+  title?: string;
+  /** Override description; pass empty string to hide */
+  description?: string;
+  className?: string;
+  /** Compact side-panel styling */
+  compact?: boolean;
 }
 
-export function UserInfoCard({ userId }: UserInfoCardProps) {
+export function UserInfoCard({
+  userId,
+  title = 'Account status',
+  description = 'Role and assignment at a glance',
+  className,
+  compact = false,
+}: UserInfoCardProps) {
   const { data: userProfileRaw, isLoading } = useDoc<UserProfile>('users', userId);
-  
-  // Transform user profile to handle both snake_case (from DB) and camelCase (from types)
+
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
-    
+
     return {
       ...userProfileRaw,
       position: (userProfileRaw as any).position || userProfileRaw.position || null,
@@ -36,25 +48,24 @@ export function UserInfoCard({ userId }: UserInfoCardProps) {
     } as UserProfile;
   }, [userProfileRaw]);
 
-  // Fetch active vessel details if available
   const { data: activeVessel } = useDoc<Vessel>('vessels', userProfile?.activeVesselId || null);
 
   if (isLoading) {
     return (
-      <Card className="rounded-xl border shadow-sm">
-        <CardHeader>
-          <Skeleton className="h-6 w-32" />
-          <Skeleton className="h-4 w-48 mt-1" />
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <section className={cn('flex flex-col rounded-xl border bg-card', className)}>
+        <div className="border-b px-4 py-3 sm:px-5">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="mt-2 h-3 w-40" />
+        </div>
+        <div className="space-y-3 px-4 py-4 sm:px-5">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex justify-between items-center">
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-6 w-32" />
+            <div key={i} className="flex justify-between">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-5 w-24" />
             </div>
           ))}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     );
   }
 
@@ -77,95 +88,98 @@ export function UserInfoCard({ userId }: UserInfoCardProps) {
     }
   };
 
-  const getRoleBadgeVariant = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return 'destructive'; // Red - Highest access level
-      case 'vessel':
-        return 'default'; // Primary blue - Vessel management access
-      default:
-        return 'secondary'; // Gray - Standard crew access
-    }
-  };
-
   const getRoleBadgeClassName = (role: string) => {
     switch (role) {
       case 'admin':
         return 'bg-red-500/10 text-red-700 border-red-500/20 dark:bg-red-500/20 dark:text-red-400';
       case 'vessel':
-        return 'bg-blue-500/10 text-blue-700 border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400';
+        return 'bg-sky-500/10 text-sky-700 border-sky-500/20 dark:bg-sky-500/20 dark:text-sky-400';
       case 'captain':
-        return 'bg-purple-500/10 text-purple-700 border-purple-500/20 dark:bg-purple-500/20 dark:text-purple-400';
+        return 'bg-violet-500/10 text-violet-700 border-violet-500/20 dark:bg-violet-500/20 dark:text-violet-400';
       default:
-        return 'bg-gray-500/10 text-gray-700 border-gray-500/20 dark:bg-gray-500/20 dark:text-gray-400';
+        return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400';
     }
   };
 
-  const registrationDate = userProfile.registrationDate 
-    ? new Date(userProfile.registrationDate) 
+  const registrationDate = userProfile.registrationDate
+    ? new Date(userProfile.registrationDate)
     : null;
 
+  const rows = [
+    {
+      key: 'position',
+      icon: Briefcase,
+      label: 'Position',
+      value: (
+        <Badge variant="outline" className="font-normal">
+          {userProfile.position || '—'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'role',
+      icon: Shield,
+      label: 'Role',
+      value: (
+        <Badge variant="outline" className={getRoleBadgeClassName(userProfile.role)}>
+          {getRoleLabel(userProfile.role)}
+        </Badge>
+      ),
+    },
+    ...(activeVessel
+      ? [
+          {
+            key: 'vessel',
+            icon: Ship,
+            label: 'Active vessel',
+            value: <span className="text-sm font-medium text-right">{activeVessel.name}</span>,
+          },
+        ]
+      : []),
+    ...(registrationDate
+      ? [
+          {
+            key: 'member',
+            icon: User,
+            label: 'Member since',
+            value: (
+              <span className="text-sm font-medium tabular-nums">
+                {format(registrationDate, compact ? 'MMM d, yyyy' : 'MMMM d, yyyy')}
+              </span>
+            ),
+          },
+        ]
+      : []),
+  ];
+
   return (
-    <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-      <CardHeader>
-        <CardTitle className="text-xl flex items-center gap-2">
-          <Shield className="h-5 w-5 text-primary" />
-          Account Information
-        </CardTitle>
-        <CardDescription>
-          Your account details and role information
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Position */}
-        <div className="flex items-center justify-between py-2 border-b border-border/50">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Briefcase className="h-4 w-4" />
-            <span>Position</span>
-          </div>
-          <Badge variant="outline" className="font-normal">
-            {userProfile.position || '—'}
-          </Badge>
-        </div>
-
-        {/* Role */}
-        <div className="flex items-center justify-between py-2 border-b border-border/50">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Shield className="h-4 w-4" />
-            <span>Role</span>
-          </div>
-          <Badge 
-            variant="outline" 
-            className={getRoleBadgeClassName(userProfile.role)}
-          >
-            {getRoleLabel(userProfile.role)}
-          </Badge>
-        </div>
-
-        {/* Active Vessel */}
-        {activeVessel && (
-          <div className="flex items-center justify-between py-2 border-b border-border/50">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Ship className="h-4 w-4" />
-              <span>Active Vessel</span>
+    <section className={cn('flex flex-col rounded-xl border bg-card', className)}>
+      <div className="border-b px-4 py-3 sm:px-5">
+        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+        {description ? (
+          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+        ) : null}
+      </div>
+      <div className={cn('flex-1 px-4 py-3 sm:px-5', compact ? 'space-y-2.5' : 'space-y-1')}>
+        {rows.map((row, index) => {
+          const Icon = row.icon;
+          return (
+            <div
+              key={row.key}
+              className={cn(
+                'flex items-center justify-between gap-3 py-2',
+                index < rows.length - 1 && 'border-b border-border/60',
+              )}
+            >
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span>{row.label}</span>
+              </div>
+              {row.value}
             </div>
-            <span className="text-sm font-medium">{activeVessel.name}</span>
-          </div>
-        )}
-
-        {/* Registration Date */}
-        {registrationDate && (
-          <div className="flex items-center justify-between py-2">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <User className="h-4 w-4" />
-              <span>Member Since</span>
-            </div>
-            <span className="text-sm font-medium">
-              {format(registrationDate, 'MMMM d, yyyy')}
-            </span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          );
+        })}
+      </div>
+    </section>
   );
 }

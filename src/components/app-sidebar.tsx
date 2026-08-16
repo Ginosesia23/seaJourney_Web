@@ -41,7 +41,10 @@ import {
   Layers,
   Anchor,
   FileCheck,
-  ChevronRight,
+  ChevronsUpDown,
+  Radar,
+  ToggleLeft,
+  Flag,
 } from "lucide-react"
 
 import {
@@ -58,7 +61,6 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import Logo from "@/components/logo"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -72,7 +74,6 @@ import {
   DropdownMenuPortal,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useRouter } from "next/navigation"
 import { useSupabase, useUser } from "@/supabase"
@@ -88,6 +89,10 @@ import {
   hasVesselPremiumPlusFeatures,
   isVesselLinkedAccount,
 } from "@/supabase/database/subscription-helpers"
+import { getSubscriptionTierAccentColor } from "@/lib/subscription-tier-colors"
+import { useFeatureFlags } from "@/hooks/use-feature-flags"
+import type { FeatureFlagKey } from "@/lib/feature-flags/catalog"
+import { cn } from "@/lib/utils"
 
 type NavItem = {
   href: string;
@@ -100,6 +105,8 @@ type NavItem = {
   crewLimitedOnly?: boolean;
   /** Hide for crew_limited users (full Documents features they should not use) */
   hideForCrewLimited?: boolean;
+  /** Platform feature flag — hidden for non-admins when disabled */
+  featureFlag?: FeatureFlagKey;
 };
 
 const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vessel' | 'admin' | 'captain' | 'crew')[] }> = [
@@ -117,38 +124,39 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/current", label: "Daily log", icon: MapPin, disabled: false },
       { href: "/dashboard/calendar", label: "Calendar", icon: Calendar, disabled: false },
-      { href: "/dashboard/sea-time-request", label: "Request access", icon: Send, disabled: false, hideForRoles: ['vessel'] },
-      { href: "/dashboard/export", label: "Export reports", icon: Download, disabled: false },
+      { href: "/dashboard/sea-time-request", label: "Request access", icon: Send, disabled: false, hideForRoles: ['vessel'], featureFlag: 'sea_time_request' },
+      { href: "/dashboard/export", label: "Export reports", icon: Download, disabled: false, featureFlag: 'export_reports' },
     ]
   },
   {
     title: "Voyages",
     hideForRoles: ['admin'],
     items: [
-      { href: "/dashboard/passage-logbook", label: "Passage log", icon: BookOpen, disabled: false },
-      { href: "/dashboard/passages-map", label: "Passage tracks", icon: Route, disabled: false, hideForRoles: ['admin'] },
-      { href: "/dashboard/bridge-watch-log", label: "Bridge watch", icon: Navigation, disabled: false, hideForRoles: ['vessel'] },
-      { href: "/dashboard/visa-tracker", label: "Visa tracker", icon: Globe, disabled: false, hideForRoles: ['vessel', 'admin'] },
-      { href: "/dashboard/ais-import", label: "AIS history", icon: Database, disabled: false },
+      { href: "/dashboard/passage-logbook", label: "Passage log", icon: BookOpen, disabled: false, featureFlag: 'passage_logbook' },
+      { href: "/dashboard/passages-map", label: "Passage tracks", icon: Route, disabled: false, hideForRoles: ['admin'], featureFlag: 'passages_map' },
+      { href: "/dashboard/bridge-watch-log", label: "Bridge watch", icon: Navigation, disabled: false, hideForRoles: ['vessel'], featureFlag: 'bridge_watch_log' },
+      { href: "/dashboard/watch-schedule", label: "Nav Watch", icon: Clock, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'], featureFlag: 'watch_schedule' },
+      { href: "/dashboard/visa-tracker", label: "Visa tracker", icon: Globe, disabled: false, hideForRoles: ['vessel', 'admin'], featureFlag: 'visa_tracker' },
+      { href: "/dashboard/ais-import", label: "AIS history", icon: Database, disabled: false, featureFlag: 'ais_history_import' },
     ]
   },
   {
     title: "Career",
     hideForRoles: ['admin', 'vessel'],
     items: [
-      { href: "/dashboard/applications", label: "Testimonials", icon: FileSignature, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true },
-      { href: "/dashboard/apply", label: "Apply for tickets", icon: Award, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true },
+      { href: "/dashboard/applications", label: "Testimonials", icon: FileSignature, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true, featureFlag: 'testimonials' },
+      { href: "/dashboard/apply", label: "Apply for tickets", icon: Award, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true, featureFlag: 'apply_tickets' },
       { href: "/dashboard/vessel-documents", label: "Vessel documents", icon: FolderOpen, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], crewLimitedOnly: true },
-      { href: "/dashboard/certificates", label: "Certificates", icon: ShieldCheck, disabled: false, hideForCrewLimited: true },
-      { href: "/dashboard/proof-of-service", label: "Proof of service", icon: FileCheck, disabled: false, hideForCrewLimited: true },
-      { href: "/dashboard/my-watch-schedule", label: "My watch roster", icon: Clock, disabled: false, hideForCrewLimited: true },
+      { href: "/dashboard/certificates", label: "Certificates", icon: ShieldCheck, disabled: false, hideForCrewLimited: true, featureFlag: 'certificates' },
+      { href: "/dashboard/proof-of-service", label: "Proof of service", icon: FileCheck, disabled: false, hideForCrewLimited: true, featureFlag: 'proof_of_service' },
+      { href: "/dashboard/my-watch-schedule", label: "My watch roster", icon: Clock, disabled: false, hideForCrewLimited: true, featureFlag: 'watch_schedule' },
     ]
   },
   {
     title: "Vessel documents",
     hideForRoles: ['crew', 'captain', 'admin'],
     items: [
-      { href: "/dashboard/documents", label: "Document generator", icon: Layers, disabled: false, requiredRole: "vessel" },
+      { href: "/dashboard/documents", label: "Document generator", icon: Layers, disabled: false, requiredRole: "vessel", featureFlag: 'vessel_document_generator' },
     ]
   },
   {
@@ -157,11 +165,10 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/vessels", label: "My vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] },
       { href: "/dashboard/crew", label: "Manage crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/pending-requests", label: "Pending requests", icon: ClipboardList, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/crew-roles", label: "Assign roles", icon: UserCog, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'] },
       { href: "/dashboard/requests", label: "Sea-time requests", icon: ClipboardList, requiredRole: "captain", disabled: false },
-      { href: "/dashboard/sign-offs", label: "Sign-offs", icon: FileSignature, requiredRole: "captain", disabled: false },
-      { href: "/dashboard/watch-schedule", label: "Crew watch roster", icon: Clock, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
-      { href: "/dashboard/crew-rotation", label: "Onboard crew", icon: RefreshCw, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/crew-rotation", label: "Onboard crew", icon: RefreshCw, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'], featureFlag: 'crew_rotation' },
     ]
   },
   {
@@ -169,7 +176,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/profile", label: "Profile", icon: User, disabled: false, hideForRoles: ['vessel'] },
       { href: "/dashboard/profile", label: "Vessel profile", icon: Ship, disabled: false, requiredRole: "vessel", hideForRoles: ['captain'] },
-      { href: "/dashboard/vessel-roles", label: "Team accounts", icon: UserCog, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/vessel-roles", label: "Team accounts", icon: UserCog, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'], featureFlag: 'vessel_team_accounts' },
       { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false, hideForRoles: ['vessel'] },
     ]
   },
@@ -191,6 +198,9 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
       { href: "/dashboard/users", label: "User lookup", icon: UserSearch, requiredRole: "admin", disabled: false },
       { href: "/dashboard/crew-analytics", label: "Crew analytics", icon: Users, requiredRole: "admin", disabled: false },
       { href: "/dashboard/login-activity", label: "Login activity", icon: LogIn, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/ais-tracking", label: "AIS tracking", icon: Radar, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/ais-wrong-states", label: "AIS wrong states", icon: Flag, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/feature-flags", label: "Feature flags", icon: ToggleLeft, requiredRole: "admin", disabled: false },
       { href: "/dashboard/application-templates", label: "Apply templates", icon: ClipboardList, requiredRole: "admin", disabled: false },
       { href: "/dashboard/admin-messages", label: "Broadcasts", icon: MessagesSquare, requiredRole: "admin", disabled: false },
       { href: "/dashboard/pdf-coordinate-tool", label: "PDF coordinates", icon: Crosshair, requiredRole: "admin", disabled: false },
@@ -206,6 +216,36 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
   },
 ]
 
+function accountTypeLabel(role?: string | null): string {
+  switch ((role || "").toLowerCase()) {
+    case "admin":
+      return "Admin"
+    case "vessel":
+      return "Vessel"
+    case "captain":
+      return "Captain"
+    case "crew":
+      return "Crew"
+    default:
+      return "Account"
+  }
+}
+
+function accountTypeBadgeClass(role?: string | null): string {
+  switch ((role || "").toLowerCase()) {
+    case "admin":
+      return "bg-red-500/10 text-red-700 border-red-500/20 dark:bg-red-500/20 dark:text-red-400"
+    case "vessel":
+      return "bg-sky-500/10 text-sky-700 border-sky-500/20 dark:bg-sky-500/20 dark:text-sky-400"
+    case "captain":
+      return "bg-violet-500/10 text-violet-700 border-violet-500/20 dark:bg-violet-500/20 dark:text-violet-400"
+    case "crew":
+      return "bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400"
+    default:
+      return "bg-muted text-muted-foreground border-border"
+  }
+}
+
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   userProfile?: UserProfile | null
 }
@@ -214,9 +254,11 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const pathname = usePathname()
   const { supabase } = useSupabase()
   const { user } = useUser()
+  const { isEnabled: isFeatureEnabled } = useFeatureFlags()
   const [inboxCount, setInboxCount] = React.useState<number>(0)
   const [feedbackCount, setFeedbackCount] = React.useState<number>(0)
   const [requestsCount, setRequestsCount] = React.useState<number>(0)
+  const [pendingSentCount, setPendingSentCount] = React.useState<number>(0)
 
   // Create admin-specific navGroups with updated Vessel Management and Account sections
   const isAdmin = userProfile?.role === 'admin'
@@ -711,6 +753,69 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
       supabase.removeChannel(channel);
     };
   }, [user?.id, userProfile, supabase]);
+
+  React.useEffect(() => {
+    const fetchPendingSentCount = async () => {
+      if (!user?.id || !userProfile) {
+        setPendingSentCount(0);
+        return;
+      }
+      const userRole = userProfile.role?.toLowerCase() || '';
+      if (userRole !== 'vessel') {
+        setPendingSentCount(0);
+        return;
+      }
+      const vesselId =
+        (userProfile as { active_vessel_id?: string; activeVesselId?: string })
+          .active_vessel_id || userProfile.activeVesselId || null;
+      try {
+        let testimonialQuery = supabase
+          .from('testimonials')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending_captain');
+        if (vesselId) {
+          testimonialQuery = testimonialQuery.or(
+            `vessel_id.eq.${vesselId},generated_by_user_id.eq.${user.id}`,
+          );
+        } else {
+          testimonialQuery = testimonialQuery.eq('generated_by_user_id', user.id);
+        }
+        const [testimonials, access] = await Promise.all([
+          testimonialQuery,
+          supabase
+            .from('vessel_sea_time_access_requests')
+            .select('id', { count: 'exact', head: true })
+            .eq('vessel_user_id', user.id)
+            .eq('status', 'pending'),
+        ]);
+        setPendingSentCount((testimonials.count || 0) + (access.count || 0));
+      } catch {
+        setPendingSentCount(0);
+      }
+    };
+
+    void fetchPendingSentCount();
+    const channel = supabase
+      .channel('pending-sent-count-updates')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'testimonials' },
+        () => {
+          void fetchPendingSentCount();
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'vessel_sea_time_access_requests' },
+        () => {
+          void fetchPendingSentCount();
+        },
+      );
+    channel.subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, userProfile, supabase]);
   
   // Get display username and email from userProfile or user object
   // For vessel role, use vessel name instead of username
@@ -740,35 +845,64 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     return userEmail[0]?.toUpperCase() || "U";
   };
 
+  const subscriptionActiveLine = React.useMemo(() => {
+    if (!userProfile || userProfile.role === 'admin') return undefined;
+    if (!hasActiveSubscriptionEntitlement(userProfile)) return undefined;
+    const tier =
+      (userProfile as { subscription_tier?: string; subscriptionTier?: string })
+        .subscription_tier ||
+      userProfile.subscriptionTier ||
+      'free';
+    return getSubscriptionTierAccentColor(tier) ?? undefined;
+  }, [userProfile]);
+
   return (
     <TooltipProvider delayDuration={300}>
-    <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader>
+    <Sidebar
+      collapsible="icon"
+      {...props}
+      className={cn(props.className)}
+      style={{
+        ...props.style,
+        ...(subscriptionActiveLine
+          ? ({ '--sidebar-active-line': subscriptionActiveLine } as React.CSSProperties)
+          : null),
+      }}
+    >
+      <SidebarHeader className="border-b border-sidebar-border/80 px-2 py-3">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
+            <SidebarMenuButton
+              size="lg"
+              asChild
+              className="h-11 rounded-xl hover:bg-sidebar-accent/60 data-[active=true]:shadow-none"
+            >
               <Link href="/dashboard">
-                <div className="flex aspect-square size-9 items-center justify-center bg-sidebar-primary text-sidebar-primary-foreground overflow-hidden">
+                <div className="flex aspect-square size-8 shrink-0 items-center justify-center text-sidebar-foreground">
                   <svg 
                     version="1.1" 
                     viewBox="0 0 2048 1670" 
-                    className="size-full p-1"
+                    className="size-7"
                     xmlns="http://www.w3.org/2000/svg"
                     fill="currentColor"
+                    aria-hidden
                   >
                     <path transform="translate(410,73)" d="m0 0h69l54 2 37 3 59 7 60 10 55 11 38 9 42 11 48 14 47 15 43 15 28 11 46 19 20 9 21 9 38 19 15 8 15 6 5 3 4-2 10-8 14-8 9-6 45-23 16-8 27-13 32-14 34-13 27-10 36-12 29-9 50-14 26-6 40-8 22-3 18-5 16-1h29l10-3 20-3 20-1h81l32 2 26 4 12 1 31 1 82 16 28 7 18 6 16 8 3 3 1 5v317l-1 153-2 15-2 2-13-2-13-8-9-6-20-11-8-6-7-7-12-9-5-4-5-2h-12l-25-10-41-20-18-6-37-8-18-1-3-1-18-2-9-3h-102l-34 5-11 3h-7l-7 3-3-2h-6l-3 1-10-2h-7l-5 2h-15l-11 4-20 8-10 6-27 12-30 11-33 14-33 15-29 15-23 13-22 13-19 12-21 13-20 13-27 18-18 13-12 9-18 13-15 11-12 9-9 7-13 12-8 7-14 12-14 11-10 9-14 11-11 10-11 9-15 13-26 22-10 8-14 11-16 13-11 9-14 11-12 9-14 11-34 26-34 24-18 12-17 11-16 10-13 8-25 14-18 10-22 12-23 12-30 15-29 13-34 14-29 11-50 17-51 15-40 10-40 9-38 7-52 7-44 4-55 3h-66l-45-2-22-3-10-4-8-8-2-5-1-17-1-46-1-215v-501l1-116 2-119 6-12 16-12 16-8 32-13 36-12 28-8 39-9 28-6 31-4 18-4 57-8 24-2z" fill="currentColor"/>
                     <path transform="translate(1643,887)" d="m0 0h55l31 3 36 4 20 2 39 7 35 9 32 11 26 11 29 15 13 8 21 14 12 9 11 9 8 10 3 7v175l-1 98-1 24-3 23-1 4-1 20-3 7-6-2-20-12-28-15-17-10-19-9-16-7-16-12-13-8-13-4-33-8-14-5-24-5-49-8-25-2h-64l-8 3-6 3-8-1-1 3h-6l-3-3h-7l-4 1v-2h-3l-1 3-5-1-1-1-7-1v3l-5-2v2h-2v-2l-39 9-55 16-36 12-40 12-27 9-24 9-28 11-16 8-26 14-16 8-28 13-21 8-27 14-21 13-13 12-5 6-17 7-9 1-17 9-22 13-31 16-42 19-16 8-19 9-19 10-31 15-34 14-42 15-37 12-53 15-47 11-28 5-33 4-22 3-75 5h-45l-71-3-7 1-8-4-36-7-10-2-15-4-9 1h-6l-6-4-24-8-28-7-32-13-24-10-35-16-20-10-20-12-38-24-20-12-17-12-19-14-16-12-14-11-7-8v-3l4-1h7l16 8 16 10 10 5 12 3-2-10-5-11v-5l2-2 9 1 79 21 48 10 29 4 47 6 31 2h85l28-2 15-3 21-4 14-1 34-7 26-6 53-15 43-15 28-11 29-12 29-13 30-14 29-14 38-20 23-13 21-12 28-17 41-26 69-46 14-10 18-12 12-9 11-9 10-7 13-8 12-6 3-4 4-7 11-12 17-12 19-10 12-11 8-7 11-10 69-46 17-11 15-10 19-12 17-10 14-9 32-17 39-20 16-5h10l15-3 19-11 10-6 6-5h8l6 4 6 5 13-1 13-10 8-6 11-8 20-8 7-2 13 1 13 3 7-1z" fill="currentColor"/>
                   </svg>
                 </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-extrabold">SeaJourney</span>
+                <div className="grid flex-1 text-left leading-tight">
+                  <span className="truncate text-sm font-semibold tracking-tight">SeaJourney</span>
+                  <span className="truncate text-[11px] text-sidebar-foreground/50">
+                    {accountTypeLabel(userProfile?.role)} workspace
+                  </span>
                 </div>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="px-1 py-2">
         {displayNavGroups.map((group) => {
           // Hide entire group if user role matches hideForRoles
           const userRole = userProfile?.role?.toLowerCase() || '';
@@ -787,12 +921,12 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           // For vessel accounts, show "Vessel" as the Account section heading
           const groupLabel = (group.title === "Account" && userProfile?.role === "vessel") ? "Vessel" : group.title;
           return (
-          <SidebarGroup key={group.title}>
-            <SidebarGroupLabel className="text-blue-300/40">
+          <SidebarGroup key={group.title} className="py-1">
+            <SidebarGroupLabel>
               {groupLabel}
             </SidebarGroupLabel>
             <SidebarGroupContent>
-              <SidebarMenu>
+              <SidebarMenu className="gap-0.5">
                 {group.items.map((item) => {
                   if ('requiredRole' in item && item.requiredRole) {
                     // Show item if user has the required role or is admin
@@ -843,6 +977,14 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     return null
                   }
 
+                  if (
+                    'featureFlag' in item &&
+                    item.featureFlag &&
+                    !isFeatureEnabled(item.featureFlag)
+                  ) {
+                    return null
+                  }
+
                   // For crew_limited tier, only show: Home, Current, Calendar, Profile, Feedback, Inbox, Documents (vessel-documents)
                   if (isCrewLimited) {
                     const allowedHrefs = [
@@ -868,9 +1010,9 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   // intentionally excluded because linked accounts don't
                   // own portable sea-time history. Captain-linked accounts
                   // additionally see captain-only items (signature,
-                  // requests, sign-offs) because their users.role =
-                  // 'captain' matches the `requiredRole` checks already
-                  // applied above.
+                  // requests) because their users.role = 'captain'
+                  // matches the `requiredRole` checks already applied
+                  // above. Sign-offs live in Inbox for now.
                   if (isVesselLinked) {
                     const allowedHrefs = [
                       '/dashboard',
@@ -884,7 +1026,6 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                       // Captain-only items (already gated by requiredRole):
                       '/dashboard/settings/signature',
                       '/dashboard/requests',
-                      '/dashboard/sign-offs',
                     ];
                     if (!allowedHrefs.includes(item.href)) {
                       return null;
@@ -931,7 +1072,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     return null;
                   }
 
-                  const isActive = pathname === item.href
+                  const isActive =
+                    item.href === '/dashboard'
+                      ? pathname === '/dashboard'
+                      : pathname === item.href || pathname.startsWith(`${item.href}/`)
                   
                   // Use a combination of href and label for unique keys (since two items can have the same href)
                   const uniqueKey = `${item.href}-${item.label}`
@@ -942,6 +1086,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const isFeedback = item.href === '/dashboard/feedback';
                   // Check if this is the requests item - only show if there are active requests
                   const isRequests = item.href === '/dashboard/requests';
+                  const isPendingSent = item.href === '/dashboard/pending-requests';
+
+                  const countBadgeClass =
+                    'ml-auto h-5 min-w-5 rounded-full border-0 bg-sky-400/20 px-1.5 text-[10px] font-semibold tabular-nums text-sky-100 group-data-[collapsible=icon]:hidden'
                   
                   // Always show inbox link (don't hide even if count is 0)
                   // Hide requests link if no active requests
@@ -957,12 +1105,12 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                             <div className="w-full">
                               <SidebarMenuButton 
                                 disabled
-                                className="group/button w-full"
+                                className="group/button w-full text-sidebar-foreground/55"
                               >
-                                <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center w-full">
-                                  <item.icon className="h-4 w-4 shrink-0" />
-                                  <span className="group-data-[collapsible=icon]:hidden flex-1">{item.label}</span>
-                                  <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-400 group-data-[collapsible=icon]:hidden ml-auto shrink-0" />
+                                <div className="flex w-full items-center gap-2.5 group-data-[collapsible=icon]:justify-center">
+                                  <item.icon className="h-4 w-4 shrink-0 opacity-70" />
+                                  <span className="flex-1 group-data-[collapsible=icon]:hidden">{item.label}</span>
+                                  <Sparkles className="ml-auto h-3.5 w-3.5 shrink-0 text-amber-300/90 group-data-[collapsible=icon]:hidden" />
                                 </div>
                               </SidebarMenuButton>
                             </div>
@@ -984,30 +1132,29 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                         </Tooltip>
                       ) : (
                         <SidebarMenuButton tooltip={item.label} asChild isActive={isActive}>
-                          <Link href={item.href} className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+                          <Link
+                            href={item.href}
+                            className="flex items-center gap-2.5 group-data-[collapsible=icon]:justify-center"
+                          >
                             <item.icon />
                             <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
                           {isInbox && inboxCount > 0 && (
-                            <Badge 
-                              variant="destructive" 
-                              className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold group-data-[collapsible=icon]:hidden"
-                            >
+                            <Badge variant="secondary" className={countBadgeClass}>
                               {inboxCount > 99 ? '99+' : inboxCount}
                             </Badge>
                           )}
                           {isRequests && requestsCount > 0 && (
-                            <Badge 
-                              variant="destructive" 
-                              className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold group-data-[collapsible=icon]:hidden"
-                            >
+                            <Badge variant="secondary" className={countBadgeClass}>
                               {requestsCount > 99 ? '99+' : requestsCount}
                             </Badge>
                           )}
+                          {isPendingSent && pendingSentCount > 0 && (
+                            <Badge variant="secondary" className={countBadgeClass}>
+                              {pendingSentCount > 99 ? '99+' : pendingSentCount}
+                            </Badge>
+                          )}
                           {isFeedback && feedbackCount > 0 && (
-                            <Badge 
-                              variant="destructive" 
-                              className="ml-auto h-5 min-w-5 px-1.5 flex items-center justify-center text-xs font-semibold group-data-[collapsible=icon]:hidden"
-                            >
+                            <Badge variant="secondary" className={countBadgeClass}>
                               {feedbackCount > 99 ? '99+' : feedbackCount}
                             </Badge>
                           )}
@@ -1023,67 +1170,88 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
         )
         })}
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="border-t border-sidebar-border/80 p-2">
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton
                   size="lg"
-                  className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                  className="h-12 rounded-xl data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground data-[active=true]:shadow-none"
                 >
-                  <Avatar className="h-8 w-8 rounded-lg">
-                    <AvatarFallback className="rounded-lg bg-primary/80 text-primary-foreground">
+                  <Avatar className="h-8 w-8 rounded-lg ring-1 ring-white/10">
+                    <AvatarFallback className="rounded-lg bg-sky-500/20 text-sky-100">
                       {getAvatarInitials()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">
+                    <span className="truncate font-medium">
                       {displayUsername}
                     </span>
-                    <span className="truncate text-xs">{userEmail}</span>
+                    <span className="truncate text-[11px] text-sidebar-foreground/50">
+                      {accountTypeLabel(userProfile?.role)} account
+                    </span>
                   </div>
-                  <ChevronRight className="ml-auto size-4" />
+                  <ChevronsUpDown className="ml-auto size-4 text-sidebar-foreground/40" />
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent
-                className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
-                side="bottom"
+                className="w-64 rounded-xl p-0"
+                side="right"
                 align="end"
-                sideOffset={4}
+                sideOffset={10}
               >
                 <DropdownMenuLabel className="p-0 font-normal">
-                  <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                    <Avatar className="h-8 w-8 rounded-lg">
-                      <AvatarFallback className="rounded-lg bg-primary/80 text-primary-foreground">
+                  <div className="flex items-start gap-3 px-3 py-3">
+                    <Avatar className="h-10 w-10 rounded-xl">
+                      <AvatarFallback className="rounded-xl bg-primary/80 text-sm text-primary-foreground">
                         {getAvatarInitials()}
                       </AvatarFallback>
                     </Avatar>
-                    <div className="grid flex-1 text-left text-sm leading-tight">
-                      <span className="truncate font-semibold">
-                        {displayUsername}
-                      </span>
-                      <span className="truncate text-xs">{userEmail}</span>
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="leading-tight">
+                        <div className="truncate font-semibold">
+                          {displayUsername}
+                        </div>
+                        {userEmail ? (
+                          <div className="truncate text-xs text-muted-foreground">
+                            {userEmail}
+                          </div>
+                        ) : null}
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={`h-5 px-1.5 text-[10px] font-medium ${accountTypeBadgeClass(userProfile?.role)}`}
+                      >
+                        {accountTypeLabel(userProfile?.role)} account
+                      </Badge>
                     </div>
                   </div>
                 </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => router.push("/dashboard/profile")}>
+                <DropdownMenuSeparator className="m-0" />
+                <div className="p-1">
+                <DropdownMenuItem
+                  className="rounded-lg"
+                  onClick={() => router.push("/dashboard/profile")}
+                >
                   <User className="mr-2 h-4 w-4" />
                   Profile
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push("/dashboard/subscription")}>
+                <DropdownMenuItem
+                  className="rounded-lg"
+                  onClick={() => router.push("/dashboard/subscription")}
+                >
                   <Sparkles className="mr-2 h-4 w-4" />
                   Subscription
                 </DropdownMenuItem>
                 <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-                    <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+                  <DropdownMenuSubTrigger className="rounded-lg">
+                    <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+                    <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
                     <span className="ml-2">Theme</span>
                   </DropdownMenuSubTrigger>
                   <DropdownMenuPortal>
-                    <DropdownMenuSubContent>
+                    <DropdownMenuSubContent className="rounded-xl">
                       <DropdownMenuItem onClick={() => setTheme("light")}>
                         <Sun className="mr-2 h-4 w-4" />
                         <span>Light</span>
@@ -1099,11 +1267,17 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                     </DropdownMenuSubContent>
                   </DropdownMenuPortal>
                 </DropdownMenuSub>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleSignOut}>
+                </div>
+                <DropdownMenuSeparator className="m-0" />
+                <div className="p-1">
+                <DropdownMenuItem
+                  className="rounded-lg text-destructive focus:text-destructive"
+                  onClick={handleSignOut}
+                >
                   <LogOut className="mr-2 h-4 w-4" />
-                  Sign Out
+                  Sign out
                 </DropdownMenuItem>
+                </div>
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>

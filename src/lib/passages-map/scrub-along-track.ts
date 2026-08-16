@@ -36,6 +36,92 @@ export type ScrubSample = {
 
 type LngLat = { lng: number; lat: number };
 
+type ScrubTimingOpts = {
+  startTime?: string;
+  endTime?: string;
+  durationMs?: number;
+  /** Fallback average speed when local segment can't be timed. */
+  avgSpeedKn?: number | null;
+};
+
+/**
+ * Sample a point along the track by distance progress (0..1).
+ * Used by the bottom timeline scrubber for a "live" replay feel.
+ */
+export function sampleAtProgress(
+  coordinates: readonly [number, number][],
+  progress: number,
+  opts?: ScrubTimingOpts,
+): ScrubSample | null {
+  if (!coordinates || coordinates.length < 2) return null;
+
+  const segNm: number[] = [];
+  let totalNm = 0;
+  for (let i = 1; i < coordinates.length; i++) {
+    const a = coordinates[i - 1]!;
+    const b = coordinates[i]!;
+    const d = haversineNm(a[1], a[0], b[1], b[0]);
+    segNm.push(d);
+    totalNm += d;
+  }
+
+  const p = Math.min(1, Math.max(0, progress));
+  const timing = resolveTiming(opts);
+
+  if (totalNm <= 0) {
+    const c = coordinates[0]!;
+    return {
+      lon: c[0],
+      lat: c[1],
+      progress: 0,
+      atMs: timing.startMs,
+      speedKn: opts?.avgSpeedKn ?? null,
+      bearingDeg: bearingBetween(
+        coordinates[0]!,
+        coordinates[1] ?? coordinates[0]!,
+      ),
+      distanceFromStartNm: 0,
+      distanceRemainingNm: 0,
+      remainingMs: timing.durationMs,
+      totalDistanceNm: 0,
+    };
+  }
+
+  const targetNm = p * totalNm;
+  let cum = 0;
+  let segIdx = 0;
+  let t = 0;
+  for (let i = 0; i < segNm.length; i++) {
+    const len = segNm[i]!;
+    if (cum + len >= targetNm || i === segNm.length - 1) {
+      segIdx = i;
+      t = len > 0 ? Math.min(1, Math.max(0, (targetNm - cum) / len)) : 0;
+      break;
+    }
+    cum += len;
+  }
+
+  const a = coordinates[segIdx]!;
+  const b = coordinates[segIdx + 1] ?? a;
+  const lon = a[0] + t * (b[0] - a[0]);
+  const lat = a[1] + t * (b[1] - a[1]);
+
+  return buildSample({
+    lon,
+    lat,
+    progress: p,
+    distanceFromStartNm: targetNm,
+    distanceRemainingNm: Math.max(0, totalNm - targetNm),
+    totalNm,
+    segIdx,
+    t,
+    segNm,
+    coordinates,
+    timing,
+    avgSpeedKn: opts?.avgSpeedKn,
+  });
+}
+
 /**
  * Find the closest point on `coordinates` to `pointer` and return scrub
  * metadata. Returns null when the geometry is too short.
@@ -43,12 +129,7 @@ type LngLat = { lng: number; lat: number };
 export function scrubAlongTrack(
   coordinates: readonly [number, number][],
   pointer: LngLat,
-  opts?: {
-    startTime?: string;
-    endTime?: string;
-    durationMs?: number;
-    /** Fallback average speed when local segment can't be timed. */
-    avgSpeedKn?: number | null;
+  opts?: ScrubTimingOpts & {
     /**
      * Ignore projections farther than this many NM from the pointer
      * (keeps scrub from latching onto a distant parallel track).
@@ -68,16 +149,7 @@ export function scrubAlongTrack(
     totalNm += d;
   }
 
-  const startMs = parseTime(opts?.startTime);
-  const endMs = parseTime(opts?.endTime);
-  let durationMs = opts?.durationMs;
-  if (
-    (durationMs == null || !Number.isFinite(durationMs)) &&
-    startMs != null &&
-    endMs != null
-  ) {
-    durationMs = Math.max(0, endMs - startMs);
-  }
+  const timing = resolveTiming(opts);
 
   if (totalNm <= 0) {
     const c = coordinates[0]!;
@@ -85,20 +157,18 @@ export function scrubAlongTrack(
       lon: c[0],
       lat: c[1],
       progress: 0,
-      atMs: startMs,
+      atMs: timing.startMs,
       speedKn: opts?.avgSpeedKn ?? null,
-      bearingDeg: bearingBetween(coordinates[0]!, coordinates[1] ?? coordinates[0]!),
+      bearingDeg: bearingBetween(
+        coordinates[0]!,
+        coordinates[1] ?? coordinates[0]!,
+      ),
       distanceFromStartNm: 0,
       distanceRemainingNm: 0,
-      remainingMs: durationMs ?? null,
+      remainingMs: timing.durationMs,
       totalDistanceNm: 0,
     };
   }
-
-  // Equal time per vertex-interval (n-1 intervals).
-  const intervals = Math.max(1, coordinates.length - 1);
-  const msPerInterval =
-    durationMs != null && durationMs > 0 ? durationMs / intervals : null;
 
   let bestDist = Infinity;
   let bestLon = coordinates[0]![0];
@@ -137,62 +207,140 @@ export function scrubAlongTrack(
   const progress = Math.min(1, Math.max(0, bestCumNm / totalNm));
   const distanceRemainingNm = Math.max(0, totalNm - bestCumNm);
 
+  return buildSample({
+    lon: bestLon,
+    lat: bestLat,
+    progress,
+    distanceFromStartNm: bestCumNm,
+    distanceRemainingNm,
+    totalNm,
+    segIdx: bestSegIdx,
+    t: bestT,
+    segNm,
+    coordinates,
+    timing,
+    avgSpeedKn: opts?.avgSpeedKn,
+  });
+}
+
+function resolveTiming(opts?: ScrubTimingOpts): {
+  startMs: number | null;
+  durationMs: number | null;
+} {
+  const startMs = parseTime(opts?.startTime);
+  const endMs = parseTime(opts?.endTime);
+  let durationMs = opts?.durationMs;
+  if (
+    (durationMs == null || !Number.isFinite(durationMs)) &&
+    startMs != null &&
+    endMs != null
+  ) {
+    durationMs = Math.max(0, endMs - startMs);
+  }
+  return {
+    startMs,
+    durationMs: durationMs ?? null,
+  };
+}
+
+function buildSample(args: {
+  lon: number;
+  lat: number;
+  progress: number;
+  distanceFromStartNm: number;
+  distanceRemainingNm: number;
+  totalNm: number;
+  segIdx: number;
+  t: number;
+  segNm: number[];
+  coordinates: readonly [number, number][];
+  timing: {
+    startMs: number | null;
+    durationMs: number | null;
+  };
+  avgSpeedKn?: number | null;
+}): ScrubSample {
+  const {
+    lon,
+    lat,
+    progress,
+    distanceFromStartNm,
+    distanceRemainingNm,
+    totalNm,
+    segIdx,
+    t,
+    segNm,
+    coordinates,
+    timing,
+    avgSpeedKn,
+  } = args;
+
+  const intervals = Math.max(1, coordinates.length - 1);
+  const msPerInterval =
+    timing.durationMs != null && timing.durationMs > 0
+      ? timing.durationMs / intervals
+      : null;
+
   let atMs: number | null = null;
-  if (startMs != null && msPerInterval != null) {
-    atMs = startMs + (bestSegIdx + bestT) * msPerInterval;
-  } else if (startMs != null && durationMs != null && durationMs > 0) {
-    atMs = startMs + durationMs * progress;
-  } else if (startMs != null) {
-    atMs = startMs;
+  if (timing.startMs != null && msPerInterval != null) {
+    atMs = timing.startMs + (segIdx + t) * msPerInterval;
+  } else if (
+    timing.startMs != null &&
+    timing.durationMs != null &&
+    timing.durationMs > 0
+  ) {
+    atMs = timing.startMs + timing.durationMs * progress;
+  } else if (timing.startMs != null) {
+    atMs = timing.startMs;
   }
 
-  const segLen = segNm[bestSegIdx] ?? 0;
+  const segLen = segNm[segIdx] ?? 0;
   let speedKn: number | null = null;
   if (msPerInterval != null && msPerInterval > 0 && segLen > 0) {
     speedKn = segLen / (msPerInterval / 3_600_000);
-  } else if (typeof opts?.avgSpeedKn === 'number') {
-    speedKn = opts.avgSpeedKn;
+  } else if (typeof avgSpeedKn === 'number') {
+    speedKn = avgSpeedKn;
   }
-  if (speedKn != null && (!Number.isFinite(speedKn) || speedKn > 45 || speedKn < 0)) {
-    speedKn = opts?.avgSpeedKn ?? null;
+  if (
+    speedKn != null &&
+    (!Number.isFinite(speedKn) || speedKn > 45 || speedKn < 0)
+  ) {
+    speedKn = avgSpeedKn ?? null;
   }
 
-  // Smooth local speed with neighbours so single tiny segments don't
-  // spike (e.g. GPS jitter at anchor end of a leg).
   if (speedKn != null && msPerInterval != null && msPerInterval > 0) {
     const windowNm =
-      (segNm[bestSegIdx - 1] ?? 0) + segLen + (segNm[bestSegIdx + 1] ?? 0);
+      (segNm[segIdx - 1] ?? 0) + segLen + (segNm[segIdx + 1] ?? 0);
     const windowIntervals =
-      (bestSegIdx > 0 ? 1 : 0) + 1 + (bestSegIdx < segNm.length - 1 ? 1 : 0);
+      (segIdx > 0 ? 1 : 0) + 1 + (segIdx < segNm.length - 1 ? 1 : 0);
     if (windowNm > 0 && windowIntervals > 0) {
       const smoothed =
         windowNm / ((windowIntervals * msPerInterval) / 3_600_000);
       if (Number.isFinite(smoothed) && smoothed > 0 && smoothed <= 45) {
-        // Blend toward smoothed — still reflects local conditions.
         speedKn = speedKn * 0.35 + smoothed * 0.65;
       }
     }
   }
 
-  const a = coordinates[bestSegIdx]!;
-  const b = coordinates[bestSegIdx + 1] ?? a;
+  const a = coordinates[segIdx]!;
+  const b = coordinates[segIdx + 1] ?? a;
   const bearingDeg = bearingBetween(a, b);
 
   let remainingMs: number | null = null;
-  if (durationMs != null && durationMs > 0) {
+  if (timing.durationMs != null && timing.durationMs > 0) {
     if (msPerInterval != null) {
-      const elapsed = (bestSegIdx + bestT) * msPerInterval;
-      remainingMs = Math.max(0, durationMs - elapsed);
+      const elapsed = (segIdx + t) * msPerInterval;
+      remainingMs = Math.max(0, timing.durationMs - elapsed);
     } else {
-      remainingMs = durationMs * (1 - progress);
+      remainingMs = timing.durationMs * (1 - progress);
     }
   } else if (speedKn != null && speedKn > 0.2) {
     remainingMs = (distanceRemainingNm / speedKn) * 3_600_000;
   }
 
   return {
-    lon: bestLon,
-    lat: bestLat,
+    lon,
+    lat,
     progress,
     atMs,
     speedKn:
@@ -203,7 +351,7 @@ export function scrubAlongTrack(
       typeof bearingDeg === 'number' && Number.isFinite(bearingDeg)
         ? Math.round(bearingDeg)
         : null,
-    distanceFromStartNm: Number(bestCumNm.toFixed(2)),
+    distanceFromStartNm: Number(distanceFromStartNm.toFixed(2)),
     distanceRemainingNm: Number(distanceRemainingNm.toFixed(2)),
     remainingMs:
       remainingMs != null && Number.isFinite(remainingMs)
@@ -247,8 +395,6 @@ function projectPointToSegment(
   bLon: number,
   bLat: number,
 ): { lon: number; lat: number; t: number } {
-  // Work in a local equirectangular frame so projection isn't skewed
-  // by raw lon/lat degrees (esp. at higher latitudes / long segments).
   const midLat = ((aLat + bLat) / 2) * (Math.PI / 180);
   const cosLat = Math.max(0.15, Math.cos(midLat));
   const ax = aLon * cosLat;

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { hasActiveSubscription as checkActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { Loader2 } from 'lucide-react';
 import { AppSidebar } from '@/components/app-sidebar';
 import { SiteHeader } from '@/components/site-header';
@@ -23,6 +24,11 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { theme } = useTheme();
   const redirectingRef = useRef(false);
+  const {
+    isRouteEnabled,
+    isLoading: isFlagsLoading,
+    isAdmin,
+  } = useFeatureFlags();
 
   const {
     data: userProfile,
@@ -93,6 +99,26 @@ useEffect(() => {
     // They can navigate to crew page if needed
   }, [user, isLoading, hasActiveSubscription, pathname, userProfile, router]);
 
+  // Platform feature flags: hide disabled product routes for non-admins.
+  // Sidebar already omits the links; this covers typed/bookmarked URLs.
+  useEffect(() => {
+    if (isLoading || isFlagsLoading || isAdmin) return;
+    if (!user || !hasActiveSubscription) return;
+    if (pathname === '/dashboard') return;
+    if (!isRouteEnabled(pathname)) {
+      router.replace('/dashboard');
+    }
+  }, [
+    isLoading,
+    isFlagsLoading,
+    isAdmin,
+    user,
+    hasActiveSubscription,
+    pathname,
+    isRouteEnabled,
+    router,
+  ]);
+
   const isMapPage =
     pathname === '/dashboard/world-map' || pathname === '/dashboard/passages-map';
 
@@ -112,11 +138,25 @@ useEffect(() => {
     );
   }
 
+  // Avoid flashing a disabled feature page before redirect.
+  if (
+    !isAdmin &&
+    !isFlagsLoading &&
+    pathname !== '/dashboard' &&
+    !isRouteEnabled(pathname)
+  ) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <SidebarProvider
       style={
         {
-          "--sidebar-width": "16rem",
+          "--sidebar-width": "16.5rem",
           "--header-height": "4rem",
         } as React.CSSProperties
       }
@@ -124,7 +164,12 @@ useEffect(() => {
       <AppSidebar variant="inset" userProfile={userProfile} />
       <SidebarInset className="flex flex-col h-svh overflow-hidden">
         <SiteHeader className="shrink-0" userProfile={userProfile} />
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-content-background">
+        <div
+          className={cn(
+            'flex-1 flex flex-col min-h-0 overflow-hidden',
+            isMapPage ? 'bg-[#070e1a]' : 'bg-content-background',
+          )}
+        >
           <div className={cn(
             'flex-1 overflow-y-auto overscroll-contain',
             !isMapPage && 'px-8 py-4',

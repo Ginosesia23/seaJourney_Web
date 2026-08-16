@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { UserProfileCard } from '@/components/dashboard/user-profile';
 import { SubscriptionCard } from '@/components/dashboard/subscription-card';
 import { UserInfoCard } from '@/components/dashboard/user-info-card';
 import { VesselStampCard } from '@/components/dashboard/vessel-stamp-card';
 import { MCAApplicationDetailsCard } from '@/components/dashboard/mca-application-details';
-import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -25,7 +24,7 @@ import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments, updateVesselAssignment, getVesselStateLogs } from '@/supabase/database/queries';
 import { format, parse, differenceInDays, isAfter, startOfDay, isBefore, getYear, getMonth, setMonth, setYear, startOfMonth, addDays } from 'date-fns';
-import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit, Shield, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Target, Award } from 'lucide-react';
+import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit, Shield, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Award } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { vesselTypes } from '@/lib/vessel-types';
 import {
@@ -44,6 +43,11 @@ import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { updateUserProfile } from '@/supabase/database/queries';
+import {
+  DashboardHeader,
+  DashboardPanel,
+  DashboardStatRow,
+} from '@/components/dashboard/dashboard-home-ui';
 
 function CaptainRoleApplicationCard({ userProfile, userId }: { userProfile: UserProfile | null; userId?: string }) {
   const { supabase } = useSupabase();
@@ -958,38 +962,45 @@ function CareerTab({ userId }: { userId?: string }) {
   }
 
   const currentPosition = positionHistory.find(p => !p.endDate);
+  const activeAssignmentCount = assignments.filter((a) => !a.endDate).length;
+  const totalAssignmentDays = assignments.reduce((sum, a) => sum + getAssignmentDuration(a), 0);
 
     return (
     <div className="space-y-6">
+      <DashboardStatRow
+        items={[
+          { label: 'Assignments', value: assignments.length, hint: 'Vessel postings' },
+          { label: 'Active', value: activeAssignmentCount, hint: 'Current vessels' },
+          {
+            label: 'Assignment days',
+            value: totalAssignmentDays,
+            hint: 'Calendar days across postings',
+          },
+        ]}
+      />
+
       {/* Qualification Progression Tracker */}
-      <Card className="rounded-xl border bg-gradient-to-br from-primary/5 via-transparent to-transparent">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Target className="h-5 w-5" />
-            Qualification progression
-          </CardTitle>
-          <CardDescription>
-            Sea service days (at sea + standby) toward your next qualification milestone
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <DashboardPanel
+        title="Qualification progression"
+        description="Sea service days (at sea + standby) toward your next milestone"
+      >
           {isLoadingSeaTime ? (
-            <div className="flex items-center gap-3 py-6">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <div className="flex items-center gap-3 py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               <span className="text-sm text-muted-foreground">Calculating your sea time…</span>
             </div>
           ) : nextQualification ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-baseline gap-2">
-                <span className="text-2xl font-bold">{totalSeaTimeDays ?? 0}</span>
-                <span className="text-muted-foreground">sea service days</span>
+                <span className="text-2xl font-semibold tabular-nums">{totalSeaTimeDays ?? 0}</span>
+                <span className="text-sm text-muted-foreground">sea service days</span>
                 <span className="text-muted-foreground">→</span>
                 <span className="font-medium">{nextQualification.name}</span>
-                <span className="text-sm text-muted-foreground">({nextQualification.requiredDays} days required)</span>
+                <span className="text-sm text-muted-foreground">({nextQualification.requiredDays} days)</span>
               </div>
               <Progress
                 value={Math.min(100, ((totalSeaTimeDays ?? 0) / nextQualification.requiredDays) * 100)}
-                className="h-3"
+                className="h-2.5"
               />
               <p className="text-sm text-muted-foreground">
                 <strong className="text-foreground">{Math.max(0, nextQualification.requiredDays - (totalSeaTimeDays ?? 0))} days</strong>
@@ -998,7 +1009,7 @@ function CareerTab({ userId }: { userId?: string }) {
             </div>
           ) : totalSeaTimeDays !== null && totalSeaTimeDays > 0 ? (
             <div className="flex items-center gap-3 py-2">
-              <Award className="h-10 w-10 text-primary" />
+              <Award className="h-8 w-8 text-muted-foreground" />
               <div>
                 <p className="font-semibold">You've passed the highest milestone</p>
                 <p className="text-sm text-muted-foreground">
@@ -1007,33 +1018,31 @@ function CareerTab({ userId }: { userId?: string }) {
               </div>
             </div>
           ) : (
-            <div className="py-4">
+            <div className="py-2">
               <p className="text-sm text-muted-foreground">
                 Log sea time on your vessel assignments to see progress toward your next qualification. Sea service is calculated from your daily state logs (at sea + standby).
               </p>
             </div>
           )}
-        </CardContent>
-      </Card>
+      </DashboardPanel>
 
       {/* Position History Section */}
-      <Card className="rounded-xl border">
-        <CardHeader>
-          <div className="flex items-center justify-between">
+      <Card className="rounded-xl border shadow-none">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <Briefcase className="h-5 w-5" />
-                Position History
+              <CardTitle className="text-sm font-semibold tracking-tight">
+                Position history
               </CardTitle>
-              <CardDescription className="mt-1">
-                Track your position progression and promotions over time
+              <CardDescription className="mt-0.5 text-xs">
+                Track position changes and promotions over time
               </CardDescription>
             </div>
             <Dialog open={isPositionDialogOpen} onOpenChange={setIsPositionDialogOpen}>
               <DialogTrigger asChild>
-                <Button onClick={() => handleOpenPositionDialog()} className="rounded-xl">
+                <Button onClick={() => handleOpenPositionDialog()} size="sm" className="rounded-lg">
                   <Plus className="mr-2 h-4 w-4" />
-                  {currentPosition ? 'Update Position' : 'Add Position'}
+                  {currentPosition ? 'Update position' : 'Add position'}
                 </Button>
               </DialogTrigger>
               <DialogContent className="rounded-xl max-w-2xl">
@@ -1347,14 +1356,13 @@ function CareerTab({ userId }: { userId?: string }) {
 
       {/* Vessel Assignments Section */}
       {assignments.length > 0 && (
-    <Card className="rounded-xl border">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-              <Ship className="h-5 w-5" />
-              Vessel Assignments
+    <Card className="rounded-xl border shadow-none">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold tracking-tight">
+              Vessel assignments
         </CardTitle>
-        <CardDescription>
-              Your vessel assignments and sea service history
+        <CardDescription className="text-xs">
+              Vessel postings and calendar duration
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -1430,28 +1438,6 @@ function CareerTab({ userId }: { userId?: string }) {
             </TableBody>
           </Table>
         </div>
-
-        {/* Career Summary */}
-          <div className="mt-6 pt-6 border-t">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Total Assignments</p>
-                <p className="text-2xl font-bold">{assignments.length}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Active Assignments</p>
-                <p className="text-2xl font-bold">
-                  {assignments.filter(a => !a.endDate).length}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Total Days at Sea</p>
-                <p className="text-2xl font-bold">
-                  {assignments.reduce((sum, a) => sum + getAssignmentDuration(a), 0)}
-                </p>
-              </div>
-            </div>
-          </div>
       </CardContent>
     </Card>
       )}
@@ -1770,12 +1756,11 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
   if (!vessel) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Vessel Details</h1>
-          <p className="text-muted-foreground">View and manage your vessel information</p>
-          <Separator />
-        </div>
-        <Card className="rounded-xl border">
+        <DashboardHeader
+          title="Vessel profile"
+          description="View and manage your vessel information"
+        />
+        <Card className="rounded-xl border shadow-none">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Ship className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">No Vessel Found</h3>
@@ -1790,36 +1775,30 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header Section */}
-      <div className="space-y-2">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">Vessel Details</h1>
-            <p className="text-muted-foreground">
-              View and manage your vessel information
-            </p>
-          </div>
-          {!isEditing && (
-            <Button onClick={() => setIsEditing(true)} variant="default">
+      <DashboardHeader
+        title={vessel.name || 'Vessel profile'}
+        description="Vessel profile — identity, specs, company, and account"
+        actions={
+          !isEditing ? (
+            <Button onClick={() => setIsEditing(true)} size="sm" className="rounded-lg">
               <Edit className="h-4 w-4 mr-2" />
-              Edit Vessel Details
+              Edit details
             </Button>
-          )}
-        </div>
-        <Separator />
-      </div>
+          ) : null
+        }
+      />
 
-      {/* Vessel Information Form */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" key={`vessel-form-${vesselData?.id}-${vesselData?.type || 'no-type'}`}>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <Card className="rounded-xl border">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Ship className="h-5 w-5" />
-                  Basic Information
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <Card className="rounded-xl border shadow-none">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold tracking-tight">
+                  Identity
                 </CardTitle>
-                <CardDescription>Essential vessel identification details</CardDescription>
+                <CardDescription className="text-xs">Name, type, and identifiers</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <FormField
@@ -1909,13 +1888,12 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
               </CardContent>
             </Card>
 
-            <Card className="rounded-xl border">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <User className="h-5 w-5" />
-                  Dimensions & Specifications
+            <Card className="rounded-xl border shadow-none">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold tracking-tight">
+                  Specifications
                 </CardTitle>
-                <CardDescription>Physical characteristics of the vessel</CardDescription>
+                <CardDescription className="text-xs">Dimensions, tonnage, flag, and crew</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -2017,10 +1995,10 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
             </Card>
           </div>
 
-          <Card className="rounded-xl border">
-            <CardHeader>
-              <CardTitle>Additional Information</CardTitle>
-              <CardDescription>Additional notes and description</CardDescription>
+          <Card className="rounded-xl border shadow-none">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold tracking-tight">Description</CardTitle>
+              <CardDescription className="text-xs">Optional notes about the vessel</CardDescription>
             </CardHeader>
             <CardContent>
               <FormField
@@ -2039,13 +2017,14 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl border">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Briefcase className="h-5 w-5" />
-                Company Details
+          <Card className="rounded-xl border shadow-none">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold tracking-tight">
+                Company
               </CardTitle>
-              <CardDescription>Company information for use in testimonials and official documents</CardDescription>
+              <CardDescription className="text-xs">
+                Management company details for testimonials and documents
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <FormField
@@ -2124,10 +2103,12 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
           </Card>
 
           {isEditing && (
-            <div className="flex justify-end gap-3">
+            <div className="sticky bottom-4 z-10 flex justify-end gap-3 rounded-xl border bg-card/95 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
               <Button
                 type="button"
                 variant="outline"
+                size="sm"
+                className="rounded-lg"
                 onClick={() => {
                   setIsEditing(false);
                   form.reset();
@@ -2136,7 +2117,7 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSaving}>
+              <Button type="submit" size="sm" className="rounded-lg" disabled={isSaving}>
                 {isSaving ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -2145,7 +2126,7 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
                 ) : (
                   <>
                     <Save className="h-4 w-4 mr-2" />
-                    Save Changes
+                    Save changes
                   </>
                 )}
               </Button>
@@ -2153,46 +2134,39 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
           )}
         </form>
       </Form>
+        </div>
 
-      {/* Vessel Start Date Card */}
-      <Card className="rounded-xl border">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            Official Start Date
-          </CardTitle>
-          <CardDescription>
-            Set your vessel's official start date. You can only change states from this date onwards.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <VesselStartDateCard userProfile={userProfile} />
-        </CardContent>
-      </Card>
+        <div className="space-y-6">
+          <Card className="rounded-xl border shadow-none">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold tracking-tight">
+                Official start date
+              </CardTitle>
+              <CardDescription className="text-xs">
+                States can only be logged from this date onwards
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <VesselStartDateCard userProfile={userProfile} />
+            </CardContent>
+          </Card>
 
-      {/* Ship's Stamp Card */}
-      <VesselStampCard
-        vesselId={vessel.id}
-        vesselName={vessel.name}
-        stamp={(vesselData as { stamp?: string | null } | null)?.stamp ?? null}
-      />
+          <VesselStampCard
+            vesselId={vessel.id}
+            vesselName={vessel.name}
+            stamp={(vesselData as { stamp?: string | null } | null)?.stamp ?? null}
+          />
 
-      {/* Account Information Card */}
-      <Card className="rounded-xl border">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <User className="h-5 w-5" />
-            Account Information
-          </CardTitle>
-          <CardDescription>Your vessel management account</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <UserInfoCard userId={userProfile?.id} />
-        </CardContent>
-      </Card>
+          <UserInfoCard
+            userId={userProfile?.id}
+            title="Account"
+            description="Vessel manager account"
+            compact
+          />
 
-      {/* Subscription Card */}
-      <SubscriptionCard />
+          <SubscriptionCard />
+        </div>
+      </div>
     </div>
   );
 }
@@ -2200,7 +2174,6 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
 export default function ProfilePage() {
   const { user } = useUser();
   const searchParams = useSearchParams();
-  const router = useRouter();
   const [activeTab, setActiveTab] = useState<string>('information');
   
   // Sync activeTab with URL query parameter on mount and when searchParams change
@@ -2279,11 +2252,11 @@ export default function ProfilePage() {
     return (
       <div className="flex flex-col gap-6">
         <div className="space-y-2">
-          <Skeleton className="h-9 w-64" />
-          <Skeleton className="h-5 w-96" />
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-72" />
         </div>
-        <Separator />
-        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-10 w-full max-w-md rounded-xl" />
+        <Skeleton className="h-64 w-full rounded-xl" />
       </div>
     );
   }
@@ -2296,56 +2269,41 @@ export default function ProfilePage() {
   // For crew/captain/admin roles, show regular profile page
   return (
     <div className="flex flex-col gap-6">
-      {/* Header Section */}
-      <div className="space-y-2">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">Profile Settings</h1>
-            <p className="text-muted-foreground">
-              Manage your account information and subscription
-            </p>
-          </div>
-        </div>
-        <Separator />
-      </div>
+      <DashboardHeader
+        title="Profile"
+        description="Account, official details, and career history"
+      />
 
-      {/* Tabs Section */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="rounded-xl">
-          <TabsTrigger value="information" className="!rounded-lg">Information</TabsTrigger>
-          <TabsTrigger value="crew-details" className="!rounded-lg">Crew details</TabsTrigger>
-          <TabsTrigger value="career" className="!rounded-lg">Career</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-3 gap-1 rounded-xl bg-muted/60 p-1">
+          <TabsTrigger value="information" className="rounded-lg px-3 py-2 text-sm">
+            Account
+          </TabsTrigger>
+          <TabsTrigger value="crew-details" className="rounded-lg px-3 py-2 text-sm">
+            Official details
+          </TabsTrigger>
+          <TabsTrigger value="career" className="rounded-lg px-3 py-2 text-sm">
+            Career
+          </TabsTrigger>
         </TabsList>
 
-        {/* Information Tab */}
-        <TabsContent value="information" className="mt-6">
-          <div className="space-y-6">
-            {/* Captain Role Application Card - Full width at top for visibility */}
-            <CaptainRoleApplicationCard userProfile={userProfile} userId={user?.id} />
-            
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              {/* Left Column - User Info Card */}
-              <div className="lg:col-span-1">
-                <UserInfoCard userId={user?.id} />
-              </div>
-              
-              {/* Right Column - User Profile Card - Takes 2/3 of width on large screens */}
-              <div className="lg:col-span-2">
-                <UserProfileCard />
-              </div>
+        <TabsContent value="information" className="mt-6 space-y-6">
+          <CaptainRoleApplicationCard userProfile={userProfile} userId={user?.id} />
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <UserInfoCard userId={user?.id} compact />
+            <div className="lg:col-span-2">
+              <UserProfileCard />
             </div>
-            
-            {/* Subscription Card - Below vessel details */}
-            <SubscriptionCard />
           </div>
+
+          <SubscriptionCard />
         </TabsContent>
 
-        {/* Crew details — name, DOB, address, etc. for generated documents */}
         <TabsContent value="crew-details" className="mt-6">
           <MCAApplicationDetailsCard />
         </TabsContent>
 
-        {/* Career Tab */}
         <TabsContent value="career" className="mt-6">
           <CareerTab userId={user?.id} />
         </TabsContent>

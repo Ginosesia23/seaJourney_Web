@@ -1,10 +1,9 @@
 
 'use client';
 
-import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Wrench, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, CalendarDays, TrendingDown, Activity, Target, Trophy, CheckCircle2, XCircle, FileText, Users, CreditCard, BarChart3, Globe, LogIn, DollarSign } from 'lucide-react';
+import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Wrench, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, CalendarDays, TrendingDown, Activity, Target, Trophy, CheckCircle2, XCircle, FileText, Users, CreditCard, BarChart3, Globe, LogIn, type LucideIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format, getYear, subDays, startOfDay, isWithinInterval, parse, startOfMonth, endOfMonth, isSameMonth, isBefore, isAfter, endOfDay, addDays, differenceInDays } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -25,8 +24,17 @@ import { calculateVisaCompliance, detectVisaRules } from '@/lib/visa-compliance'
 import { cn } from '@/lib/utils';
 import { StatePill } from '@/components/state-pill';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { getSubscriptionTierPricingMap } from '@/app/actions';
+import { lookupTierPriceGbp } from '@/lib/subscription-tier-pricing';
+import {
+  DashboardHeader,
+  DashboardPanel,
+  DashboardQuickLinks,
+  DashboardStatRow,
+  StateBreakdownBars,
+} from '@/components/dashboard/dashboard-home-ui';
 
-const vesselStates: { value: DailyStatus; label: string; color: string, icon: React.FC<any> }[] = [
+const vesselStates: { value: DailyStatus; label: string; color: string, icon: LucideIcon }[] = [
   { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
   { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
   { value: 'in-port', label: 'Moored / In port', color: 'hsl(var(--chart-green))', icon: Building },
@@ -293,22 +301,8 @@ export default function DashboardPage() {
           return isOfficial === true || isOfficial === 'true';
         }).length || 0;
 
-        // Pricing map for subscription tiers (monthly prices in GBP)
-        const tierPricing: Record<string, number> = {
-          // Crew plans
-          'free': 0,
-          'crew_limited': 0,
-          'vessel_linked': 0,
-          'standard': 4.99,
-          'premium': 9.99,
-          'pro': 14.99,
-          'professional': 14.99,
-          // Vessel plans
-          'vessel_lite': 49.99,
-          'vessel_basic': 99.99,
-          'vessel_pro': 299.99,
-          'vessel_fleet': 799.99,
-        };
+        // Pricing from live Stripe prices (crew + vessel), with local fallbacks
+        const tierPricing = await getSubscriptionTierPricingMap();
 
         // Count subscriptions by tier and calculate revenue
         const crewSubscriptionsByTier: Record<string, number> = {};
@@ -323,7 +317,7 @@ export default function DashboardPage() {
           const tier = (user.subscription_tier || 'free').toLowerCase();
           crewSubscriptionsByTier[tier] = (crewSubscriptionsByTier[tier] || 0) + 1;
 
-          const price = tierPricing[tier] || 0;
+          const price = lookupTierPriceGbp(tierPricing, tier);
           if (price > 0) {
             monthlyRevenue += price;
             crewRevenue += price;
@@ -336,7 +330,7 @@ export default function DashboardPage() {
           const tier = (vessel.subscription_tier || 'free').toLowerCase();
           vesselSubscriptionsByTier[tier] = (vesselSubscriptionsByTier[tier] || 0) + 1;
 
-          const price = tierPricing[tier] || 0;
+          const price = lookupTierPriceGbp(tierPricing, tier);
           if (price > 0) {
             monthlyRevenue += price;
             vesselRevenue += price;
@@ -1696,376 +1690,174 @@ export default function DashboardPage() {
       : null;
     const TodayStateIcon = todayStateInfo?.icon || Ship;
 
+    const atSeaDays =
+      (vesselStats.stateBreakdown['underway'] || 0) +
+      (vesselStats.stateBreakdown['at-anchor'] || 0);
+
     return (
       <div className="flex flex-col gap-6">
-        {/* Header Section */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">
-                {currentVessel?.name || 'Vessel Dashboard'}
-              </h1>
-              <p className="text-muted-foreground">Complete vessel overview and management</p>
-            </div>
-            <div className="flex items-center gap-3">
-              {vesselStats.todayStatus && todayStateInfo && (
-                <Badge 
-                  variant="outline" 
-                  className="text-sm border-2"
+        <DashboardHeader
+          title={currentVessel?.name || 'Vessel Dashboard'}
+          description="Vessel activity, crew, and sea-time overview"
+          actions={
+            <>
+              {vesselStats.todayStatus && todayStateInfo ? (
+                <Badge
+                  variant="outline"
                   style={{ borderColor: todayStateInfo.color, color: todayStateInfo.color }}
                 >
-                  <TodayStateIcon className="mr-2 h-4 w-4" />
+                  <TodayStateIcon className="mr-1.5 h-3.5 w-3.5" />
                   Today: {todayStateInfo.label}
                 </Badge>
-              )}
-              {currentVessel && (
-                <Badge variant="outline" className="text-sm">
-                  <Ship className="mr-2 h-4 w-4" />
+              ) : null}
+              {currentVessel ? (
+                <Badge variant="outline">
+                  <Ship className="mr-1.5 h-3.5 w-3.5" />
                   {currentVessel.type || 'Vessel'}
                 </Badge>
-              )}
+              ) : null}
+            </>
+          }
+        />
+
+        <DashboardStatRow
+          items={[
+            { label: 'Crew', value: vesselStats.crewCount, hint: 'Active members' },
+            { label: 'Sea days', value: atSeaDays, hint: 'Underway + anchor' },
+            {
+              label: 'This month',
+              value: vesselStats.currentMonthSeaDays,
+              hint: `${vesselStats.currentMonthDays} days logged`,
+            },
+            {
+              label: 'Pending testimonials',
+              value: vesselStats.pendingTestimonials,
+              hint: 'Awaiting approval',
+            },
+          ]}
+        />
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <DashboardPanel title="Days by state" description="Logged vessel days">
+            <StateBreakdownBars
+              rows={vesselStates
+                .filter((state) => state.value !== 'on-leave')
+                .map((state) => ({
+                  key: state.value,
+                  label: state.label,
+                  count: vesselStats.stateBreakdown[state.value] || 0,
+                  color: state.color,
+                  icon: state.icon,
+                }))}
+            />
+            <div className="mt-4 grid grid-cols-3 gap-3 border-t pt-4 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">At sea</p>
+                <p className="font-semibold tabular-nums">{atSeaDays}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Standby</p>
+                <p className="font-semibold tabular-nums">{vesselStats.totalStandbyDays}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Total</p>
+                <p className="font-semibold tabular-nums">{vesselStats.totalDays}</p>
+              </div>
             </div>
+          </DashboardPanel>
+
+          <DashboardPanel
+            title="Recent crew activity"
+            description="Last 30 days"
+            action={
+              <Button asChild variant="ghost" size="sm" className="h-7">
+                <Link href="/dashboard/crew">View all</Link>
+              </Button>
+            }
+          >
+            {vesselStats.recentCrewActivity.length > 0 ? (
+              <div className="divide-y">
+                {vesselStats.recentCrewActivity.map((activity) => (
+                  <div key={activity.userId} className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{activity.userName}</p>
+                      <p className="text-xs text-muted-foreground">{activity.daysLogged} days logged</p>
+                    </div>
+                    {activity.lastActivity ? (
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {format(parse(activity.lastActivity, 'yyyy-MM-dd', new Date()), 'MMM d')}
+                      </span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="py-4 text-center text-sm text-muted-foreground">No recent activity</p>
+            )}
+          </DashboardPanel>
+        </div>
+
+        <DashboardQuickLinks
+          links={[
+            { href: '/dashboard/crew', label: 'Crew', icon: Users },
+            { href: '/dashboard/inbox', label: 'Inbox / Testimonials', icon: FileText },
+            { href: '/dashboard/calendar', label: 'Calendar', icon: Calendar },
+            { href: '/dashboard/current', label: 'Current', icon: Activity },
+          ]}
+        />
+
+        <DashboardPanel
+          title="Sea-time calculator"
+          description="MCA-compliant sea time for a selected date range"
+          action={
+            <Button asChild variant="ghost" size="sm" className="h-7">
+              <Link href="/dashboard/calendar">
+                <History className="mr-1.5 h-3.5 w-3.5" />
+                Calendar
+              </Link>
+            </Button>
+          }
+        >
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="sea-time-from" className="text-xs text-muted-foreground">From</Label>
+                <Input
+                  id="sea-time-from"
+                  type="date"
+                  value={seaTimeRangeStart}
+                  onChange={(e) => setSeaTimeRangeStart(e.target.value)}
+                  className="rounded-lg"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="sea-time-to" className="text-xs text-muted-foreground">To</Label>
+                <Input
+                  id="sea-time-to"
+                  type="date"
+                  value={seaTimeRangeEnd}
+                  onChange={(e) => setSeaTimeRangeEnd(e.target.value)}
+                  className="rounded-lg"
+                />
+              </div>
+            </div>
+            {vesselSeaTimeInRange ? (
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4">
+                {[
+                  ['Days logged', vesselSeaTimeInRange.totalDays],
+                  ['At sea', vesselSeaTimeInRange.atSeaDays],
+                  ['Standby', vesselSeaTimeInRange.standbyDays],
+                  ['Sea service', vesselSeaTimeInRange.seaServiceDays],
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-card px-3 py-3">
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
-        </div>
-
-        {/* Key Metrics Grid */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Crew Members</CardTitle>
-              <div className="h-10 w-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
-                <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{vesselStats.crewCount}</div>
-              <p className="text-xs text-muted-foreground mt-1">Active crew on vessel</p>
-              <Button asChild variant="ghost" size="sm" className="mt-2 h-7 text-xs">
-                <Link href="/dashboard/crew">View All →</Link>
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Sea Days</CardTitle>
-              <div className="h-10 w-10 rounded-xl bg-green-500/20 flex items-center justify-center">
-                <Waves className="h-5 w-5 text-green-600 dark:text-green-400" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{(vesselStats.stateBreakdown['underway'] || 0) + (vesselStats.stateBreakdown['at-anchor'] || 0)}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                <span className="font-medium text-purple-600 dark:text-purple-400">{vesselStats.totalStandbyDays}</span> standby • {vesselStats.totalDays} total
-              </p>
-              <Button asChild variant="ghost" size="sm" className="mt-2 h-7 text-xs">
-                <Link href="/dashboard/calendar">View Details →</Link>
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">This Month</CardTitle>
-              <div className="h-10 w-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
-                <Calendar className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{vesselStats.currentMonthSeaDays}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {vesselStats.currentMonthDays} days logged this month
-              </p>
-              <Button asChild variant="ghost" size="sm" className="mt-2 h-7 text-xs">
-                <Link href="/dashboard/calendar">View Calendar →</Link>
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Pending Testimonials</CardTitle>
-              <div className="h-10 w-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
-                <FileText className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{vesselStats.pendingTestimonials}</div>
-              <p className="text-xs text-muted-foreground mt-1">Awaiting your approval</p>
-              {vesselStats.pendingTestimonials > 0 && (
-                <Button asChild variant="default" size="sm" className="mt-2 h-7 text-xs">
-                  <Link href="/dashboard/inbox">Review Now →</Link>
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Main Content Grid */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {/* State Breakdown */}
-          <Card className="rounded-xl border shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">State Breakdown</CardTitle>
-              <CardDescription>Days logged by vessel state</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {vesselStates
-                  .filter(state => state.value !== 'on-leave') // Exclude "on leave" for vessel managers
-                  .map(state => {
-                    const count = vesselStats.stateBreakdown[state.value] || 0;
-                    const percentage = vesselStats.totalDays > 0 
-                      ? Math.round((count / vesselStats.totalDays) * 100) 
-                      : 0;
-                    const StateIcon = state.icon;
-                    
-                    return (
-                      <div key={state.value} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <StateIcon className="h-4 w-4" style={{ color: state.color }} />
-                            <span className="text-sm font-medium">{state.label}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold">{count}</span>
-                            <span className="text-xs text-muted-foreground">({percentage}%)</span>
-                          </div>
-                        </div>
-                        <div className="h-2 bg-muted rounded-full overflow-hidden">
-                          <div 
-                            className="h-full rounded-full transition-all"
-                            style={{ 
-                              width: `${percentage}%`,
-                              backgroundColor: state.color 
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-              <div className="pt-2 border-t mt-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Total Days</span>
-                  </div>
-                  <span className="text-lg font-bold">{vesselStats.totalDays} days</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Sea Time Summary */}
-          <Card className="rounded-xl border shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Sea Time Summary</CardTitle>
-              <CardDescription>MCA-compliant calculation methods</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Waves className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                      <span className="text-sm font-semibold">At Sea</span>
-                    </div>
-                    <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                      {(vesselStats.stateBreakdown['underway'] || 0) + (vesselStats.stateBreakdown['at-anchor'] || 0)}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Days underway and at anchor</p>
-                </div>
-                <div className="p-4 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Anchor className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                      <span className="text-sm font-semibold">Standby</span>
-                    </div>
-                    <span className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                      {vesselStats.totalStandbyDays}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">MCA-compliant calculations</p>
-                </div>
-                <div className="pt-2 border-t">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">Total Sea Service Days</span>
-                    </div>
-                    <span className="text-lg font-bold">
-                      {(vesselStats.stateBreakdown['underway'] || 0) + (vesselStats.stateBreakdown['at-anchor'] || 0) + vesselStats.totalStandbyDays} days
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Recent Crew Activity */}
-          <Card className="rounded-xl border shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Recent Crew Activity</CardTitle>
-              <CardDescription>Last 30 days</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {vesselStats.recentCrewActivity.length > 0 ? (
-                <div className="space-y-3">
-                  {vesselStats.recentCrewActivity.map((activity) => (
-                    <div 
-                      key={activity.userId}
-                      className="flex items-center justify-between p-2 rounded-lg border bg-background/50 hover:bg-accent transition-colors"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{activity.userName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {activity.daysLogged} days logged
-                        </p>
-                      </div>
-                      {activity.lastActivity && (
-                        <Badge variant="outline" className="text-xs shrink-0">
-                          {format(parse(activity.lastActivity, 'yyyy-MM-dd', new Date()), 'MMM d')}
-                        </Badge>
-                      )}
-                    </div>
-                  ))}
-                  <Button asChild variant="ghost" className="w-full rounded-lg" size="sm">
-                    <Link href="/dashboard/crew">
-                      <Users className="mr-2 h-4 w-4" />
-                      View All Crew
-                    </Link>
-                  </Button>
-                </div>
-              ) : (
-                <div className="text-center py-6">
-                  <Users className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">No recent activity</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Quick Actions & Recent Activity */}
-        <div className="grid gap-6 md:grid-cols-2">
-          <Card className="rounded-xl border shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Quick Actions</CardTitle>
-              <CardDescription>Common vessel management tasks</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-2">
-                <Button asChild variant="outline" className="h-auto flex-col items-start p-4 rounded-lg">
-                  <Link href="/dashboard/crew">
-                    <Users className="mb-2 h-5 w-5" />
-                    <span className="font-semibold">Crew</span>
-                    <span className="text-xs text-muted-foreground">{vesselStats.crewCount} members</span>
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="h-auto flex-col items-start p-4 rounded-lg">
-                  <Link href="/dashboard/inbox">
-                    <FileText className="mb-2 h-5 w-5" />
-                    <span className="font-semibold">Testimonials</span>
-                    {vesselStats.pendingTestimonials > 0 && (
-                      <Badge variant="destructive" className="mt-1">
-                        {vesselStats.pendingTestimonials} pending
-                      </Badge>
-                    )}
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="h-auto flex-col items-start p-4 rounded-lg">
-                  <Link href="/dashboard/calendar">
-                    <Calendar className="mb-2 h-5 w-5" />
-                    <span className="font-semibold">Calendar</span>
-                    <span className="text-xs text-muted-foreground">View all dates</span>
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="h-auto flex-col items-start p-4 rounded-lg">
-                  <Link href="/dashboard/current">
-                    <Activity className="mb-2 h-5 w-5" />
-                    <span className="font-semibold">Current</span>
-                    <span className="text-xs text-muted-foreground">Today's status</span>
-                  </Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Quick Sea Time Calculator</CardTitle>
-              <CardDescription>Select a date range to see sea time (MCA-compliant) for this vessel</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="sea-time-from" className="text-xs text-muted-foreground">From</Label>
-                    <Input
-                      id="sea-time-from"
-                      type="date"
-                      value={seaTimeRangeStart}
-                      onChange={(e) => setSeaTimeRangeStart(e.target.value)}
-                      className="rounded-lg"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="sea-time-to" className="text-xs text-muted-foreground">To</Label>
-                    <Input
-                      id="sea-time-to"
-                      type="date"
-                      value={seaTimeRangeEnd}
-                      onChange={(e) => setSeaTimeRangeEnd(e.target.value)}
-                      className="rounded-lg"
-                    />
-                  </div>
-                </div>
-                {vesselSeaTimeInRange !== null && (
-                  <div className="space-y-3 pt-2 border-t">
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                      <div className="flex items-center gap-2">
-                        <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">Total days logged</span>
-                      </div>
-                      <span className="text-xl font-bold">{vesselSeaTimeInRange.totalDays}</span>
-                    </div>
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
-                      <div className="flex items-center gap-2">
-                        <Waves className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                        <span className="text-sm font-medium">At sea</span>
-                      </div>
-                      <span className="text-xl font-bold text-blue-600 dark:text-blue-400">{vesselSeaTimeInRange.atSeaDays}</span>
-                    </div>
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
-                      <div className="flex items-center gap-2">
-                        <Anchor className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-                        <span className="text-sm font-medium">Standby</span>
-                      </div>
-                      <span className="text-xl font-bold text-purple-600 dark:text-purple-400">{vesselSeaTimeInRange.standbyDays}</span>
-                    </div>
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-primary/10 border border-primary/20">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-primary" />
-                        <span className="text-sm font-semibold">Sea service days</span>
-                      </div>
-                      <span className="text-xl font-bold text-primary">{vesselSeaTimeInRange.seaServiceDays}</span>
-                    </div>
-                  </div>
-                )}
-                <div className="pt-2 border-t">
-                  <Button asChild variant="ghost" className="w-full rounded-lg" size="sm">
-                    <Link href="/dashboard/calendar">
-                      <History className="mr-2 h-4 w-4" />
-                      View calendar
-                    </Link>
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        </DashboardPanel>
       </div>
     );
   }
@@ -2097,396 +1889,198 @@ export default function DashboardPage() {
 
     return (
       <div className="flex flex-col gap-6">
-        {/* Header Section */}
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
-          <p className="text-muted-foreground">Company overview and key metrics</p>
-        </div>
+        <DashboardHeader
+          title="Admin Dashboard"
+          description="Company overview and key metrics"
+        />
 
-        {/* Key Metrics Grid */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Active Crew Accounts</CardTitle>
-              <div className="h-8 w-8 rounded-xl bg-green-500/10 flex items-center justify-center">
-                <Users className="h-4 w-4 text-green-500" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{adminStats.activeSubscriptions}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                of {adminStats.totalUsers} total users
-              </p>
-            </CardContent>
-          </Card>
+        <DashboardStatRow
+          items={[
+            {
+              label: 'Active crew',
+              value: adminStats.activeSubscriptions,
+              hint: `of ${adminStats.totalUsers} users`,
+            },
+            {
+              label: 'Vessels',
+              value: adminStats.totalVessels,
+              hint: 'Registered vessels',
+            },
+            {
+              label: 'Total users',
+              value: adminStats.totalUsers,
+              hint: `${adminStats.recentSignups} recent signups`,
+            },
+            {
+              label: 'Monthly revenue',
+              value: `£${adminStats.monthlyRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+              hint: `£${adminStats.annualRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} annually`,
+            },
+          ]}
+        />
 
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Official Vessels</CardTitle>
-              <div className="h-8 w-8 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                <Ship className="h-4 w-4 text-blue-500" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{adminStats.totalVessels}</div>
-              <p className="text-xs text-muted-foreground mt-1">Registered vessels</p>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Users</CardTitle>
-              <div className="h-8 w-8 rounded-xl bg-purple-500/10 flex items-center justify-center">
-                <Users className="h-4 w-4 text-purple-500" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{adminStats.totalUsers}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {adminStats.recentSignups} new in last 30 days
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Revenue</CardTitle>
-              <div className="h-8 w-8 rounded-xl bg-green-500/10 flex items-center justify-center">
-                <CreditCard className="h-4 w-4 text-green-500" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">£{adminStats.monthlyRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                £{adminStats.annualRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} annually
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Subscription Breakdown */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <Users className="h-5 w-5 text-muted-foreground" />
-                Crew Subscription Tiers
-              </CardTitle>
-              <CardDescription>Active crew subscriptions by tier</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {Object.entries(adminStats.crewSubscriptionsByTier).length > 0 ? (
-                  Object.entries(adminStats.crewSubscriptionsByTier)
-                    .sort(([, a], [, b]) => (b as number) - (a as number))
-                    .map(([tier, count]) => {
-                      const tierPricing: Record<string, number> = {
-                        'free': 0,
-                        'crew_limited': 0,
-                        'vessel_linked': 0,
-                        'standard': 4.99,
-                        'premium': 9.99,
-                        'pro': 14.99,
-                        'professional': 14.99,
-                      };
-                      const price = tierPricing[tier.toLowerCase()] || 0;
-                      const tierRevenue = price * (count as number);
-                      const tierLabel =
-                        tier === 'crew_limited'
-                          ? 'Crew Limited'
-                          : tier === 'vessel_linked'
-                            ? 'Vessel Linked'
-                            : tier.replace(/_/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-                      return (
-                        <div key={tier} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
-                          <div className="flex items-center gap-2">
-                            <CreditCard className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <span className="text-sm font-medium">{tierLabel}</span>
-                              {price > 0 && (
-                                <p className="text-xs text-muted-foreground">£{price.toFixed(2)}/mo</p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <Badge variant="secondary">{count}</Badge>
-                            {tierRevenue > 0 && (
-                              <p className="text-xs text-muted-foreground mt-1">£{tierRevenue.toFixed(2)}/mo</p>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                ) : (
-                  <p className="text-sm text-muted-foreground text-center py-4">No active crew subscriptions</p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <Ship className="h-5 w-5 text-muted-foreground" />
-                Vessel Subscription Tiers
-              </CardTitle>
-              <CardDescription>Active vessel subscriptions by tier</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {Object.entries(adminStats.vesselSubscriptionsByTier).length > 0 ? (
-                  Object.entries(adminStats.vesselSubscriptionsByTier)
-                    .sort(([, a], [, b]) => (b as number) - (a as number))
-                    .map(([tier, count]) => {
-                      const tierPricing: Record<string, number> = {
-                        'vessel_lite': 49.99,
-                        'vessel_basic': 99.99,
-                        'vessel_pro': 299.99,
-                        'vessel_fleet': 799.99,
-                      };
-                      const price = tierPricing[tier.toLowerCase()] || 0;
-                      const tierRevenue = price * (count as number);
-                      return (
-                        <div key={tier} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
-                          <div className="flex items-center gap-2">
-                            <CreditCard className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <span className="text-sm font-medium">
-                                {tier.replace(/_/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                              </span>
-                              {price > 0 && (
-                                <p className="text-xs text-muted-foreground">£{price.toFixed(2)}/mo</p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <Badge variant="secondary">{count}</Badge>
-                            {tierRevenue > 0 && (
-                              <p className="text-xs text-muted-foreground mt-1">£{tierRevenue.toFixed(2)}/mo</p>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                ) : (
-                  <p className="text-sm text-muted-foreground text-center py-4">No active vessel subscriptions</p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <Activity className="h-5 w-5 text-muted-foreground" />
-                Quick Actions
-              </CardTitle>
-              <CardDescription>Common admin tasks</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <Button asChild variant="outline" className="w-full justify-start rounded-lg hover:bg-muted">
-                  <Link href="/dashboard/crew">
-                    <Users className="mr-2 h-4 w-4" />
-                    Manage Crew Members
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="w-full justify-start rounded-lg hover:bg-muted">
-                  <Link href="/dashboard/vessels">
-                    <Ship className="mr-2 h-4 w-4" />
-                    Manage Vessels
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="w-full justify-start rounded-lg hover:bg-muted">
-                  <Link href="/dashboard/revenue">
-                    <BarChart3 className="mr-2 h-4 w-4" />
-                    View Analytics
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="w-full justify-start rounded-lg hover:bg-muted">
-                  <Link href="/dashboard/vessel-subscriptions">
-                    <CreditCard className="mr-2 h-4 w-4" />
-                    Vessel Subscriptions
-                  </Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-muted-foreground" />
-                Revenue Breakdown
-              </CardTitle>
-              <CardDescription>Subscription revenue by account type</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-2">
-                      <Ship className="h-4 w-4 text-blue-500" />
-                      <span className="text-sm font-medium">Vessel Accounts</span>
-                    </div>
-                    <span className="text-sm font-semibold">
-                      {adminStats.activeVesselSubscriptions}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-2">
-                      <Users className="h-4 w-4 text-purple-500" />
-                      <span className="text-sm font-medium">Crew Accounts</span>
-                    </div>
-                    <span className="text-sm font-semibold">
-                      {adminStats.activeSubscriptions}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-primary/10 border border-primary/20">
-                    <span className="text-sm font-semibold">Total Active</span>
-                    <span className="text-sm font-bold text-primary">
-                      {adminStats.activeSubscriptions + adminStats.activeVesselSubscriptions}
-                    </span>
-                  </div>
-                </div>
-                <Separator />
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
-                    <span className="text-sm font-medium text-muted-foreground">Crew Revenue</span>
-                    <span className="text-sm font-semibold text-green-600 dark:text-green-400">
-                      £{adminStats.crewRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
-                    <span className="text-sm font-medium text-muted-foreground">Vessel Revenue</span>
-                    <span className="text-sm font-semibold text-green-600 dark:text-green-400">
-                      £{adminStats.vesselRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between pt-2 border-t">
-                    <span className="text-sm font-medium">Monthly Revenue</span>
-                    <span className="text-lg font-bold text-green-600 dark:text-green-400">
-                      £{adminStats.monthlyRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Annual Revenue</span>
-                    <span className="text-lg font-bold text-green-600 dark:text-green-400">
-                      £{adminStats.annualRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Recent Signups Section */}
         <div className="grid gap-4 md:grid-cols-2">
-          <Card className="rounded-xl border shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <Users className="h-5 w-5 text-muted-foreground" />
-                Latest User Signups
-              </CardTitle>
-              <CardDescription>Most recent 10 crew member signups</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {adminStats.recentUserSignups.length > 0 ? (
-                <div className="space-y-3">
-                  {adminStats.recentUserSignups.map((user) => {
-                    const displayName = user.firstName || user.lastName
-                      ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
-                      : 'No name';
-                    const signupDate = user.createdAt ? format(new Date(user.createdAt), 'MMM d, yyyy') : 'Unknown';
-                    return (
-                      <div key={user.id} className="flex items-start justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-                        <div className="flex-1 min-w-0 pr-4">
-                          <p className="text-sm font-medium truncate">
-                            {displayName !== 'No name' ? displayName : user.email}
-                          </p>
-                          <p className="text-xs text-muted-foreground truncate mt-0.5">{user.email}</p>
+          <DashboardPanel
+            title="Subscriptions"
+            description="Active crew and vessel tiers"
+          >
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Crew</p>
+                {Object.entries(adminStats.crewSubscriptionsByTier).length > 0 ? (
+                  <div className="divide-y">
+                    {Object.entries(adminStats.crewSubscriptionsByTier)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([tier, count]) => (
+                        <div key={tier} className="flex items-center justify-between gap-3 py-2 first:pt-0">
+                          <span className="truncate text-sm">
+                            {tier === 'crew_limited'
+                              ? 'Crew Limited'
+                              : tier === 'vessel_linked'
+                                ? 'Vessel Linked'
+                                : tier.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}
+                          </span>
+                          <span className="text-sm font-semibold tabular-nums">{count}</span>
                         </div>
-                        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                          <Badge variant="outline" className="text-xs">
-                            {user.role === 'crew' ? 'Crew' : user.role === 'captain' ? 'Captain' : user.role}
-                          </Badge>
-                          {user.todayStateKey && (
-                            <>
-                              <StatePill stateKey={user.todayStateKey} label={user.todayState} />
-                              {user.todayStateLastChanged && (
-                                <span className="text-xs text-muted-foreground whitespace-nowrap" title="State last changed">
-                                  Last changed: {user.todayStateLastChanged}
-                                </span>
-                              )}
-                            </>
-                          )}
-                          <span className="text-xs text-muted-foreground whitespace-nowrap">{signupDate}</span>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No active subscriptions</p>
+                )}
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Vessels</p>
+                {Object.entries(adminStats.vesselSubscriptionsByTier).length > 0 ? (
+                  <div className="divide-y">
+                    {Object.entries(adminStats.vesselSubscriptionsByTier)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([tier, count]) => (
+                        <div key={tier} className="flex items-center justify-between gap-3 py-2 first:pt-0">
+                          <span className="truncate text-sm">
+                            {tier.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}
+                          </span>
+                          <span className="text-sm font-semibold tabular-nums">{count}</span>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">No user signups found</p>
-              )}
-            </CardContent>
-          </Card>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No active subscriptions</p>
+                )}
+              </div>
+            </div>
+          </DashboardPanel>
 
-          <Card className="rounded-xl border shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <Ship className="h-5 w-5 text-muted-foreground" />
-                Latest Vessel Signups
-              </CardTitle>
-              <CardDescription>Most recent 10 vessel account signups</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {adminStats.recentVesselSignups.length > 0 ? (
-                <div className="space-y-3">
-                  {adminStats.recentVesselSignups.map((vessel) => {
-                    const displayName = vessel.firstName || vessel.lastName
-                      ? `${vessel.firstName || ''} ${vessel.lastName || ''}`.trim()
-                      : 'No name';
-                    const signupDate = vessel.createdAt ? format(new Date(vessel.createdAt), 'MMM d, yyyy') : 'Unknown';
-                    return (
-                      <div key={vessel.id} className="flex items-start justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-                        <div className="flex-1 min-w-0 pr-4">
-                          <p className="text-sm font-medium truncate">
-                            {displayName !== 'No name' ? displayName : vessel.email}
-                          </p>
-                          <p className="text-xs text-muted-foreground truncate mt-0.5">{vessel.email}</p>
-                          {vessel.vesselName && (
-                            <p className="text-xs text-blue-600 dark:text-blue-400 truncate mt-0.5 font-medium">
-                              {vessel.vesselName}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                          <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                            Vessel
-                          </Badge>
-                          {vessel.todayStateKey && (
-                            <>
-                              <StatePill stateKey={vessel.todayStateKey} label={vessel.todayState} />
-                              {vessel.todayStateLastChanged && (
-                                <span className="text-xs text-muted-foreground whitespace-nowrap" title="State last changed">
-                                  Last changed: {vessel.todayStateLastChanged}
-                                </span>
-                              )}
-                            </>
-                          )}
-                          <span className="text-xs text-muted-foreground whitespace-nowrap">{signupDate}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+          <DashboardPanel
+            title="Revenue snapshot"
+            description="Monthly subscription revenue"
+          >
+            <div className="divide-y">
+              <div className="flex items-center justify-between gap-4 py-3 first:pt-0">
+                <div>
+                  <p className="text-sm font-medium">Crew</p>
+                  <p className="text-xs text-muted-foreground">{adminStats.activeSubscriptions} active accounts</p>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">No vessel signups found</p>
-              )}
-            </CardContent>
-          </Card>
+                <p className="font-semibold tabular-nums">
+                  £{adminStats.crewRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="flex items-center justify-between gap-4 py-3">
+                <div>
+                  <p className="text-sm font-medium">Vessels</p>
+                  <p className="text-xs text-muted-foreground">{adminStats.activeVesselSubscriptions} active accounts</p>
+                </div>
+                <p className="font-semibold tabular-nums">
+                  £{adminStats.vesselRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="flex items-center justify-between gap-4 pt-3">
+                <p className="text-sm font-medium">Total monthly</p>
+                <p className="text-lg font-semibold tabular-nums">
+                  £{adminStats.monthlyRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+            </div>
+          </DashboardPanel>
+        </div>
+
+        <DashboardQuickLinks
+          links={[
+            { href: '/dashboard/crew', label: 'Crew', icon: Users },
+            { href: '/dashboard/vessels', label: 'Vessels', icon: Ship },
+            { href: '/dashboard/revenue', label: 'Revenue', icon: BarChart3 },
+            { href: '/dashboard/vessel-subscriptions', label: 'Subscriptions', icon: CreditCard },
+          ]}
+        />
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <DashboardPanel title="Latest user signups" description="Most recent crew accounts">
+            {adminStats.recentUserSignups.length > 0 ? (
+              <div className="divide-y">
+                {adminStats.recentUserSignups.map((user) => {
+                  const displayName = user.firstName || user.lastName
+                    ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
+                    : user.email;
+                  const signupDate = user.createdAt
+                    ? format(new Date(user.createdAt), 'MMM d, yyyy')
+                    : 'Unknown';
+                  return (
+                    <div key={user.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{displayName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {user.todayStateKey ? (
+                          <StatePill stateKey={user.todayStateKey} label={user.todayState} />
+                        ) : null}
+                        <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
+                          {signupDate}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="py-4 text-center text-sm text-muted-foreground">No user signups found</p>
+            )}
+          </DashboardPanel>
+
+          <DashboardPanel title="Latest vessel signups" description="Most recent vessel accounts">
+            {adminStats.recentVesselSignups.length > 0 ? (
+              <div className="divide-y">
+                {adminStats.recentVesselSignups.map((vessel) => {
+                  const displayName = vessel.firstName || vessel.lastName
+                    ? `${vessel.firstName || ''} ${vessel.lastName || ''}`.trim()
+                    : vessel.email;
+                  const signupDate = vessel.createdAt
+                    ? format(new Date(vessel.createdAt), 'MMM d, yyyy')
+                    : 'Unknown';
+                  return (
+                    <div key={vessel.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{displayName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{vessel.email}</p>
+                        {vessel.vesselName ? (
+                          <p className="truncate text-xs text-muted-foreground">{vessel.vesselName}</p>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {vessel.todayStateKey ? (
+                          <StatePill stateKey={vessel.todayStateKey} label={vessel.todayState} />
+                        ) : null}
+                        <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
+                          {signupDate}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="py-4 text-center text-sm text-muted-foreground">No vessel signups found</p>
+            )}
+          </DashboardPanel>
         </div>
       </div>
     );
@@ -2550,56 +2144,53 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header Section */}
-      <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-            <p className="text-muted-foreground">Your career at a glance</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <DashboardHeader
+        title="Dashboard"
+        description="Your career at a glance"
+        actions={
+          <>
             <Select value={selectedYear} onValueChange={setSelectedYear}>
-              <SelectTrigger className="w-full sm:w-[140px] rounded-xl">
+              <SelectTrigger className="w-[140px]">
                 <Calendar className="mr-2 h-4 w-4" />
                 <SelectValue placeholder="Year" />
-                </SelectTrigger>
-                <SelectContent>
-                    {availableYears.map(year => (
-                        <SelectItem key={year} value={year.toLowerCase()}>
+              </SelectTrigger>
+              <SelectContent>
+                {availableYears.map(year => (
+                  <SelectItem key={year} value={year.toLowerCase()}>
                     {year === 'all' ? 'All Years' : year}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
             <Select value={selectedVessel} onValueChange={setSelectedVessel}>
-              <SelectTrigger className="w-full sm:w-[180px] rounded-xl">
+              <SelectTrigger className="w-[180px]">
                 <Ship className="mr-2 h-4 w-4" />
                 <SelectValue placeholder="Vessel" />
-                </SelectTrigger>
-                <SelectContent>
-                    {availableVessels.map(vessel => (
-                        <SelectItem key={vessel.id} value={vessel.id}>{vessel.name}</SelectItem>
-                    ))}
-                </SelectContent>
+              </SelectTrigger>
+              <SelectContent>
+                {availableVessels.map(vessel => (
+                  <SelectItem key={vessel.id} value={vessel.id}>{vessel.name}</SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-        </div>
-      </div>
-        <Separator />
-      </div>
+          </>
+        }
+      />
       
       {/* Past 7 Days Summary and Quick Visa Log - Side by Side */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {(past7DaysStats.totalDays > 0 || (!isAdmin && activeVisas.length > 0)) ? (
+      <div className="order-4 grid grid-cols-1 gap-4 md:grid-cols-2">
       {/* Past 7 Days Summary */}
       {past7DaysStats.totalDays > 0 && (
-        <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-r from-primary/5 to-primary/10">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-4">
-              <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
-                <CalendarDays className="h-6 w-6 text-primary" />
+        <Card className="rounded-xl border shadow-none">
+          <CardContent className="py-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-muted/30">
+                <CalendarDays className="h-4 w-4 text-muted-foreground" />
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold mb-2">Last 7 Days Summary</h3>
-                <div className="space-y-2">
+                <h3 className="mb-1.5 text-sm font-semibold">Last 7 days</h3>
+                <div className="space-y-1.5">
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     In the last week, you logged{' '}
                     <span className="font-semibold text-foreground">{past7DaysStats.totalDays} day{past7DaysStats.totalDays !== 1 ? 's' : ''}</span>:
@@ -2663,11 +2254,11 @@ export default function DashboardPage() {
 
         {/* Quick Visa Log Section - Compact */}
         {!isAdmin && activeVisas.length > 0 && (
-          <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow bg-gradient-to-r from-blue-500/5 to-purple-500/5">
+          <Card className="rounded-xl border shadow-none">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                  <Globe className="h-4 w-4 text-blue-500" />
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg border bg-muted/30">
+                  <Globe className="h-4 w-4 text-muted-foreground" />
                 </div>
                 <div>
                   <CardTitle className="text-base">Quick Visa Log</CardTitle>
@@ -2684,7 +2275,7 @@ export default function DashboardPage() {
                   const isTodayValid = !isBefore(today, visaIssue) && !isAfter(today, visaExpire);
 
                   return (
-                    <div key={visa.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-background/50">
+                    <div key={visa.id} className="flex items-center justify-between gap-3 border-t py-2.5 first:border-t-0 first:pt-0">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{visa.areaName}</p>
                         <p className="text-xs text-muted-foreground">
@@ -2696,7 +2287,7 @@ export default function DashboardPage() {
                         size="sm"
                         onClick={() => handleQuickLogVisaDate(visa)}
                         disabled={!isTodayValid || isLoggingVisaDate}
-                        className="rounded-lg"
+                        className="h-8 rounded-lg"
                       >
                         {isLoggingVisaDate ? (
                           <>
@@ -2715,105 +2306,52 @@ export default function DashboardPage() {
                 })}
               </div>
               <div className="mt-3 pt-3 border-t">
-                <Link href="/dashboard/visa-tracker">
-                  <Button variant="ghost" size="sm" className="text-xs w-full">
-                    View All Visas →
-                  </Button>
-                </Link>
+                <DashboardQuickLinks
+                  links={[{ href: '/dashboard/visa-tracker', label: 'View all visas', icon: Globe }]}
+                />
               </div>
             </CardContent>
           </Card>
         )}
       </div>
+      ) : null}
       
-      {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Days Logged</CardTitle>
-            <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-              <Ship className="h-4 w-4 text-primary" />
-            </div>
-            </CardHeader>
-            <CardContent>
-            <div className="text-3xl font-bold">{totalDays}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {selectedYear === 'all' && selectedVessel === 'all'
-                ? 'Logged days on board (assignments), excluding leave'
-                : 'Filtered — on board days logged, excluding leave'}
-            </p>
-            </CardContent>
-        </Card>
-        
-        <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">At Sea Days</CardTitle>
-            <div className="h-8 w-8 rounded-xl bg-blue-500/10 flex items-center justify-center">
-              <Waves className="h-4 w-4 text-blue-500" />
-            </div>
-            </CardHeader>
-            <CardContent>
-            <div className="text-3xl font-bold text-blue-700 dark:text-blue-300">{atSeaDays}</div>
-            <p className="text-xs text-muted-foreground mt-1">Sea service days</p>
-            </CardContent>
-        </Card>
-        
-        <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Standby Days</CardTitle>
-            <div className="h-8 w-8 rounded-xl bg-purple-500/10 flex items-center justify-center">
-              <Anchor className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-            </div>
-            </CardHeader>
-            <CardContent>
-            <div className="text-3xl font-bold text-purple-700 dark:text-purple-300">{standbyDays}</div>
-            <p className="text-xs text-muted-foreground mt-1">In port or at anchor</p>
-            </CardContent>
-        </Card>
-        
-        <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Vessels Logged</CardTitle>
-            <div className="h-8 w-8 rounded-xl bg-purple-500/10 flex items-center justify-center">
-              <Building className="h-4 w-4 text-purple-500" />
-            </div>
-            </CardHeader>
-            <CardContent>
-            <div className="text-3xl font-bold">{userVesselCount}</div>
-            <p className="text-xs text-muted-foreground mt-1">Vessels you've been on</p>
-            </CardContent>
-        </Card>
-      </div>
+      <DashboardStatRow
+        className="order-2"
+        items={[
+          { label: 'Total days', value: totalDays, hint: 'On board, excluding leave' },
+          { label: 'At sea', value: atSeaDays, hint: `${thisMonthStats.atSeaDays} this month` },
+          { label: 'Standby', value: standbyDays, hint: 'In port or at anchor' },
+          { label: 'Vessels', value: userVesselCount, hint: 'Career assignments' },
+        ]}
+      />
       
       {/* Current Vessel and Recent Activity Section */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="order-3 grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Current Vessel Card */}
-        <Card className="rounded-xl border shadow-sm hover:shadow-md transition-all duration-300 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-40 h-40 bg-primary/5 rounded-full blur-3xl -mr-20 -mt-20" />
-            <CardHeader className="relative pb-1">
-              <CardTitle className="text-lg">Current Vessel</CardTitle>
-              <CardDescription>
-                {currentVessel ? 'Your active assignment' : 'No active vessel at this time'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-4 pb-6 px-6">
+        <DashboardPanel
+          title="Current vessel"
+          description={currentVessel ? 'Your active assignment' : 'No active vessel at this time'}
+        >
             {currentVessel ? (
-              <div className="space-y-6 relative">
+              <div className="space-y-4">
                 {/* Vessel hero — name, type, active badge */}
-                <div className="flex items-start gap-4">
-                  <div className="h-14 w-14 rounded-2xl bg-primary/20 flex items-center justify-center flex-shrink-0">
-                    <Ship className="h-7 w-7 text-primary" />
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border bg-muted/30">
+                    <Ship className="h-5 w-5 text-muted-foreground" />
                   </div>
-                  <div className="flex-1 min-w-0 pt-0.5">
-                    <p className="text-xl font-semibold text-foreground truncate">{currentVessel.name}</p>
-                    <p className="text-sm text-muted-foreground mt-0.5">{currentVessel.type || 'Vessel'}</p>
-                    <Badge variant="secondary" className="mt-2 bg-primary/20 text-primary font-medium">Active</Badge>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate font-semibold">{currentVessel.name}</p>
+                      <Badge variant="outline" className="h-5 px-1.5 text-[10px]">Active</Badge>
+                    </div>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{currentVessel.type || 'Vessel'}</p>
                   </div>
                 </div>
 
                 {/* Service info — duration and start date */}
                 {currentVesselStats.serviceStartDate && (
-                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
                     <span className="flex items-center gap-2">
                       <Clock className="h-4 w-4" />
                       {currentVesselStats.serviceDuration} day{currentVesselStats.serviceDuration !== 1 ? 's' : ''} on vessel
@@ -2825,125 +2363,71 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                <Separator className="my-2" />
-
-                {/* Today's status — more padding */}
+                {/* Today's status */}
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Today&apos;s status</p>
+                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Today&apos;s status</p>
                   {todayStatus ? (
-                    <div className="flex items-center gap-4 p-4 rounded-xl bg-background/60 border">
+                    <div className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
                       {(() => {
                         const stateInfo = vesselStates.find(s => s.value === todayStatus);
                         const StateIcon = stateInfo?.icon || Ship;
                         return (
                           <>
                             <div
-                              className="h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md"
                               style={{ backgroundColor: `${stateInfo?.color || 'hsl(var(--muted-foreground))'}20` }}
                             >
-                              <StateIcon className="h-6 w-6" style={{ color: stateInfo?.color || 'hsl(var(--muted-foreground))' }} />
+                              <StateIcon className="h-4 w-4" style={{ color: stateInfo?.color || 'hsl(var(--muted-foreground))' }} />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="font-semibold text-foreground">{stateInfo?.label || todayStatus}</p>
-                              <p className="text-sm text-muted-foreground">{format(new Date(), 'EEEE, MMM d')}</p>
+                              <p className="text-sm font-medium">{stateInfo?.label || todayStatus}</p>
+                              <p className="text-xs text-muted-foreground">{format(new Date(), 'EEEE, MMM d')}</p>
                             </div>
-                            <div
-                              className="h-3 w-3 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: stateInfo?.color || 'hsl(var(--muted-foreground))' }}
-                            />
                           </>
                         );
                       })()}
                     </div>
                   ) : (
-                    <div className="p-4 rounded-xl bg-background/40 border border-dashed text-muted-foreground">
+                    <div className="rounded-lg border border-dashed px-3 py-2.5 text-muted-foreground">
                       <p className="text-sm">No status logged for today</p>
                     </div>
                   )}
                 </div>
 
-                {/* Stats — larger cells and spacing */}
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center p-4 rounded-xl bg-background/50 border">
-                    <p className="text-2xl font-bold text-foreground">{currentVesselStats.totalDays}</p>
-                    <p className="text-xs text-muted-foreground mt-1.5">Total days (assignment)</p>
-                  </div>
-                  <div className="text-center p-4 rounded-xl bg-background/50 border">
-                    <div className="flex items-center justify-center gap-1.5 mb-1">
-                      <Waves className="h-4 w-4 text-blue-500" />
-                      <p className="text-2xl font-bold text-foreground">{currentVesselStats.atSeaDays}</p>
-                    </div>
-                    <p className="text-xs text-muted-foreground">At sea</p>
-                  </div>
-                  <div className="text-center p-4 rounded-xl bg-background/50 border">
-                    <div className="flex items-center justify-center gap-1.5 mb-1">
-                      <Anchor className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-                      <p className="text-2xl font-bold text-foreground">{currentVesselStats.standbyDays}</p>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Standby</p>
-                  </div>
-                </div>
-
                 {/* State distribution */}
                 {currentVesselStats.loggedDaysCount > 0 && (
-                  <>
-                    <Separator className="my-2" />
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">State distribution</p>
-                      <div className="space-y-3">
-                        {vesselStates.map(state => {
-                          const count = currentVesselStats.stateBreakdown[state.value] || 0;
-                          if (count === 0) return null;
-                          const percentage = (count / currentVesselStats.loggedDaysCount) * 100;
-                          const StateIcon = state.icon;
-                          return (
-                            <div key={state.value} className="space-y-1.5">
-                              <div className="flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-2">
-                                  <StateIcon className="h-3.5 w-3.5" style={{ color: state.color }} />
-                                  <span className="text-muted-foreground">{state.label}</span>
-                                </div>
-                                <span className="font-medium text-foreground">{count} <span className="text-muted-foreground font-normal">({Math.round(percentage)}%)</span></span>
-                              </div>
-                              <div className="relative h-2 w-full rounded-full bg-muted overflow-hidden">
-                                <div
-                                  className="h-full rounded-full transition-all"
-                                  style={{ width: `${percentage}%`, backgroundColor: state.color }}
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </>
+                  <div className="border-t pt-4">
+                    <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">State breakdown</p>
+                    <StateBreakdownBars
+                      rows={vesselStates.map(state => ({
+                        key: state.value,
+                        label: state.label,
+                        count: currentVesselStats.stateBreakdown[state.value] || 0,
+                        color: state.color,
+                        icon: state.icon,
+                      }))}
+                    />
+                  </div>
                 )}
 
                 {/* Actions */}
-                <div className="flex gap-3 pt-1">
-                  <Button asChild className="flex-1 rounded-xl h-10">
+                <div className="pt-1">
+                  <Button asChild className="w-full">
                     <Link href="/dashboard/current">
                       <MapPin className="mr-2 h-4 w-4" />
                       Manage service
                     </Link>
                   </Button>
-                  {todayStatus && (
-                    <Button asChild variant="outline" size="icon" className="rounded-xl h-10 w-10">
-                      <Link href="/dashboard/current">
-                        <TrendingUp className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                  )}
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-                <div className="h-16 w-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
-                  <Ship className="h-8 w-8 text-muted-foreground" />
+              <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg border bg-muted/30">
+                  <Ship className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <p className="text-sm font-medium text-foreground mb-1">No active vessel</p>
                 <p className="text-sm text-muted-foreground mb-6 max-w-xs">Start a service to track sea time on a vessel.</p>
-                <Button asChild variant="outline" size="lg" className="rounded-xl">
+                <Button asChild>
                   <Link href="/dashboard/current">
                     <PlusCircle className="mr-2 h-4 w-4" />
                     Start a service
@@ -2951,20 +2435,14 @@ export default function DashboardPage() {
                 </Button>
               </div>
             )}
-            </CardContent>
-        </Card>
+        </DashboardPanel>
         
-        <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader>
-            <div className="flex items-center gap-2">
-              <History className="h-5 w-5 text-primary" />
-                <CardTitle>Recent Activity</CardTitle>
-            </div>
-            <CardDescription>Your recent activity including sea time, state changes, visa logs, and testimonial updates</CardDescription>
-            </CardHeader>
-            <CardContent>
+        <DashboardPanel
+          title="Recent activity"
+          description="Sea time, state changes, visa logs, and testimonial updates"
+        >
             {recentActivity.length > 0 ? (
-              <div className="space-y-3">
+              <div className="divide-y">
                 {recentActivity.map((activity, index) => {
                   const activityDate = new Date(activity.date);
                   const isToday = format(activityDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
@@ -2984,10 +2462,10 @@ export default function DashboardPage() {
                     return (
                       <div 
                         key={activity.id}
-                        className="flex items-center gap-3 p-3 rounded-xl border bg-background/50 hover:bg-background transition-colors"
+                        className="flex items-center gap-2.5 py-2.5 first:pt-0 last:pb-0"
                       >
-                        <div className="h-10 w-10 flex items-center justify-center flex-shrink-0 rounded-xl bg-blue-500/20">
-                          <Globe className="h-5 w-5 text-blue-600" />
+                        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-blue-500/10">
+                          <Globe className="h-3.5 w-3.5 text-blue-600" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
@@ -3001,7 +2479,6 @@ export default function DashboardPage() {
                             <span className="text-xs text-muted-foreground">{dateLabel}</span>
                           </div>
                         </div>
-                        <div className="h-2.5 w-2.5 rounded-full flex-shrink-0 bg-blue-600" />
                       </div>
                     );
                   }
@@ -3011,19 +2488,19 @@ export default function DashboardPage() {
                     return (
                       <div 
                         key={activity.id}
-                        className="flex items-center gap-3 p-3 rounded-xl border bg-background/50 hover:bg-background transition-colors"
+                        className="flex items-center gap-2.5 py-2.5 first:pt-0 last:pb-0"
                       >
                         <div 
-                          className={`h-10 w-10 flex items-center justify-center flex-shrink-0 rounded-xl ${
+                          className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md ${
                             isApproved 
                               ? 'bg-green-500/20' 
                               : 'bg-red-500/20'
                           }`}
                         >
                           {isApproved ? (
-                            <CheckCircle2 className="h-5 w-5 text-green-600" />
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
                           ) : (
-                            <XCircle className="h-5 w-5 text-red-600" />
+                            <XCircle className="h-3.5 w-3.5 text-red-600" />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -3041,11 +2518,6 @@ export default function DashboardPage() {
                             <span className="text-xs text-muted-foreground">{dateLabel}</span>
                           </div>
                         </div>
-                        <div 
-                          className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${
-                            isApproved ? 'bg-green-600' : 'bg-red-600'
-                          }`}
-                        />
                       </div>
                     );
                   }
@@ -3058,14 +2530,14 @@ export default function DashboardPage() {
                   return (
                     <div 
                       key={activity.id || `${activity.date}-${activity.vesselId}-${index}`}
-                      className="flex items-center gap-3 p-3 rounded-xl border bg-background/50 hover:bg-background transition-colors"
+                      className="flex items-center gap-2.5 py-2.5 first:pt-0 last:pb-0"
                     >
                       <div 
-                        className="h-10 w-10 flex items-center justify-center flex-shrink-0"
+                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md"
                         style={{ backgroundColor: `${stateInfo?.color || 'hsl(var(--muted-foreground))'}20` }}
                       >
                         <StateIcon 
-                          className="h-5 w-5" 
+                          className="h-3.5 w-3.5"
                           style={{ color: stateInfo?.color || 'hsl(var(--muted-foreground))' }} 
                         />
                       </div>
@@ -3084,90 +2556,21 @@ export default function DashboardPage() {
                           <span className="text-xs text-muted-foreground">{dateLabel}</span>
                         </div>
                       </div>
-                      <div 
-                        className="h-2.5 w-2.5 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: stateInfo?.color || 'hsl(var(--muted-foreground))' }}
-                      />
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-32 text-center">
-                <div className="h-12 w-12 rounded-full bg-muted/50 flex items-center justify-center mb-3">
-                  <History className="h-6 w-6 text-muted-foreground" />
+              <div className="flex h-32 flex-col items-center justify-center text-center">
+                <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg border bg-muted/30">
+                  <History className="h-4 w-4 text-muted-foreground" />
                 </div>
                 <p className="text-sm font-medium text-muted-foreground mb-1">No recent activity</p>
                 <p className="text-xs text-muted-foreground">Start logging your sea time to see activity here</p>
               </div>
             )}
-            </CardContent>
-        </Card>
+        </DashboardPanel>
       </div>
-
-      {/* This Month Summary Section */}
-      {thisMonthStats.totalDays > 0 && (
-        <>
-          <Separator />
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                <Activity className="h-5 w-5 text-accent-foreground" />
-              </div>
-            <div>
-                <h2 className="text-2xl font-bold tracking-tight">This Month</h2>
-                <p className="text-sm text-muted-foreground">
-                  Your activity overview for {format(new Date(), 'MMMM yyyy')}
-                </p>
-              </div>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Days</CardTitle>
-                  <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <Calendar className="h-4 w-4 text-primary" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold">{thisMonthStats.totalDays}</div>
-                  <p className="text-xs text-muted-foreground mt-1">This month</p>
-                </CardContent>
-              </Card>
-              
-              <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">At Sea</CardTitle>
-                  <div className="h-8 w-8 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                    <Waves className="h-4 w-4 text-blue-500" />
-          </div>
-        </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold text-blue-700 dark:text-blue-300">{thisMonthStats.atSeaDays}</div>
-                  <p className="text-xs text-muted-foreground mt-1">Days underway</p>
-        </CardContent>
-      </Card>
-
-              <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Standby</CardTitle>
-                  <div className="h-8 w-8 rounded-xl bg-purple-500/10 flex items-center justify-center">
-                    <Anchor className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-          </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold text-purple-700 dark:text-purple-300">{thisMonthStats.standbyDays}</div>
-                  <p className="text-xs text-muted-foreground mt-1">MCA-compliant</p>
-                </CardContent>
-            </Card>
-
-            </div>
-          </div>
-        </>
-        )}
-
-      {/* Career Highlights Section */}
-      <Separator />
 
     </div>
   );

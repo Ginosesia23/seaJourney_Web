@@ -266,7 +266,9 @@ export interface PassageLog {
     weather_summary?: string | null;   // text - brief description
     sea_state?: string | null;         // text - Beaufort/sea state notes
     notes?: string | null;             // text - freeform
-    source?: string | null;            // text - "manual" / "ais_assisted" etc.
+    source?: string | null;            // text - "manual" / "calendar" / "ais" etc.
+    /** vesselId|startTime|endTime when promoted from Passages Map */
+    ais_fingerprint?: string | null;
     track_data?: any;                  // jsonb - optional polyline or AIS snapshot
     created_at: string;                // timestamptz
     updated_at: string;                // timestamptz

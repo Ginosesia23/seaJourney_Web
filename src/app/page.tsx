@@ -12,6 +12,7 @@
 
 import Link from 'next/link';
 import { AuthRecoveryHandler } from '@/components/auth-recovery-handler';
+import { PassageTracksMapBackdrop } from '@/components/landing/passage-tracks-map-backdrop';
 import { useEffect, useState, useCallback, type ComponentType, type SVGProps } from 'react';
 import { motion } from 'framer-motion';
 import {
@@ -74,6 +75,7 @@ import {
 } from 'lucide-react';
 import Logo from '@/components/logo';
 import { cn } from '@/lib/utils';
+import { WkAuthNav } from '@/components/wk/wk-auth-nav';
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -217,6 +219,18 @@ const themeCss = `
 .wk-dot-grid {
   background-image: radial-gradient(circle at 1px 1px, var(--wk-line-strong) 1px, transparent 0);
   background-size: 22px 22px;
+}
+
+/* Slow dashed “track ink” motion for the passage-map section backdrop */
+.wk-passage-dash {
+  stroke-dasharray: 10 14;
+  animation: wk-passage-dash 28s linear infinite;
+}
+@keyframes wk-passage-dash {
+  to { stroke-dashoffset: -240; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wk-passage-dash { animation: none; }
 }
 
 /* --- Alternate section background --------------------------------------
@@ -818,9 +832,12 @@ export default function Home() {
           <CertificateTracking />
           <ApplyProgress />
           <WatchComingSoon />
+          {/* Not ready for landing yet — keep components below for later
           <WatchRotationSchedule />
           <CrewLeavePlanner />
+          */}
           <LiveAISMobile />
+          <PassageTracksShowcase />
           <AISImport />
           <VerificationPortal />
           <Membership />
@@ -878,13 +895,7 @@ function WkHeader({
 
         <div className="flex items-center gap-2">
           <ThemeToggle mode={mode} setMode={setMode} />
-          <Link
-            href="/login"
-            className="text-sm font-medium"
-            style={{ color: 'var(--wk-text-soft)' }}
-          >
-            Sign in
-          </Link>
+          <WkAuthNav showStartFree={false} onNavigate={() => setOpen(false)} />
           <button
             className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-md md:hidden"
             style={{ color: 'var(--wk-text)', border: '1px solid var(--wk-line)' }}
@@ -4908,6 +4919,100 @@ function AISImportGraphic() {
 }
 
 // ---------------------------------------------------------------------------
+// Section 8a: Passage tracks showcase (links to /voyage-map demo)
+// ---------------------------------------------------------------------------
+
+function PassageTracksShowcase() {
+  const points: Array<{ icon: IconType; title: string; desc: string; accent: string }> = [
+    {
+      icon: Route,
+      title: 'Season tracks on one chart',
+      desc: 'Past AIS fixes become continuous passages — Med seasons, Caribbean hops, North Sea transits — readable at a glance.',
+      accent: '#0ea5e9',
+    },
+    {
+      icon: MapPin,
+      title: 'Port-to-port story',
+      desc: 'Start and end markers, distance, and duration for every leg so you can review where the boat actually went.',
+      accent: '#14b8a6',
+    },
+    {
+      icon: Globe,
+      title: 'Fleet view',
+      desc: 'Toggle vessels, focus a season, and compare routes without exporting a spreadsheet first.',
+      accent: '#8b5cf6',
+    },
+  ];
+
+  return (
+    <section
+      id="passage-tracks"
+      className="relative overflow-hidden py-24 sm:py-32"
+      style={{ backgroundColor: 'var(--wk-bg)' }}
+    >
+      <PassageTracksMapBackdrop />
+
+      <div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-3xl text-center">
+          <Eyebrow icon={Compass} accent>
+            Historical AIS on the map
+          </Eyebrow>
+          <h2
+            className="font-headline mt-5 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl"
+            style={{ color: 'var(--wk-text)' }}
+          >
+            Past vessel data,{' '}
+            <span className="wk-gradient-text wk-gradient-text--sky">drawn as real passages</span>
+          </h2>
+          <p className="mx-auto mt-4 max-w-2xl text-lg" style={{ color: 'var(--wk-text-soft)' }}>
+            Explore an interactive demo map built the same way as the dashboard passage tracks —
+            anonymised sample seasons you can pan, zoom, and click through.
+          </p>
+        </div>
+
+        <div className="mx-auto mt-14 grid max-w-5xl gap-5 sm:grid-cols-3">
+          {points.map((p) => (
+            <div
+              key={p.title}
+              className="rounded-2xl p-6 text-left"
+              style={{
+                backgroundColor: 'var(--wk-card)',
+                border: '1px solid var(--wk-line)',
+                boxShadow: 'var(--wk-shadow-md)',
+              }}
+            >
+              <span
+                className="inline-flex h-11 w-11 items-center justify-center rounded-xl"
+                style={{
+                  backgroundColor: `color-mix(in srgb, ${p.accent} 14%, transparent)`,
+                  color: p.accent,
+                  border: `1px solid color-mix(in srgb, ${p.accent} 28%, transparent)`,
+                }}
+              >
+                <p.icon className="h-5 w-5" />
+              </span>
+              <h3 className="mt-4 text-base font-bold" style={{ color: 'var(--wk-text)' }}>
+                {p.title}
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
+                {p.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <PrimaryCta href="/voyage-map" tone="sky">
+            Open the voyage map
+          </PrimaryCta>
+          <SecondaryCta href="/signup">Start free</SecondaryCta>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Section 8: AIS Import
 // ---------------------------------------------------------------------------
 
@@ -6244,6 +6349,7 @@ function WkFooter() {
               title="Product"
               links={[
                 { href: '/how-to-use', label: 'How it works' },
+                { href: '/voyage-map', label: 'Voyage map' },
                 { href: '/for-vessels', label: 'For vessels' },
                 { href: '/roadmap', label: 'Roadmap' },
                 { href: '/verify', label: 'Verify records' },
@@ -6254,6 +6360,7 @@ function WkFooter() {
               links={[
                 { href: '/request-demo', label: 'Request demo' },
                 { href: '/faq', label: 'FAQ' },
+                { href: '/sitemap', label: 'Sitemap' },
               ]}
             />
             <FooterCol

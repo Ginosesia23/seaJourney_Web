@@ -9,8 +9,8 @@ import { format, differenceInDays, startOfYear, endOfYear, getYear, parse, start
 import { DateRange } from 'react-day-picker';
 import { useRouter } from 'next/navigation';
 import { generateSeaTimeTestimonial } from '@/lib/pdf-generator';
-import { generateSeaTimeReportData as fetchSeaTimeReportData } from '@/app/actions';
-import { exportToCSV, exportToExcelXML, exportToJSON } from '@/lib/export-utils';
+import { generateSeaTimeReportData as fetchSeaTimeReportData, generateMasterDocReportData } from '@/app/actions';
+import { exportToCSV, exportToExcelXML, exportToJSON, exportMasterDocExcel } from '@/lib/export-utils';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -35,7 +35,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Lock } from 'lucide-react';
 
 const exportSchema = z.object({
-  exportFormat: z.enum(['csv', 'excel', 'json', 'pdf']),
+  exportFormat: z.enum(['csv', 'excel', 'json', 'pdf', 'master']),
   filterType: z.enum(['vessel', 'date_range']),
   vesselId: z.string().optional(),
   dateRange: z.object({
@@ -43,6 +43,10 @@ const exportSchema = z.object({
     to: z.date().optional(),
   }).optional(),
 }).refine(data => {
+    if (data.exportFormat === 'master') {
+      // Vessel is required for Master Doc (vessel managers may use active vessel in submit)
+      return true;
+    }
     if (data.filterType === 'vessel') {
         return !!data.vesselId;
     }
@@ -90,6 +94,14 @@ const formatOptions = [
     color: 'text-red-600 dark:text-red-400',
     bgColor: 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800',
   },
+  {
+    value: 'master' as const,
+    label: 'Master Doc',
+    description: 'Full SeaJourney Excel: vessel details, every daily state, and all passages from vessel start to today',
+    icon: Database,
+    color: 'text-sky-700 dark:text-sky-300',
+    bgColor: 'bg-sky-50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-800',
+  },
 ];
 
 export default function ExportPage() {
@@ -99,7 +111,7 @@ export default function ExportPage() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [exportProgress, setExportProgress] = useState(0);
     const [exportStatus, setExportStatus] = useState<string>('');
-    const [selectedFormat, setSelectedFormat] = useState<'csv' | 'excel' | 'json' | 'pdf'>('csv');
+    const [selectedFormat, setSelectedFormat] = useState<'csv' | 'excel' | 'json' | 'pdf' | 'master'>('csv');
     const [previewStats, setPreviewStats] = useState<{
         recordCount: number;
         dateRange: { earliest: string | null; latest: string | null };
@@ -463,19 +475,36 @@ export default function ExportPage() {
 
             // Simulate progress: Fetching data (0-60%)
             setExportProgress(20);
-            setExportStatus('Fetching sea time data...');
-            
-            const reportData = await fetchSeaTimeReportData(
+            setExportStatus(
+              data.exportFormat === 'master'
+                ? 'Building Master Document…'
+                : 'Fetching sea time data...',
+            );
+
+            let reportData;
+            if (data.exportFormat === 'master') {
+              const masterVesselId =
+                data.vesselId ||
+                (isVesselManager ? userProfile?.activeVesselId : undefined) ||
+                currentVessel?.id;
+              if (!masterVesselId) {
+                throw new Error('Select a vessel for the Master Document.');
+              }
+              reportData = await generateMasterDocReportData(user.id, masterVesselId);
+            } else {
+              reportData = await fetchSeaTimeReportData(
                 user.id,
                 data.filterType,
                 data.vesselId,
-                data.dateRange as { from: Date; to: Date } | undefined
-            );
+                data.dateRange as { from: Date; to: Date } | undefined,
+              );
+            }
 
             console.log('[EXPORT PAGE] Report data received:', {
                 serviceRecordsCount: reportData.serviceRecords?.length || 0,
                 stateLogsCount: reportData.stateLogs?.length || 0,
                 watchDatesCount: reportData.watchDates?.length || 0,
+                passageLogsCount: reportData.passageLogs?.length || 0,
                 totalDays: reportData.totalDays,
                 totalSeaDays: reportData.totalSeaDays,
                 totalStandbyDays: reportData.totalStandbyDays
@@ -501,6 +530,20 @@ export default function ExportPage() {
                     } catch (excelError: any) {
                         console.error('[EXPORT PAGE] Excel export error:', excelError);
                         throw new Error(`Excel export failed: ${excelError.message || 'Unknown error'}`);
+                    }
+                    break;
+                case 'master':
+                    try {
+                        await exportMasterDocExcel(reportData);
+                        setExportProgress(100);
+                        setExportStatus('Export complete!');
+                        toast({
+                          title: 'Master Document ready',
+                          description: 'Full vessel Excel exported (states + passages).',
+                        });
+                    } catch (masterError: any) {
+                        console.error('[EXPORT PAGE] Master Doc export error:', masterError);
+                        throw new Error(`Master Doc export failed: ${masterError.message || 'Unknown error'}`);
                     }
                     break;
                 case 'json':
@@ -640,6 +683,9 @@ export default function ExportPage() {
                                                         onClick={() => {
                                                             field.onChange(format.value);
                                                             setSelectedFormat(format.value);
+                                                            if (format.value === 'master' && !isVesselManager) {
+                                                              form.setValue('filterType', 'vessel');
+                                                            }
                                                         }}
                                                         className={cn(
                                                             "relative p-4 rounded-xl border-2 cursor-pointer transition-all hover:shadow-md",
@@ -687,7 +733,7 @@ export default function ExportPage() {
                         <CardDescription>Choose how to filter your sea time data</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
-                        {!isVesselManager && (
+                        {!isVesselManager && selectedFormat !== 'master' && (
                             <FormField
                                 control={form.control}
                                 name="filterType"
@@ -725,7 +771,25 @@ export default function ExportPage() {
                             />
                         )}
                         
-                        {isVesselManager && (
+                        {isVesselManager && selectedFormat === 'master' && (
+                            <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                              <div className="font-medium">Master Document period</div>
+                              <p className="mt-1 text-muted-foreground text-xs">
+                                Exports from this vessel&apos;s start date through today, including every daily state and all passage logbook entries
+                                {currentVessel ? (
+                                  <>
+                                    {' '}
+                                    for <span className="font-medium text-foreground">{currentVessel.name}</span>
+                                  </>
+                                ) : (
+                                  '. Set an active vessel first.'
+                                )}
+                                .
+                              </p>
+                            </div>
+                        )}
+
+                        {isVesselManager && selectedFormat !== 'master' && (
                             <>
                                 {/* Hidden FormField to ensure filterType is registered for vessel managers */}
                                 <FormField
@@ -749,7 +813,8 @@ export default function ExportPage() {
                             </>
                         )}
 
-                        {filterType === 'vessel' && !isVesselManager && (
+                        {((filterType === 'vessel' && !isVesselManager) ||
+                          (selectedFormat === 'master' && !isVesselManager)) && (
                             <FormField
                                 control={form.control}
                                 name="vesselId"
@@ -784,13 +849,18 @@ export default function ExportPage() {
                                                 )}
                                             </SelectContent>
                                         </Select>
+                                        {selectedFormat === 'master' && (
+                                          <FormDescription>
+                                            Master Doc covers vessel start → today (states + passages). Date range is set automatically.
+                                          </FormDescription>
+                                        )}
                                         <FormMessage />
                                     </FormItem>
                                 )}
                             />
                         )}
 
-                        {(filterType === 'date_range' || isVesselManager) && (
+                        {((filterType === 'date_range' || isVesselManager) && selectedFormat !== 'master') && (
                             <>
                                 {/* Quick Year Selection */}
                                 {availableYears.length > 0 && (

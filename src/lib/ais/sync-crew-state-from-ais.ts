@@ -41,7 +41,15 @@ import {
   resolveLiveSampleState,
   type PreviousSample,
 } from '@/lib/ais/resolve-live-sample-state';
+import {
+  findPlaceMemoryHint,
+  recordPlaceMemoryVisit,
+} from '@/lib/ais/place-memory';
 import { reverseGeocodeStructured } from '@/lib/geocoding/reverse-geocode';
+import {
+  ONBOARD_TOGGLE_LOG_NOTE,
+  shouldForceOnLeaveFromOnboardTracker,
+} from '@/lib/crew-rotation/onboard-leave-side-effects';
 import { sendUserNotification } from '@/lib/notifications/send-user-notification';
 import type { DailyStatus } from '@/lib/types';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
@@ -109,6 +117,54 @@ export async function syncCrewStateFromAis(
   }
 
   try {
+    const logDate = logDateForLiveAisSync(options?.logDate);
+
+    // Onboard Tracker signed this crew off (leave period or active override).
+    // Keep their daily log as on-leave — no AIS fetch needed while on leave.
+    if (await shouldForceOnLeaveFromOnboardTracker(userId, vesselId, logDate)) {
+      const { data: existingLeaveLog } = await supabaseAdmin
+        .from('daily_state_logs')
+        .select('id, state, notes')
+        .eq('user_id', userId)
+        .eq('vessel_id', vesselId)
+        .eq('date', logDate)
+        .maybeSingle();
+
+      const alreadyOnLeave =
+        existingLeaveLog?.state === 'on-leave' &&
+        typeof existingLeaveLog.notes === 'string' &&
+        existingLeaveLog.notes.startsWith('[onboard-toggle]');
+
+      if (!alreadyOnLeave) {
+        await supabaseAdmin.from('daily_state_logs').upsert(
+          {
+            user_id: userId,
+            vessel_id: vesselId,
+            date: logDate,
+            state: 'on-leave',
+            notes: ONBOARD_TOGGLE_LOG_NOTE,
+          },
+          { onConflict: 'user_id,vessel_id,date' },
+        );
+      }
+
+      await supabaseAdmin
+        .from('users')
+        .update({
+          ais_live_last_sync_at: new Date().toISOString(),
+          ais_live_last_sync_error: null,
+        })
+        .eq('id', userId);
+
+      return {
+        ok: true,
+        skipped: true,
+        reason: 'Crew marked off board via Onboard Tracker — daily state kept as on-leave.',
+        userId,
+        vesselId,
+      };
+    }
+
     const position =
       options?.position !== undefined
         ? options.position
@@ -134,7 +190,6 @@ export async function syncCrewStateFromAis(
       });
     }
 
-    const logDate = logDateForLiveAisSync(options?.logDate);
     const navStatus = getNormalizedAisNavStatus(position) || null;
     const speedKn = typeof position.speed === 'number' ? position.speed : null;
     const lat = typeof position.lat === 'number' ? position.lat : null;
@@ -175,10 +230,16 @@ export async function syncCrewStateFromAis(
     // analyzer's `previousDay` context further down — one query, two uses.
     const previousDay = await loadPreviousDayContext(userId, vesselId, logDate);
 
+    const placeMemory = await findPlaceMemoryHint({
+      vesselId,
+      lat,
+      lon,
+    });
+
     // Resolve the stabilized state for this fix. Unlike `mapAisToDailyStatus`
     // (which is a pure single-fix mapping) this considers previous position,
-    // anchor-swing tolerance, geocoded context, and yesterday's anchor to
-    // filter out drift noise.
+    // anchor-swing tolerance, geocoded context, yesterday's anchor, and
+    // historical place memory to filter out drift noise.
     const resolution = resolveLiveSampleState({
       position,
       previousSample,
@@ -189,8 +250,23 @@ export async function syncCrewStateFromAis(
             lon: previousDay.lastLongitude,
           }
         : null,
+      placeMemory,
       locationContext,
     });
+
+    if (
+      resolution.state === 'at-anchor' ||
+      resolution.state === 'in-port' ||
+      resolution.state === 'in-yard'
+    ) {
+      void recordPlaceMemoryVisit({
+        vesselId,
+        lat,
+        lon,
+        state: resolution.state,
+        placeName: locationContext?.endOfDayPlaceName ?? null,
+      });
+    }
     const state = resolution.state;
 
     console.log('[crew-ais-sync] resolved sample state', {

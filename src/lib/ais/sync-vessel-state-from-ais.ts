@@ -28,6 +28,10 @@ import {
   resolveLiveSampleState,
   type PreviousSample,
 } from '@/lib/ais/resolve-live-sample-state';
+import {
+  findPlaceMemoryHint,
+  recordPlaceMemoryVisit,
+} from '@/lib/ais/place-memory';
 import { reverseGeocodeStructured } from '@/lib/geocoding/reverse-geocode';
 import type { DailyStatus } from '@/lib/types';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
@@ -336,6 +340,12 @@ export async function syncVesselStateFromAis(
       }
     }
 
+    const placeMemory = await findPlaceMemoryHint({
+      vesselId,
+      lat,
+      lon,
+    });
+
     const resolution = resolveLiveSampleState({
       position,
       previousSample,
@@ -346,8 +356,23 @@ export async function syncVesselStateFromAis(
             lon: previousDay.lastLongitude,
           }
         : null,
+      placeMemory,
       locationContext,
     });
+
+    if (
+      resolution.state === 'at-anchor' ||
+      resolution.state === 'in-port' ||
+      resolution.state === 'in-yard'
+    ) {
+      void recordPlaceMemoryVisit({
+        vesselId,
+        lat,
+        lon,
+        state: resolution.state,
+        placeName: locationContext?.endOfDayPlaceName ?? null,
+      });
+    }
 
     const sampleState = resolution.state || mapAisToDailyStatus(position);
 

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import type { CSSProperties } from 'react';
 import { format, startOfYear, endOfYear, eachMonthOfInterval, startOfMonth, endOfMonth, eachDayOfInterval, getDaysInMonth, getDay, isSameMonth, isToday, isWithinInterval, startOfDay, endOfDay, isAfter, isBefore, parse, addDays } from 'date-fns';
 import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, Wrench, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, CheckSquare, Clock, User, XCircle } from 'lucide-react';
 import { DateRange } from 'react-day-picker';
@@ -22,6 +21,10 @@ import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, Vessel, StateLog, DailyStatus, VesselAssignment, PassageLog } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { calendarStateSolid, calendarStateWash } from '@/lib/calendar-state-colors';
+import {
+  MonthStateSummary,
+  buildMonthSummaryItems,
+} from '@/components/dashboard/month-state-summary';
 
 const vesselStates: { value: DailyStatus; label: string; color: string; icon: React.FC<any> }[] = [
   { value: 'underway', label: 'Underway', color: calendarStateSolid('underway'), icon: Waves },
@@ -48,6 +51,10 @@ export default function CalendarPage() {
   const [isWatchInDialog, setIsWatchInDialog] = useState<boolean>(false);
   const [notesInDialog, setNotesInDialog] = useState<string>('');
   const [watchDates, setWatchDates] = useState<Set<string>>(new Set());
+  /** Month keys (yyyy-MM) with the day-count summary expanded. Collapsed by default. */
+  const [expandedMonthSummaries, setExpandedMonthSummaries] = useState<Set<string>>(
+    () => new Set(),
+  );
   
   // View mode for captains: 'personal' (their own sea time) or 'vessel' (vessel's sea time)
   const [captainViewMode, setCaptainViewMode] = useState<'personal' | 'vessel'>('personal');
@@ -1010,6 +1017,10 @@ export default function CalendarPage() {
     try {
       // Group logs by vessel
       const logsByVessel = new Map<string, Array<{ date: string; state: DailyStatus; is_part_of_active_passage?: boolean; notes?: string }>>();
+      const partOfPassage =
+        state === 'underway' || state === 'in-yard' || state === 'on-leave'
+          ? false
+          : isPartOfActivePassageInDialog;
       
       if (dateRange?.from && dateRange?.to) {
         // Range update
@@ -1031,7 +1042,7 @@ export default function CalendarPage() {
           if (!logsByVessel.has(vesselId)) {
             logsByVessel.set(vesselId, []);
           }
-          logsByVessel.get(vesselId)!.push({ date: dateKey, state, is_part_of_active_passage: isPartOfActivePassageInDialog, notes: notesInDialog.trim() || undefined });
+          logsByVessel.get(vesselId)!.push({ date: dateKey, state, is_part_of_active_passage: partOfPassage, notes: notesInDialog.trim() || undefined });
         }
         
         if (logsByVessel.size === 0) {
@@ -1055,7 +1066,7 @@ export default function CalendarPage() {
           if (!validation.valid || !validation.vessel) continue;
           const vesselId = validation.vessel.id;
           if (!logsByVessel.has(vesselId)) logsByVessel.set(vesselId, []);
-          logsByVessel.get(vesselId)!.push({ date: dateKey, state, is_part_of_active_passage: isPartOfActivePassageInDialog, notes: notesInDialog.trim() || undefined });
+          logsByVessel.get(vesselId)!.push({ date: dateKey, state, is_part_of_active_passage: partOfPassage, notes: notesInDialog.trim() || undefined });
         }
         if (logsByVessel.size === 0) {
           toast({
@@ -1079,7 +1090,7 @@ export default function CalendarPage() {
           return;
         }
         const dateKey = format(selectedDate, 'yyyy-MM-dd');
-        logsByVessel.set(validation.vessel.id, [{ date: dateKey, state, is_part_of_active_passage: isPartOfActivePassageInDialog, notes: notesInDialog.trim() || undefined }]);
+        logsByVessel.set(validation.vessel.id, [{ date: dateKey, state, is_part_of_active_passage: partOfPassage, notes: notesInDialog.trim() || undefined }]);
       } else {
         setIsSaving(false);
         return;
@@ -1818,46 +1829,28 @@ export default function CalendarPage() {
             </div>
           </div>
           
-          {/* Month Summary Section — vessel: no On Leave, show Part of passage instead */}
-          <Separator className="mt-4 mb-2" />
-          <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-[10px] sm:text-xs leading-tight">
-            {(isVesselAccount ? vesselStates.filter(s => s.value !== 'on-leave') : vesselStates).map((state) => {
-              const count = monthStateCounts[state.value] || 0;
-              const StateIcon = state.icon;
-              return (
-                <div 
-                  key={state.value} 
-                  className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 rounded-md bg-muted/50"
-                >
-                  <StateIcon className="h-3 w-3 shrink-0" style={{ color: state.color }} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-muted-foreground truncate">{state.label}</div>
-                  </div>
-                  <span className="font-medium tabular-nums shrink-0">{count}</span>
-                </div>
-              );
+          {/* Month summary — collapsed by default */}
+          <MonthStateSummary
+            open={expandedMonthSummaries.has(format(month, 'yyyy-MM'))}
+            onOpenChange={(next) => {
+              const monthKey = format(month, 'yyyy-MM');
+              setExpandedMonthSummaries((prev) => {
+                const copy = new Set(prev);
+                if (next) copy.add(monthKey);
+                else copy.delete(monthKey);
+                return copy;
+              });
+            }}
+            items={buildMonthSummaryItems({
+              counts: {
+                ...monthStateCounts,
+                passage: monthPartOfPassageCount,
+              },
+              includeOnLeave: !isVesselAccount,
+              includePassage: isVesselAccount,
+              includeStandby: true,
             })}
-            {isVesselAccount && (
-              <div 
-                className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 rounded-md bg-muted/50"
-              >
-                <Ship className="h-3 w-3 shrink-0" style={{ color: calendarStateSolid('underway') }} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-muted-foreground truncate">Part of passage</div>
-                </div>
-                <span className="font-medium tabular-nums shrink-0">{monthPartOfPassageCount}</span>
-              </div>
-            )}
-            <div 
-              className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 rounded-md bg-muted/50"
-            >
-              <Clock className="h-3 w-3 shrink-0 text-purple-600" />
-              <div className="flex-1 min-w-0">
-                <div className="text-muted-foreground truncate">Standby</div>
-              </div>
-              <span className="font-medium tabular-nums shrink-0">{monthStateCounts.standby}</span>
-            </div>
-          </div>
+          />
         </CardContent>
       </Card>
     );
@@ -2155,8 +2148,13 @@ export default function CalendarPage() {
                       if (state.value !== 'at-anchor' && isWatchInDialog) {
                         setIsWatchInDialog(false);
                       }
-                      // Reset part of active passage if state is underway or in-yard
-                      if ((state.value === 'underway' || state.value === 'in-yard') && isPartOfActivePassageInDialog) {
+                      // Reset part of active passage if state is underway, in-yard, or on-leave
+                      if (
+                        (state.value === 'underway' ||
+                          state.value === 'in-yard' ||
+                          state.value === 'on-leave') &&
+                        isPartOfActivePassageInDialog
+                      ) {
                         setIsPartOfActivePassageInDialog(false);
                       }
                     }}
@@ -2232,7 +2230,9 @@ export default function CalendarPage() {
           </div>
           <div className="border-t pt-4 px-1">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {selectedState !== 'underway' && selectedState !== 'in-yard' && (
+              {selectedState !== 'underway' &&
+                selectedState !== 'in-yard' &&
+                selectedState !== 'on-leave' && (
                 <div className="flex items-start space-x-3 p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors">
                   <Checkbox
                     id="part-of-active-passage-calendar"

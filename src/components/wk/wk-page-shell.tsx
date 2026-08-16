@@ -16,9 +16,10 @@
 
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowRight, Menu, Moon, Sparkles, Sun, X } from 'lucide-react';
+import { Menu, Moon, Sparkles, Sun, X } from 'lucide-react';
 import Logo from '@/components/logo';
 import { cn } from '@/lib/utils';
+import { WkAuthNav } from '@/components/wk/wk-auth-nav';
 
 export type WkThemeMode = 'auto' | 'light' | 'dark';
 
@@ -412,6 +413,7 @@ export function WkThemeToggle({
 
 const NAV_LINKS: Array<{ href: string; label: string }> = [
   { href: '/how-to-use', label: 'How it works' },
+  { href: '/voyage-map', label: 'Voyage map' },
   { href: '/for-vessels', label: 'For vessels' },
   { href: '/request-demo', label: 'Request demo' },
   { href: '/roadmap', label: 'Roadmap' },
@@ -454,24 +456,7 @@ function WkPageHeader({
 
         <div className="flex items-center gap-2">
           <WkThemeToggle mode={mode} setMode={setMode} />
-          <Link
-            href="/login"
-            className="hidden text-sm font-medium md:inline-block"
-            style={{ color: 'var(--wk-text-soft)' }}
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/signup"
-            className="inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-sm font-semibold text-white shadow-sm"
-            style={{
-              background: 'linear-gradient(135deg, var(--wk-accent) 0%, var(--wk-accent-strong) 100%)',
-              boxShadow: 'var(--wk-glow)',
-            }}
-          >
-            Start free
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
+          <WkAuthNav onNavigate={() => setOpen(false)} />
           <button
             className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-md md:hidden"
             style={{ color: 'var(--wk-text)', border: '1px solid var(--wk-line)' }}
@@ -497,14 +482,6 @@ function WkPageHeader({
                 {l.label}
               </Link>
             ))}
-            <Link
-              href="/login"
-              className="rounded-lg px-3 py-2 text-sm font-medium"
-              style={{ color: 'var(--wk-text)' }}
-              onClick={() => setOpen(false)}
-            >
-              Sign in
-            </Link>
           </div>
         </div>
       )}
@@ -575,6 +552,7 @@ function WkPageFooter() {
               title="Product"
               links={[
                 { href: '/how-to-use', label: 'How it works' },
+                { href: '/voyage-map', label: 'Voyage map' },
                 { href: '/for-vessels', label: 'For vessels' },
                 { href: '/roadmap', label: 'Roadmap' },
                 { href: '/verify', label: 'Verify records' },
@@ -585,6 +563,7 @@ function WkPageFooter() {
               links={[
                 { href: '/request-demo', label: 'Request demo' },
                 { href: '/faq', label: 'FAQ' },
+                { href: '/sitemap', label: 'Sitemap' },
               ]}
             />
             <WkFooterCol

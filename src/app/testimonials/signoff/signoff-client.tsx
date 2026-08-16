@@ -42,6 +42,10 @@ import { calendarStateSolid } from '@/lib/calendar-state-colors';
 import { cn } from '@/lib/utils';
 import type { DailyStatus, StateLog } from '@/lib/types';
 import Logo from '@/components/logo';
+import {
+  MonthStateSummary,
+  buildMonthSummaryItems,
+} from '@/components/dashboard/month-state-summary';
 
 interface TestimonialSummary {
   id: string;
@@ -485,31 +489,15 @@ function SignoffMonthCalendar({
           </div>
         </div>
 
-        {/* Per-month summary chips */}
-        <Separator className="mb-2 mt-4" />
-        <div className="grid grid-cols-3 gap-1.5 text-[10px] leading-tight sm:gap-2 sm:text-xs">
-          {VESSEL_STATES.map((state) => {
-            const StateIcon = state.icon;
-            const count = monthCounts[state.value] || 0;
-            return (
-              <div key={state.value} className="flex items-center gap-1 rounded-md bg-muted/50 px-1.5 py-1 sm:gap-1.5">
-                <StateIcon className="h-3 w-3 shrink-0" style={{ color: state.color }} />
-                <div className="min-w-0 flex-1 truncate text-muted-foreground">{state.label}</div>
-                <span className="shrink-0 font-medium tabular-nums">{count}</span>
-              </div>
-            );
+        {/* Per-month summary — same collapsible design as Calendar */}
+        <MonthStateSummary
+          items={buildMonthSummaryItems({
+            counts: monthCounts,
+            includeOnLeave: true,
+            includePassage: true,
+            includeStandby: true,
           })}
-          <div className="flex items-center gap-1 rounded-md bg-muted/50 px-1.5 py-1 sm:gap-1.5">
-            <Ship className="h-3 w-3 shrink-0 text-blue-600" />
-            <div className="min-w-0 flex-1 truncate text-muted-foreground">Part of passage</div>
-            <span className="shrink-0 font-medium tabular-nums">{monthCounts.passage}</span>
-          </div>
-          <div className="flex items-center gap-1 rounded-md bg-muted/50 px-1.5 py-1 sm:gap-1.5">
-            <Clock className="h-3 w-3 shrink-0 text-purple-600" />
-            <div className="min-w-0 flex-1 truncate text-muted-foreground">Standby</div>
-            <span className="shrink-0 font-medium tabular-nums">{monthCounts.standby}</span>
-          </div>
-        </div>
+        />
       </CardContent>
     </Card>
   );

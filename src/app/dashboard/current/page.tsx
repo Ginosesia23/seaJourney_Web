@@ -56,6 +56,10 @@ import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
 import { calendarStateSolid, calendarStateWash } from '@/lib/calendar-state-colors';
+import {
+  MonthStateSummary,
+  buildMonthSummaryItems,
+} from '@/components/dashboard/month-state-summary';
 import { AisTrackingCard } from '@/components/dashboard/ais-tracking-card';
 import { CrewAisTrackingCard } from '@/components/dashboard/crew-ais-tracking-card';
 import { CrewAisDebugPanel } from '@/components/dashboard/crew-ais-debug-panel';
@@ -164,6 +168,10 @@ export default function CurrentPage() {
   
   // View mode for captains: 'personal' (their own sea time) or 'vessel' (vessel's sea time)
   const [captainViewMode, setCaptainViewMode] = useState<'personal' | 'vessel'>('personal');
+  /** Month keys (yyyy-MM) with the day-count summary expanded. Collapsed by default. */
+  const [expandedMonthSummaries, setExpandedMonthSummaries] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const { user } = useUser();
   const { supabase, session } = useSupabase();
@@ -1930,7 +1938,10 @@ export default function CurrentPage() {
         const today = startOfDay(new Date());
         const interval = eachDayOfInterval({ start: dateRange.from, end: dateRange.to });
         // If state is 'underway' or 'in-yard', automatically set is_part_of_active_passage to false
-        const isPartOfPassage = (state === 'underway' || state === 'in-yard') ? false : isPartOfActivePassageInDialog;
+        const isPartOfPassage =
+          state === 'underway' || state === 'in-yard' || state === 'on-leave'
+            ? false
+            : isPartOfActivePassageInDialog;
         logs = interval
           .filter(day => {
             const dayStart = startOfDay(day);
@@ -1997,7 +2008,10 @@ export default function CurrentPage() {
           }
         }
         // If state is 'underway' or 'in-yard', automatically set is_part_of_active_passage to false
-        const isPartOfPassage = (state === 'underway' || state === 'in-yard') ? false : isPartOfActivePassageInDialog;
+        const isPartOfPassage =
+          state === 'underway' || state === 'in-yard' || state === 'on-leave'
+            ? false
+            : isPartOfActivePassageInDialog;
         logs = [{ date: dateKey, state, is_part_of_active_passage: isPartOfPassage, notes: notesInDialog.trim() || undefined }];
       } else {
         setIsSaving(false);
@@ -2439,6 +2453,21 @@ export default function CurrentPage() {
       }
 
       await updateStateLogsBatch(supabase, user.id, currentVessel.id, [{ date: todayKey, state }]);
+
+      // On leave cannot be part of a passage — clear the flag if it was set
+      if (state === 'on-leave' && isPartOfActivePassageToday) {
+        try {
+          await supabase
+            .from('state_logs')
+            .update({ is_part_of_active_passage: false })
+            .eq('user_id', user.id)
+            .eq('vessel_id', currentVessel.id)
+            .eq('date', todayKey);
+          setIsPartOfActivePassageToday(false);
+        } catch (clearErr) {
+          console.error('Error clearing part-of-passage on leave:', clearErr);
+        }
+      }
       
       // When setting to Underway: ensure a passage exists for today so it shows in Passage Log Book
       let passageCreated = false;
@@ -2726,6 +2755,11 @@ export default function CurrentPage() {
         monthStateCounts.standby++;
       }
     });
+
+    let monthPartOfPassageCount = 0;
+    partOfActivePassageDates.forEach((dateStr) => {
+      if (dateStr >= monthStartStr && dateStr <= monthEndStr) monthPartOfPassageCount++;
+    });
     
     // Generate calendar grid - start from Sunday
     const days: (Date | null)[] = [];
@@ -2996,35 +3030,28 @@ export default function CurrentPage() {
             </div>
           </div>
           
-          {/* Month Summary Section */}
-          <Separator className="mt-4 mb-2" />
-          <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-[10px] sm:text-xs leading-tight">
-            {vesselStates.map((state) => {
-              const count = monthStateCounts[state.value] || 0;
-              const StateIcon = state.icon;
-              return (
-                <div 
-                  key={state.value} 
-                  className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 rounded-md bg-muted/50"
-                >
-                  <StateIcon className="h-3 w-3 shrink-0" style={{ color: state.color }} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-muted-foreground truncate">{state.label}</div>
-                  </div>
-                  <span className="font-medium tabular-nums shrink-0">{count}</span>
-                </div>
-              );
+          {/* Month summary — same collapsible design as Calendar page */}
+          <MonthStateSummary
+            open={expandedMonthSummaries.has(format(month, 'yyyy-MM'))}
+            onOpenChange={(next) => {
+              const monthKey = format(month, 'yyyy-MM');
+              setExpandedMonthSummaries((prev) => {
+                const copy = new Set(prev);
+                if (next) copy.add(monthKey);
+                else copy.delete(monthKey);
+                return copy;
+              });
+            }}
+            items={buildMonthSummaryItems({
+              counts: {
+                ...monthStateCounts,
+                passage: monthPartOfPassageCount,
+              },
+              includeOnLeave: !isVesselAccount,
+              includePassage: isVesselAccount,
+              includeStandby: true,
             })}
-            <div 
-              className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 rounded-md bg-muted/50"
-            >
-              <Clock className="h-3 w-3 shrink-0 text-purple-600" />
-              <div className="flex-1 min-w-0">
-                <div className="text-muted-foreground truncate">Standby</div>
-              </div>
-              <span className="font-medium tabular-nums shrink-0">{monthStateCounts.standby}</span>
-            </div>
-          </div>
+          />
         </CardContent>
       </Card>
     );
@@ -3725,6 +3752,7 @@ export default function CurrentPage() {
                 </Card>
 
                 {/* Right: Part of active passage — same compact layout */}
+                {todayStatusValue !== 'on-leave' && (
                 <Card className="rounded-xl border shadow-sm">
                   <CardContent className="p-4 sm:p-5">
                     {(() => {
@@ -3831,6 +3859,7 @@ export default function CurrentPage() {
                     })()}
                   </CardContent>
                 </Card>
+                )}
             </div>
 
             {isVesselAccount && currentVessel && (
@@ -3840,6 +3869,7 @@ export default function CurrentPage() {
                 imo={currentVessel.imo ?? currentVessel.officialNumber}
                 accessToken={session?.access_token ?? null}
                 profileRaw={userProfileRaw}
+                todayState={todayStatusValue}
                 onEnabledChange={handleAisEnabledChange}
                 onStateUpdated={handleAisStateUpdated}
               />
@@ -3849,6 +3879,7 @@ export default function CurrentPage() {
               <CrewAisTrackingCard
                 accessToken={session?.access_token ?? null}
                 profileRaw={userProfileRaw}
+                todayState={todayStatusValue}
                 onStateUpdated={handleAisStateUpdated}
               />
             )}
@@ -3868,7 +3899,8 @@ export default function CurrentPage() {
               />
             )}
 
-            {/* Quick Stats */}
+            {/* Quick Stats — personal sea-time style; hide for vessel accounts */}
+            {!isVesselAccount && (
             <div className="grid gap-4 md:grid-cols-3">
                 <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -3880,9 +3912,7 @@ export default function CurrentPage() {
                     <CardContent>
                         <div className="text-3xl font-bold">{atSeaDays}</div>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {isVesselAccount
-                            ? `Underway and at-anchor days since ${userProfile?.startDate ? 'vessel start date' : 'vessel launch'}`
-                            : `Underway, passage, and watch days since joining ${currentVessel.name}`}
+                          {`Underway, passage, and watch days since joining ${currentVessel.name}`}
                         </p>
                     </CardContent>
                 </Card>
@@ -3896,10 +3926,7 @@ export default function CurrentPage() {
                     <CardContent>
                         <div className="text-3xl font-bold text-purple-700 dark:text-purple-300">{standbyDays}</div>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {userProfile?.role === 'vessel' 
-                            ? `days logged since ${userProfile?.startDate ? 'vessel start date' : 'vessel launch'}`
-                            : `days logged since joining ${currentVessel.name}`
-                          }
+                          {`days logged since joining ${currentVessel.name}`}
                         </p>
                     </CardContent>
                 </Card>
@@ -3922,14 +3949,12 @@ export default function CurrentPage() {
                           }
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {userProfile?.role === 'vessel' 
-                            ? `total days logged since ${userProfile?.startDate ? 'vessel start date' : 'vessel launch'}`
-                            : `total days logged since joining ${currentVessel.name}`
-                          }
+                          {`total days logged since joining ${currentVessel.name}`}
                         </p>
                     </CardContent>
                 </Card>
             </div>
+            )}
             
             {/* Monthly Calendar - Updated to match calendar page */}
             <div className="space-y-6">
@@ -4028,8 +4053,12 @@ export default function CurrentPage() {
                                                     }}
                         onClick={() => {
                           setSelectedState(state.value);
-                          // Reset "part of active passage" if state is changed to "underway" or "in-yard"
-                          if (state.value === 'underway' || state.value === 'in-yard') {
+                          // Reset "part of active passage" if state is changed to "underway", "in-yard", or "on-leave"
+                          if (
+                            state.value === 'underway' ||
+                            state.value === 'in-yard' ||
+                            state.value === 'on-leave'
+                          ) {
                             setIsPartOfActivePassageInDialog(false);
                           }
                           // Disable watch checkbox if state is not at-anchor
@@ -4096,7 +4125,9 @@ export default function CurrentPage() {
                                 </div>
                                 <div className="border-t pt-4 px-1">
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {selectedState !== 'underway' && selectedState !== 'in-yard' && (
+                                    {selectedState !== 'underway' &&
+                                      selectedState !== 'in-yard' &&
+                                      selectedState !== 'on-leave' && (
                                       <div className="flex items-start space-x-3 p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors">
                                         <Checkbox
                                           id="part-of-active-passage"
@@ -4229,9 +4260,13 @@ export default function CurrentPage() {
                 <CardHeader>
                     <div className="flex items-center justify-between">
                         <div>
-                            <CardTitle className="text-2xl">Day Breakdown</CardTitle>
+                            <CardTitle className="text-2xl">
+                              {isVesselAccount ? 'State overview' : 'Day Breakdown'}
+                            </CardTitle>
                             <CardDescription className="text-base mt-1">
-                                Comprehensive overview of your sea service statistics
+                              {isVesselAccount
+                                ? 'Breakdown of logged vessel states'
+                                : 'Comprehensive overview of your sea service statistics'}
                             </CardDescription>
                         </div>
                         <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -4240,7 +4275,8 @@ export default function CurrentPage() {
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                    {/* Key Statistics Cards */}
+                    {/* Key Statistics Cards — personal sea-time metrics; crew only */}
+                    {!isVesselAccount && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <Card className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border-blue-200 dark:border-blue-800">
                             <CardContent className="pt-6">
@@ -4249,9 +4285,7 @@ export default function CurrentPage() {
                                         <p className="text-sm font-medium text-muted-foreground mb-1">At Sea Days</p>
                                         <p className="text-3xl font-bold text-blue-700 dark:text-blue-400">{atSeaDays}</p>
                                         <p className="text-xs text-muted-foreground mt-1">
-                                          {isVesselAccount
-                                            ? 'Underway + at anchor'
-                                            : 'Underway + active passage + watch (when applicable)'}
+                                          Underway + active passage + watch (when applicable)
                                         </p>
                                     </div>
                                     <div className="h-12 w-12 rounded-lg bg-blue-500/20 flex items-center justify-center">
@@ -4297,6 +4331,7 @@ export default function CurrentPage() {
                             </CardContent>
                         </Card>
                     </div>
+                    )}
 
                     {/* State Breakdown */}
                     <div className="space-y-4">

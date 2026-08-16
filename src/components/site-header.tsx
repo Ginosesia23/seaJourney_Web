@@ -29,11 +29,14 @@ const routeLabels: Record<string, string> = {
   "/dashboard/vessels": "Vessels",
   "/dashboard/profile": "Profile",
   "/dashboard/crew": "Crew",
+  "/dashboard/pending-requests": "Pending requests",
   "/dashboard/applications": "Applications",
   "/dashboard/export": "Export",
   "/dashboard/world-map": "World Map",
   "/dashboard/passages-map": "Passages Map",
   "/dashboard/calculations": "How Calculations Work",
+  "/dashboard/ais-tracking": "AIS tracking",
+  "/dashboard/ais-wrong-states": "AIS wrong states",
 }
 
 function getBreadcrumbs(pathname: string) {
@@ -75,6 +78,8 @@ export function SiteHeader({ className, userProfile, ...props }: SiteHeaderProps
   const pathname = usePathname()
   const router = useRouter()
   const breadcrumbs = getBreadcrumbs(pathname)
+  const isMapPage =
+    pathname === "/dashboard/world-map" || pathname === "/dashboard/passages-map"
 
   const getRoleLabel = (role?: string) => {
     switch (role) {
@@ -92,6 +97,20 @@ export function SiteHeader({ className, userProfile, ...props }: SiteHeaderProps
   };
 
   const getRoleBadgeClassName = (role?: string) => {
+    if (isMapPage) {
+      switch (role) {
+        case 'admin':
+          return 'bg-red-400/15 text-red-200 border-red-400/25';
+        case 'vessel':
+          return 'bg-sky-400/15 text-sky-200 border-sky-400/25';
+        case 'captain':
+          return 'bg-violet-400/15 text-violet-200 border-violet-400/25';
+        case 'crew':
+          return 'bg-emerald-400/15 text-emerald-200 border-emerald-400/25';
+        default:
+          return 'bg-white/10 text-white/80 border-white/15';
+      }
+    }
     switch (role) {
       case 'admin':
         return 'bg-red-500/10 text-red-700 dark:bg-red-500/20 dark:text-red-400 border-red-500/20';
@@ -112,29 +131,54 @@ export function SiteHeader({ className, userProfile, ...props }: SiteHeaderProps
   return (
     <header
       className={cn(
-        "flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 border-b bg-content-background rounded-tl-xl",
+        "flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 border-b rounded-tl-xl",
+        isMapPage
+          ? "border-white/10 bg-[#070e1a] text-white"
+          : "bg-content-background",
         className
       )}
       {...props}
     >
       <div className="flex items-center gap-2 px-4">
-        <SidebarTrigger className="-ml-1" />
-        <Separator orientation="vertical" className="mr-2 h-4" />
+        <SidebarTrigger
+          className={cn(
+            "-ml-1",
+            isMapPage && "text-white/80 hover:bg-white/10 hover:text-white",
+          )}
+        />
+        <Separator
+          orientation="vertical"
+          className={cn("mr-2 h-4", isMapPage && "bg-white/20")}
+        />
         <Breadcrumb>
-          <BreadcrumbList>
+          <BreadcrumbList className={cn(isMapPage && "text-white/55")}>
             {breadcrumbs.map((crumb, index) => (
               <React.Fragment key={crumb.href}>
                 <BreadcrumbItem className={cn(index === breadcrumbs.length - 1 && "hidden md:block")}>
                   {index === breadcrumbs.length - 1 ? (
-                    <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
+                    <BreadcrumbPage className={cn(isMapPage && "text-white")}>
+                      {crumb.label}
+                    </BreadcrumbPage>
                   ) : (
                     <BreadcrumbLink asChild>
-                      <Link href={crumb.href}>{crumb.label}</Link>
+                      <Link
+                        href={crumb.href}
+                        className={cn(
+                          isMapPage && "text-white/55 transition-colors hover:text-white",
+                        )}
+                      >
+                        {crumb.label}
+                      </Link>
                     </BreadcrumbLink>
                   )}
                 </BreadcrumbItem>
                 {index < breadcrumbs.length - 1 && (
-                  <BreadcrumbSeparator className={cn(index === breadcrumbs.length - 2 && "hidden md:block")} />
+                  <BreadcrumbSeparator
+                    className={cn(
+                      index === breadcrumbs.length - 2 && "hidden md:block",
+                      isMapPage && "text-white/35 [&>svg]:text-white/35",
+                    )}
+                  />
                 )}
               </React.Fragment>
             ))}
@@ -146,7 +190,10 @@ export function SiteHeader({ className, userProfile, ...props }: SiteHeaderProps
           <Button
             variant="ghost"
             size="icon"
-            className="rounded-full"
+            className={cn(
+              "rounded-full",
+              isMapPage && "text-white/70 hover:bg-white/10 hover:text-white",
+            )}
             onClick={() => router.push('/dashboard/calculations')}
             title="How calculations work"
           >
@@ -160,7 +207,7 @@ export function SiteHeader({ className, userProfile, ...props }: SiteHeaderProps
             <span className="font-semibold">{roleLabel}</span>
             {position && (
               <>
-                <span className="mx-2 text-muted-foreground">•</span>
+                <span className={cn("mx-2", isMapPage ? "text-white/40" : "text-muted-foreground")}>•</span>
                 <span className="text-xs">{position}</span>
               </>
             )}

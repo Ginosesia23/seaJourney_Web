@@ -68,42 +68,38 @@ const THEME_COLORS: Record<
     borderOpacity: number;
   }
 > = {
-  // Premium dark — near-black ocean, faint blue-grey continents with a
-  // barely-visible border overlay. Coastline is slightly brighter than
-  // the borders so continents read as distinct volumes against the
-  // ocean. Widths tuned for the 1:10m dataset (thinner strokes look
-  // sharper when the geometry itself has more detail).
+  // Premium dark — deeper ocean, lifted land, crisp coastlines.
   dark: {
-    ocean: '#0b1220',
-    landFill: '#212b40',
-    coastline: '#5c7194',
-    coastlineWidth: 0.7,
-    coastlineOpacity: 0.95,
-    border: '#3a4864',
-    borderWidth: 0.4,
-    borderOpacity: 0.5,
+    ocean: '#070e1a',
+    landFill: '#27344f',
+    coastline: '#7a91b4',
+    coastlineWidth: 0.85,
+    coastlineOpacity: 1,
+    border: '#455772',
+    borderWidth: 0.5,
+    borderOpacity: 0.62,
   },
-  // Muted mid-tone — like an antique chart on parchment.
+  // Muted mid-tone — antique chart on parchment.
   muted: {
-    ocean: '#1e2a3a',
-    landFill: '#334259',
-    coastline: '#7188ac',
-    coastlineWidth: 0.7,
-    coastlineOpacity: 0.95,
-    border: '#4a5c78',
-    borderWidth: 0.4,
-    borderOpacity: 0.5,
+    ocean: '#172333',
+    landFill: '#3a4d68',
+    coastline: '#8aa0c0',
+    coastlineWidth: 0.85,
+    coastlineOpacity: 1,
+    border: '#5a6e8a',
+    borderWidth: 0.5,
+    borderOpacity: 0.6,
   },
-  // Minimal light — clean paper-white ocean, subtle grey continents.
+  // Minimal light — paper ocean, clearer grey continents.
   light: {
-    ocean: '#eef2f7',
-    landFill: '#d5dde8',
-    coastline: '#6b7a92',
-    coastlineWidth: 0.6,
-    coastlineOpacity: 0.9,
-    border: '#a9b6c8',
-    borderWidth: 0.35,
-    borderOpacity: 0.55,
+    ocean: '#e4ebf4',
+    landFill: '#c5d0e0',
+    coastline: '#536480',
+    coastlineWidth: 0.75,
+    coastlineOpacity: 0.95,
+    border: '#8fa0b6',
+    borderWidth: 0.45,
+    borderOpacity: 0.65,
   },
 };
 
@@ -152,13 +148,73 @@ export function buildOfflineWorldStyle(opts: {
 }
 
 /**
+ * Natural Earth land topology is cut at the antimeridian (±180°). When
+ * `topojson.mesh` walks exterior edges it also emits the artificial
+ * "stitch" segments that reconnect those cuts — straight lines spanning
+ * nearly 360° of longitude at a nearly-constant latitude (Arctic cuts
+ * around 65–72°N, Antarctic around −84/−90°, plus a Pacific wrap near
+ * −16°). At world zoom those look exactly like the horizontal grid
+ * lines users report; they leave the viewport as soon as you zoom in.
+ *
+ * Drop any segment whose longitude span is huge but latitude barely
+ * changes. Real coastlines never do that in a single segment.
+ */
+function stripDatelineWrapEdges(
+  geometry: GeoJSON.MultiLineString | GeoJSON.LineString | null,
+): GeoJSON.MultiLineString | null {
+  if (!geometry) return null;
+
+  const MIN_LON_SPAN = 40; // degrees — wrap stitches are ~180–360
+  const MAX_LAT_DELTA = 1.25; // degrees — stitches are nearly flat
+
+  const inputLines: [number, number][][] =
+    geometry.type === 'LineString'
+      ? [geometry.coordinates as [number, number][]]
+      : (geometry.coordinates as [number, number][][]);
+
+  const outputLines: [number, number][][] = [];
+
+  for (const line of inputLines) {
+    if (line.length < 2) continue;
+    let current: [number, number][] = [line[0]!];
+
+    for (let i = 1; i < line.length; i++) {
+      const prev = current[current.length - 1]!;
+      const pt = line[i]!;
+      const dLon = Math.abs(pt[0] - prev[0]);
+      const dLat = Math.abs(pt[1] - prev[1]);
+
+      if (dLon > MIN_LON_SPAN && dLat < MAX_LAT_DELTA) {
+        // Artificial wrap edge — break the line here and continue.
+        if (current.length >= 2) outputLines.push(current);
+        current = [pt];
+      } else {
+        current.push(pt);
+      }
+    }
+
+    if (current.length >= 2) outputLines.push(current);
+  }
+
+  if (outputLines.length === 0) return null;
+  return { type: 'MultiLineString', coordinates: outputLines };
+}
+
+/**
  * Wrap a topojson.mesh MultiLineString as a one-feature FeatureCollection
  * so MapLibre can consume it as a geojson source.
+ *
+ * When `stripWrapEdges` is true (coastline meshes), antimeridian stitch
+ * segments are removed first — see `stripDatelineWrapEdges`.
  */
 function meshToFeatureCollection(
   geometry: GeoJSON.MultiLineString | GeoJSON.LineString | null,
+  opts?: { stripWrapEdges?: boolean },
 ): GeoJSON.FeatureCollection {
-  if (!geometry) {
+  const cleaned = opts?.stripWrapEdges
+    ? stripDatelineWrapEdges(geometry)
+    : geometry;
+  if (!cleaned) {
     return { type: 'FeatureCollection', features: [] };
   }
   return {
@@ -167,7 +223,7 @@ function meshToFeatureCollection(
       {
         type: 'Feature',
         properties: {},
-        geometry,
+        geometry: cleaned,
       },
     ],
   };
@@ -207,7 +263,9 @@ export function getOfflineCoastlineGeoJson(): GeoJSON.FeatureCollection {
     landTopo as any,
     (landTopo as any).objects.land,
   ) as GeoJSON.MultiLineString;
-  cachedCoastlineGeo = meshToFeatureCollection(geometry);
+  cachedCoastlineGeo = meshToFeatureCollection(geometry, {
+    stripWrapEdges: true,
+  });
   return cachedCoastlineGeo;
 }
 
@@ -309,7 +367,11 @@ export async function loadHighDetailWorldGeo(): Promise<{
       landTopoHi.objects.land,
     ) as unknown as GeoJSON.FeatureCollection;
     const coastline = meshToFeatureCollection(
-      topojson.mesh(landTopoHi, landTopoHi.objects.land) as GeoJSON.MultiLineString,
+      topojson.mesh(
+        landTopoHi,
+        landTopoHi.objects.land,
+      ) as GeoJSON.MultiLineString,
+      { stripWrapEdges: true },
     );
     const borders = meshToFeatureCollection(
       topojson.mesh(
@@ -378,18 +440,19 @@ export function getOfflineCountryLayers(opts: {
           'interpolate',
           ['linear'],
           ['zoom'],
-          1, 0,
-          2.5, colors.borderOpacity * 0.55,
-          5, colors.borderOpacity,
-          10, colors.borderOpacity * 0.85,
+          1.2, 0,
+          2.0, colors.borderOpacity * 0.5,
+          3.5, colors.borderOpacity,
+          8, colors.borderOpacity * 0.95,
         ],
         'line-width': [
           'interpolate',
           ['linear'],
           ['zoom'],
-          2, colors.borderWidth * 0.5,
-          5, colors.borderWidth,
-          10, colors.borderWidth * 1.8,
+          2, colors.borderWidth * 0.6,
+          4, colors.borderWidth,
+          7, colors.borderWidth * 1.55,
+          11, colors.borderWidth * 2.2,
         ],
       },
     },
@@ -405,10 +468,12 @@ export function getOfflineCountryLayers(opts: {
           'interpolate',
           ['linear'],
           ['zoom'],
-          0, colors.coastlineWidth * 0.55,
-          3, colors.coastlineWidth,
-          6, colors.coastlineWidth * 1.4,
-          10, colors.coastlineWidth * 2.4,
+          0, colors.coastlineWidth * 0.7,
+          2, colors.coastlineWidth,
+          4, colors.coastlineWidth * 1.25,
+          7, colors.coastlineWidth * 1.85,
+          10, colors.coastlineWidth * 2.6,
+          13, colors.coastlineWidth * 3.2,
         ],
       },
     },

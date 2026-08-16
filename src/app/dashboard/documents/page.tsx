@@ -5,10 +5,11 @@ import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { useCollection } from '@/supabase/database';
 import { format as formatDate, differenceInDays } from 'date-fns';
-import { FileText, Users, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send, ShieldCheck, Table2, LayoutTemplate } from 'lucide-react';
+import { FileText, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send, ShieldCheck, Table2, LayoutTemplate, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -44,9 +45,18 @@ import {
   generateMCAOfficerTestimonial,
   generateProofOfServicePDF,
   generateSeaServiceBreakdownPDF,
+  generateCustomDocumentPDF,
   type TestimonialPDFFormat,
   type TestimonialPDFOutput,
 } from '@/lib/pdf-generator';
+import {
+  composeCustomDocumentFallback,
+  customDocumentNeedsSeaTime,
+  CUSTOM_DOCUMENT_PURPOSES,
+  getCustomDocumentPreset,
+  type CustomDocumentFacts,
+  type CustomDocumentInclude,
+} from '@/lib/custom-document';
 import { requestCaptainSignoff, notifyLinkedCaptain } from '@/lib/testimonial-signoff';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -68,14 +78,33 @@ interface CrewOption {
 }
 
 const DOCUMENT_TYPES = [
-  { value: 'testimonial', label: 'Sea service testimonial', icon: FileText },
-  { value: 'proof_of_service', label: 'Proof of Service', icon: ShieldCheck },
+  {
+    value: 'testimonial',
+    label: 'Sea service testimonial',
+    description: 'Official sea service for captain sign-off',
+    icon: FileText,
+  },
+  {
+    value: 'proof_of_service',
+    label: 'Proof of service',
+    description: 'Confirm employment and the period served',
+    icon: ShieldCheck,
+  },
   {
     value: 'sea_service_breakdown',
-    label: 'Sea service breakdown (reference)',
+    label: 'Sea service breakdown',
+    description: 'Day counts to fill other forms',
     icon: Table2,
   },
+  {
+    value: 'custom',
+    label: 'Custom document',
+    description: 'Employment, visa, or reference letter from this vessel’s records',
+    icon: Sparkles,
+  },
 ] as const;
+
+const INITIAL_CUSTOM_PRESET = getCustomDocumentPreset('employment');
 
 export default function DocumentsGeneratorPage() {
   const { user } = useUser();
@@ -138,6 +167,13 @@ export default function DocumentsGeneratorPage() {
   const [isSavingProofOfService, setIsSavingProofOfService] = useState(false);
   const [generatingProofOfServicePDF, setGeneratingProofOfServicePDF] = useState(false);
   const [generatingBreakdownPDF, setGeneratingBreakdownPDF] = useState(false);
+  const [generatingCustomPDF, setGeneratingCustomPDF] = useState(false);
+  const [customTitle, setCustomTitle] = useState(INITIAL_CUSTOM_PRESET.title);
+  const [customPurpose, setCustomPurpose] = useState<string>(INITIAL_CUSTOM_PRESET.value);
+  const [customInstructions, setCustomInstructions] = useState('');
+  const [customInclude, setCustomInclude] = useState<CustomDocumentInclude>(
+    INITIAL_CUSTOM_PRESET.include,
+  );
   const [leavePeriods, setLeavePeriods] = useState<Array<{ startDate: string; endDate: string }>>([]);
   const [leavePeriodsFromLogs, setLeavePeriodsFromLogs] = useState<Array<{ startDate: string; endDate: string; notes?: string }>>([]);
 
@@ -207,6 +243,10 @@ export default function DocumentsGeneratorPage() {
               firstName: profile.first_name ?? profile.firstName,
               lastName: profile.last_name ?? profile.lastName,
               role: profile.role ?? 'crew',
+              position: profile.position ?? null,
+              nationality: profile.nationality ?? null,
+              dischargeBookNumber: profile.discharge_book_number ?? profile.dischargeBookNumber ?? null,
+              dateOfBirth: profile.date_of_birth ?? profile.dateOfBirth ?? null,
             } as UserProfile,
           ])
         );
@@ -301,6 +341,16 @@ export default function DocumentsGeneratorPage() {
     }
     return templateHasDateRangedCalculation(activeFormTemplate.fields);
   }, [activeFormTemplate]);
+
+  const customNeedsSeaTime =
+    documentType === 'custom' && customDocumentNeedsSeaTime(customInclude);
+
+  const applyCustomPurpose = (purpose: string) => {
+    const preset = getCustomDocumentPreset(purpose);
+    setCustomPurpose(preset.value);
+    setCustomTitle(preset.title);
+    setCustomInclude(preset.include);
+  };
 
   useEffect(() => {
     if (!selectedCrewId || !currentUserProfile?.activeVesselId || !user?.id) {
@@ -974,6 +1024,153 @@ export default function DocumentsGeneratorPage() {
     }
   };
 
+  const buildCustomDocumentFacts = (): CustomDocumentFacts | null => {
+    if (!selectedCrew || !vessel || !currentUserProfile) return null;
+    const crewName =
+      [selectedCrew.profile.firstName, selectedCrew.profile.lastName].filter(Boolean).join(' ').trim() ||
+      selectedCrew.profile.username ||
+      'Crew member';
+    const generatedByName =
+      currentUserProfile.firstName && currentUserProfile.lastName
+        ? `${currentUserProfile.firstName} ${currentUserProfile.lastName}`
+        : currentUserProfile.email || 'Vessel manager';
+    const v = vessel as any;
+    const profile = selectedCrew.profile as UserProfile & { dateOfBirth?: string | null; date_of_birth?: string | null };
+    const category = getVesselCalculationCategory(vessel.type ?? null);
+    const usesAllOnboardDaysRule = isAllDaysExceptLeaveCountAsSea(category);
+    let seaTime: CustomDocumentFacts['seaTime'] = null;
+    let period: CustomDocumentFacts['period'] = null;
+    if (calculatedSeaTime && documentStartDate && documentEndDate) {
+      const standbyCap = Math.min(
+        calculatedSeaTime.standbyDays,
+        calculatedSeaTime.totalDays,
+        calculatedSeaTime.atSeaDays,
+      );
+      const seaServiceDays = usesAllOnboardDaysRule
+        ? calculatedSeaTime.atSeaDays
+        : calculatedSeaTime.underwayDays + standbyCap;
+      period = {
+        startDate: formatDate(documentStartDate, 'd MMM yyyy'),
+        endDate: formatDate(documentEndDate, 'd MMM yyyy'),
+      };
+      seaTime = {
+        totalDays: calculatedSeaTime.totalDays,
+        atSeaDays: calculatedSeaTime.atSeaDays,
+        underwayDays: calculatedSeaTime.underwayDays,
+        standbyDays: standbyCap,
+        yardDays: calculatedSeaTime.yardDays,
+        leaveDays: calculatedSeaTime.leaveDays,
+        atAnchorDays: calculatedSeaTime.atAnchorDays,
+        inPortDays: calculatedSeaTime.inPortDays,
+        seaServiceDays,
+        dataSourceLabel:
+          calculatedSeaTime.dataSource === 'crew' ? "Crew member's logs" : 'Vessel logs',
+        standbyPeriods: calculatedSeaTime.standbyPeriodsForPdf,
+      };
+    }
+    const formatAssign = (iso: string | null | undefined) => {
+      if (!iso) return null;
+      try {
+        return formatDate(new Date(iso.includes('T') ? iso : `${iso}T00:00:00`), 'd MMM yyyy');
+      } catch {
+        return iso;
+      }
+    };
+    return {
+      crew: {
+        name: crewName,
+        position: selectedCrew.profile.position ?? null,
+        email: selectedCrew.profile.email ?? null,
+        nationality: selectedCrew.profile.nationality ?? null,
+        dischargeBookNumber: selectedCrew.profile.dischargeBookNumber ?? null,
+        dateOfBirth: profile.dateOfBirth ?? profile.date_of_birth ?? null,
+      },
+      vessel: {
+        name: vessel.name,
+        type: vessel.type ?? null,
+        imo: v.imo ?? null,
+        officialNumber: v.officialNumber ?? v.official_number ?? null,
+        flag: v.flag ?? v.flag_state ?? null,
+        grossTonnage: v.gross_tonnage != null ? String(v.gross_tonnage) : v.grossTonnage != null ? String(v.grossTonnage) : null,
+        lengthM: v.length_m != null ? String(v.length_m) : null,
+        callSign: v.call_sign ?? v.callSign ?? null,
+        managementCompany: v.management_company ?? v.managementCompany ?? null,
+      },
+      assignment: {
+        startDate: formatAssign(selectedCrew.assignment.startDate),
+        endDate: formatAssign(selectedCrew.assignment.endDate),
+      },
+      period,
+      seaTime,
+      generatedBy: {
+        name: generatedByName,
+        email: currentUserProfile.email ?? null,
+        vesselRoleLabel: 'Vessel manager',
+      },
+    };
+  };
+
+  const handleDownloadCustomDocument = async () => {
+    if (!selectedCrew || !vessel || !currentUserProfile) {
+      toast({ title: 'Select a crew member', description: 'Pick who this document is about first.' });
+      return;
+    }
+    if (customNeedsSeaTime && !calculatedSeaTime) {
+      toast({
+        title: 'Calculate sea time',
+        description: 'This document includes sea-time figures. Pick dates and calculate first.',
+      });
+      return;
+    }
+    const facts = buildCustomDocumentFacts();
+    if (!facts) return;
+    const request = {
+      title: customTitle.trim(),
+      purpose: customPurpose,
+      instructions: customInstructions.trim(),
+      include: customInclude,
+    };
+    setGeneratingCustomPDF(true);
+    try {
+      let composed = composeCustomDocumentFallback(request, facts);
+      if (session?.access_token) {
+        try {
+          const res = await fetch('/api/custom-document/compose', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ request, facts }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.document?.title) {
+            composed = data.document;
+          }
+        } catch {
+          /* fallback already set */
+        }
+      }
+      await generateCustomDocumentPDF(
+        {
+          document: composed,
+          purpose: customPurpose,
+          facts,
+          include: customInclude,
+          vesselName: vessel.name,
+          generatedByName: facts.generatedBy.name,
+          generatedByEmail: facts.generatedBy.email,
+        },
+        'download',
+      );
+      toast({ title: 'Downloaded', description: 'Custom document generated from this vessel’s data.' });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message ?? 'Failed to generate document.', variant: 'destructive' });
+    } finally {
+      setGeneratingCustomPDF(false);
+    }
+  };
+
   const handleSendToCaptain = async () => {
     if (!selectedCrew || !activeVesselId || !documentStartDate || !documentEndDate || !calculatedSeaTime || !activeCaptain) {
       toast({ title: 'Error', description: 'Please select dates, calculate sea time, and ensure a captain is available.', variant: 'destructive' });
@@ -1280,12 +1477,9 @@ export default function DocumentsGeneratorPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Generator</h1>
-        <p className="text-muted-foreground">
-          Pick a <span className="text-foreground/90">document type</span> (including any{' '}
-          <span className="text-foreground/90">Form Builder</span> templates saved for this vessel), then (for sea service testimonials) a{' '}
-          <span className="text-foreground/90">PDF format</span>, then crew member and dates. Or jump to the{' '}
-          <span className="text-foreground/90">Form Builder</span> to scan a document and turn it into a reusable, fillable form.
+        <h1 className="text-2xl font-bold tracking-tight">Documents</h1>
+        <p className="text-sm text-muted-foreground">
+          Generate testimonials, proof of service, or a custom letter from this vessel’s crew and sea-time records.
         </p>
       </div>
 
@@ -1350,125 +1544,185 @@ export default function DocumentsGeneratorPage() {
         <TabsContent
           value="generator"
           forceMount
-          className="mt-6 space-y-6 data-[state=inactive]:hidden"
+          className="mt-6 space-y-5 data-[state=inactive]:hidden"
         >
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Document type
-            </CardTitle>
-            <CardDescription>Choose the type of document to generate.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Select
-              value={documentType}
-              onValueChange={(v) => {
-                setDocumentType(v);
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {DOCUMENT_TYPES.map((opt) => {
+          const selected = documentType === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => {
+                setDocumentType(opt.value);
                 setCalculatedSeaTime(null);
+                if (opt.value === 'custom') {
+                  applyCustomPurpose(customPurpose);
+                }
               }}
+              className={cn(
+                'rounded-xl border px-4 py-3 text-left transition-colors',
+                selected
+                  ? 'border-foreground bg-muted/60'
+                  : 'border-border hover:bg-muted/40',
+              )}
             >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select document type" />
-              </SelectTrigger>
-              <SelectContent>
-                {DOCUMENT_TYPES.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    <span className="flex items-center gap-2">
-                      <opt.icon className="h-4 w-4" />
-                      {opt.label}
-                    </span>
-                  </SelectItem>
-                ))}
-                {hasPremiumPlusTier && formTemplates.length > 0 && (
-                  <div className="mt-1 border-t border-border/60 pt-1">
-                    <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Form Builder
-                    </div>
-                    {formTemplates.map((t) => (
-                      <SelectItem key={t.id} value={`template:${t.id}`}>
-                        <span className="flex w-full items-center gap-2">
-                          <LayoutTemplate className="h-4 w-4 shrink-0" />
-                          <span className="truncate">{t.name}</span>
-                          <span className="ml-auto flex items-center gap-2 shrink-0 pl-2">
-                            <Badge
-                              variant="outline"
-                              className="h-5 rounded-md px-1.5 text-[10px] font-semibold border-amber-500/40 text-amber-600 dark:text-amber-400 bg-amber-500/10"
-                            >
-                              Form Builder
-                            </Badge>
-                            <span className="text-[10px] text-muted-foreground">
-                              Added {formatDate(new Date(t.createdAt), 'd MMM yyyy')}
-                            </span>
-                          </span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </div>
-                )}
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Crew member
-            </CardTitle>
-            <CardDescription>Select the crew member this document is for.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loadingCrew ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading crew…
+              <div className="flex items-center gap-2">
+                <opt.icon className="h-4 w-4 shrink-0" />
+                <span className="text-sm font-medium">{opt.label}</span>
               </div>
-            ) : (
-              <SearchableSelect
-                options={crewSelectOptions}
-                value={selectedCrewId}
-                onValueChange={(v) => {
-                  setSelectedCrewId(v);
-                  setCalculatedSeaTime(null);
-                  setLeavePeriods([]);
-                  setLeavePeriodsFromLogs([]);
-                }}
-                placeholder="Select crew member"
-                searchPlaceholder="Search by name or email…"
-              />
-            )}
-          </CardContent>
-        </Card>
+              <p className="mt-1.5 text-xs leading-snug text-muted-foreground">{opt.description}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      {hasPremiumPlusTier && formTemplates.length > 0 && (
+        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+          <span className="text-xs font-medium text-muted-foreground">Saved form</span>
+          <Select
+            value={documentType.startsWith('template:') ? documentType : 'none'}
+            onValueChange={(v) => {
+              if (v === 'none') {
+                setDocumentType('testimonial');
+              } else {
+                setDocumentType(v);
+              }
+              setCalculatedSeaTime(null);
+            }}
+          >
+            <SelectTrigger className="h-8 w-full rounded-lg text-xs sm:w-[280px]">
+              <SelectValue placeholder="Use a Form Builder template" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None — use a built-in type</SelectItem>
+              {formTemplates.map((t) => (
+                <SelectItem key={t.id} value={`template:${t.id}`}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-1.5 sm:max-w-md">
+        <Label className="text-xs">Crew member</Label>
+        {loadingCrew ? (
+          <div className="flex h-9 items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading crew…
+          </div>
+        ) : (
+          <SearchableSelect
+            options={crewSelectOptions}
+            value={selectedCrewId}
+            onValueChange={(v) => {
+              setSelectedCrewId(v);
+              setCalculatedSeaTime(null);
+              setLeavePeriods([]);
+              setLeavePeriodsFromLogs([]);
+            }}
+            placeholder="Select crew member"
+            searchPlaceholder="Search by name or email…"
+          />
+        )}
       </div>
 
       {selectedCrew && documentType === 'testimonial' && (
+        <div className="space-y-1.5">
+          <Label className="text-xs">PDF format</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              ['seajourney', 'SeaJourney'],
+              ['mca', 'MCA'],
+              ['amsa', 'AMSA 771'],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setSelectedNewDocFormat(id)}
+                className={cn(
+                  'rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                  selectedNewDocFormat === id
+                    ? 'border-foreground bg-muted font-medium'
+                    : 'border-border text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {selectedCrew && documentType === 'custom' && (
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Download className="h-5 w-5" />
-              PDF format
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-4 w-4" />
+              Letter type
             </CardTitle>
             <CardDescription>
-              Choose how the testimonial is laid out. This is saved with the document on the crew profile — downloads from the Crew page use this format (MCA, AMSA, or SeaJourney branded).
+              Pick the letter. We fill it from this crew member and vessel. Sea-time totals are only used when the type needs them.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Select
-              value={selectedNewDocFormat}
-              onValueChange={(v) => setSelectedNewDocFormat(v as TestimonialPDFFormat)}
-            >
-              <SelectTrigger className="w-full max-w-md rounded-xl">
-                <SelectValue placeholder="Select format" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="seajourney">SeaJourney</SelectItem>
-                <SelectItem value="mca">MCA</SelectItem>
-                <SelectItem value="amsa">AMSA (771)</SelectItem>
-              </SelectContent>
-            </Select>
+          <CardContent className="space-y-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {CUSTOM_DOCUMENT_PURPOSES.map((p) => {
+                const selected = customPurpose === p.value;
+                const needsDays = customDocumentNeedsSeaTime(p.include);
+                return (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => applyCustomPurpose(p.value)}
+                    className={cn(
+                      'rounded-xl border px-3 py-2.5 text-left transition-colors',
+                      selected
+                        ? 'border-foreground bg-muted/60'
+                        : 'border-border hover:bg-muted/40',
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium">{p.label}</span>
+                      {needsDays ? (
+                        <span className="text-[10px] text-muted-foreground">Needs dates</span>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-xs leading-snug text-muted-foreground">{p.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Note (optional)</Label>
+              <Textarea
+                value={customInstructions}
+                onChange={(e) => setCustomInstructions(e.target.value)}
+                placeholder="Addressee, extra line, or anything not already on file"
+                className="min-h-[72px]"
+              />
+            </div>
+            {selectedCrew && !customNeedsSeaTime && (
+              <Button
+                onClick={handleDownloadCustomDocument}
+                disabled={generatingCustomPDF}
+                className="rounded-xl"
+              >
+                {generatingCustomPDF ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Generating…
+                  </>
+                ) : (
+                  <>
+                    <Download className="mr-2 h-4 w-4" />
+                    Generate document
+                  </>
+                )}
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -1477,6 +1731,7 @@ export default function DocumentsGeneratorPage() {
         (documentType === 'testimonial' ||
           documentType === 'proof_of_service' ||
           documentType === 'sea_service_breakdown' ||
+          customNeedsSeaTime ||
           (activeFormTemplate && templateNeedsSeaTime)) && (
         <Card>
           <CardHeader>
@@ -1491,11 +1746,15 @@ export default function DocumentsGeneratorPage() {
                 ? 'Set the date range and calculate sea time, then save to the crew member’s profile or download.'
                 : documentType === 'sea_service_breakdown'
                   ? 'Pick the period you need for an external form, calculate, then download a one-page PDF with day counts. Nothing is saved to the crew profile.'
-                  : 'Set the date range, choose data source if the crew member has given access, then calculate sea time and save or generate.'}
+                  : documentType === 'custom'
+                    ? 'Calculate sea time for the period this letter should cover, then generate the document.'
+                    : 'Set the date range, choose data source if the crew member has given access, then calculate sea time and save or generate.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {(documentType === 'proof_of_service' || documentType === 'sea_service_breakdown') &&
+            {(documentType === 'proof_of_service' ||
+              documentType === 'sea_service_breakdown' ||
+              documentType === 'custom') &&
               proofOfServiceFullRange && (
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Quick select</Label>
@@ -1517,7 +1776,9 @@ export default function DocumentsGeneratorPage() {
                 </div>
               </div>
             )}
-            {(documentType === 'testimonial' || documentType === 'sea_service_breakdown') &&
+            {(documentType === 'testimonial' ||
+              documentType === 'sea_service_breakdown' ||
+              documentType === 'custom') &&
               availablePeriodsBetweenLeave.length > 0 && (
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Quick select: periods between leave</Label>
@@ -1633,6 +1894,11 @@ export default function DocumentsGeneratorPage() {
                 <>
                   <Clock className="mr-2 h-4 w-4" />
                   Calculate breakdown
+                </>
+              ) : documentType === 'custom' ? (
+                <>
+                  <Clock className="mr-2 h-4 w-4" />
+                  Calculate sea time
                 </>
               ) : (
                 <>
@@ -1839,6 +2105,25 @@ export default function DocumentsGeneratorPage() {
                           Reference only — not stored on the crew profile. Use the figures to fill other forms manually.
                         </p>
                       </div>
+                    )}
+                    {documentType === 'custom' && (
+                      <Button
+                        onClick={handleDownloadCustomDocument}
+                        disabled={generatingCustomPDF}
+                        className="rounded-xl"
+                      >
+                        {generatingCustomPDF ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Generating…
+                          </>
+                        ) : (
+                          <>
+                            <Download className="mr-2 h-4 w-4" />
+                            Generate document
+                          </>
+                        )}
+                      </Button>
                     )}
                     {documentType === 'proof_of_service' && (
                       <>

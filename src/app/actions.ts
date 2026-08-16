@@ -1,7 +1,7 @@
 'use server';
 
 import { createSupabaseServerClient } from '@/supabase/server';
-import type { SeaServiceRecord, UserProfile, Vessel, StateLog } from '@/lib/types';
+import type { SeaServiceRecord, UserProfile, Vessel, StateLog, PassageLog } from '@/lib/types';
 import { isWithinInterval, startOfDay, endOfDay, parse, differenceInDays, format, eachDayOfInterval } from 'date-fns';
 import { stripe } from '@/lib/stripe';
 import { pickCanonicalStripeSubscription } from '@/lib/stripe-subscription-helpers';
@@ -11,6 +11,10 @@ import { createClient } from '@supabase/supabase-js';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
 import { getSubscriptionTrialPeriodDaysForProduct } from '@/lib/stripe-checkout-trials';
+import {
+  buildTierPricingMapFromStripePrices,
+  FALLBACK_TIER_PRICING_GBP,
+} from '@/lib/subscription-tier-pricing';
 
 //
 // SUPABASE ADMIN CLIENT (server-only)
@@ -132,6 +136,37 @@ export async function getStripeProducts(
     throw new Error(
       `Failed to fetch prices: ${error?.message || 'Unknown error'}`,
     );
+  }
+}
+
+/**
+ * Admin revenue helper: monthly GBP by subscription_tier from live Stripe prices
+ * (crew + vessel products). Falls back to FALLBACK_TIER_PRICING_GBP on failure.
+ */
+export async function getSubscriptionTierPricingMap(): Promise<Record<string, number>> {
+  try {
+    const results = await Promise.allSettled([
+      getStripeProducts(false),
+      getStripeProducts(true),
+    ]);
+
+    const prices = results.flatMap((result, index) => {
+      if (result.status === 'fulfilled') return result.value;
+      console.error(
+        `[STRIPE] Failed to fetch ${index === 0 ? 'crew' : 'vessel'} prices:`,
+        result.reason,
+      );
+      return [];
+    });
+
+    if (prices.length === 0) {
+      return { ...FALLBACK_TIER_PRICING_GBP };
+    }
+
+    return buildTierPricingMapFromStripePrices(prices);
+  } catch (error) {
+    console.error('[STRIPE] Failed to build tier pricing map, using fallbacks:', error);
+    return { ...FALLBACK_TIER_PRICING_GBP };
   }
 }
 
@@ -322,6 +357,10 @@ export type SeaTimeReportData = {
   totalStandbyDays: number;
   stateLogs?: StateLog[]; // Individual state logs for detailed export
   watchDates?: string[]; // Dates when user was on watch (as array for serialization)
+  /** Passage logbook rows included for Master Doc (and any future combined exports). */
+  passageLogs?: PassageLog[];
+  /** Inclusive export window (YYYY-MM-DD) when known. */
+  exportPeriod?: { from: string; to: string };
 };
 
 export async function generateSeaTimeReportData(
@@ -362,6 +401,7 @@ export async function generateSeaTimeReportData(
     subscriptionTier: userProfileData.subscription_tier || 'free',
     subscriptionStatus: userProfileData.subscription_status || 'inactive',
     registrationDate: userProfileData.registration_date || userProfileData.created_at || new Date().toISOString(),
+    startDate: userProfileData.start_date || null,
   };
 
   // Build query for state logs - use admin client for server actions
@@ -378,6 +418,10 @@ export async function generateSeaTimeReportData(
     const startDateStr = dateRange.from.toISOString().split('T')[0];
     const endDateStr = dateRange.to.toISOString().split('T')[0];
     logsQuery = logsQuery.gte('date', startDateStr).lte('date', endDateStr);
+    // Optional vessel scope (used by Master Doc: vessel + full date continuum)
+    if (vesselId) {
+      logsQuery = logsQuery.eq('vessel_id', vesselId);
+    }
   }
 
   const { data: logsData, error: logsError } = await logsQuery;
@@ -405,6 +449,8 @@ export async function generateSeaTimeReportData(
     .eq('crew_user_id', userId);
 
   if (filterType === 'vessel' && vesselId) {
+    leavePeriodsQuery = leavePeriodsQuery.eq('vessel_id', vesselId);
+  } else if (vesselId) {
     leavePeriodsQuery = leavePeriodsQuery.eq('vessel_id', vesselId);
   }
 
@@ -452,6 +498,9 @@ export async function generateSeaTimeReportData(
       const endDateStr = dateRange.to.toISOString().split('T')[0];
       watchQuery = watchQuery.gte('start_time', `${startDateStr}T00:00:00`)
                              .lte('start_time', `${endDateStr}T23:59:59`);
+      if (vesselId) {
+        watchQuery = watchQuery.eq('vessel_id', vesselId);
+      }
     }
     
     const { data: watchLogs } = await watchQuery;
@@ -488,7 +537,7 @@ export async function generateSeaTimeReportData(
         filled.push({
           id: `fill-${dateStr}`,
           userId,
-          vesselId: '',
+          vesselId: vesselId || '',
           state: '' as StateLog['state'],
           date: dateStr,
           isPartOfActivePassage: false,
@@ -502,24 +551,52 @@ export async function generateSeaTimeReportData(
   }
 
   if (stateLogs.length === 0) {
+    let vesselDetailsEmpty: Vessel | undefined;
+    if (vesselId) {
+      const { data: v } = await supabaseAdmin.from('vessels').select('*').eq('id', vesselId).maybeSingle();
+      if (v) vesselDetailsEmpty = mapVesselRow(v);
+    }
+    const passageLogsEmpty = await fetchPassageLogsForExport({
+      userId,
+      role: userProfile.role,
+      filterType: vesselId ? 'vessel' : filterType,
+      vesselId,
+      dateRange:
+        filterType === 'date_range' && dateRange
+          ? dateRange
+          : undefined,
+    });
     return {
       userProfile,
       serviceRecords: [],
-      vesselDetails: undefined,
+      vesselDetails: vesselDetailsEmpty,
       totalDays: 0,
       totalSeaDays: 0,
       totalStandbyDays: 0,
       stateLogs: stateLogsForExport,
       watchDates: Array.from(watchDates),
+      passageLogs: passageLogsEmpty,
+      exportPeriod:
+        filterType === 'date_range' && dateRange
+          ? {
+              from: format(startOfDay(dateRange.from), 'yyyy-MM-dd'),
+              to: format(
+                startOfDay(dateRange.to > new Date() ? new Date() : dateRange.to),
+                'yyyy-MM-dd',
+              ),
+            }
+          : undefined,
     };
   }
 
   // Fetch vessels to get vessel names - use admin client for server actions
-  const vesselIds = [...new Set(stateLogs.map(log => log.vesselId))];
-  const { data: vesselsData, error: vesselsError } = await supabaseAdmin
-    .from('vessels')
-    .select('*')
-    .in('id', vesselIds);
+  const vesselIds = [...new Set(stateLogs.map(log => log.vesselId).filter(Boolean))];
+  const { data: vesselsData, error: vesselsError } = vesselIds.length
+    ? await supabaseAdmin
+        .from('vessels')
+        .select('*')
+        .in('id', vesselIds)
+    : { data: [] as any[], error: null };
 
   if (vesselsError) {
     throw new Error(`Failed to fetch vessels: ${vesselsError.message}`);
@@ -660,18 +737,39 @@ export async function generateSeaTimeReportData(
   const totalSeaDays = serviceRecords.reduce((sum, record) => sum + (record.at_sea_days || 0), 0);
   const totalStandbyDays = serviceRecords.reduce((sum, record) => sum + (record.standby_days || 0), 0);
 
-  // Get vessel details if filtering by vessel
+  // Get vessel details when a vessel is in scope
   let vesselDetails: Vessel | undefined;
-  if (filterType === 'vessel' && vesselId) {
+  if (vesselId) {
+    const vessel = vesselsMap.get(vesselId) || (await supabaseAdmin.from('vessels').select('*').eq('id', vesselId).maybeSingle()).data;
+    if (vessel) {
+      vesselDetails = mapVesselRow(vessel);
+      if (!vesselsMap.has(vesselId)) vesselsMap.set(vesselId, vessel);
+    }
+  } else if (filterType === 'vessel' && vesselId) {
     const vessel = vesselsMap.get(vesselId);
     if (vessel) {
-      vesselDetails = {
-        id: vessel.id,
-        name: vessel.name,
-        type: vessel.type,
-        officialNumber: vessel.imo || undefined,
-      };
+      vesselDetails = mapVesselRow(vessel);
     }
+  }
+
+  const passageLogs = await fetchPassageLogsForExport({
+    userId,
+    role: userProfile.role,
+    filterType: vesselId ? 'vessel' : filterType,
+    vesselId,
+    dateRange: filterType === 'date_range' && dateRange ? dateRange : undefined,
+  });
+
+  let exportPeriod: { from: string; to: string } | undefined;
+  if (filterType === 'date_range' && dateRange) {
+    const today = startOfDay(new Date());
+    const rangeEnd = dateRange.to > today ? today : dateRange.to;
+    exportPeriod = {
+      from: format(startOfDay(dateRange.from), 'yyyy-MM-dd'),
+      to: format(startOfDay(rangeEnd), 'yyyy-MM-dd'),
+    };
+  } else if (stateLogsForExport.length > 0) {
+    exportPeriod = exportPeriodFromLogs(stateLogsForExport);
   }
 
   return {
@@ -683,5 +781,194 @@ export async function generateSeaTimeReportData(
     totalStandbyDays,
     stateLogs: stateLogsForExport, // All dates in range when date_range filter; placeholders for days with no state
     watchDates: Array.from(watchDates), // Convert Set to Array for serialization
+    passageLogs,
+    exportPeriod,
   };
+}
+
+function exportPeriodFromLogs(
+  logs: StateLog[],
+): { from: string; to: string } | undefined {
+  if (!logs.length) return undefined;
+  const dates = logs.map((l) => l.date).sort();
+  return { from: dates[0], to: dates[dates.length - 1] };
+}
+
+function mapVesselRow(vessel: Record<string, any>): Vessel {
+  return {
+    id: vessel.id,
+    name: vessel.name || 'Unknown Vessel',
+    type: vessel.type || '',
+    officialNumber: vessel.official_number || vessel.imo || undefined,
+    imo: vessel.imo || undefined,
+    length_m: vessel.length_m ?? null,
+    beam: vessel.beam ?? null,
+    draft: vessel.draft ?? null,
+    gross_tonnage: vessel.gross_tonnage ?? null,
+    number_of_crew: vessel.number_of_crew ?? null,
+    build_year: vessel.build_year ?? null,
+    flag: vessel.flag ?? vessel.flag_state ?? null,
+    call_sign: vessel.call_sign ?? null,
+    mmsi: vessel.mmsi ?? null,
+    description: vessel.description ?? null,
+    management_company: vessel.management_company ?? null,
+    company_address: vessel.company_address ?? null,
+    company_contact: vessel.company_contact ?? null,
+    aisTrackingEnabled: vessel.ais_tracking_enabled ?? false,
+    aisLastSyncAt: vessel.ais_last_sync_at ?? null,
+    aisLastNavStatus: vessel.ais_last_nav_status ?? null,
+    aisLastSpeed: vessel.ais_last_speed ?? null,
+    aisLastPositionAt: vessel.ais_last_position_at ?? null,
+  };
+}
+
+function transformPassageRow(row: Record<string, any>): PassageLog {
+  return {
+    id: row.id,
+    crew_id: row.crew_id,
+    vessel_id: row.vessel_id,
+    start_time: row.start_time,
+    end_time: row.end_time,
+    departure_port: row.departure_port,
+    departure_country: row.departure_country,
+    arrival_port: row.arrival_port,
+    arrival_country: row.arrival_country,
+    departure_lat: row.departure_lat,
+    departure_lon: row.departure_lon,
+    arrival_lat: row.arrival_lat,
+    arrival_lon: row.arrival_lon,
+    distance_nm: row.distance_nm,
+    engine_hours: row.engine_hours,
+    avg_speed_knots: row.avg_speed_knots,
+    passage_type: row.passage_type,
+    weather_summary: row.weather_summary,
+    sea_state: row.sea_state,
+    notes: row.notes,
+    source: row.source,
+    ais_fingerprint: row.ais_fingerprint ?? null,
+    track_data: row.track_data,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+async function fetchPassageLogsForExport(opts: {
+  userId: string;
+  role: string;
+  filterType: 'vessel' | 'date_range';
+  vesselId?: string;
+  dateRange?: { from: Date; to: Date };
+}): Promise<PassageLog[]> {
+  const { userId, role, filterType, vesselId, dateRange } = opts;
+  let query = supabaseAdmin.from('passage_logs').select('*');
+
+  if (filterType === 'vessel' && vesselId) {
+    query = query.eq('vessel_id', vesselId);
+    // Crew: only their own passages on that vessel. Vessel accounts: all on vessel.
+    if (String(role).toLowerCase() !== 'vessel' && String(role).toLowerCase() !== 'admin') {
+      query = query.eq('crew_id', userId);
+    }
+  } else {
+    query = query.eq('crew_id', userId);
+  }
+
+  if (dateRange) {
+    const startIso = startOfDay(dateRange.from).toISOString();
+    const endIso = endOfDay(
+      dateRange.to > new Date() ? new Date() : dateRange.to,
+    ).toISOString();
+    // Overlap: passage starts before range end AND ends after range start
+    query = query.lte('start_time', endIso).gte('end_time', startIso);
+  }
+
+  const { data, error } = await query.order('start_time', { ascending: true });
+  if (error) {
+    console.warn('[generateSeaTimeReportData] passage logs fetch failed', error);
+    return [];
+  }
+  return (data || []).map(transformPassageRow);
+}
+
+/**
+ * Master Doc: full vessel history from vessel/account start through today —
+ * daily states, service periods, and passage logbook (with track points).
+ */
+export async function generateMasterDocReportData(
+  userId: string,
+  vesselId: string,
+): Promise<SeaTimeReportData> {
+  const { data: profile } = await supabaseAdmin
+    .from('users')
+    .select('id, role, start_date')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const { data: vessel } = await supabaseAdmin
+    .from('vessels')
+    .select('id, created_at, vessel_manager_id')
+    .eq('id', vesselId)
+    .maybeSingle();
+
+  if (!vessel) {
+    throw new Error('Vessel not found');
+  }
+
+  const role = String(profile?.role || '').toLowerCase();
+  const isVesselAccount =
+    role === 'vessel' || role === 'admin' || vessel.vessel_manager_id === userId;
+  const candidates: string[] = [];
+
+  if (profile?.start_date && isVesselAccount) {
+    candidates.push(String(profile.start_date).slice(0, 10));
+  }
+
+  const { data: assignments } = await supabaseAdmin
+    .from('vessel_assignments')
+    .select('start_date')
+    .eq('vessel_id', vesselId)
+    .eq('user_id', userId)
+    .order('start_date', { ascending: true })
+    .limit(1);
+  if (assignments?.[0]?.start_date) {
+    candidates.push(String(assignments[0].start_date).slice(0, 10));
+  }
+
+  if (isVesselAccount) {
+    const { data: anyAssign } = await supabaseAdmin
+      .from('vessel_assignments')
+      .select('start_date')
+      .eq('vessel_id', vesselId)
+      .order('start_date', { ascending: true })
+      .limit(1);
+    if (anyAssign?.[0]?.start_date) {
+      candidates.push(String(anyAssign[0].start_date).slice(0, 10));
+    }
+  }
+
+  let logsQuery = supabaseAdmin
+    .from('daily_state_logs')
+    .select('date')
+    .eq('vessel_id', vesselId)
+    .order('date', { ascending: true })
+    .limit(1);
+  if (!isVesselAccount) {
+    logsQuery = logsQuery.eq('user_id', userId);
+  }
+  const { data: earliestLogs } = await logsQuery;
+  if (earliestLogs?.[0]?.date) {
+    candidates.push(String(earliestLogs[0].date).slice(0, 10));
+  }
+
+  if (vessel.created_at) {
+    candidates.push(String(vessel.created_at).slice(0, 10));
+  }
+
+  const sorted = candidates
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort();
+  const fromStr = sorted[0] || format(new Date(), 'yyyy-MM-dd');
+  const to = startOfDay(new Date());
+  const from = startOfDay(parse(fromStr, 'yyyy-MM-dd', new Date()));
+
+  return generateSeaTimeReportData(userId, 'date_range', vesselId, { from, to });
 }
