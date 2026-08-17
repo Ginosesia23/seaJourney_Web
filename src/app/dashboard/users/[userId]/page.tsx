@@ -289,6 +289,7 @@ export default function AdminUserDetailPage() {
             target={target}
             vesselName={vesselName}
             vesselSource={vesselSource}
+            currentUserId={user?.id}
           />
         </TabsContent>
         <TabsContent value="calendar" className="mt-4">

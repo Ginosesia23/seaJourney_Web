@@ -75,6 +75,7 @@ type AdminUserRow = {
   latestStateAt: string | null;
   /** null = auth status not yet loaded, true/false once known. */
   emailConfirmed: boolean | null;
+  isDisabled: boolean | null;
 };
 
 const ROLE_FILTERS: Array<{ value: string; label: string }> = [
@@ -246,6 +247,7 @@ export default function AdminUserLookupPage() {
           latestState: latest?.state ?? null,
           latestStateAt: latest?.at ?? null,
           emailConfirmed: null,
+          isDisabled: null,
         };
       });
 
@@ -264,17 +266,23 @@ export default function AdminUserLookupPage() {
         });
         if (res.ok) {
           const json = (await res.json()) as {
-            users: Array<{ id: string; isConfirmed: boolean }>;
+            users: Array<{ id: string; isConfirmed: boolean; isDisabled?: boolean }>;
           };
           const confirmedById = new Map<string, boolean>();
-          for (const u of json.users ?? [])
+          const disabledById = new Map<string, boolean>();
+          for (const u of json.users ?? []) {
             confirmedById.set(u.id, u.isConfirmed);
+            disabledById.set(u.id, Boolean(u.isDisabled));
+          }
           setRows((prev) =>
             prev.map((r) => ({
               ...r,
               emailConfirmed: confirmedById.has(r.id)
                 ? confirmedById.get(r.id) ?? false
                 : r.emailConfirmed,
+              isDisabled: disabledById.has(r.id)
+                ? disabledById.get(r.id) ?? false
+                : r.isDisabled,
             })),
           );
         } else {
@@ -528,7 +536,14 @@ export default function AdminUserLookupPage() {
                       >
                         <TableCell>
                           <div className="flex flex-col">
-                            <span className="font-medium">{fullName}</span>
+                            <span className="inline-flex items-center gap-1.5 font-medium">
+                              {fullName}
+                              {r.isDisabled ? (
+                                <Badge variant="destructive" className="text-[10px]">
+                                  Disabled
+                                </Badge>
+                              ) : null}
+                            </span>
                             {r.username && (
                               <span className="text-xs text-muted-foreground">
                                 @{r.username}

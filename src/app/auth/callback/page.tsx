@@ -249,6 +249,22 @@ function AuthCallbackInner() {
                   console.log('[AUTH CALLBACK] User record already exists in users table');
                   profileCreated = true;
                 }
+
+                const promoCode = authUser.user_metadata?.promoCode;
+                if (profileCreated && promoCode && session.access_token) {
+                  try {
+                    await fetch('/api/promo-codes/redeem', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${session.access_token}`,
+                      },
+                      body: JSON.stringify({ code: promoCode }),
+                    });
+                  } catch (promoErr) {
+                    console.warn('[AUTH CALLBACK] Promo redeem failed:', promoErr);
+                  }
+                }
               } else {
                 console.error('[AUTH CALLBACK] No auth user returned from getUser()');
               }

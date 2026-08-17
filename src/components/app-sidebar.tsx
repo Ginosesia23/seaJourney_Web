@@ -45,6 +45,9 @@ import {
   Radar,
   ToggleLeft,
   Flag,
+  Activity,
+  Wallet,
+  TicketPercent,
 } from "lucide-react"
 
 import {
@@ -185,7 +188,9 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     hideForRoles: ['crew', 'captain', 'vessel'],
     items: [
       { href: "/dashboard/revenue", label: "Revenue overview", icon: DollarSign, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/spending", label: "Spending & profit", icon: Wallet, requiredRole: "admin", disabled: false },
       { href: "/dashboard/crew-subscriptions", label: "Crew plans", icon: CreditCard, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/partner-codes", label: "Partner codes", icon: TicketPercent, requiredRole: "admin", disabled: false },
       { href: "/dashboard/vessel-subscriptions", label: "Vessel plans", icon: Ship, requiredRole: "admin", disabled: false },
       { href: "/dashboard/ad-revenue-tracking", label: "Ads tracking", icon: Megaphone, requiredRole: "admin", disabled: false },
     ]
@@ -195,6 +200,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     hideForRoles: ['crew', 'captain', 'vessel'],
     items: [
       { href: "/dashboard/platform-analytics", label: "Platform overview", icon: BarChart3, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/posthog", label: "PostHog", icon: Activity, requiredRole: "admin", disabled: false },
       { href: "/dashboard/users", label: "User lookup", icon: UserSearch, requiredRole: "admin", disabled: false },
       { href: "/dashboard/crew-analytics", label: "Crew analytics", icon: Users, requiredRole: "admin", disabled: false },
       { href: "/dashboard/login-activity", label: "Login activity", icon: LogIn, requiredRole: "admin", disabled: false },

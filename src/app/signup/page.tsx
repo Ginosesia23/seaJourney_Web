@@ -40,6 +40,19 @@ const signupSchema = z.object({
     message:
       'You must agree to the Terms & Conditions and Privacy Policy to create an account.',
   }),
+  promoCode: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(''))
+    .refine(
+      (val) => {
+        const code = (val || '').trim();
+        if (!code) return true;
+        return /^[A-Za-z0-9][A-Za-z0-9-]{2,31}$/.test(code);
+      },
+      { message: 'Use 3–32 letters, numbers, or hyphens.' },
+    ),
 });
 
 type SignupFormValues = z.infer<typeof signupSchema>;
@@ -116,6 +129,13 @@ function SignupPageInner() {
 
   const redirectParam = searchParams.get('redirect');
   const planParam = searchParams.get('plan');
+  const codeParam = searchParams.get('code');
+  const [promoPreview, setPromoPreview] = useState<{
+    companyName: string;
+    rewardDays: number;
+    rewardTier: string;
+  } | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
@@ -127,6 +147,7 @@ function SignupPageInner() {
       lastName: '',
       position: '',
       agreeToTerms: false,
+      promoCode: (codeParam || '').trim().toUpperCase(),
     },
   });
 
@@ -139,6 +160,61 @@ function SignupPageInner() {
       }
     }
   }, [user, isUserLoading, router, redirectParam]);
+
+  const promoCodeWatch = form.watch('promoCode');
+
+  useEffect(() => {
+    if (codeParam) {
+      form.setValue('promoCode', codeParam.trim().toUpperCase());
+    }
+  }, [codeParam, form]);
+
+  useEffect(() => {
+    const code = (promoCodeWatch || '').trim();
+    if (!code) {
+      setPromoPreview(null);
+      form.clearErrors('promoCode');
+      return;
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9-]{2,31}$/.test(code)) {
+      setPromoPreview(null);
+      return;
+    }
+
+    let cancelled = false;
+    setPromoChecking(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/promo-codes/validate?code=${encodeURIComponent(code)}`,
+        );
+        const json = await res.json();
+        if (cancelled) return;
+        if (json.valid) {
+          setPromoPreview({
+            companyName: json.companyName,
+            rewardDays: json.rewardDays,
+            rewardTier: json.rewardTier,
+          });
+          form.clearErrors('promoCode');
+        } else {
+          setPromoPreview(null);
+          form.setError('promoCode', {
+            message: json.error || 'Invalid code',
+          });
+        }
+      } catch {
+        if (!cancelled) setPromoPreview(null);
+      } finally {
+        if (!cancelled) setPromoChecking(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [promoCodeWatch, form]);
 
   const handleSignup = async (data: SignupFormValues) => {
     setIsLoading(true);
@@ -153,6 +229,22 @@ function SignupPageInner() {
         return;
       }
 
+      const promoCode = (data.promoCode || '').trim().toUpperCase();
+
+      if (promoCode) {
+        const check = await fetch(
+          `/api/promo-codes/validate?code=${encodeURIComponent(promoCode)}`,
+        );
+        const checkJson = await check.json();
+        if (!checkJson.valid) {
+          form.setError('promoCode', {
+            message: checkJson.error || 'Invalid code',
+          });
+          setIsLoading(false);
+          return;
+        }
+      }
+
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
@@ -162,6 +254,7 @@ function SignupPageInner() {
             firstName: data.firstName,
             lastName: data.lastName,
             position: data.position,
+            ...(promoCode ? { promoCode } : {}),
           },
           emailRedirectTo: `${window.location.origin}/auth/confirm`,
         },
@@ -214,6 +307,7 @@ function SignupPageInner() {
             lastName: data.lastName,
             position: data.position,
             role: 'crew',
+            ...(promoCode ? { promoCode } : {}),
           }),
         });
 
@@ -238,15 +332,18 @@ function SignupPageInner() {
         toast({
           title: 'Check Your Email',
           description:
-            'We sent you a confirmation email. Please verify your email address to complete signup.',
+            promoPreview
+              ? `We sent a confirmation email. After you verify, you'll get ${promoPreview.rewardDays} days of ${promoPreview.rewardTier} from ${promoPreview.companyName}.`
+              : 'We sent you a confirmation email. Please verify your email address to complete signup.',
           variant: 'default',
         });
         router.push('/login');
       } else {
         toast({
           title: 'Account Created!',
-          description:
-            'Welcome to SeaJourney! Your account has been successfully created.',
+          description: promoPreview
+            ? `Welcome to SeaJourney — ${promoPreview.rewardDays} days of ${promoPreview.rewardTier} courtesy of ${promoPreview.companyName}.`
+            : 'Welcome to SeaJourney! Your account has been successfully created.',
         });
 
         let redirectUrl = redirectParam || '/offers';
@@ -488,6 +585,44 @@ function SignupPageInner() {
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="promoCode"
+              render={({ field, fieldState }) => (
+                <FormItem className="space-y-1.5">
+                  <FormLabel className={wkLabelCls}>
+                    Partner code{' '}
+                    <span className="font-normal opacity-70">(optional)</span>
+                  </FormLabel>
+                  <FormControl>
+                    <input
+                      placeholder="e.g. ACADEMY2026"
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      aria-invalid={fieldState.invalid || undefined}
+                      className={wkInputCls}
+                      {...field}
+                      onChange={(e) =>
+                        field.onChange(e.target.value.toUpperCase())
+                      }
+                    />
+                  </FormControl>
+                  {promoChecking && (
+                    <p className="text-xs" style={{ color: 'var(--wk-text-muted)' }}>
+                      Checking code…
+                    </p>
+                  )}
+                  {promoPreview && !promoChecking && (
+                    <p className="text-xs" style={{ color: 'var(--wk-accent)' }}>
+                      {promoPreview.rewardDays} days of {promoPreview.rewardTier}{' '}
+                      from {promoPreview.companyName}
+                    </p>
+                  )}
+                  <FormMessage className="wk-error" />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}

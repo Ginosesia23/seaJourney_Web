@@ -7,6 +7,7 @@ import { CartProvider } from '@/context/cart-context';
 import { ThemeProvider } from '@/context/theme-provider';
 import { SupabaseProvider } from '@/supabase';
 import { MainSiteThemeWrapper } from '@/components/main-site-theme-wrapper';
+import { PostHogProvider } from '@/components/providers/posthog-provider';
 
 export const metadata: Metadata = {
   title: 'SeaJourney - Seatime Tracker for Maritime Professionals',
@@ -61,9 +62,11 @@ export default function RootLayout({
         >
           <MainSiteThemeWrapper>
             <SupabaseProvider>
-              <CartProvider>
-                {children}
-              </CartProvider>
+              <PostHogProvider>
+                <CartProvider>
+                  {children}
+                </CartProvider>
+              </PostHogProvider>
             </SupabaseProvider>
           </MainSiteThemeWrapper>
         </ThemeProvider>

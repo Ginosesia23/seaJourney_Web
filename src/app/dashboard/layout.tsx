@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { useUser } from '@/supabase';
+import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { hasActiveSubscription as checkActiveSubscription } from '@/supabase/database/subscription-helpers';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
@@ -20,10 +20,12 @@ import type { UserProfile } from '@/lib/types';
 
 function DashboardContent({ children }: { children: React.ReactNode }) {
   const { user, isUserLoading } = useUser();
+  const { supabase } = useSupabase();
   const router = useRouter();
   const pathname = usePathname();
   const { theme } = useTheme();
   const redirectingRef = useRef(false);
+  const expiredCompRef = useRef(false);
   const {
     isRouteEnabled,
     isLoading: isFlagsLoading,
@@ -40,6 +42,26 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   // This ensures we're reading from the correct Supabase field (subscription_status)
   const hasActiveSubscription = checkActiveSubscription(userProfile);
   const isLoading = isUserLoading || isProfileLoading;
+
+  useEffect(() => {
+    if (!user || !userProfile || expiredCompRef.current) return;
+    const stripeId = (userProfile as { stripe_subscription_id?: string | null })
+      .stripe_subscription_id;
+    const periodEnd = (userProfile as { current_period_end?: string | null })
+      .current_period_end;
+    if (stripeId || !periodEnd) return;
+    if (new Date(periodEnd).getTime() > Date.now()) return;
+    expiredCompRef.current = true;
+    void (async () => {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+      await fetch('/api/users/expire-comp-grant', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    })();
+  }, [user, userProfile, supabase]);
   
   // Debug: Log the actual data structure to verify we're reading correctly
 useEffect(() => {

@@ -64,12 +64,14 @@ export async function GET(req: NextRequest) {
     // state for every account. Heavier than a single getUserById, so this
     // mode is opt-in via `?list=all`.
     if (listMode) {
-      const summary: Array<{
+        const summary: Array<{
         id: string;
         email: string | null;
         emailConfirmedAt: string | null;
         lastSignInAt: string | null;
+        bannedUntil: string | null;
         isConfirmed: boolean;
+        isDisabled: boolean;
       }> = [];
       const perPage = 1000;
       let page = 1;
@@ -87,12 +89,16 @@ export async function GET(req: NextRequest) {
         }
         const users = data?.users ?? [];
         for (const u of users) {
+          const bannedUntil = (u as { banned_until?: string | null }).banned_until ?? null;
+          const isDisabled = Boolean(bannedUntil && new Date(bannedUntil) > new Date());
           summary.push({
             id: u.id,
             email: u.email ?? null,
             emailConfirmedAt: u.email_confirmed_at ?? null,
             lastSignInAt: u.last_sign_in_at ?? null,
+            bannedUntil,
             isConfirmed: Boolean(u.email_confirmed_at),
+            isDisabled,
           });
         }
         if (users.length < perPage) break;

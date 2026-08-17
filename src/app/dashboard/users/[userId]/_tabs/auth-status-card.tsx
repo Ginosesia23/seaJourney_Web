@@ -4,12 +4,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import {
   AlertTriangle,
+  Ban,
   CheckCircle2,
   Loader2,
   Mail,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
+  Unlock,
 } from 'lucide-react';
 
 import {
@@ -21,10 +24,22 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { toast } from '@/hooks/use-toast';
 import { useSupabase } from '@/supabase';
 import { cn } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
 
 type AuthStatus = {
   email: string | null;
@@ -37,12 +52,26 @@ type AuthStatus = {
   isConfirmed: boolean;
 };
 
-export function AuthStatusCard({ userId }: { userId: string }) {
+export function AuthStatusCard({
+  userId,
+  targetRole,
+  isSelf,
+}: {
+  userId: string;
+  targetRole: string;
+  isSelf: boolean;
+}) {
   const { supabase } = useSupabase();
+  const router = useRouter();
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isResending, setIsResending] = useState(false);
+  const [isUpdatingAccess, setIsUpdatingAccess] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [disableOpen, setDisableOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState('');
 
   const authedFetch = useCallback(
     async (input: RequestInfo, init?: RequestInit) => {
@@ -121,6 +150,83 @@ export function AuthStatusCard({ userId }: { userId: string }) {
     }
   }, [authedFetch, load, userId]);
 
+  const locked = isSelf || targetRole.toLowerCase() === 'admin';
+
+  const handleSetDisabled = useCallback(
+    async (disabled: boolean) => {
+      setIsUpdatingAccess(true);
+      try {
+        const res = await authedFetch('/api/admin/users/account', {
+          method: 'PATCH',
+          body: JSON.stringify({ userId, disabled }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            title: disabled ? 'Could not disable account' : 'Could not enable account',
+            description: json?.error || 'Please try again.',
+            variant: 'destructive',
+          });
+          return;
+        }
+        toast({
+          title: disabled ? 'Account disabled' : 'Account enabled',
+          description: disabled
+            ? 'They can no longer sign in. Existing sessions were signed out.'
+            : 'They can sign in again.',
+        });
+        setDisableOpen(false);
+        void load();
+      } catch (err) {
+        toast({
+          title: 'Update failed',
+          description: err instanceof Error ? err.message : 'Unknown error',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsUpdatingAccess(false);
+      }
+    },
+    [authedFetch, load, userId],
+  );
+
+  const handleDelete = useCallback(async () => {
+    setIsDeleting(true);
+    try {
+      const res = await authedFetch('/api/admin/users/account', {
+        method: 'DELETE',
+        body: JSON.stringify({ userId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          title: 'Could not delete account',
+          description: json?.error || 'Please try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      toast({
+        title: 'Account deleted',
+        description:
+          json.warning ||
+          (json.profileAction === 'anonymised'
+            ? 'Sign-in was removed. The profile was anonymised because related records still exist.'
+            : 'This user can no longer sign in.'),
+      });
+      setDeleteOpen(false);
+      router.push('/dashboard/users');
+    } catch (err) {
+      toast({
+        title: 'Delete failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [authedFetch, router, userId]);
+
   if (isLoading) {
     return (
       <Card className="rounded-2xl">
@@ -173,9 +279,11 @@ export function AuthStatusCard({ userId }: { userId: string }) {
             Authentication
           </CardTitle>
           <CardDescription>
-            {confirmed
-              ? 'This user has confirmed their email and can sign in.'
-              : 'This user has NOT confirmed their email — they cannot sign in until they do.'}
+            {banned
+              ? 'This account is disabled and cannot sign in.'
+              : confirmed
+                ? 'This user has confirmed their email and can sign in.'
+                : 'This user has NOT confirmed their email — they cannot sign in until they do.'}
           </CardDescription>
         </div>
         <StatusBadge confirmed={confirmed} banned={banned} />
@@ -229,7 +337,7 @@ export function AuthStatusCard({ userId }: { userId: string }) {
           </Field>
 
           {banned && (
-            <Field label="Banned until">
+            <Field label="Disabled until">
               <span className="font-medium text-destructive">
                 {fmtDateTime(status.bannedUntil!)}
               </span>
@@ -269,7 +377,131 @@ export function AuthStatusCard({ userId }: { userId: string }) {
             </div>
           </div>
         )}
+
+        <div className="rounded-lg border border-destructive/20 p-3">
+          <p className="text-sm font-medium">Account access</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Disable blocks sign-in and signs them out. Delete removes the login; related
+            sea-time records may keep an anonymised profile.
+          </p>
+          {locked ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {isSelf
+                ? 'You cannot disable or delete your own admin account.'
+                : 'Admin accounts cannot be disabled or deleted here.'}
+            </p>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {banned ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleSetDisabled(false)}
+                  disabled={isUpdatingAccess}
+                >
+                  {isUpdatingAccess ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Unlock className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Enable account
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setDisableOpen(true)}
+                  disabled={isUpdatingAccess}
+                >
+                  <Ban className="mr-1.5 h-3.5 w-3.5" />
+                  Disable account
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => {
+                  setDeleteConfirm('');
+                  setDeleteOpen(true);
+                }}
+                disabled={isDeleting}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                Delete account
+              </Button>
+            </div>
+          )}
+        </div>
       </CardContent>
+
+      <AlertDialog open={disableOpen} onOpenChange={setDisableOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disable this account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              They will be signed out immediately and cannot log in until you enable the
+              account again. Their data stays in SeaJourney.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isUpdatingAccess}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isUpdatingAccess}
+              onClick={(e) => {
+                e.preventDefault();
+                void handleSetDisabled(true);
+              }}
+            >
+              {isUpdatingAccess ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Disable
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open);
+          if (!open) setDeleteConfirm('');
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this account permanently?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes their login. Type DELETE to confirm. If other records still
+              reference them, the profile is anonymised instead of fully removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            value={deleteConfirm}
+            onChange={(e) => setDeleteConfirm(e.target.value)}
+            placeholder="Type DELETE"
+            autoComplete="off"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeleting || deleteConfirm !== 'DELETE'}
+              onClick={(e) => {
+                e.preventDefault();
+                if (deleteConfirm !== 'DELETE') return;
+                void handleDelete();
+              }}
+            >
+              {isDeleting ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Delete account
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
@@ -282,7 +514,7 @@ function StatusBadge({
   banned: boolean;
 }) {
   if (banned) {
-    return <Badge variant="destructive">Banned</Badge>;
+    return <Badge variant="destructive">Disabled</Badge>;
   }
   if (confirmed) {
     return (

@@ -25,6 +25,7 @@ import type { UserProfile } from '@/lib/types';
 import { format, subMonths, startOfMonth, endOfMonth, eachMonthOfInterval } from 'date-fns';
 import { getSubscriptionTierPricingMap } from '@/app/actions';
 import { lookupTierPriceGbp } from '@/lib/subscription-tier-pricing';
+import { countsTowardPaidMrr } from '@/supabase/database/subscription-helpers';
 
 /** Matches Ads tracking: `false` = No-Ads purchase. */
 function normalizeAdsFlag(value: unknown): boolean | null {
@@ -89,11 +90,11 @@ export default function RevenuePage() {
         const [crewRes, vesselRes, noAdsRes, tierPricing] = await Promise.all([
           supabase
             .from('users')
-            .select('id, subscription_status, subscription_tier, created_at, role')
+            .select('id, subscription_status, subscription_tier, created_at, role, stripe_subscription_id, current_period_end, cancel_at_period_end')
             .neq('role', 'vessel'),
           supabase
             .from('users')
-            .select('id, subscription_status, subscription_tier, created_at, role')
+            .select('id, subscription_status, subscription_tier, created_at, role, stripe_subscription_id, current_period_end, cancel_at_period_end')
             .eq('role', 'vessel'),
           supabase.from('users').select('ads').neq('role', 'admin'),
           getSubscriptionTierPricingMap(),
@@ -131,54 +132,52 @@ export default function RevenuePage() {
 
         // Process crew subscriptions
         allUsers?.forEach(user => {
-          if ((user.subscription_status || '').toLowerCase() === 'active') {
-            const tier = (user.subscription_tier || 'free').toLowerCase();
-            const price = lookupTierPriceGbp(tierPricing, tier);
-            
-            // Exclude crew_limited, vessel_linked, and free from active subscription counts —
-            // these are vessel-managed free tiers, not paying customers.
-            if (tier !== 'crew_limited' && tier !== 'vessel_linked' && tier !== 'free') {
-              activeCrewSubscriptions++;
-            }
-            
-            // Always count subscriptions by tier, even if free
-            if (!crewSubscriptionsByTier[tier]) {
-              crewSubscriptionsByTier[tier] = { count: 0, revenue: 0 };
-            }
-            crewSubscriptionsByTier[tier].count++;
-            
-            // Only add to revenue if tier has a price > 0
-            if (price > 0) {
-              monthlyRevenue += price;
-              crewRevenue += price;
-              crewSubscriptionsByTier[tier].revenue += price;
-            }
+          if (!countsTowardPaidMrr(user)) return;
+          const tier = (user.subscription_tier || 'free').toLowerCase();
+          const price = lookupTierPriceGbp(tierPricing, tier);
+          
+          // Exclude crew_limited, vessel_linked, and free from active subscription counts —
+          // these are vessel-managed free tiers, not paying customers.
+          if (tier !== 'crew_limited' && tier !== 'vessel_linked' && tier !== 'free') {
+            activeCrewSubscriptions++;
+          }
+          
+          // Always count subscriptions by tier, even if free
+          if (!crewSubscriptionsByTier[tier]) {
+            crewSubscriptionsByTier[tier] = { count: 0, revenue: 0 };
+          }
+          crewSubscriptionsByTier[tier].count++;
+          
+          // Only add to revenue if tier has a price > 0
+          if (price > 0) {
+            monthlyRevenue += price;
+            crewRevenue += price;
+            crewSubscriptionsByTier[tier].revenue += price;
           }
         });
 
         // Process vessel subscriptions
         allVesselAccounts?.forEach(vessel => {
-          if ((vessel.subscription_status || '').toLowerCase() === 'active') {
-            const tier = (vessel.subscription_tier || 'free').toLowerCase();
-            const price = lookupTierPriceGbp(tierPricing, tier);
-            
-            // Exclude free tiers from active subscription counts
-            if (tier !== 'free') {
-              activeVesselSubscriptions++;
-            }
-            
-            // Always count subscriptions by tier, even if free
-            if (!vesselSubscriptionsByTier[tier]) {
-              vesselSubscriptionsByTier[tier] = { count: 0, revenue: 0 };
-            }
-            vesselSubscriptionsByTier[tier].count++;
-            
-            // Only add to revenue if tier has a price > 0
-            if (price > 0) {
-              monthlyRevenue += price;
-              vesselRevenue += price;
-              vesselSubscriptionsByTier[tier].revenue += price;
-            }
+          if (!countsTowardPaidMrr(vessel)) return;
+          const tier = (vessel.subscription_tier || 'free').toLowerCase();
+          const price = lookupTierPriceGbp(tierPricing, tier);
+          
+          // Exclude free tiers from active subscription counts
+          if (tier !== 'free') {
+            activeVesselSubscriptions++;
+          }
+          
+          // Always count subscriptions by tier, even if free
+          if (!vesselSubscriptionsByTier[tier]) {
+            vesselSubscriptionsByTier[tier] = { count: 0, revenue: 0 };
+          }
+          vesselSubscriptionsByTier[tier].count++;
+          
+          // Only add to revenue if tier has a price > 0
+          if (price > 0) {
+            monthlyRevenue += price;
+            vesselRevenue += price;
+            vesselSubscriptionsByTier[tier].revenue += price;
           }
         });
 
@@ -201,9 +200,8 @@ export default function RevenuePage() {
           // Count active subscriptions that existed during this month
           [...(allUsers || []), ...(allVesselAccounts || [])].forEach(account => {
             const createdAt = account.created_at ? new Date(account.created_at) : null;
-            const isActive = (account.subscription_status || '').toLowerCase() === 'active';
             
-            if (isActive && createdAt && createdAt <= monthEnd) {
+            if (countsTowardPaidMrr(account) && createdAt && createdAt <= monthEnd) {
               monthSubscriptions++;
               const tier = (account.subscription_tier || 'free').toLowerCase();
               const price = lookupTierPriceGbp(tierPricing, tier);

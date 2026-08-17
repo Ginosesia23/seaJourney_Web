@@ -21,6 +21,7 @@ import { AuthStatusCard } from './auth-status-card';
 type Props = {
   target: Record<string, any>;
   vesselName: string | null;
+  currentUserId?: string | null;
   /**
    * Where the displayed `vesselName` came from:
    *   - `'assignment'` → resolved from the latest active row in
@@ -38,7 +39,7 @@ type LatestState = {
   changedAt: string | null;
 };
 
-export function OverviewTab({ target, vesselName, vesselSource }: Props) {
+export function OverviewTab({ target, vesselName, vesselSource, currentUserId }: Props) {
   const { supabase } = useSupabase();
   const [latestState, setLatestState] = useState<LatestState | null>(null);
   const [stateLogCount, setStateLogCount] = useState<number | null>(null);
@@ -106,7 +107,11 @@ export function OverviewTab({ target, vesselName, vesselSource }: Props) {
     <div className="grid gap-4 lg:grid-cols-3">
       {/* Auth status — shown first so unverified users are obvious */}
       <div className="lg:col-span-3">
-        <AuthStatusCard userId={target.id} />
+        <AuthStatusCard
+          userId={target.id}
+          targetRole={typeof target.role === 'string' ? target.role : 'crew'}
+          isSelf={Boolean(currentUserId && currentUserId === target.id)}
+        />
       </div>
 
       {/* Activity summary */}

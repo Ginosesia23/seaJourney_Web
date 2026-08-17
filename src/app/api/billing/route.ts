@@ -7,6 +7,7 @@ import {
 } from '@/app/actions';
 import { syncSupabaseUserFromStripeSubscription } from '@/lib/sync-user-stripe-billing';
 import { extractTierFromSubscription } from '@/lib/stripe-subscription-helpers';
+import { expireCompGrantIfNeeded } from '@/lib/partner-promo';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,7 +41,7 @@ export async function GET(req: Request) {
 
     const auth = req.headers.get('authorization') || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-    if (token && subscriptionData?.subscription) {
+    if (token) {
       const {
         data: { user },
         error: authErr,
@@ -50,13 +51,21 @@ export async function GET(req: Request) {
         user?.id &&
         user.email?.toLowerCase() === email.trim().toLowerCase()
       ) {
-        try {
-          await syncSupabaseUserFromStripeSubscription(
-            user.id,
-            subscriptionData.subscription,
-          );
-        } catch (syncErr) {
-          console.error('[API /api/billing] Profile sync from Stripe failed:', syncErr);
+        if (subscriptionData?.subscription) {
+          try {
+            await syncSupabaseUserFromStripeSubscription(
+              user.id,
+              subscriptionData.subscription,
+            );
+          } catch (syncErr) {
+            console.error('[API /api/billing] Profile sync from Stripe failed:', syncErr);
+          }
+        } else {
+          try {
+            await expireCompGrantIfNeeded(user.id);
+          } catch (expireErr) {
+            console.error('[API /api/billing] Comp expiry failed:', expireErr);
+          }
         }
       }
     }

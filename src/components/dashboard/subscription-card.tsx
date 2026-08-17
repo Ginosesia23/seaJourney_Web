@@ -232,10 +232,15 @@ export function SubscriptionCard() {
 
   const displayTier = formatTierName(subscriptionTier);
   const isActive = hasActiveSubscription(userProfileRaw ?? userProfile);
+  const stripeSubId = (userProfileRaw as { stripe_subscription_id?: string | null } | null)
+    ?.stripe_subscription_id;
+  const isComplimentary = isActive && !stripeSubId && !!periodEndRaw;
   const nextRenewalDate =
     periodEndRaw && isActive ? new Date(periodEndRaw) : null;
   const statusBadgeLabel =
-    isActive && cancelAtPeriodEnd
+    isComplimentary
+      ? 'Complimentary'
+      : isActive && cancelAtPeriodEnd
       ? 'Cancelling'
       : subscriptionStatus;
   const statusLower = String(subscriptionStatus || '').toLowerCase().replace(/-/g, '_');
@@ -320,7 +325,7 @@ export function SubscriptionCard() {
             </div>
             {nextRenewalDate && isActive && (
                         <p className="text-sm text-muted-foreground">
-                            {cancelAtPeriodEnd
+                            {isComplimentary || cancelAtPeriodEnd
                               ? `Access until ${format(nextRenewalDate, 'PPP')}`
                               : `Renews on ${format(nextRenewalDate, 'PPP')}`}
                         </p>

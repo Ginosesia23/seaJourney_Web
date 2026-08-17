@@ -63,6 +63,20 @@ function parseCurrentPeriodEndMs(userProfile: any): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+function getStripeSubscriptionId(userProfile: any): string {
+  return String(
+    userProfile?.stripe_subscription_id || userProfile?.stripeSubscriptionId || '',
+  ).trim();
+}
+
+/** True when access comes from a partner code / admin comp, not Stripe. */
+export function isComplimentaryGrant(userProfile: any): boolean {
+  if (!userProfile) return false;
+  if (getStripeSubscriptionId(userProfile)) return false;
+  const periodEndMs = parseCurrentPeriodEndMs(userProfile);
+  return periodEndMs != null && hasNonFreeTier(userProfile);
+}
+
 function getTierLower(userProfile: any): string {
   return (userProfile?.subscription_tier || userProfile?.subscriptionTier || 'free')
     .toString()
@@ -90,12 +104,24 @@ export function hasActiveSubscription(userProfile: any): boolean {
 
   const statusRaw = getSubscriptionStatus(userProfile);
   const status = (statusRaw || '').toLowerCase().replace(/-/g, '_');
+  const periodEndMs = parseCurrentPeriodEndMs(userProfile);
+  const stillInPaidPeriod = periodEndMs != null && periodEndMs > Date.now();
+  const stripeId = getStripeSubscriptionId(userProfile);
+
+  // Partner-code / admin comps have no Stripe sub. Honour current_period_end
+  // even if subscription_status is still "active" after the grant lapses.
+  if (!stripeId && periodEndMs != null) {
+    if (!stillInPaidPeriod) return false;
+    return (
+      status === 'active' ||
+      status === 'trialing' ||
+      status === 'past_due' ||
+      hasNonFreeTier(userProfile)
+    );
+  }
 
   if (status === 'active' || status === 'trialing') return true;
   if (status === 'past_due') return true;
-
-  const periodEndMs = parseCurrentPeriodEndMs(userProfile);
-  const stillInPaidPeriod = periodEndMs != null && periodEndMs > Date.now();
 
   if (!stillInPaidPeriod || !hasNonFreeTier(userProfile)) return false;
 
@@ -109,6 +135,13 @@ export function hasActiveSubscription(userProfile: any): boolean {
   if (status === 'canceled' || status === 'inactive') return true;
 
   return false;
+}
+
+/** Paying Stripe customer — exclude partner-code comps from MRR. */
+export function countsTowardPaidMrr(userProfile: any): boolean {
+  if (!hasActiveSubscription(userProfile)) return false;
+  if (isVesselManagedFreeTier(userProfile)) return false;
+  return !!getStripeSubscriptionId(userProfile);
 }
 
 /** True when a vessel manager (or admin) has Premium, Professional, or Fleet. */

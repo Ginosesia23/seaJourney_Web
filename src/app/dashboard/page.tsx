@@ -23,7 +23,7 @@ import { findMissingDays } from '@/lib/fill-missing-days';
 import { calculateVisaCompliance, detectVisaRules } from '@/lib/visa-compliance';
 import { cn } from '@/lib/utils';
 import { StatePill } from '@/components/state-pill';
-import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { hasActiveSubscription, countsTowardPaidMrr } from '@/supabase/database/subscription-helpers';
 import { getSubscriptionTierPricingMap } from '@/app/actions';
 import { lookupTierPriceGbp } from '@/lib/subscription-tier-pricing';
 import {
@@ -218,7 +218,7 @@ export default function DashboardPage() {
         const { data: allUsers, error: usersError } = await supabase
           .from('users')
           .select(
-            'id, email, first_name, last_name, subscription_status, subscription_tier, current_period_end, cancel_at_period_end, created_at, role'
+            'id, email, first_name, last_name, subscription_status, subscription_tier, current_period_end, cancel_at_period_end, created_at, role, stripe_subscription_id'
           )
           .neq('role', 'vessel');
 
@@ -230,7 +230,7 @@ export default function DashboardPage() {
         const { data: allVesselAccounts, error: vesselAccountsError } = await supabase
           .from('users')
           .select(
-            'id, email, first_name, last_name, subscription_status, subscription_tier, current_period_end, cancel_at_period_end, created_at, role, active_vessel_id'
+            'id, email, first_name, last_name, subscription_status, subscription_tier, current_period_end, cancel_at_period_end, created_at, role, active_vessel_id, stripe_subscription_id'
           )
           .eq('role', 'vessel');
 
@@ -313,7 +313,7 @@ export default function DashboardPage() {
 
         // Calculate revenue from crew subscriptions (include cancel-at-period-end until period ends)
         allUsers?.forEach((user) => {
-          if (!hasActiveSubscription(user)) return;
+          if (!countsTowardPaidMrr(user)) return;
           const tier = (user.subscription_tier || 'free').toLowerCase();
           crewSubscriptionsByTier[tier] = (crewSubscriptionsByTier[tier] || 0) + 1;
 
@@ -326,7 +326,7 @@ export default function DashboardPage() {
 
         // Calculate revenue from vessel subscriptions
         allVesselAccounts?.forEach((vessel) => {
-          if (!hasActiveSubscription(vessel)) return;
+          if (!countsTowardPaidMrr(vessel)) return;
           const tier = (vessel.subscription_tier || 'free').toLowerCase();
           vesselSubscriptionsByTier[tier] = (vesselSubscriptionsByTier[tier] || 0) + 1;
 
