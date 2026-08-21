@@ -29,6 +29,7 @@ import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments } from '@/supabase/database/queries';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
 import type { Vessel, UserProfile, VesselAssignment } from '@/lib/types';
 import Link from 'next/link';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -145,10 +146,8 @@ export default function ExportPage() {
     }, [userProfileRaw]);
 
     // Check if user has access (premium/pro for crew, any active tier for vessels).
-    // crew_limited AND vessel_linked users are both blocked — neither account
-    // type owns portable sea-time history, so exporting it doesn't apply to them.
-    // Vessel-linked accounts get documents the vessel sends them via the inbox /
-    // vessel-documents pages instead.
+    // crew_limited is always blocked. vessel_linked only when the vessel
+    // manager has granted Export reports on Team accounts.
     const hasAccess = useMemo(() => {
         if (!userProfile || !userProfileRaw) return false;
         const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toString().toLowerCase();
@@ -160,8 +159,9 @@ export default function ExportPage() {
             return false;
         }
 
-        // Block vessel-linked secondary accounts (Captain / Officer / Engineer /
-        // Manager) — they don't have personal exportable history.
+        if (isVesselLinkedFeatureGranted(userProfileRaw, 'export_reports')) {
+            return entitled;
+        }
         if (tier === 'vessel_linked') {
             return false;
         }

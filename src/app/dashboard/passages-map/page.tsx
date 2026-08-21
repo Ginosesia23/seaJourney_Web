@@ -60,6 +60,7 @@ import {
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
 import { Button } from '@/components/ui/button';
@@ -458,7 +459,8 @@ export default function PassagesMapPage() {
     )
       .toString()
       .toLowerCase();
-    return role === 'vessel';
+    if (role === 'vessel') return true;
+    return isVesselLinkedFeatureGranted(userProfile, 'passages_map');
   }, [userProfile]);
 
   const [tracks, setTracks] = React.useState<TracksResponse | null>(null);

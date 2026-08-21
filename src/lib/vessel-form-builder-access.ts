@@ -11,6 +11,8 @@ export type FormBuilderProfile = {
   subscriptionTier?: string | null;
   subscription_status?: string | null;
   subscriptionStatus?: string | null;
+  stripe_subscription_id?: string | null;
+  stripeSubscriptionId?: string | null;
   cancel_at_period_end?: boolean | null;
   cancelAtPeriodEnd?: boolean | null;
   current_period_end?: string | null;

@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   addDays,
+  eachDayOfInterval,
   endOfYear,
   format,
+  isAfter,
   parse,
   startOfDay,
   startOfYear,
@@ -35,9 +37,17 @@ import {
   CALENDAR_STATE_LABELS,
   StateMonthGrid,
   type DayAccent,
+  type DayHoverInfo,
+  type DayHoverPassage,
+  type DaySecondaryIndicator,
 } from '@/components/dashboard/state-month-grid';
-import type { DailyStatus, StateLog } from '@/lib/types';
-import { getVesselStateLogs } from '@/supabase/database/queries';
+import type { DailyStatus, PassageLog, StateLog } from '@/lib/types';
+import { calculateStandbyDays } from '@/lib/standby-calculation';
+import {
+  getPassageLogs,
+  getPassageLogsByVessel,
+  getVesselStateLogs,
+} from '@/supabase/database/queries';
 import { cn } from '@/lib/utils';
 import {
   Collapsible,
@@ -164,6 +174,46 @@ function mapToStateByDate(logs: StateLog[]): Map<string, DailyStatus> {
   return map;
 }
 
+function passageToHover(p: PassageLog): DayHoverPassage {
+  const from = p.departure_port?.trim();
+  const to = p.arrival_port?.trim();
+  const routeLabel =
+    from || to ? `${from || 'Unknown'} → ${to || 'Unknown'}` : 'Route not recorded';
+  const startDate = new Date(p.start_time);
+  const endDate = new Date(p.end_time);
+  const whenLabel = `${format(startDate, 'd MMM HH:mm')} – ${format(endDate, 'd MMM HH:mm')}`;
+  const bits: string[] = [];
+  if (p.distance_nm != null) bits.push(`${Math.round(p.distance_nm)} nm`);
+  if (p.passage_type) bits.push(p.passage_type.replace(/_/g, ' '));
+  return {
+    id: p.id,
+    routeLabel,
+    whenLabel,
+    metaLabel: bits.length ? bits.join(' · ') : undefined,
+  };
+}
+
+function buildPassagesByDate(passages: PassageLog[]): Map<string, PassageLog[]> {
+  const map = new Map<string, PassageLog[]>();
+  for (const p of passages) {
+    if (!p.start_time || !p.end_time) continue;
+    try {
+      const start = startOfDay(new Date(p.start_time));
+      const end = startOfDay(new Date(p.end_time));
+      if (isAfter(start, end)) continue;
+      for (const d of eachDayOfInterval({ start, end })) {
+        const key = format(d, 'yyyy-MM-dd');
+        const arr = map.get(key);
+        if (arr) arr.push(p);
+        else map.set(key, [p]);
+      }
+    } catch {
+      // skip malformed
+    }
+  }
+  return map;
+}
+
 export function CrewMemberStateCalendar({
   supabase,
   vesselId,
@@ -188,6 +238,8 @@ export function CrewMemberStateCalendar({
   });
   const [vesselLogs, setVesselLogs] = useState<StateLog[]>([]);
   const [crewLogs, setCrewLogs] = useState<StateLog[]>([]);
+  const [vesselPassages, setVesselPassages] = useState<PassageLog[]>([]);
+  const [crewPassages, setCrewPassages] = useState<PassageLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -240,14 +292,37 @@ export function CrewMemberStateCalendar({
           }
         }
 
+        let vesselPassageRows: PassageLog[] = [];
+        try {
+          vesselPassageRows = await getPassageLogsByVessel(supabase, vesselId);
+        } catch (passageErr) {
+          console.warn('[crew-state-calendar] vessel passages load failed', passageErr);
+          vesselPassageRows = [];
+        }
+
+        let crewPassageRows: PassageLog[] = [];
+        if (hasCrewAccess) {
+          try {
+            const own = await getPassageLogs(supabase, crewUserId);
+            crewPassageRows = own.filter((p) => p.vessel_id === vesselId);
+          } catch (passageErr) {
+            console.warn('[crew-state-calendar] crew passages load failed', passageErr);
+            crewPassageRows = [];
+          }
+        }
+
         if (cancelled) return;
         setVesselLogs(managerLogs);
         setCrewLogs(crew);
+        setVesselPassages(vesselPassageRows);
+        setCrewPassages(crewPassageRows);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to load calendar');
           setVesselLogs([]);
           setCrewLogs([]);
+          setVesselPassages([]);
+          setCrewPassages([]);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -299,6 +374,169 @@ export function CrewMemberStateCalendar({
 
   const displayStateByDate =
     source === 'crew' && hasCrewAccess ? crewStateByDate : vesselStateByDate;
+
+  const activePassagesByDate = useMemo(() => {
+    const passages =
+      source === 'crew' && hasCrewAccess ? crewPassages : vesselPassages;
+    return buildPassagesByDate(passages);
+  }, [source, hasCrewAccess, crewPassages, vesselPassages]);
+
+  const partOfPassageByDate = useMemo(() => {
+    const map = new Map<string, boolean>();
+    const logs =
+      source === 'crew' && hasCrewAccess ? crewLogs : vesselLogs;
+    for (const log of logs) {
+      if (!log.date) continue;
+      const d = dateOnly(log.date);
+      if (!inAssignmentRange(d)) continue;
+      if (log.isPartOfActivePassage) map.set(d, true);
+    }
+    return map;
+  }, [source, hasCrewAccess, crewLogs, vesselLogs, rangeStart, effectiveEnd]);
+
+  /**
+   * Logs for MCA standby. Leave always interrupts a standby block and never
+   * counts as standby — including when the vessel stayed in-port/at-anchor
+   * while the crew member was away. After leave (or any return onboard mid-
+   * stretch), standby does not resume until the next voyage.
+   */
+  const activeLogsForStandby = useMemo(() => {
+    const logs = source === 'crew' && hasCrewAccess ? crewLogs : vesselLogs;
+    const byDate = new Map<string, StateLog>();
+    for (const l of logs) {
+      if (!l.date) continue;
+      const d = dateOnly(l.date);
+      if (!inAssignmentRange(d)) continue;
+      byDate.set(d, { ...l, date: d });
+    }
+    for (const d of leaveDates) {
+      if (!inAssignmentRange(d)) continue;
+      const existing = byDate.get(d);
+      byDate.set(d, {
+        id: existing?.id ?? `leave-${d}`,
+        userId: existing?.userId ?? crewUserId,
+        vesselId: existing?.vesselId ?? vesselId,
+        date: d,
+        state: 'on-leave',
+        isPartOfActivePassage: false,
+        notes: existing?.notes,
+        createdAt: existing?.createdAt,
+        updatedAt: existing?.updatedAt,
+      });
+    }
+    return Array.from(byDate.values()).sort((a, b) =>
+      a.date.localeCompare(b.date),
+    );
+  }, [
+    source,
+    hasCrewAccess,
+    crewLogs,
+    vesselLogs,
+    leaveDates,
+    crewUserId,
+    vesselId,
+    rangeStart,
+    effectiveEnd,
+  ]);
+
+  const partOfActivePassageDates = useMemo(() => {
+    const set = new Set<string>();
+    for (const [d, on] of partOfPassageByDate) {
+      if (on) set.add(d);
+    }
+    // Leave days are never part of a passage for standby purposes.
+    for (const d of leaveDates) set.delete(d);
+    return set;
+  }, [partOfPassageByDate, leaveDates]);
+
+  const standbyDatesSet = useMemo(() => {
+    if (activeLogsForStandby.length === 0) return new Set<string>();
+    const { standbyPeriods } = calculateStandbyDays(
+      activeLogsForStandby,
+      undefined,
+      partOfActivePassageDates,
+      {
+        rangeStart,
+        rangeEnd: effectiveEnd,
+        // Vessel-source view uses vessel-manager standby rules (post-voyage
+        // at-anchor stays sea time; only in-port after a voyage is standby).
+        vesselManagerSeaTime: source === 'vessel' || !hasCrewAccess,
+      },
+    );
+    const dates = new Set<string>();
+    for (const period of standbyPeriods) {
+      const startDate =
+        period.startDate instanceof Date
+          ? period.startDate
+          : new Date(period.startDate);
+      const periodEndDate =
+        period.endDate instanceof Date
+          ? period.endDate
+          : new Date(period.endDate);
+      let currentDate = startDate;
+      let counted = 0;
+      while (currentDate <= periodEndDate && counted < period.countedDays) {
+        const dateStr = format(currentDate, 'yyyy-MM-dd');
+        // Leave (or post-leave return mid-stretch) must never paint as standby.
+        if (
+          inAssignmentRange(dateStr) &&
+          !leaveDates.has(dateStr) &&
+          !partOfActivePassageDates.has(dateStr)
+        ) {
+          dates.add(dateStr);
+          counted += 1;
+        } else if (leaveDates.has(dateStr)) {
+          // Period should already have ended at leave; stop marking further days.
+          break;
+        }
+        currentDate = addDays(currentDate, 1);
+      }
+    }
+    return dates;
+  }, [
+    activeLogsForStandby,
+    partOfActivePassageDates,
+    leaveDates,
+    rangeStart,
+    effectiveEnd,
+    source,
+    hasCrewAccess,
+  ]);
+
+  const secondaryByDate = useMemo(() => {
+    const map = new Map<string, DaySecondaryIndicator>();
+    for (const d of standbyDatesSet) {
+      if (inAssignmentRange(d)) map.set(d, 'standby');
+    }
+    return map;
+  }, [standbyDatesSet, rangeStart, effectiveEnd]);
+
+  const dayHoverByDate = useMemo(() => {
+    const map = new Map<string, DayHoverInfo>();
+    const dates = new Set<string>([
+      ...displayStateByDate.keys(),
+      ...activePassagesByDate.keys(),
+      ...standbyDatesSet,
+    ]);
+    for (const d of dates) {
+      if (!inAssignmentRange(d)) continue;
+      const state = displayStateByDate.get(d);
+      const dayPassages = activePassagesByDate.get(d) ?? [];
+      // Route details only on underway days — same visual as underway (no separate passage strip).
+      const showPassages = dayPassages.length > 0 && state === 'underway';
+      if (!showPassages && !standbyDatesSet.has(d) && !state) continue;
+      map.set(d, {
+        passages: showPassages ? dayPassages.map(passageToHover) : undefined,
+      });
+    }
+    return map;
+  }, [
+    displayStateByDate,
+    activePassagesByDate,
+    standbyDatesSet,
+    rangeStart,
+    effectiveEnd,
+  ]);
 
   const conflictDates = useMemo(() => {
     if (!hasCrewAccess) return new Set<string>();
@@ -361,6 +599,7 @@ export function CrewMemberStateCalendar({
       'on-leave': 0,
     };
     let total = 0;
+    let standby = 0;
     const yStart = format(yearStart, 'yyyy-MM-dd');
     const yEnd = format(yearEnd, 'yyyy-MM-dd');
     for (const [d, state] of displayStateByDate) {
@@ -370,8 +609,12 @@ export function CrewMemberStateCalendar({
         total += 1;
       }
     }
-    return { counts, total };
-  }, [displayStateByDate, yearStart, yearEnd]);
+    for (const [d, secondary] of secondaryByDate) {
+      if (d < yStart || d > yEnd) continue;
+      if (secondary === 'standby') standby += 1;
+    }
+    return { counts, total, standby };
+  }, [displayStateByDate, secondaryByDate, yearStart, yearEnd]);
 
   const yearOptions = useMemo(() => {
     const now = new Date().getFullYear();
@@ -546,7 +789,7 @@ export function CrewMemberStateCalendar({
                 className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs"
               >
                 <span
-                  className="h-2.5 w-2.5 rounded-full"
+                  className="h-2.5 w-2.5 rounded-[3px]"
                   style={{ background: calendarStateSolid(s) }}
                 />
                 <span className="text-muted-foreground">
@@ -555,6 +798,13 @@ export function CrewMemberStateCalendar({
                 <span className="font-semibold">{yearStats.counts[s]}</span>
               </div>
             ))}
+            <div className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs">
+              <span className="relative h-2.5 w-2.5 overflow-hidden rounded-[3px] bg-muted">
+                <span className="absolute bottom-0 left-0 right-0 h-[40%] bg-purple-600" />
+              </span>
+              <span className="text-muted-foreground">Standby</span>
+              <span className="font-semibold">{yearStats.standby}</span>
+            </div>
           </div>
 
           {showConflicts && hasCrewAccess && (
@@ -653,13 +903,19 @@ export function CrewMemberStateCalendar({
               No states to show for {year} in this service period.
             </div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {months.map((monthStart) => (
                 <StateMonthGrid
                   key={monthStart.toISOString()}
                   monthStart={monthStart}
                   stateByDate={displayStateByDate}
                   accentByDate={accentByDate}
+                  dayHoverByDate={dayHoverByDate}
+                  secondaryByDate={secondaryByDate}
+                  size="compact"
+                  showSummary
+                  summaryDefaultOpen
+                  includeStandbySummary
                 />
               ))}
             </div>

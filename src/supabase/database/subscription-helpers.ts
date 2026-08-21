@@ -3,6 +3,8 @@
  * Handles the fact that useDoc returns raw database fields (snake_case)
  */
 
+import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
+
 /**
  * Tiers that don't represent a paying customer:
  *  - 'crew_limited' = crew added by a vessel via Invite Crew. Vessel pays.
@@ -39,6 +41,13 @@ export function isVesselLinkedAccount(userProfile: any): boolean {
   if (!userProfile) return false;
   const tier = (userProfile.subscription_tier || userProfile.subscriptionTier || '').toString().toLowerCase();
   return tier === VESSEL_LINKED_TIER;
+}
+
+/** True if this user is crew invited by a vessel (Invite Crew) on the limited dashboard. */
+export function isCrewLimitedAccount(userProfile: any): boolean {
+  if (!userProfile) return false;
+  const tier = (userProfile.subscription_tier || userProfile.subscriptionTier || '').toString().toLowerCase();
+  return tier === CREW_LIMITED_TIER;
 }
 
 /** True if this user is a free vessel-managed account (crew_limited OR vessel_linked). */
@@ -84,6 +93,46 @@ function getTierLower(userProfile: any): string {
     .trim();
 }
 
+/**
+ * Stripe nicknames / metadata often store Vessel Professional as `professional`
+ * (the crew key). For vessel-role accounts, map those aliases onto `vessel_*`.
+ */
+export function canonicalizeVesselTier(tier: string | null | undefined): string {
+  const t = (tier || '')
+    .toLowerCase()
+    .replace(/^(sj_|sea_journey_)/, '')
+    .replace(/[\s-]+/g, '_')
+    .trim();
+
+  if (!t) return 'free';
+  if (
+    t === 'vessel_lite' ||
+    t === 'vessel_basic' ||
+    t === 'vessel_pro' ||
+    t === 'vessel_fleet' ||
+    t === VESSEL_LINKED_TIER
+  ) {
+    return t;
+  }
+  if (t.includes('fleet')) return 'vessel_fleet';
+  if (t.includes('professional') || t === 'pro' || t === 'vessel_professional') {
+    return 'vessel_pro';
+  }
+  if (t.includes('premium') || t === 'basic' || t === 'vessel_premium') {
+    return 'vessel_basic';
+  }
+  if (t.includes('standard') || t.includes('lite')) return 'vessel_lite';
+  return t;
+}
+
+function stripeIdWasSelected(userProfile: any): boolean {
+  return (
+    userProfile != null &&
+    (Object.prototype.hasOwnProperty.call(userProfile, 'stripe_subscription_id') ||
+      Object.prototype.hasOwnProperty.call(userProfile, 'stripeSubscriptionId'))
+  );
+}
+
 /** Any tier that is not plain free (includes crew_limited, standard, premium, vessel_*, etc.) */
 function hasNonFreeTier(userProfile: any): boolean {
   const tier = getTierLower(userProfile);
@@ -110,7 +159,10 @@ export function hasActiveSubscription(userProfile: any): boolean {
 
   // Partner-code / admin comps have no Stripe sub. Honour current_period_end
   // even if subscription_status is still "active" after the grant lapses.
-  if (!stripeId && periodEndMs != null) {
+  // Only apply this when the Stripe id column was actually loaded — otherwise
+  // a paying customer whose query omitted stripe_subscription_id looks like a
+  // lapsed complimentary grant once current_period_end is in the past.
+  if (stripeIdWasSelected(userProfile) && !stripeId && periodEndMs != null) {
     if (!stillInPaidPeriod) return false;
     return (
       status === 'active' ||
@@ -137,6 +189,20 @@ export function hasActiveSubscription(userProfile: any): boolean {
   return false;
 }
 
+/**
+ * Dashboard access: any non-free tier with an active entitlement.
+ * Includes paying crew/vessel plans and vessel-managed accounts (`crew_limited`,
+ * `vessel_linked`). Excludes `free` and inactive/expired subscriptions.
+ */
+export function hasPaidDashboardAccess(userProfile: any): boolean {
+  if (!userProfile) return false;
+  const role = ((userProfile as any).role || userProfile.role || '')
+    .toString()
+    .toLowerCase();
+  if (role === 'admin') return true;
+  return hasActiveSubscription(userProfile) && hasNonFreeTier(userProfile);
+}
+
 /** Paying Stripe customer — exclude partner-code comps from MRR. */
 export function countsTowardPaidMrr(userProfile: any): boolean {
   if (!hasActiveSubscription(userProfile)) return false;
@@ -154,7 +220,7 @@ export function hasVesselPremiumPlusFeatures(userProfile: any): boolean {
   if (role === 'admin') return true;
   if (role !== 'vessel') return false;
 
-  const tier = getTierLower(userProfile);
+  const tier = canonicalizeVesselTier(getTierLower(userProfile));
   return VESSEL_PREMIUM_PLUS_TIERS.has(tier) && hasActiveSubscription(userProfile);
 }
 
@@ -167,11 +233,12 @@ export function hasAisHistoryImportTier(userProfile: any): boolean {
     .toLowerCase();
   if (role === 'admin') return true;
   if (!hasActiveSubscription(userProfile)) return false;
+  if (isVesselLinkedFeatureGranted(userProfile, 'ais_history')) return true;
 
   const tier = getTierLower(userProfile);
 
   if (role === 'vessel') {
-    return VESSEL_PREMIUM_PLUS_TIERS.has(tier);
+    return VESSEL_PREMIUM_PLUS_TIERS.has(canonicalizeVesselTier(tier));
   }
 
   if (role === 'crew' || role === 'captain') {
@@ -248,6 +315,12 @@ export function hasProfessionalCrewTier(userProfile: any): boolean {
 export function hasPassagesMapAccess(userProfile: any): boolean {
   if (hasProfessionalCrewTier(userProfile)) return true;
   if (hasVesselPremiumPlusFeatures(userProfile)) return true;
+  if (
+    hasActiveSubscription(userProfile) &&
+    isVesselLinkedFeatureGranted(userProfile, 'passages_map')
+  ) {
+    return true;
+  }
 
   // TEMP: allow Crew Premium in for testing. Remove this block to
   // restrict crew back to Professional-only.

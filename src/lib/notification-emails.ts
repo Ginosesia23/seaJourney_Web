@@ -380,7 +380,7 @@ export async function sendTestimonialDecisionEmail(
     ? `Testimonial approved – ${vesselName}`
     : `Testimonial rejected – ${vesselName}`;
   const ctaLabel = 'Open testimonials';
-  const ctaHref = `${SITE_URL}/dashboard/applications`;
+  const ctaHref = `${SITE_URL}/dashboard/career-documents?tab=testimonials`;
 
   const captainLine = captainName?.trim()
     ? `<div style="margin-bottom:6px;"><strong>Captain:</strong> ${escapeHtml(captainName.trim())}</div>`

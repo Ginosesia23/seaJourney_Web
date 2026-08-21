@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
 import { isFeatureEnabledServer } from '@/lib/feature-flags/server';
-import { createPassageLog, getPassageLogs, updatePassageLog } from '@/supabase/database/queries';
+import { createPassageLog, getPassageLogs, getPassageLogsByVessel, updatePassageLog } from '@/supabase/database/queries';
 import { resolvePassageEndpointNames } from '@/lib/passages-map/resolve-endpoint-name';
 import {
   buildAisPassageFingerprint,
@@ -14,6 +14,7 @@ import {
 } from '@/lib/passages/ais-logbook-link';
 import { timeRangeOverlapsLeave } from '@/lib/passages-map/filter-by-leave-periods';
 import { loadCrewLeavePeriodsByVessel } from '@/lib/passages-map/load-crew-leave-periods';
+import { resolveLinkedVesselScope } from '@/lib/passages-map/linked-vessel-scope';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from('users')
       .select(
-        'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, active_vessel_id',
+        'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, active_vessel_id, linked_account_features, managed_by_vessel_id',
       )
       .eq('id', user.id)
       .single();
@@ -106,9 +107,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Scope check: crew assignment or managed vessel
+    // Scope check: crew assignment, managed vessel, or granted linked account
     const role = String(profile.role || '').toLowerCase();
-    if (role === 'vessel') {
+    const linkedScope = await resolveLinkedVesselScope(
+      supabaseAdmin,
+      profile,
+      'passages_map',
+    );
+    const isVesselScoped = role === 'vessel' || Boolean(linkedScope);
+
+    if (linkedScope) {
+      if (linkedScope.vesselId !== vesselId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    } else if (role === 'vessel') {
       const { data: vessel } = await supabaseAdmin
         .from('vessels')
         .select('id, vessel_manager_id')
@@ -134,7 +146,9 @@ export async function POST(req: NextRequest) {
     }
 
     const fingerprint = buildAisPassageFingerprint(vesselId, startTime, endTime);
-    const existingLogs = await getPassageLogs(supabase, user.id);
+    const existingLogs = isVesselScoped
+      ? await getPassageLogsByVessel(supabaseAdmin, vesselId)
+      : await getPassageLogs(supabase, user.id);
     const linked = findLinkedOrOverlappingPassage(existingLogs, {
       vesselId,
       startTime,
@@ -144,7 +158,7 @@ export async function POST(req: NextRequest) {
 
     // Crew accounts: refuse to create a NEW logbook row for a passage
     // that overlaps leave (vessel accounts own the vessel track).
-    if (!linked && role !== 'vessel' && role !== 'admin') {
+    if (!linked && !isVesselScoped && role !== 'admin') {
       const leaveByVessel = await loadCrewLeavePeriodsByVessel(user.id, [
         vesselId,
       ]);
@@ -197,7 +211,7 @@ export async function POST(req: NextRequest) {
         String(linked.source || '').toLowerCase() !== 'ais_assisted';
       if (needsFingerprint || needsSource || !linked.ais_fingerprint) {
         try {
-          await updatePassageLog(supabase, linked.id, {
+          await updatePassageLog(isVesselScoped ? supabaseAdmin : supabase, linked.id, {
             aisFingerprint: fingerprint,
             trackData,
             ...(needsSource || !isAisSourcedPassage(linked.source)
@@ -295,12 +309,39 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const { data: profile } = await supabaseAdmin
+      .from('users')
+      .select(
+        'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, active_vessel_id, linked_account_features, managed_by_vessel_id',
+      )
+      .eq('id', user.id)
+      .maybeSingle();
+    if (!profile || !hasPassagesMapAccess(profile)) {
+      return NextResponse.json(
+        { error: 'Passages map is not included on your plan' },
+        { status: 402 },
+      );
+    }
+
+    const linkedScope = await resolveLinkedVesselScope(
+      supabaseAdmin,
+      profile,
+      'passages_map',
+    );
     const vesselId = req.nextUrl.searchParams.get('vesselId')?.trim() || null;
-    let query = supabase
+    if (linkedScope && vesselId && vesselId !== linkedScope.vesselId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    let query = supabaseAdmin
       .from('passage_logs')
-      .select('id, vessel_id, start_time, end_time, source, ais_fingerprint, track_data')
-      .eq('crew_id', user.id);
-    if (vesselId) query = query.eq('vessel_id', vesselId);
+      .select('id, vessel_id, start_time, end_time, source, ais_fingerprint, track_data');
+    if (linkedScope) {
+      query = query.eq('vessel_id', linkedScope.vesselId);
+    } else {
+      query = query.eq('crew_id', user.id);
+      if (vesselId) query = query.eq('vessel_id', vesselId);
+    }
 
     const { data, error } = await query;
     if (error) throw error;

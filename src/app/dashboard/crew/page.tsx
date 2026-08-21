@@ -40,14 +40,17 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { SeaDialogContent, SeaDialogHeader, SeaDialogBody, SeaDialogFooter } from '@/components/ui/sea-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import type { UserProfile, VesselAssignment, Vessel, VesselSeaTimeAccessRequest, CrewLeavePeriod, Testimonial, VesselGeneratedTestimonial, StateLog, NavWatchApplication, ProofOfService } from '@/lib/types';
+import { MARITIME_POSITION_OPTIONS } from '@/lib/maritime-positions';
 import { getActiveVesselAssignmentsByVessel, getAllVesselAssignmentsByVessel, getVesselStateLogs, updateVesselAssignment } from '@/supabase/database/queries';
 import { useCollection } from '@/supabase/database';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
@@ -55,7 +58,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { generateTestimonialPDF, generateMCADeckhandTestimonial, generateMCAOfficerTestimonial, generateMCAWatchRatingForm, generateProofOfServicePDF, type TestimonialPDFFormat, type TestimonialPDFOutput, type MCACertificateType } from '@/lib/pdf-generator';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { computeSeaTimeInDateRange } from '@/lib/sea-time-in-range';
@@ -68,6 +70,12 @@ import { MCAApplicationDetailsCard } from '@/components/dashboard/mca-applicatio
 import { CrewWatchHistorySection } from '@/components/dashboard/crew-watch-history-section';
 import { CrewMemberStateCalendar } from '@/components/dashboard/crew-member-state-calendar';
 import { MiniStatTile } from '@/components/dashboard/mini-stat-tile';
+import {
+    CrewMemberDossier,
+    type CrewDossierAttentionItem,
+    type CrewDossierSection,
+    type CrewDossierStat,
+} from '@/components/dashboard/crew-member-dossier';
 import {
   DashboardHeader,
   DashboardPanel,
@@ -117,6 +125,7 @@ const inviteCrewSchema = z.object({
   firstName: z.string().min(1, 'First name is required').max(100),
   lastName: z.string().min(1, 'Last name is required').max(100),
   email: z.string().email('Invalid email address'),
+  position: z.string().min(1, 'Position is required'),
 });
 
 type InviteCrewFormValues = z.infer<typeof inviteCrewSchema>;
@@ -159,7 +168,6 @@ interface SortableRowProps {
     expandedRows: Set<string>;
     requestingAccess: string | null;
     loadingSeaTime: Set<string>;
-    hasProTier: boolean;
     onToggleRowExpansion: (member: CrewMemberWithAssignment) => void;
     onRequestAccess: (userId: string) => void;
     onOpenLeavePeriodsDialog: (member: CrewMemberWithAssignment) => void;
@@ -180,7 +188,6 @@ function SortableRow({
     expandedRows,
     requestingAccess,
     loadingSeaTime,
-    hasProTier,
     rotation,
     isTogglingOnboard,
     onToggleOnboard,
@@ -248,7 +255,7 @@ function SortableRow({
             onToggleRowExpansion(member);
             return;
         }
-        if (isVesselManager && hasProTier) {
+        if (isVesselManager) {
             onOpenLeavePeriodsDialog(member);
         }
     };
@@ -282,7 +289,7 @@ function SortableRow({
             className={cn(
                 'group/row',
                 isDragging && 'bg-muted/50',
-                (isVesselManager && hasProTier) || isAdminWithVessels
+                isVesselManager || isAdminWithVessels
                     ? 'cursor-pointer hover:bg-muted/40'
                     : '',
             )}
@@ -483,7 +490,7 @@ function SortableRow({
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-52">
-                                {isVesselManager && hasProTier && (
+                                {isVesselManager && (
                                     <DropdownMenuItem onClick={() => onOpenLeavePeriodsDialog(member)}>
                                         <Eye className="mr-2 h-4 w-4" />
                                         Open details
@@ -539,7 +546,7 @@ function SortableRow({
                             </DropdownMenuContent>
                         </DropdownMenu>
                     )}
-                    {((isVesselManager && hasProTier) || isAdminWithVessels) && (
+                    {(isVesselManager || isAdminWithVessels) && (
                         <Button
                             variant="ghost"
                             size="sm"
@@ -558,6 +565,7 @@ function SortableRow({
 
 export default function CrewPage() {
     const [searchTerm, setSearchTerm] = useState('');
+    const searchParams = useSearchParams();
     const { user } = useUser();
     const { supabase, session } = useSupabase();
     
@@ -582,7 +590,6 @@ export default function CrewPage() {
     const [activeId, setActiveId] = useState<string | null>(null);
     const [dragCoordinates, setDragCoordinates] = useState<{ x: number; y: number; index: number } | null>(null);
     const [selectedCrewMemberId, setSelectedCrewMemberId] = useState<string | null>(null);
-    const [crewDetailsExpanded, setCrewDetailsExpanded] = useState(false);
     const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
     /** When member has multiple service periods: 'current' | assignmentId | 'all'. Controls which period's data is shown. */
     const [viewingServicePeriod, setViewingServicePeriod] = useState<'current' | string | 'all'>('current');
@@ -666,6 +673,8 @@ export default function CrewPage() {
     const [breakdownViewSource, setBreakdownViewSource] = useState<'crew' | 'vessel'>('vessel');
     /** When crew has access: which source to show in Leave Periods tab. Vessel is default. */
     const [leavePeriodsViewSource, setLeavePeriodsViewSource] = useState<'vessel' | 'crew'>('vessel');
+    /** Crew dossier section (detail view). Overview is the default landing. */
+    const [crewDossierSection, setCrewDossierSection] = useState<CrewDossierSection>('overview');
     const [vesselBreakdownForView, setVesselBreakdownForView] = useState<{
         memberId: string;
         startDate: string;
@@ -725,19 +734,6 @@ export default function CrewPage() {
         }
         return getVesselManagerCrewLimit(currentUserProfileRaw);
     }, [currentUserProfile?.role, currentUserProfileRaw]);
-
-    // Check if vessel has Pro tier subscription (required for document generation and crew member details)
-    const hasProTier = useMemo(() => {
-        if (currentUserProfile?.role !== 'vessel') {
-            return true; // Admins always have access
-        }
-        if (!currentUserProfileRaw) return false;
-        const tier = (currentUserProfile.subscriptionTier || '').toLowerCase();
-        return (
-            (tier === 'vessel_pro' || tier === 'vessel_fleet') &&
-            hasActiveSubscription(currentUserProfileRaw)
-        );
-    }, [currentUserProfile?.role, currentUserProfile?.subscriptionTier, currentUserProfileRaw]);
 
     // Check if captain has pending captaincy request
     useEffect(() => {
@@ -2552,6 +2548,7 @@ export default function CrewPage() {
             firstName: '',
             lastName: '',
             email: '',
+            position: '',
         },
     });
 
@@ -2567,7 +2564,7 @@ export default function CrewPage() {
         setSelectedCrewMemberId(memberId);
         setSelectedAssignmentId(assignmentId ?? null);
         setViewingServicePeriod('current');
-        setCrewDetailsExpanded(false);
+        setCrewDossierSection('overview');
         
         const member = crewMembers.find(m =>
             m.profile.id === memberId &&
@@ -2720,6 +2717,16 @@ export default function CrewPage() {
         }
     };
 
+    // Deep-link from Generated documents archive: /dashboard/crew?member=<userId>
+    useEffect(() => {
+        const memberId = searchParams?.get('member');
+        if (!memberId || crewMembers.length === 0) return;
+        if (selectedCrewMemberId === memberId) return;
+        if (!crewMembers.some((m) => m.profile.id === memberId)) return;
+        void handleSelectCrewMember(memberId);
+        // Only re-run when list or query changes — not when selection changes from user navigation
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams, crewMembers]);
 
     // Get vessel details helper
     const getVesselDetails = (vesselId: string) => {
@@ -3143,27 +3150,58 @@ export default function CrewPage() {
     const handleDownloadProofOfService = async (entry: ProofOfService) => {
         setDownloadingProofOfServiceId(entry.id);
         try {
-            await generateProofOfServicePDF({
-                vesselName: entry.vesselName,
-                vesselType: entry.vesselType,
-                vesselImo: entry.vesselImo,
-                crewName: entry.crewName,
-                crewPosition: entry.crewPosition,
-                startDate: entry.startDate,
-                endDate: entry.endDate,
-                totalDays: entry.totalDays,
-                atSeaDays: entry.atSeaDays,
-                standbyDays: entry.standbyDays,
-                yardDays: entry.yardDays,
-                leaveDays: entry.leaveDays,
-                generatedByName: entry.generatedByName,
-                generatedByEmail: entry.generatedByEmail,
-                notes: entry.notes,
-                verificationCode: entry.verificationCode,
-            }, 'download');
+            const {
+                data: { session },
+            } = await supabase.auth.getSession();
+            if (!session?.access_token) {
+                throw new Error('Your session has expired. Please refresh and try again.');
+            }
+            const res = await fetch(`/api/proof-of-service/${entry.id}/file`, {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+            });
+            if (!res.ok) {
+                const body = await res.json().catch(() => null);
+                throw new Error(body?.error || body?.details || `Download failed (${res.status})`);
+            }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `proof-of-service-${entry.id.slice(0, 8)}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
             toast({ title: 'Downloaded', description: 'Proof of Service PDF saved.' });
         } catch (e: any) {
-            toast({ title: 'Error', description: e?.message ?? 'Failed to generate PDF.', variant: 'destructive' });
+            console.error('[CREW PAGE] Proof of Service download error:', e);
+            // Fallback: client regenerate if archive API fails
+            try {
+                await generateProofOfServicePDF({
+                    vesselName: entry.vesselName,
+                    vesselType: entry.vesselType,
+                    vesselImo: entry.vesselImo,
+                    crewName: entry.crewName,
+                    crewPosition: entry.crewPosition,
+                    startDate: entry.startDate,
+                    endDate: entry.endDate,
+                    totalDays: entry.totalDays,
+                    atSeaDays: entry.atSeaDays,
+                    standbyDays: entry.standbyDays,
+                    yardDays: entry.yardDays,
+                    leaveDays: entry.leaveDays,
+                    generatedByName: entry.generatedByName,
+                    generatedByEmail: entry.generatedByEmail,
+                    notes: entry.notes,
+                    verificationCode: entry.verificationCode,
+                }, 'download');
+                toast({
+                    title: 'Downloaded',
+                    description: 'PDF downloaded (could not archive to storage).',
+                });
+            } catch {
+                toast({ title: 'Error', description: e?.message ?? 'Failed to generate PDF.', variant: 'destructive' });
+            }
         } finally {
             setDownloadingProofOfServiceId(null);
         }
@@ -3642,6 +3680,42 @@ export default function CrewPage() {
         }
 
         setGeneratingPDF(testimonial.id);
+
+        // Prefer archived PDF for downloads (also creates storage object if missing)
+        if (output === 'download') {
+            try {
+                const {
+                    data: { session },
+                } = await supabase.auth.getSession();
+                if (!session?.access_token) {
+                    throw new Error('Your session has expired. Please refresh and try again.');
+                }
+                const res = await fetch(`/api/vessel-generated-testimonials/${testimonial.id}/file`, {
+                    headers: { Authorization: `Bearer ${session.access_token}` },
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => null);
+                    throw new Error(body?.error || body?.details || `Download failed (${res.status})`);
+                }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `vessel-testimonial-${testimonial.id.slice(0, 8)}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                toast({
+                    title: 'Success',
+                    description: 'PDF downloaded and archived.',
+                });
+                setGeneratingPDF(null);
+                return;
+            } catch (archiveErr) {
+                console.warn('[CREW PAGE] Vessel-generated archive download failed, falling back:', archiveErr);
+            }
+        }
         
         try {
             const vessel = getVesselDetails(testimonial.vessel_id);
@@ -3939,6 +4013,42 @@ export default function CrewPage() {
         }
 
         setGeneratingPDF(testimonial.id);
+
+        // Approved testimonials: download from storage (archives on first request)
+        if (output === 'download' && testimonial.status === 'approved') {
+            try {
+                const {
+                    data: { session },
+                } = await supabase.auth.getSession();
+                if (!session?.access_token) {
+                    throw new Error('Your session has expired. Please refresh and try again.');
+                }
+                const res = await fetch(`/api/testimonials/${testimonial.id}/file`, {
+                    headers: { Authorization: `Bearer ${session.access_token}` },
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => null);
+                    throw new Error(body?.error || body?.details || `Download failed (${res.status})`);
+                }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `sea-service-testimonial-${testimonial.id.slice(0, 8)}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                toast({
+                    title: 'Success',
+                    description: 'PDF downloaded and archived.',
+                });
+                setGeneratingPDF(null);
+                return;
+            } catch (archiveErr) {
+                console.warn('[CREW PAGE] Approved testimonial archive download failed, falling back:', archiveErr);
+            }
+        }
         
         try {
             const vessel = getVesselDetails(testimonial.vessel_id);
@@ -5287,7 +5397,7 @@ export default function CrewPage() {
     const handleBackToCrewList = () => {
         setSelectedCrewMemberId(null);
         setSelectedAssignmentId(null);
-        setCrewDetailsExpanded(false);
+        setCrewDossierSection('overview');
         setIsLeavePeriodDialogOpen(false);
         setLeavePeriodStartDate(undefined);
         setLeavePeriodEndDate(undefined);
@@ -5513,6 +5623,7 @@ export default function CrewPage() {
                     firstName: data.firstName,
                     lastName: data.lastName,
                     email: data.email,
+                    position: data.position,
                     vesselId: currentUserProfile.activeVesselId,
                     vesselName: activeVessel.name,
                     vesselUserId: currentUserProfile.id, // Pass vessel user ID for crew limit check
@@ -5644,6 +5755,192 @@ export default function CrewPage() {
             selectedMemberData.profile.email ||
             null;
 
+        const vesselDataForDossier = (() => {
+            if (!vesselBreakdownForView || vesselBreakdownForView.memberId !== effectiveMember?.profile.id) {
+                return null;
+            }
+            if (!effectiveMember) return null;
+            const start = effectiveMember.assignment.startDate;
+            const end =
+                effectiveMember.assignment.endDate ?? new Date().toISOString().split('T')[0];
+            if (
+                vesselBreakdownForView.startDate !== start ||
+                vesselBreakdownForView.endDate !== end
+            ) {
+                return null;
+            }
+            return vesselBreakdownForView.data;
+        })();
+        const dossierSeaData = hasAccess
+            ? isUsingVesselSource
+                ? vesselDataForDossier
+                : selectedMemberData.seaTimeData
+            : selectedMemberData.seaTimeData;
+        const dossierSeaLoading =
+            loadingSeaTime.has(selectedMemberData.profile.id) &&
+            !(hasAccess && breakdownViewSource === 'vessel' ? vesselDataForDossier : selectedMemberData.seaTimeData);
+        const dossierSeaServiceDays = dossierSeaData
+            ? (dossierSeaData.underwayDays ?? 0) + (dossierSeaData.standbyDays ?? 0)
+            : null;
+        const dossierLeaveDays =
+            hasAccess && leaveConflictInfo
+                ? leaveConflictInfo.vesselLeaveDays
+                : (dossierSeaData?.onLeaveDays ?? effectivePeriodFiltered.leavePeriods.length);
+        const dossierDocCount =
+            effectivePeriodFiltered.proofOfServiceEntries.length +
+            effectivePeriodFiltered.vesselGeneratedTestimonials.length +
+            (effectiveMember?.accessRequest?.status === 'approved'
+                ? effectivePeriodFiltered.testimonials.length
+                : 0);
+
+        const dossierStats: CrewDossierStat[] = [
+            {
+                key: 'seaService',
+                label: 'Sea service',
+                value: dossierSeaServiceDays ?? '—',
+                hint: dossierSeaData
+                    ? `Underway ${dossierSeaData.underwayDays ?? 0} · Standby ${dossierSeaData.standbyDays ?? 0}`
+                    : activeSourceLabel,
+                loading: dossierSeaLoading,
+            },
+            {
+                key: 'totalDays',
+                label: 'Days in period',
+                value: dossierSeaData?.totalDays ?? '—',
+                hint: 'Calendar days in selected period',
+                loading: dossierSeaLoading,
+            },
+            {
+                key: 'leaveDays',
+                label: 'Leave days',
+                value: typeof dossierLeaveDays === 'number' ? dossierLeaveDays : '—',
+                hint: `${effectivePeriodFiltered.leavePeriods.length} vessel period${effectivePeriodFiltered.leavePeriods.length === 1 ? '' : 's'}`,
+            },
+            {
+                key: 'documents',
+                label: 'Documents',
+                value: dossierDocCount,
+                hint: 'PoS · testimonials · drafts',
+            },
+        ];
+
+        const dossierAttention: CrewDossierAttentionItem[] = [];
+        if (hasAccess && leaveConflictInfo?.conflict) {
+            dossierAttention.push({
+                id: 'leave-conflict',
+                title: 'Leave conflict',
+                description: `Crew logs show ${leaveConflictInfo.crewLeaveDays} leave days; vessel has ${leaveConflictInfo.vesselLeaveDays}. Vessel leave is used for calculations.`,
+                actionLabel: 'Review leave',
+                onAction: () => setCrewDossierSection('leave'),
+            });
+        }
+        if (!isCrewDetailsComplete) {
+            dossierAttention.push({
+                id: 'official-details',
+                title: 'Official details incomplete',
+                description:
+                    'Some fields needed for AMSA / MCA / Nav Watch PDFs are still missing.',
+                actionLabel: 'Open profile',
+                onAction: () => setCrewDossierSection('profile'),
+            });
+        }
+
+        const dataSourceControl = hasAccess ? (
+            <div
+                role="tablist"
+                aria-label="Data source"
+                className="inline-flex items-center rounded-lg border bg-background p-0.5 shadow-sm"
+            >
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={breakdownViewSource === 'crew'}
+                    onClick={() => setBreakdownViewSource('crew')}
+                    className={cn(
+                        'rounded-md px-2.5 py-1 text-[11px] font-medium transition-all',
+                        breakdownViewSource === 'crew'
+                            ? 'bg-muted text-foreground'
+                            : 'text-muted-foreground hover:text-foreground',
+                    )}
+                >
+                    Crew logs
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={breakdownViewSource === 'vessel'}
+                    onClick={() => {
+                        setBreakdownViewSource('vessel');
+                        if (effectiveMember && !loadingSeaTime.has(effectiveMember.profile.id)) {
+                            loadVesselBreakdownForView(effectiveMember);
+                        }
+                    }}
+                    className={cn(
+                        'rounded-md px-2.5 py-1 text-[11px] font-medium transition-all',
+                        breakdownViewSource === 'vessel'
+                            ? 'bg-muted text-foreground'
+                            : 'text-muted-foreground hover:text-foreground',
+                    )}
+                >
+                    Vessel logs
+                </button>
+            </div>
+        ) : (
+            <Badge
+                variant="secondary"
+                className="rounded-md border-amber-300/50 bg-amber-50 text-[10px] uppercase tracking-wider text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+            >
+                Vessel logs
+            </Badge>
+        );
+
+        const renderSeaTimeBreakdown = () => {
+            if (dossierSeaLoading) {
+                return (
+                    <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        <span className="ml-2 text-sm text-muted-foreground">Loading…</span>
+                    </div>
+                );
+            }
+            if (!dossierSeaData) {
+                return (
+                    <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-6 text-center text-xs text-muted-foreground">
+                        {hasAccess
+                            ? breakdownViewSource === 'vessel'
+                                ? 'No vessel logs in this period.'
+                                : 'No crew log data available.'
+                            : 'No vessel logs in this period. Add vessel state logs or request sea time access from the crew member.'}
+                    </div>
+                );
+            }
+            const displayOnLeaveDays =
+                hasAccess && leaveConflictInfo
+                    ? leaveConflictInfo.vesselLeaveDays
+                    : (dossierSeaData.onLeaveDays ?? 0);
+            return (
+                <div className="space-y-3">
+                    <p className="text-[11px] text-muted-foreground leading-snug">{sourceExplainer}</p>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <MiniStatTile label="Underway" value={dossierSeaData.underwayDays ?? 0} tone="blue" />
+                        <MiniStatTile label="Moored" value={dossierSeaData.inPortDays ?? 0} tone="green" />
+                        <MiniStatTile label="At anchor" value={dossierSeaData.atAnchorDays ?? 0} tone="orange" />
+                        <MiniStatTile label="Standby" value={dossierSeaData.standbyDays ?? 0} tone="purple" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <MiniStatTile label="In yard" value={dossierSeaData.inYardDays ?? 0} tone="muted" />
+                        <MiniStatTile label="On leave" value={displayOnLeaveDays} tone="muted" />
+                        <MiniStatTile label="Total days" value={dossierSeaData.totalDays ?? 0} tone="muted" />
+                        {dossierSeaData.atSeaDays != null ? (
+                            <MiniStatTile label="At sea (voyage)" value={dossierSeaData.atSeaDays} tone="muted" />
+                        ) : (
+                            <div className="hidden sm:block" />
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
         return (
             <div className="flex flex-col gap-6">
                 <DashboardHeader
@@ -5706,330 +6003,301 @@ export default function CrewPage() {
                     }
                 />
 
-                <Collapsible open={crewDetailsExpanded} onOpenChange={setCrewDetailsExpanded}>
-                    <section className="rounded-xl border bg-card overflow-hidden">
-                        <CollapsibleTrigger asChild>
-                            <button
-                                type="button"
-                                className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 sm:px-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                aria-expanded={crewDetailsExpanded}
-                            >
-                                <Avatar className="h-10 w-10 shrink-0">
-                                    <AvatarImage src={selectedMemberData.profile.profilePicture} alt={fullName} />
-                                    <AvatarFallback className="bg-muted text-sm">
-                                        {getInitials(fullName) || <UserIcon />}
-                                    </AvatarFallback>
-                                </Avatar>
-                                <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-2">
-                                        <ChevronDown
-                                            className={cn(
-                                                'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200',
-                                                crewDetailsExpanded && 'rotate-180',
-                                            )}
-                                            aria-hidden
-                                        />
-                                        <span className="text-sm font-semibold tracking-tight">Official details</span>
-                                    </div>
-                                    <p className="mt-0.5 pl-5 text-xs text-muted-foreground">
-                                        {crewDetailsExpanded ? 'Hide MCA / document details' : 'Show MCA / document details'}
-                                    </p>
-                                    {(() => {
-                                        const rotation = effectiveRotationFor(selectedMemberData.profile.id);
-                                        if (!rotation) return null;
-                                        const today = getRotationStatus(rotation, new Date());
-                                        if (today === 'not-started') return null;
-                                        const matches = (selectedMemberData.assignment.onboard ?? false) === (today === 'on');
-                                        return (
-                                            <p className={cn(
-                                                'text-xs mt-1 pl-5',
-                                                matches ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400 font-medium',
-                                            )}>
-                                                Rotation: {formatRotationShort(rotation)} · today: {today === 'on' ? 'On' : 'Off'}
-                                                {!matches && ' · toggle will reconcile on next sync'}
+                <CrewMemberDossier
+                    section={crewDossierSection}
+                    onSectionChange={setCrewDossierSection}
+                    stats={dossierStats}
+                    onStatClick={(key) => {
+                        if (key === 'seaService' || key === 'totalDays') setCrewDossierSection('overview');
+                        if (key === 'leaveDays') setCrewDossierSection('leave');
+                        if (key === 'documents') setCrewDossierSection('documents');
+                    }}
+                    attentionItems={dossierAttention}
+                    dataSourceControl={dataSourceControl}
+                    periodControl={
+                        (selectedMemberData.otherAssignments?.length ?? 0) > 0 ? (
+                            <Card className="rounded-xl border shadow-none">
+                                <CardContent className="p-4 sm:p-5">
+                                    <div className="flex items-start justify-between flex-wrap gap-3 mb-3">
+                                        <div>
+                                            <h3 className="text-sm font-semibold tracking-tight">Service period</h3>
+                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                Scope the dossier to one assignment period — or view everything combined.
                                             </p>
-                                        );
-                                    })()}
-                                </div>
-                            </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                            <div className="border-t px-4 py-4 sm:px-5">
-                                <MCAApplicationDetailsCard
-                                    targetUserId={selectedMemberData.profile.id}
-                                    initialProfileRaw={selectedMemberData.profile}
-                                    onSaved={(updatedProfile) => {
-                                        if (!updatedProfile) return;
-                                        const crewId = selectedMemberData.profile.id;
-                                        setCrewMembers(prev => prev.map(m =>
-                                            m.profile.id === crewId
-                                                ? { ...m, profile: { ...m.profile, ...updatedProfile } }
-                                                : m
-                                        ));
-                                    }}
-                                />
-                            </div>
-                        </CollapsibleContent>
-                    </section>
-                </Collapsible>
-
-                {/* ---- Service period selector (only when multiple) ----- */}
-                {(selectedMemberData.otherAssignments?.length ?? 0) > 0 && (
-                    <Card className="rounded-xl border shadow-none">
-                        <CardContent className="p-4 sm:p-5">
-                            <div className="flex items-start justify-between flex-wrap gap-3 mb-3">
-                                <div>
-                                    <h3 className="text-sm font-semibold tracking-tight">Service period</h3>
-                                    <p className="text-xs text-muted-foreground mt-0.5">
-                                        Pick a period to scope the data below — or view everything combined.
-                                    </p>
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                    Showing: <span className="font-medium text-foreground">
-                                        {viewingServicePeriod === 'current' && 'Current period'}
-                                        {viewingServicePeriod === 'all' && 'All periods combined'}
-                                        {viewingServicePeriod !== 'current' && viewingServicePeriod !== 'all' && effectiveMember && `${format(new Date(effectiveMember.assignment.startDate), 'dd MMM yyyy')} – ${effectiveMember.assignment.endDate ? format(new Date(effectiveMember.assignment.endDate), 'dd MMM yyyy') : 'present'}`}
-                                    </span>
-                                </p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                <Button
-                                    variant={viewingServicePeriod === 'current' ? 'default' : 'outline'}
-                                    size="sm"
-                                    className="rounded-lg"
-                                    onClick={() => setViewingServicePeriod('current')}
-                                >
-                                    Current
-                                </Button>
-                                {selectedMemberData.otherAssignments!.map((a) => (
-                                    <Button
-                                        key={a.id}
-                                        variant={viewingServicePeriod === a.id ? 'default' : 'outline'}
-                                        size="sm"
-                                        className="rounded-lg text-left whitespace-nowrap"
-                                        onClick={() => setViewingServicePeriod(a.id)}
-                                    >
-                                        {format(new Date(a.startDate), 'dd MMM yyyy')} – {a.endDate ? format(new Date(a.endDate), 'dd MMM yyyy') : 'present'}
-                                    </Button>
-                                ))}
-                                <Button
-                                    variant={viewingServicePeriod === 'all' ? 'default' : 'outline'}
-                                    size="sm"
-                                    className="rounded-lg"
-                                    onClick={() => setViewingServicePeriod('all')}
-                                >
-                                    All
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
-
-                {/* ---- Two-column layout: stats rail | tabs ----------------
-                       On lg+ screens the breakdown sits in a sticky left rail
-                       so the manager keeps the per-period numbers in view
-                       while paging through Documents / Watches / etc. On
-                       smaller screens everything stacks vertically. */}
-                <div className="grid gap-6 lg:grid-cols-3">
-                    {/* ===== LEFT RAIL ===== */}
-                    <div className="lg:col-span-1 space-y-4 lg:sticky lg:top-6 lg:self-start">
-                        {/* Days breakdown card */}
-                        <Card className="rounded-xl border shadow-none">
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-sm font-semibold tracking-tight">
-                                    Sea time &amp; days breakdown
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                {/* Data-source segmented control (when crew has shared access) */}
-                                {hasAccess ? (
-                                    <div className="space-y-1.5">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                                                Data source
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            Showing:{' '}
+                                            <span className="font-medium text-foreground">
+                                                {viewingServicePeriod === 'current' && 'Current period'}
+                                                {viewingServicePeriod === 'all' && 'All periods combined'}
+                                                {viewingServicePeriod !== 'current' &&
+                                                    viewingServicePeriod !== 'all' &&
+                                                    effectiveMember &&
+                                                    `${format(new Date(effectiveMember.assignment.startDate), 'dd MMM yyyy')} – ${
+                                                        effectiveMember.assignment.endDate
+                                                            ? format(new Date(effectiveMember.assignment.endDate), 'dd MMM yyyy')
+                                                            : 'present'
+                                                    }`}
                                             </span>
-                                        </div>
-                                        <div
-                                            role="tablist"
-                                            aria-label="Data source"
-                                            className="inline-flex w-full items-center rounded-lg border bg-muted/40 p-0.5"
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Button
+                                            variant={viewingServicePeriod === 'current' ? 'default' : 'outline'}
+                                            size="sm"
+                                            className="rounded-lg"
+                                            onClick={() => setViewingServicePeriod('current')}
                                         >
-                                            <button
-                                                type="button"
-                                                role="tab"
-                                                aria-selected={breakdownViewSource === 'crew'}
-                                                onClick={() => setBreakdownViewSource('crew')}
-                                                className={cn(
-                                                    'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
-                                                    breakdownViewSource === 'crew'
-                                                        ? 'bg-background text-foreground shadow-sm'
-                                                        : 'text-muted-foreground hover:text-foreground'
-                                                )}
+                                            Current
+                                        </Button>
+                                        {selectedMemberData.otherAssignments!.map((a) => (
+                                            <Button
+                                                key={a.id}
+                                                variant={viewingServicePeriod === a.id ? 'default' : 'outline'}
+                                                size="sm"
+                                                className="rounded-lg text-left whitespace-nowrap"
+                                                onClick={() => setViewingServicePeriod(a.id)}
                                             >
-                                                Crew logs
-                                            </button>
-                                            <button
-                                                type="button"
-                                                role="tab"
-                                                aria-selected={breakdownViewSource === 'vessel'}
-                                                onClick={() => {
-                                                    setBreakdownViewSource('vessel');
-                                                    if (effectiveMember && !loadingSeaTime.has(effectiveMember.profile.id)) {
-                                                        loadVesselBreakdownForView(effectiveMember);
-                                                    }
-                                                }}
-                                                className={cn(
-                                                    'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
-                                                    breakdownViewSource === 'vessel'
-                                                        ? 'bg-background text-foreground shadow-sm'
-                                                        : 'text-muted-foreground hover:text-foreground'
-                                                )}
-                                            >
-                                                Vessel logs
-                                            </button>
-                                        </div>
-                                        <p className="text-[11px] text-muted-foreground leading-snug pt-0.5">
-                                            {sourceExplainer}
+                                                {format(new Date(a.startDate), 'dd MMM yyyy')} –{' '}
+                                                {a.endDate ? format(new Date(a.endDate), 'dd MMM yyyy') : 'present'}
+                                            </Button>
+                                        ))}
+                                        <Button
+                                            variant={viewingServicePeriod === 'all' ? 'default' : 'outline'}
+                                            size="sm"
+                                            className="rounded-lg"
+                                            onClick={() => setViewingServicePeriod('all')}
+                                        >
+                                            All
+                                        </Button>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ) : null
+                    }
+                >
+                    {crewDossierSection === 'overview' && (
+                        <div className="space-y-6">
+                            <div className="grid gap-4 lg:grid-cols-2">
+                                <div className="space-y-3 rounded-xl border bg-muted/15 p-4">
+                                    <div>
+                                        <h3 className="text-sm font-semibold tracking-tight">Sea time breakdown</h3>
+                                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                                            Primary day states for the selected period.
                                         </p>
                                     </div>
-                                ) : (
-                                    <div className="rounded-lg border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 px-3 py-2">
-                                        <div className="flex items-start gap-2">
-                                            <Ship className="h-3.5 w-3.5 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                                            <div className="min-w-0">
-                                                <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
-                                                    Vessel logs
-                                                </p>
-                                                <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 leading-snug mt-0.5">
-                                                    {sourceExplainer}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Leave conflict alert — surfaced at top so it's not missed */}
-                                {hasAccess && leaveConflictInfo?.conflict && (
-                                    <div className="rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 flex items-start gap-2">
-                                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                                        <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-snug">
-                                            <span className="font-semibold">Leave conflict.</span>{' '}
-                                            Crew logs show {leaveConflictInfo.crewLeaveDays} leave days;
-                                            vessel has {leaveConflictInfo.vesselLeaveDays}. Vessel record is used for calculations.
+                                    {renderSeaTimeBreakdown()}
+                                </div>
+                                <div className="space-y-3 rounded-xl border bg-muted/15 p-4">
+                                    <div>
+                                        <h3 className="text-sm font-semibold tracking-tight">Quick actions</h3>
+                                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                                            Common tasks for this crew member.
                                         </p>
                                     </div>
-                                )}
+                                    <div className="grid gap-2 sm:grid-cols-2">
+                                        <Button
+                                            variant="outline"
+                                            className="h-auto justify-start rounded-xl px-3 py-3 text-left"
+                                            asChild
+                                        >
+                                            <Link href="/dashboard/documents">
+                                                <FileText className="mr-2 h-4 w-4 shrink-0" />
+                                                <span>
+                                                    <span className="block text-sm font-medium">Generate documents</span>
+                                                    <span className="block text-[11px] text-muted-foreground font-normal">
+                                                        Proof of service &amp; testimonials
+                                                    </span>
+                                                </span>
+                                            </Link>
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="h-auto justify-start rounded-xl px-3 py-3 text-left"
+                                            onClick={() => {
+                                                setCrewDossierSection('leave');
+                                                setIsLeavePeriodDialogOpen(true);
+                                            }}
+                                        >
+                                            <CalendarDays className="mr-2 h-4 w-4 shrink-0" />
+                                            <span>
+                                                <span className="block text-sm font-medium">Add leave</span>
+                                                <span className="block text-[11px] text-muted-foreground font-normal">
+                                                    Exclude days from sea time
+                                                </span>
+                                            </span>
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="h-auto justify-start rounded-xl px-3 py-3 text-left"
+                                            onClick={() => setCrewDossierSection('profile')}
+                                        >
+                                            <UserIcon className="mr-2 h-4 w-4 shrink-0" />
+                                            <span>
+                                                <span className="block text-sm font-medium">Official details</span>
+                                                <span className="block text-[11px] text-muted-foreground font-normal">
+                                                    {isCrewDetailsComplete ? 'Ready for PDFs' : 'Complete for PDFs'}
+                                                </span>
+                                            </span>
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="h-auto justify-start rounded-xl px-3 py-3 text-left"
+                                            onClick={() => setCrewDossierSection('calendar')}
+                                        >
+                                            <Calendar className="mr-2 h-4 w-4 shrink-0" />
+                                            <span>
+                                                <span className="block text-sm font-medium">Open calendar</span>
+                                                <span className="block text-[11px] text-muted-foreground font-normal">
+                                                    Daily vessel / crew states
+                                                </span>
+                                            </span>
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
 
-                                {/* Stats body */}
-                                {(() => {
-                                    const vesselData = (() => {
-                                        if (!vesselBreakdownForView || vesselBreakdownForView.memberId !== effectiveMember?.profile.id) return null;
-                                        const start = effectiveMember.assignment.startDate;
-                                        const end = effectiveMember.assignment.endDate ?? new Date().toISOString().split('T')[0];
-                                        if (vesselBreakdownForView.startDate !== start || vesselBreakdownForView.endDate !== end) return null;
-                                        return vesselBreakdownForView.data;
-                                    })();
-                                    const data = hasAccess ? (isUsingVesselSource ? vesselData : selectedMemberData.seaTimeData) : selectedMemberData.seaTimeData;
-                                    const isLoading = loadingSeaTime.has(selectedMemberData.profile.id);
-                                    const waitingForVessel = hasAccess && breakdownViewSource === 'vessel' && !vesselData && isLoading;
-                                    if ((isLoading && !data) || waitingForVessel) {
-                                        return (
-                                            <div className="flex items-center justify-center py-10" key="loading">
-                                                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                                                <span className="ml-2 text-sm text-muted-foreground">Loading…</span>
-                                            </div>
-                                        );
-                                    }
-                                    if (data) {
-                                        const seaServiceDays = (data.underwayDays ?? 0) + (data.standbyDays ?? 0);
-                                        const displayOnLeaveDays = hasAccess && leaveConflictInfo
-                                            ? leaveConflictInfo.vesselLeaveDays
-                                            : (data.onLeaveDays ?? 0);
-                                        return (
-                                            <div
-                                                key={`breakdown-${breakdownViewSource}-${isUsingVesselSource ? 'vessel' : 'crew'}`}
-                                                className="space-y-4"
+                            <div className="grid gap-4 lg:grid-cols-2">
+                                <div className="space-y-3 rounded-xl border p-4">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <h3 className="text-sm font-semibold tracking-tight">Recent documents</h3>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 rounded-lg text-xs"
+                                            onClick={() => setCrewDossierSection('documents')}
+                                        >
+                                            View all
+                                            <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                                        </Button>
+                                    </div>
+                                    {dossierDocCount === 0 ? (
+                                        <p className="text-xs text-muted-foreground py-2">
+                                            No documents in this period yet.{' '}
+                                            <Link
+                                                href="/dashboard/documents"
+                                                className="text-primary underline underline-offset-2"
                                             >
-                                                {/* Sea service hero */}
-                                                <div className="rounded-xl border bg-muted/30 p-4">
-                                                    <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-1">
-                                                        Sea service
-                                                    </div>
-                                                    <div className="flex items-baseline gap-1.5">
-                                                        <span className="text-2xl font-semibold tabular-nums tracking-tight">{seaServiceDays}</span>
-                                                        <span className="text-sm font-medium text-muted-foreground">days</span>
-                                                    </div>
-                                                    <p className="text-[11px] text-muted-foreground mt-1.5">
-                                                        Underway ({data.underwayDays ?? 0}) + Standby ({data.standbyDays ?? 0})
-                                                    </p>
-                                                </div>
+                                                Open generator
+                                            </Link>
+                                        </p>
+                                    ) : (
+                                        <ul className="space-y-2">
+                                            {[
+                                                ...effectivePeriodFiltered.proofOfServiceEntries.map((e) => ({
+                                                    id: e.id,
+                                                    kind: 'Proof of service',
+                                                    label: `${format(parse(e.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – ${format(parse(e.endDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}`,
+                                                    code: e.verificationCode || null,
+                                                })),
+                                                ...effectivePeriodFiltered.vesselGeneratedTestimonials.map((t) => ({
+                                                    id: t.id,
+                                                    kind: 'Draft testimonial',
+                                                    label: `${format(parse(t.start_date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – ${format(parse((t.end_date || t.start_date) as string, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}`,
+                                                    code: null as string | null,
+                                                })),
+                                                ...(effectiveMember?.accessRequest?.status === 'approved'
+                                                    ? effectivePeriodFiltered.testimonials.map((t) => ({
+                                                          id: t.id,
+                                                          kind: 'Approved testimonial',
+                                                          label: `${format(parse(t.start_date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – ${format(parse(t.end_date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}`,
+                                                          code: (t as { testimonial_code?: string | null }).testimonial_code ?? null,
+                                                      }))
+                                                    : []),
+                                            ]
+                                                .slice(0, 4)
+                                                .map((doc) => (
+                                                    <li
+                                                        key={`${doc.kind}-${doc.id}`}
+                                                        className="flex items-start justify-between gap-2 rounded-lg border bg-muted/20 px-3 py-2"
+                                                    >
+                                                        <div className="min-w-0">
+                                                            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                                                                {doc.kind}
+                                                            </p>
+                                                            <p className="text-xs font-medium truncate">{doc.label}</p>
+                                                            {doc.code ? (
+                                                                <p className="text-[11px] font-mono text-muted-foreground mt-0.5">
+                                                                    {doc.code}
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                    </li>
+                                                ))}
+                                        </ul>
+                                    )}
+                                </div>
 
-                                                {/* Primary 4 — Underway / In port / At anchor / Standby */}
-                                                <div>
-                                                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                                                        Primary
-                                                    </h4>
-                                                    <div className="grid grid-cols-2 gap-2">
-                                                        <MiniStatTile label="Underway" value={data.underwayDays ?? 0} tone="blue" />
-                                                        <MiniStatTile label="Moored / In port" value={data.inPortDays ?? 0} tone="green" />
-                                                        <MiniStatTile label="At anchor" value={data.atAnchorDays ?? 0} tone="orange" />
-                                                        <MiniStatTile label="Standby" value={data.standbyDays ?? 0} tone="purple" />
-                                                    </div>
-                                                </div>
+                                <div className="space-y-3 rounded-xl border p-4">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <h3 className="text-sm font-semibold tracking-tight">Leave</h3>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 rounded-lg text-xs"
+                                            onClick={() => setCrewDossierSection('leave')}
+                                        >
+                                            Manage
+                                            <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                                        </Button>
+                                    </div>
+                                    {effectivePeriodFiltered.leavePeriods.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground py-2">
+                                            No vessel leave periods recorded for this assignment.
+                                        </p>
+                                    ) : (
+                                        <ul className="space-y-2">
+                                            {effectivePeriodFiltered.leavePeriods.slice(0, 3).map((period) => {
+                                                const startDate = parse(period.startDate, 'yyyy-MM-dd', new Date());
+                                                const endDate = parse(period.endDate, 'yyyy-MM-dd', new Date());
+                                                const days = eachDayOfInterval({ start: startDate, end: endDate }).length;
+                                                return (
+                                                    <li
+                                                        key={period.id}
+                                                        className="rounded-lg border bg-muted/20 px-3 py-2"
+                                                    >
+                                                        <p className="text-xs font-medium">
+                                                            {format(startDate, 'MMM d, yyyy')} – {format(endDate, 'MMM d, yyyy')}
+                                                        </p>
+                                                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                                                            {days} {days === 1 ? 'day' : 'days'}
+                                                        </p>
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
-                                                {/* Secondary mini-cards (unique to the breakdown) */}
-                                                <div>
-                                                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                                                        Other
-                                                    </h4>
-                                                    <div className="grid grid-cols-2 gap-2">
-                                                        <MiniStatTile label="In yard" value={data.inYardDays ?? 0} tone="muted" />
-                                                        <MiniStatTile label="On leave" value={displayOnLeaveDays} tone="muted" />
-                                                        <MiniStatTile label="Total days" value={data.totalDays ?? 0} tone="muted" />
-                                                        {data.atSeaDays != null && (
-                                                            <MiniStatTile label="At sea (voyage)" value={data.atSeaDays} tone="muted" />
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    }
-                                    return (
-                                        <div className="text-xs text-muted-foreground text-center py-8 border rounded-lg bg-muted/20">
-                                            {hasAccess
-                                                ? (breakdownViewSource === 'vessel' ? 'No vessel logs in this period.' : 'No crew log data available.')
-                                                : 'No vessel logs in this period. Add vessel state logs or request sea time access from the crew member.'}
-                                        </div>
-                                    );
-                                })()}
-                            </CardContent>
-                        </Card>
-                    </div>
+                    {crewDossierSection === 'profile' && (
+                        <MCAApplicationDetailsCard
+                            targetUserId={selectedMemberData.profile.id}
+                            initialProfileRaw={selectedMemberData.profile}
+                            defaultDetailsOpen
+                            onSaved={(updatedProfile) => {
+                                if (!updatedProfile) return;
+                                const crewId = selectedMemberData.profile.id;
+                                setCrewMembers((prev) =>
+                                    prev.map((m) =>
+                                        m.profile.id === crewId
+                                            ? { ...m, profile: { ...m.profile, ...updatedProfile } }
+                                            : m,
+                                    ),
+                                );
+                            }}
+                        />
+                    )}
 
-                    {/* ===== RIGHT COLUMN ===== */}
-                    <div className="lg:col-span-2 space-y-6">
-                        {/* Tabs for Leave Periods and Documents */}
-                        <Tabs defaultValue={hasProTier ? 'documents' : 'calendar'} className="w-full">
-                            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 rounded-xl mb-6 h-auto gap-1 p-1">
-                                <TabsTrigger value="documents" className="rounded-lg" disabled={!hasProTier}>
-                                    <FileText className="mr-2 h-4 w-4" />
-                                    Documents
-                                </TabsTrigger>
-                                <TabsTrigger value="calendar" className="rounded-lg">
-                                    <Calendar className="mr-2 h-4 w-4" />
-                                    Calendar
-                                </TabsTrigger>
-                                <TabsTrigger value="leave" className="rounded-lg">
-                                    <CalendarDays className="mr-2 h-4 w-4" />
-                                    Leave Periods
-                                </TabsTrigger>
-                                <TabsTrigger value="watches" className="rounded-lg">
-                                    <Clock className="mr-2 h-4 w-4" />
-                                    Watches
-                                </TabsTrigger>
-                            </TabsList>
-
-                            <TabsContent value="calendar" className="space-y-4 mt-0">
+                    {crewDossierSection === 'calendar' && (
+                        <div className="space-y-4">
                                 {calendarVesselId && calendarManagerId ? (
                                     <CrewMemberStateCalendar
                                         supabase={supabase}
@@ -6053,14 +6321,11 @@ export default function CrewPage() {
                                         state calendar.
                                     </p>
                                 )}
-                            </TabsContent>
+                        </div>
+                    )}
 
-                            {/* Watches Tab — record of every watch the crew member
-                                has been assigned to in this vessel's saved schedules.
-                                Read-only here; managers edit on /dashboard/watch-schedule.
-                                Later this same view will be exposed on the crew's own
-                                profile account (see watch-history-summary.ts). */}
-                            <TabsContent value="watches" className="space-y-4 mt-0">
+                    {crewDossierSection === 'watches' && (
+                        <div className="space-y-4">
                                 <CrewWatchHistorySection
                                     supabase={supabase}
                                     vesselId={currentUserProfile?.activeVesselId ?? null}
@@ -6072,10 +6337,12 @@ export default function CrewPage() {
                                         null
                                     }
                                 />
-                            </TabsContent>
+                        </div>
+                    )}
 
-                            {/* Leave Periods Tab */}
-                            <TabsContent value="leave" className="space-y-4 mt-0">
+
+                    {crewDossierSection === 'leave' && (
+                            <div className="space-y-4">
                                 <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                                     <div>
                                         <h3 className="text-lg font-semibold">Leave Periods</h3>
@@ -6280,11 +6547,11 @@ export default function CrewPage() {
                                     </>
                                 )}
 
-                            </TabsContent>
-                            
-                            {/* Documents Tab */}
-                            <TabsContent value="documents" className="space-y-4 mt-0">
-                                {hasProTier ? (
+                            </div>
+                    )}
+
+                    {crewDossierSection === 'documents' && (
+                            <div className="space-y-4">
                                     <>
                                         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                                             <div>
@@ -7269,21 +7536,9 @@ export default function CrewPage() {
                                             </>
                                         )}
                                     </>
-                                ) : (
-                                    <Card className="border-dashed">
-                                        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                                            <FileText className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                                            <h4 className="font-semibold mb-2">Pro Tier Required</h4>
-                                            <p className="text-sm text-muted-foreground">
-                                                Document generation is available for Pro tier subscribers.
-                                            </p>
-                                        </CardContent>
-                                    </Card>
-                                )}
-                            </TabsContent>
-                        </Tabs>
-                    </div>
-                </div>
+                            </div>
+                    )}
+                </CrewMemberDossier>
 
                 {/* Send document to captain (one-time link) */}
                 <Dialog open={sendToCaptainDialogOpen} onOpenChange={(open) => { setSendToCaptainDialogOpen(open); if (!open) setSendToCaptainDocId(null); }}>
@@ -7893,7 +8148,13 @@ export default function CrewPage() {
                             />
                         </div>
                         {currentUserProfile?.role === 'vessel' && currentUserProfile?.activeVesselId && (
-                            <Dialog open={isInviteDialogOpen} onOpenChange={setIsInviteDialogOpen}>
+                            <Dialog
+                                open={isInviteDialogOpen}
+                                onOpenChange={(open) => {
+                                    setIsInviteDialogOpen(open);
+                                    if (!open) inviteForm.reset();
+                                }}
+                            >
                                 <DialogTrigger asChild>
                                     <Button 
                                         size="sm"
@@ -7909,107 +8170,149 @@ export default function CrewPage() {
                                         Invite
                                     </Button>
                                 </DialogTrigger>
-                                <DialogContent className="rounded-xl sm:max-w-[500px]">
-                                    <DialogHeader>
-                                        <DialogTitle>Invite Crew Member</DialogTitle>
-                                        <DialogDescription>
-                                            Invite a crew member to join your vessel. They will receive an email with instructions to set up their account.
-                                        </DialogDescription>
-                                    </DialogHeader>
+                                <SeaDialogContent size="md" className="flex max-h-[90vh] flex-col">
+                                    <SeaDialogHeader
+                                        icon={UserPlus}
+                                        eyebrow="Crew invite"
+                                        title="Invite a crew member"
+                                        description="We'll create their SeaJourney account, assign them to this vessel, and email a password setup link."
+                                    />
                                     <Form {...inviteForm}>
-                                        <form onSubmit={inviteForm.handleSubmit(handleInviteCrew)} className="space-y-4">
-                                            <FormField
-                                                control={inviteForm.control}
-                                                name="firstName"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>First Name</FormLabel>
-                                                        <FormControl>
-                                                            <Input
-                                                                placeholder="John"
-                                                                {...field}
-                                                                className="rounded-xl"
+                                        <form onSubmit={inviteForm.handleSubmit(handleInviteCrew)} className="flex min-h-0 flex-1 flex-col">
+                                            <SeaDialogBody>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <FormField
+                                                        control={inviteForm.control}
+                                                        name="firstName"
+                                                        render={({ field }) => (
+                                                            <FormItem>
+                                                                <FormLabel className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                                                                    First name
+                                                                </FormLabel>
+                                                                <FormControl>
+                                                                    <Input
+                                                                        placeholder="James"
+                                                                        autoComplete="given-name"
+                                                                        className="h-10 rounded-lg"
+                                                                        {...field}
+                                                                        disabled={isInviting}
+                                                                    />
+                                                                </FormControl>
+                                                                <FormMessage />
+                                                            </FormItem>
+                                                        )}
+                                                    />
+                                                    <FormField
+                                                        control={inviteForm.control}
+                                                        name="lastName"
+                                                        render={({ field }) => (
+                                                            <FormItem>
+                                                                <FormLabel className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                                                                    Last name
+                                                                </FormLabel>
+                                                                <FormControl>
+                                                                    <Input
+                                                                        placeholder="Carter"
+                                                                        autoComplete="family-name"
+                                                                        className="h-10 rounded-lg"
+                                                                        {...field}
+                                                                        disabled={isInviting}
+                                                                    />
+                                                                </FormControl>
+                                                                <FormMessage />
+                                                            </FormItem>
+                                                        )}
+                                                    />
+                                                </div>
+                                                <FormField
+                                                    control={inviteForm.control}
+                                                    name="email"
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                                                                Email
+                                                            </FormLabel>
+                                                            <FormControl>
+                                                                <Input
+                                                                    type="email"
+                                                                    placeholder="crew@example.com"
+                                                                    autoComplete="off"
+                                                                    className="h-10 rounded-lg"
+                                                                    {...field}
+                                                                    disabled={isInviting}
+                                                                />
+                                                            </FormControl>
+                                                            <FormDescription className="text-xs">
+                                                                Must be an email that isn&apos;t already on SeaJourney.
+                                                            </FormDescription>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                                <FormField
+                                                    control={inviteForm.control}
+                                                    name="position"
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                                                                Position
+                                                            </FormLabel>
+                                                            <Select
+                                                                onValueChange={field.onChange}
+                                                                value={field.value || undefined}
                                                                 disabled={isInviting}
-                                                            />
-                                                        </FormControl>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}
-                                            />
-                                            <FormField
-                                                control={inviteForm.control}
-                                                name="lastName"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Last Name</FormLabel>
-                                                        <FormControl>
-                                                            <Input
-                                                                placeholder="Doe"
-                                                                {...field}
-                                                                className="rounded-xl"
-                                                                disabled={isInviting}
-                                                            />
-                                                        </FormControl>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}
-                                            />
-                                            <FormField
-                                                control={inviteForm.control}
-                                                name="email"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Email Address</FormLabel>
-                                                        <FormControl>
-                                                            <Input
-                                                                type="email"
-                                                                placeholder="john.doe@example.com"
-                                                                {...field}
-                                                                className="rounded-xl"
-                                                                disabled={isInviting}
-                                                            />
-                                                        </FormControl>
-                                                        <FormDescription>
-                                                            The crew member will receive an invitation email at this address.
-                                                        </FormDescription>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}
-                                            />
-                                            <div className="flex justify-end gap-2 pt-4">
+                                                            >
+                                                                <FormControl>
+                                                                    <SelectTrigger className="h-10 rounded-lg">
+                                                                        <SelectValue placeholder="Choose a position" />
+                                                                    </SelectTrigger>
+                                                                </FormControl>
+                                                                <SelectContent className="max-h-64">
+                                                                    {MARITIME_POSITION_OPTIONS.map((option) => (
+                                                                        <SelectItem key={option} value={option}>
+                                                                            {option}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                            <FormDescription className="text-xs">
+                                                                Shown on their profile and this vessel assignment.
+                                                            </FormDescription>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                            </SeaDialogBody>
+                                            <SeaDialogFooter>
                                                 <Button
                                                     type="button"
                                                     variant="outline"
+                                                    className="rounded-lg"
                                                     onClick={() => {
                                                         inviteForm.reset();
                                                         setIsInviteDialogOpen(false);
                                                     }}
                                                     disabled={isInviting}
-                                                    className="rounded-xl"
                                                 >
                                                     Cancel
                                                 </Button>
-                                                <Button
-                                                    type="submit"
-                                                    disabled={isInviting}
-                                                    className="rounded-xl"
-                                                >
+                                                <Button type="submit" className="rounded-lg" disabled={isInviting}>
                                                     {isInviting ? (
                                                         <>
                                                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                            Sending Invitation...
+                                                            Sending invite…
                                                         </>
                                                     ) : (
                                                         <>
                                                             <UserPlus className="mr-2 h-4 w-4" />
-                                                            Send Invitation
+                                                            Send invitation
                                                         </>
                                                     )}
                                                 </Button>
-                                            </div>
+                                            </SeaDialogFooter>
                                         </form>
                                     </Form>
-                                </DialogContent>
+                                </SeaDialogContent>
                             </Dialog>
                         )}
 
@@ -8303,7 +8606,6 @@ export default function CrewPage() {
                                                 expandedRows={expandedRows}
                                                 requestingAccess={requestingAccess}
                                                 loadingSeaTime={loadingSeaTime}
-                                                hasProTier={hasProTier}
                                                 rotation={effectiveRotationFor(member.profile.id)}
                                                 isTogglingOnboard={togglingOnboardIds.has(member.assignment.id)}
                                                 onToggleOnboard={
@@ -8423,12 +8725,8 @@ export default function CrewPage() {
                                         return (
                                             <TableRow
                                                 key={member.assignment.id || member.profile.id}
-                                                className={cn(
-                                                    'group/row',
-                                                    hasProTier && 'cursor-pointer hover:bg-muted/40',
-                                                )}
+                                                className="group/row cursor-pointer hover:bg-muted/40"
                                                 onClick={() =>
-                                                    hasProTier &&
                                                     handleSelectCrewMember(member.profile.id, member.assignment.id)
                                                 }
                                             >
@@ -8502,22 +8800,20 @@ export default function CrewPage() {
                                                     className="w-10 px-1 py-1.5"
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
-                                                    {hasProTier && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-7 w-7 rounded-md p-0 text-muted-foreground"
-                                                            onClick={() =>
-                                                                handleSelectCrewMember(
-                                                                    member.profile.id,
-                                                                    member.assignment.id,
-                                                                )
-                                                            }
-                                                            aria-label="Open"
-                                                        >
-                                                            <ChevronRight className="h-3.5 w-3.5" />
-                                                        </Button>
-                                                    )}
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 w-7 rounded-md p-0 text-muted-foreground"
+                                                        onClick={() =>
+                                                            handleSelectCrewMember(
+                                                                member.profile.id,
+                                                                member.assignment.id,
+                                                            )
+                                                        }
+                                                        aria-label="Open"
+                                                    >
+                                                        <ChevronRight className="h-3.5 w-3.5" />
+                                                    </Button>
                                                 </TableCell>
                                             </TableRow>
                                         );

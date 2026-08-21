@@ -6,16 +6,22 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Dialog,
+} from '@/components/ui/dialog';
+import { SeaDialogContent, SeaDialogHeader, SeaDialogBody, SeaDialogFooter } from '@/components/ui/sea-dialog';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Edit, Save } from 'lucide-react';
+import { Loader2, Edit, Save, FileCheck, Plus, ChevronDown } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format, parse, getYear, getMonth, getDate, setYear, setMonth, setDate, isValid } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 const mcaApplicationSchema = z.object({
   title: z.string().optional(),
@@ -161,6 +167,125 @@ function transformRawToMCAProfile(raw: any): MCAFormProfile | null {
   };
 }
 
+/** Fields required for vessel-generated PDFs / applications. */
+const PDF_REQUIRED_LABELS = [
+  'Date of birth',
+  'Nationality',
+  'Address line 1',
+  'Town / city',
+  'Post code',
+  'Country',
+] as const;
+
+type FactRow = { label: string; value: string };
+
+function buildOfficialDetailsSummary(profile: MCAFormProfile | null): {
+  personal: FactRow[];
+  contact: FactRow[];
+  addressLines: string[];
+  filledRequired: number;
+  missingRequired: string[];
+  hasAny: boolean;
+} {
+  if (!profile) {
+    return {
+      personal: [],
+      contact: [],
+      addressLines: [],
+      filledRequired: 0,
+      missingRequired: [...PDF_REQUIRED_LABELS],
+      hasAny: false,
+    };
+  }
+
+  const personalAll: FactRow[] = [
+    { label: 'Title', value: (profile.title || '').trim() },
+    {
+      label: 'Date of birth',
+      value:
+        profile.dateOfBirth && isValid(profile.dateOfBirth)
+          ? format(profile.dateOfBirth, 'd MMM yyyy')
+          : '',
+    },
+    {
+      label: 'Gender',
+      value: profile.sex === 'male' ? 'Male' : profile.sex === 'female' ? 'Female' : '',
+    },
+    { label: 'Place of birth', value: (profile.placeOfBirth || '').trim() },
+    { label: 'Country of birth', value: (profile.countryOfBirth || '').trim() },
+    { label: 'Nationality', value: (profile.nationality || '').trim() },
+  ];
+  const contactAll: FactRow[] = [
+    { label: 'Telephone', value: (profile.telephone || '').trim() },
+    { label: 'Mobile', value: (profile.mobile || '').trim() },
+    { label: 'Discharge book', value: (profile.dischargeBookNumber || '').trim() },
+  ];
+  const addressParts = [
+    profile.addressLine1,
+    profile.addressLine2,
+    profile.addressDistrict,
+    [profile.addressTownCity, profile.addressCountyState].filter(Boolean).join(', '),
+    profile.addressPostCode,
+    profile.addressCountry,
+  ]
+    .map((p) => (p || '').trim())
+    .filter(Boolean);
+
+  const requiredChecks: { label: (typeof PDF_REQUIRED_LABELS)[number]; ok: boolean }[] = [
+    {
+      label: 'Date of birth',
+      ok: !!(profile.dateOfBirth && isValid(profile.dateOfBirth)),
+    },
+    { label: 'Nationality', ok: !!(profile.nationality || '').trim() },
+    { label: 'Address line 1', ok: !!(profile.addressLine1 || '').trim() },
+    { label: 'Town / city', ok: !!(profile.addressTownCity || '').trim() },
+    { label: 'Post code', ok: !!(profile.addressPostCode || '').trim() },
+    { label: 'Country', ok: !!(profile.addressCountry || '').trim() },
+  ];
+  const missingRequired = requiredChecks.filter((c) => !c.ok).map((c) => c.label);
+  const personal = personalAll.filter((f) => f.value);
+  const contact = contactAll.filter((f) => f.value);
+
+  return {
+    personal,
+    contact,
+    addressLines: addressParts,
+    filledRequired: requiredChecks.length - missingRequired.length,
+    missingRequired,
+    hasAny: personal.length > 0 || contact.length > 0 || addressParts.length > 0,
+  };
+}
+
+function FactColumn({
+  title,
+  rows,
+  emptyLabel,
+}: {
+  title: string;
+  rows: FactRow[];
+  emptyLabel?: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <h4 className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        {title}
+      </h4>
+      {rows.length === 0 ? (
+        <p className="mt-1.5 text-xs text-muted-foreground">{emptyLabel || '—'}</p>
+      ) : (
+        <dl className="mt-1.5 space-y-1.5">
+          {rows.map((row) => (
+            <div key={row.label} className="min-w-0">
+              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{row.label}</dt>
+              <dd className="truncate text-sm font-medium leading-snug text-foreground">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
 export interface MCAApplicationDetailsCardProps {
   /** When set, vessel is editing this crew member’s details; form submits via API */
   targetUserId?: string;
@@ -170,10 +295,18 @@ export interface MCAApplicationDetailsCardProps {
   initialProfileRaw?: any;
   /** Called after successful save when editing a crew member; receives updated profile from API */
   onSaved?: (updatedProfile?: any) => void;
+  /** When true (crew mode), expand the official-details summary on mount. Default: collapsed. */
+  defaultDetailsOpen?: boolean;
 }
 
 export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps) {
-  const { targetUserId, initialProfile, initialProfileRaw, onSaved } = props || {};
+  const {
+    targetUserId,
+    initialProfile,
+    initialProfileRaw,
+    onSaved,
+    defaultDetailsOpen = false,
+  } = props || {};
   const isCrewMode = Boolean(targetUserId);
   const { user } = useUser();
   const { supabase, session } = useSupabase();
@@ -289,6 +422,8 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
   }, [targetUserId]);
 
   const [isEditing, setIsEditing] = useState(false);
+  /** Crew profile view: official details panel starts collapsed unless overridden. */
+  const [detailsOpen, setDetailsOpen] = useState(defaultDetailsOpen);
   const watchedTitle = form.watch('title');
   const watchedSex = form.watch('sex');
 
@@ -414,45 +549,19 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
     }
   };
 
+
   if (isLoading) {
     return <MCASkeleton />;
   }
 
-  return (
-    <Card className="rounded-xl border shadow-none">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <CardTitle className="text-sm font-semibold tracking-tight">
-              {isCrewMode ? 'Crew member details' : 'Official details'}
-            </CardTitle>
-            <CardDescription className="mt-0.5 text-xs">
-              {isCrewMode
-                ? 'Used for AMSA, MCA, Nav Watch, and other generated documents.'
-                : 'Used to fill PDFs and applications (DOB, address, discharge book).'}
-            </CardDescription>
-          </div>
-          {!isEditing ? (
-            <Button type="button" onClick={() => setIsEditing(true)} size="sm" className="rounded-lg shrink-0">
-              <Edit className="h-4 w-4 mr-2" />
-              Edit
-            </Button>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardContent>
-        <p className="mb-5 text-xs text-muted-foreground leading-relaxed">
-          {isCrewMode
-            ? 'Keep these accurate so vessel-generated documents for this crew member fill correctly.'
-            : 'Save once — SeaJourney reuses these fields whenever you generate official documents.'}
-        </p>
+  const summary = buildOfficialDetailsSummary(userProfile);
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+  const formFields = (
+            <>
             {/* Personal Information Section */}
-            <div className="space-y-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Personal</h3>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-3">
+              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Personal</h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <FormField
                   control={form.control}
                   name="title"
@@ -467,7 +576,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                           value={currentTitle}
                         >
                           <FormControl>
-                            <SelectTrigger className="rounded-xl" disabled={!isEditing}>
+                            <SelectTrigger disabled={!isEditing}>
                               <SelectValue placeholder="Select title" />
                             </SelectTrigger>
                           </FormControl>
@@ -521,7 +630,6 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                       const newMonth = month !== undefined ? month : selectedMonth;
                       const newDay = day !== undefined ? day : selectedDay;
                       
-                      // Ensure day is valid for the selected month/year
                       const maxDay = getDaysInMonth(newYear, newMonth);
                       const finalDay = Math.min(newDay, maxDay);
                       
@@ -537,7 +645,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     
                     return (
                       <FormItem className="flex flex-col">
-                        <FormLabel>Date of Birth</FormLabel>
+                        <FormLabel>Date of Birth *</FormLabel>
                         <div className="grid grid-cols-3 gap-2">
                           <Select
                             value={selectedYear.toString()}
@@ -545,7 +653,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                             disabled={!isEditing}
                           >
                             <FormControl>
-                              <SelectTrigger className="rounded-xl">
+                              <SelectTrigger>
                                 <SelectValue placeholder="Year" />
                               </SelectTrigger>
                             </FormControl>
@@ -564,7 +672,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                             disabled={!isEditing}
                           >
                             <FormControl>
-                              <SelectTrigger className="rounded-xl">
+                              <SelectTrigger>
                                 <SelectValue placeholder="Month" />
                               </SelectTrigger>
                             </FormControl>
@@ -583,7 +691,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                             disabled={!isEditing}
                           >
                             <FormControl>
-                              <SelectTrigger className="rounded-xl">
+                              <SelectTrigger>
                                 <SelectValue placeholder="Day" />
                               </SelectTrigger>
                             </FormControl>
@@ -597,7 +705,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                           </Select>
                         </div>
                         {field.value && (
-                          <p className="text-xs text-muted-foreground mt-1">
+                          <p className="mt-1 text-xs text-muted-foreground">
                             Selected: {format(field.value, "PPP")}
                           </p>
                         )}
@@ -622,7 +730,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                           value={displaySex}
                         >
                           <FormControl>
-                            <SelectTrigger className="rounded-xl" disabled={!isEditing}>
+                            <SelectTrigger disabled={!isEditing}>
                               <SelectValue placeholder="Select gender" />
                             </SelectTrigger>
                           </FormControl>
@@ -643,7 +751,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     <FormItem>
                       <FormLabel>Place of Birth</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., London" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="e.g., London" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -656,7 +764,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     <FormItem>
                       <FormLabel>Country of Birth</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., United Kingdom" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="e.g., United Kingdom" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -667,9 +775,9 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                   name="nationality"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Nationality</FormLabel>
+                      <FormLabel>Nationality *</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., British" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="e.g., British" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -678,10 +786,9 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
               </div>
             </div>
 
-            {/* Contact Information Section */}
-            <div className="space-y-4 pt-4 border-t">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contact</h3>
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div className="space-y-3 border-t pt-4">
+              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Contact</h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <FormField
                   control={form.control}
                   name="telephone"
@@ -689,7 +796,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     <FormItem>
                       <FormLabel>Telephone</FormLabel>
                       <FormControl>
-                        <Input placeholder="+44 20 1234 5678" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="+44 20 1234 5678" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -702,7 +809,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     <FormItem>
                       <FormLabel>Mobile</FormLabel>
                       <FormControl>
-                        <Input placeholder="+44 7700 900123" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="+44 7700 900123" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -715,7 +822,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     <FormItem>
                       <FormLabel>Discharge book number</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g. R123456" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="e.g. R123456" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -724,18 +831,17 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
               </div>
             </div>
 
-            {/* Address Section */}
-            <div className="space-y-4 pt-4 border-t">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Address</h3>
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div className="space-y-3 border-t pt-4">
+              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Address</h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <FormField
                   control={form.control}
                   name="addressLine1"
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
-                      <FormLabel>Address Line 1</FormLabel>
+                      <FormLabel>Address Line 1 *</FormLabel>
                       <FormControl>
-                        <Input placeholder="Street address" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="Street address" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -748,7 +854,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     <FormItem className="sm:col-span-2">
                       <FormLabel>Address Line 2</FormLabel>
                       <FormControl>
-                        <Input placeholder="Apartment, suite, etc. (optional)" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="Apartment, suite, etc. (optional)" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -761,7 +867,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     <FormItem>
                       <FormLabel>District</FormLabel>
                       <FormControl>
-                        <Input placeholder="District (optional)" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="District (optional)" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -774,7 +880,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     <FormItem>
                       <FormLabel>Town/City *</FormLabel>
                       <FormControl>
-                        <Input placeholder="Town or city" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="Town or city" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -787,7 +893,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     <FormItem>
                       <FormLabel>County/State</FormLabel>
                       <FormControl>
-                        <Input placeholder="County or state (optional)" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="County or state (optional)" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -800,7 +906,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     <FormItem>
                       <FormLabel>Post Code *</FormLabel>
                       <FormControl>
-                        <Input placeholder="Post code" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="Post code" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -813,7 +919,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     <FormItem>
                       <FormLabel>Country *</FormLabel>
                       <FormControl>
-                        <Input placeholder="Country" {...field} className="rounded-xl" disabled={!isEditing} />
+                        <Input placeholder="Country" {...field} disabled={!isEditing} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -821,8 +927,198 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                 />
               </div>
             </div>
-            
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-4 border-t">
+            </>
+  );
+
+  if (isCrewMode) {
+    const complete = summary.missingRequired.length === 0;
+    return (
+      <>
+        <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
+          <section className="overflow-hidden rounded-xl border bg-card">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/30 px-4 py-3 sm:px-5">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring -mx-1 px-1 py-0.5"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
+                      <FileCheck className="h-3.5 w-3.5 shrink-0" />
+                      Documents
+                    </div>
+                    <h3 className="mt-0.5 text-sm font-semibold tracking-tight">Official details</h3>
+                    {!detailsOpen && (
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                        {complete
+                          ? 'Ready for PDF generation — expand to review'
+                          : summary.hasAny
+                            ? `${summary.missingRequired.length} field${summary.missingRequired.length === 1 ? '' : 's'} still needed`
+                            : 'Collapsed · add details when generating documents'}
+                      </p>
+                    )}
+                  </div>
+                  <ChevronDown
+                    className={cn(
+                      'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
+                      detailsOpen && 'rotate-180',
+                    )}
+                  />
+                </button>
+              </CollapsibleTrigger>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant="secondary"
+                  className={cn(
+                    'rounded-md font-mono text-[10px] uppercase tracking-wider',
+                    complete
+                      ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                      : 'border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-400',
+                  )}
+                >
+                  {summary.filledRequired}/{PDF_REQUIRED_LABELS.length} PDF ready
+                </Badge>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={summary.hasAny ? 'outline' : 'default'}
+                  className="rounded-lg"
+                  onClick={() => setIsEditing(true)}
+                >
+                  {summary.hasAny ? (
+                    <>
+                      <Edit className="mr-1.5 h-3.5 w-3.5" />
+                      Edit
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />
+                      Add details
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <CollapsibleContent>
+              {!summary.hasAny ? (
+                <div className="border-t px-4 py-4 sm:px-5">
+                  <p className="text-sm text-muted-foreground">
+                    No MCA / AMSA details on file yet. Add them once — they fill vessel-generated documents.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-4 border-t px-4 py-3 sm:grid-cols-3 sm:px-5">
+                  <FactColumn title="Personal" rows={summary.personal} emptyLabel="Nothing set" />
+                  <FactColumn title="Contact" rows={summary.contact} emptyLabel="Nothing set" />
+                  <div className="min-w-0">
+                    <h4 className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      Address
+                    </h4>
+                    {summary.addressLines.length === 0 ? (
+                      <p className="mt-1.5 text-xs text-muted-foreground">Nothing set</p>
+                    ) : (
+                      <p className="mt-1.5 text-sm font-medium leading-snug text-foreground">
+                        {summary.addressLines.map((line, i) => (
+                          <span key={`${line}-${i}`} className="block">
+                            {line}
+                          </span>
+                        ))}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {summary.missingRequired.length > 0 && (
+                <div className="border-t bg-amber-500/5 px-4 py-2.5 sm:px-5">
+                  <p className="text-[11px] leading-relaxed text-amber-800 dark:text-amber-300">
+                    <span className="font-semibold">Still needed for PDFs:</span>{' '}
+                    {summary.missingRequired.join(' · ')}
+                  </p>
+                </div>
+              )}
+            </CollapsibleContent>
+          </section>
+        </Collapsible>
+
+        <Dialog
+          open={isEditing}
+          onOpenChange={(open) => {
+            if (!open) handleCancelEdit();
+            else setIsEditing(true);
+          }}
+        >
+          <SeaDialogContent size="lg" className="flex max-h-[90vh] flex-col">
+            <SeaDialogHeader
+              icon={FileCheck}
+              eyebrow="Official details"
+              title="Edit crew details"
+              description="Used for AMSA, MCA, Nav Watch, and other vessel-generated documents."
+            />
+            <Form {...form}>
+              <form
+                onSubmit={form.handleSubmit(onSubmit)}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <SeaDialogBody className="space-y-4">
+                  {formFields}
+                </SeaDialogBody>
+                <SeaDialogFooter>
+                  <Button type="button" variant="outline" className="rounded-lg" onClick={handleCancelEdit} disabled={isSaving}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="rounded-lg" disabled={isSaving}>
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving…
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" />
+                        Save details
+                      </>
+                    )}
+                  </Button>
+                </SeaDialogFooter>
+              </form>
+            </Form>
+          </SeaDialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  return (
+    <Card className="rounded-xl border shadow-none">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <CardTitle className="text-sm font-semibold tracking-tight">
+              Official details
+            </CardTitle>
+            <CardDescription className="mt-0.5 text-xs">
+              Used to fill PDFs and applications (DOB, address, discharge book).
+            </CardDescription>
+          </div>
+          {!isEditing ? (
+            <Button type="button" onClick={() => setIsEditing(true)} size="sm" className="rounded-lg shrink-0">
+              <Edit className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="mb-5 text-xs leading-relaxed text-muted-foreground">
+          Save once — SeaJourney reuses these fields whenever you generate official documents.
+        </p>
+
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {formFields}
+            <div className="flex flex-col items-start justify-between gap-4 border-t pt-4 sm:flex-row sm:items-center">
               <p className="text-xs text-muted-foreground">
                 * Required where marked (used for official applications and generated PDFs)
               </p>

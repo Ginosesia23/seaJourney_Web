@@ -52,6 +52,7 @@ import { useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, Certificate } from '@/lib/types';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
 import { cn } from '@/lib/utils';
 import { bearerHeaders, downloadWithAuth } from '@/lib/applications/client';
 import {
@@ -201,6 +202,7 @@ export default function CertificatesPage() {
     const role = (userProfile as any).role || userProfile.role || 'crew';
     const entitled = hasActiveSubscription(userProfileRaw);
 
+    if (isVesselLinkedFeatureGranted(userProfileRaw, 'certificates')) return entitled;
     if (tier === 'vessel_linked') return false;
 
     if (role === 'vessel') {

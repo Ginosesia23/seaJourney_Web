@@ -18,13 +18,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  Activity,
   AlertTriangle,
   Anchor,
+  Check,
+  ChevronDown,
   Crown,
   Loader2,
+  Lock,
   Mail,
   Plus,
+  Radio,
   Settings,
+  Shield,
   Ship,
   Trash2,
   UserCog,
@@ -35,24 +41,23 @@ import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { hasVesselPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
 import type { VesselLinkedRole } from '@/lib/types';
+import {
+  VESSEL_LINKED_CORE_FEATURES,
+  VESSEL_LINKED_FEATURE_GROUPS,
+  grantableVesselLinkedFeatures,
+  resolveLinkedAccountFeatures,
+  type VesselLinkedFeatureDefinition,
+  type VesselLinkedFeatureKey,
+} from '@/lib/vessel-linked-features';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
+import { cn } from '@/lib/utils';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import {
   Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
 } from '@/components/ui/dialog';
+import { SeaDialogContent, SeaDialogHeader, SeaDialogBody, SeaDialogFooter } from '@/components/ui/sea-dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,6 +70,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -73,8 +79,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
 
@@ -86,35 +90,41 @@ interface LinkedAccountRow {
   role: VesselLinkedRole;
   joinedAt: string | null;
   lastSignInAt: string | null;
+  features: VesselLinkedFeatureKey[];
 }
 
 const ROLE_META: Record<
   VesselLinkedRole,
-  { label: string; description: string; icon: React.ElementType; tone: string }
+  { label: string; description: string; icon: React.ElementType; tone: string; rail: string }
 > = {
   captain: {
     label: 'Captain',
-    description: 'Can sign off testimonials and approve sea-service for the vessel.',
+    description:
+      'Assigned as this vessel’s captain immediately — can sign off testimonials without a separate claim approval.',
     icon: Crown,
     tone: 'bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200',
+    rail: 'bg-amber-500',
   },
   officer: {
     label: 'Officer',
     description: 'Can sign off bridge-watch and passage entries.',
     icon: Anchor,
     tone: 'bg-sky-50 text-sky-900 dark:bg-sky-950/40 dark:text-sky-200',
+    rail: 'bg-sky-500',
   },
   engineer: {
     label: 'Engineer',
     description: 'Engineering-side sign-offs and engine-room records.',
     icon: Wrench,
     tone: 'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200',
+    rail: 'bg-emerald-500',
   },
   manager: {
     label: 'Manager',
     description: 'Administrative delegate — manage vessel data without signing authority.',
     icon: Settings,
     tone: 'bg-violet-50 text-violet-900 dark:bg-violet-950/40 dark:text-violet-200',
+    rail: 'bg-violet-500',
   },
 };
 
@@ -149,6 +159,7 @@ export default function VesselRolesPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<LinkedAccountRow | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
+  const [savingFeaturesId, setSavingFeaturesId] = useState<string | null>(null);
 
   // Form state for "Add linked account"
   const [formFirstName, setFormFirstName] = useState('');
@@ -157,6 +168,16 @@ export default function VesselRolesPage() {
   const [formRole, setFormRole] = useState<VesselLinkedRole>('captain');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const { flags } = useFeatureFlags();
+  const grantableFeatures = useMemo(
+    () => grantableVesselLinkedFeatures((key) => !!flags[key]),
+    [flags],
+  );
+  const grantableKeys = useMemo(
+    () => new Set(grantableFeatures.map((f) => f.key)),
+    [grantableFeatures],
+  );
 
   const role = (profileRaw?.role as string) || 'crew';
   const activeVesselId = (profileRaw?.active_vessel_id as string) || null;
@@ -167,6 +188,19 @@ export default function VesselRolesPage() {
     if (!isVesselManager) return false;
     return hasVesselPremiumPlusFeatures(profileRaw);
   }, [profileRaw, isVesselManager]);
+
+  const panelStats = useMemo(() => {
+    const live = linked.filter((a) => Boolean(a.lastSignInAt)).length;
+    return {
+      accounts: linked.length,
+      live,
+      setup: linked.length - live,
+      grants: linked.reduce(
+        (n, a) => n + a.features.filter((key) => grantableKeys.has(key)).length,
+        0,
+      ),
+    };
+  }, [linked, grantableKeys]);
 
   // Redirect non-vessel users away.
   useEffect(() => {
@@ -188,13 +222,25 @@ export default function VesselRolesPage() {
     }
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('users')
         .select(
-          'id, email, first_name, last_name, role, position, registration_date, last_sign_in_at, managed_by_vessel_id',
+          'id, email, first_name, last_name, role, position, registration_date, last_sign_in_at, managed_by_vessel_id, linked_account_features',
         )
         .eq('managed_by_vessel_id', activeVesselId)
         .order('registration_date', { ascending: false });
+      let { data, error } = await query;
+      if (error && /linked_account_features/i.test(error.message || '')) {
+        const fallback = await supabase
+          .from('users')
+          .select(
+            'id, email, first_name, last_name, role, position, registration_date, last_sign_in_at, managed_by_vessel_id',
+          )
+          .eq('managed_by_vessel_id', activeVesselId)
+          .order('registration_date', { ascending: false });
+        data = fallback.data;
+        error = fallback.error;
+      }
       if (error) throw error;
 
       const mapped: LinkedAccountRow[] = (data || []).map((row) => {
@@ -207,6 +253,7 @@ export default function VesselRolesPage() {
           role: deriveLinkedRole(r),
           joinedAt: (r.registration_date as string) || null,
           lastSignInAt: (r.last_sign_in_at as string) || null,
+          features: resolveLinkedAccountFeatures(r),
         };
       });
       setLinked(mapped);
@@ -271,7 +318,10 @@ export default function VesselRolesPage() {
       }
       toast({
         title: 'Invitation sent',
-        description: `${formFirstName} will receive an email to set their password.`,
+        description:
+          formRole === 'captain'
+            ? `${formFirstName} is assigned as this vessel’s captain and will receive an email to set their password.`
+            : `${formFirstName} will receive an email to set their password.`,
       });
       setIsAddOpen(false);
       resetForm();
@@ -323,6 +373,67 @@ export default function VesselRolesPage() {
     }
   }, [pendingRemove, user, activeVesselId, fetchLinkedAccounts]);
 
+  const handleToggleFeature = useCallback(
+    async (account: LinkedAccountRow, key: VesselLinkedFeatureKey, enabled: boolean) => {
+      if (!user || !activeVesselId) return;
+      if (enabled && !grantableKeys.has(key)) return;
+      const previous = account.features;
+      const next = enabled
+        ? (previous.includes(key) ? previous : [...previous, key])
+        : previous.filter((k) => k !== key);
+
+      setLinked((rows) =>
+        rows.map((row) => (row.id === account.id ? { ...row, features: next } : row)),
+      );
+      setSavingFeaturesId(account.id);
+      try {
+        const res = await fetch('/api/users/vessel-role-features', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vesselUserId: user.id,
+            linkedUserId: account.id,
+            vesselId: activeVesselId,
+            features: next,
+          }),
+        });
+        const payload = (await res.json().catch(() => null)) as
+          | { error?: string; message?: string; features?: VesselLinkedFeatureKey[] }
+          | null;
+        if (!res.ok) {
+          setLinked((rows) =>
+            rows.map((row) => (row.id === account.id ? { ...row, features: previous } : row)),
+          );
+          toast({
+            title: 'Could not update features',
+            description: payload?.message || payload?.error || `Request failed (${res.status})`,
+            variant: 'destructive',
+          });
+          return;
+        }
+        if (payload?.features) {
+          setLinked((rows) =>
+            rows.map((row) =>
+              row.id === account.id ? { ...row, features: payload.features! } : row,
+            ),
+          );
+        }
+      } catch (err) {
+        setLinked((rows) =>
+          rows.map((row) => (row.id === account.id ? { ...row, features: previous } : row)),
+        );
+        toast({
+          title: 'Could not update features',
+          description: err instanceof Error ? err.message : 'Unknown error',
+          variant: 'destructive',
+        });
+      } finally {
+        setSavingFeaturesId((cur) => (cur === account.id ? null : cur));
+      }
+    },
+    [user, activeVesselId, grantableKeys],
+  );
+
   // ---- Render guards ----
 
   if (isUserLoading || isProfileLoading) {
@@ -367,48 +478,51 @@ export default function VesselRolesPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <PageHeader>
-        <Button onClick={() => setIsAddOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add linked account
-        </Button>
-      </PageHeader>
+    <div className="space-y-4 p-4 md:p-6">
+      <ConsoleHeader
+        stats={panelStats}
+        loading={isLoading}
+        onAdd={() => setIsAddOpen(true)}
+      />
 
-      <RoleLegend />
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <UserCog className="h-5 w-5" />
-            Linked accounts on this vessel
-          </CardTitle>
-          <CardDescription>
-            These accounts log in to SeaJourney using their own email and password, but they belong
-            to this vessel. Sea-service testimonials and sign-off requests can be routed to them
-            automatically (coming soon).
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : linked.length === 0 ? (
-            <EmptyState onAdd={() => setIsAddOpen(true)} />
-          ) : (
-            <ul className="divide-y rounded-md border">
-              {linked.map((account) => (
-                <LinkedAccountRow
-                  key={account.id}
-                  account={account}
-                  onRemove={() => setPendingRemove(account)}
-                />
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+      <div className="overflow-hidden rounded-xl border bg-card">
+        <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
+          <div className="flex items-center gap-2">
+            <Radio className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Accounts
+            </span>
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              {panelStats.accounts.toString().padStart(2, '0')}
+            </span>
+          </div>
+          <p className="hidden text-[11px] text-muted-foreground sm:block">
+            Expand an account to grant extras. Core pages stay live for every linked login.
+          </p>
+        </div>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : linked.length === 0 ? (
+          <EmptyState onAdd={() => setIsAddOpen(true)} />
+        ) : (
+          <ul className="divide-y">
+            {linked.map((account) => (
+              <LinkedAccountRow
+                key={account.id}
+                account={account}
+                grantableFeatures={grantableFeatures}
+                saving={savingFeaturesId === account.id}
+                onRemove={() => setPendingRemove(account)}
+                onToggleFeature={(key, enabled) => {
+                  void handleToggleFeature(account, key, enabled);
+                }}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
 
       {/* ---- Add dialog ---- */}
       <Dialog
@@ -418,40 +532,46 @@ export default function VesselRolesPage() {
           if (!open) resetForm();
         }}
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add a linked account</DialogTitle>
-            <DialogDescription>
-              We&apos;ll create a SeaJourney account tied to your vessel and email an invitation to
-              set a password. The account uses a separate email from your personal one.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
+        <SeaDialogContent size="md">
+          <SeaDialogHeader
+            icon={UserCog}
+            eyebrow="Vessel roles"
+            title="Add a linked account"
+            description="We'll create a SeaJourney account tied to your vessel and email an invitation to set a password."
+          />
+          <SeaDialogBody>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="role-first-name">First name</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="role-first-name" className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  First name
+                </Label>
                 <Input
                   id="role-first-name"
                   value={formFirstName}
                   onChange={(e) => setFormFirstName(e.target.value)}
                   placeholder="James"
                   autoComplete="given-name"
+                  className="h-10 rounded-lg"
                 />
               </div>
-              <div>
-                <Label htmlFor="role-last-name">Last name</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="role-last-name" className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Last name
+                </Label>
                 <Input
                   id="role-last-name"
                   value={formLastName}
                   onChange={(e) => setFormLastName(e.target.value)}
                   placeholder="Carter"
                   autoComplete="family-name"
+                  className="h-10 rounded-lg"
                 />
               </div>
             </div>
-            <div>
-              <Label htmlFor="role-email">Email</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="role-email" className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Email
+              </Label>
               <Input
                 id="role-email"
                 type="email"
@@ -459,16 +579,19 @@ export default function VesselRolesPage() {
                 onChange={(e) => setFormEmail(e.target.value)}
                 placeholder="captain@your-vessel.com"
                 autoComplete="off"
+                className="h-10 rounded-lg"
               />
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Must be an email that isn&apos;t already on SeaJourney. A vessel-specific alias
-                works well (e.g. <code>captain@your-vessel.com</code>).
+                works well (e.g. <code className="rounded bg-muted px-1 py-0.5 text-[11px]">captain@your-vessel.com</code>).
               </p>
             </div>
-            <div>
-              <Label htmlFor="role-role">Role</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="role-role" className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Role
+              </Label>
               <Select value={formRole} onValueChange={(v) => setFormRole(v as VesselLinkedRole)}>
-                <SelectTrigger id="role-role">
+                <SelectTrigger id="role-role" className="h-10 rounded-lg">
                   <SelectValue placeholder="Choose a role" />
                 </SelectTrigger>
                 <SelectContent>
@@ -486,7 +609,7 @@ export default function VesselRolesPage() {
                   })}
                 </SelectContent>
               </Select>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {ROLE_META[formRole].description}
               </p>
             </div>
@@ -497,11 +620,11 @@ export default function VesselRolesPage() {
                 <AlertDescription>{formError}</AlertDescription>
               </Alert>
             )}
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
+          </SeaDialogBody>
+          <SeaDialogFooter>
             <Button
               variant="outline"
+              className="rounded-lg"
               onClick={() => {
                 setIsAddOpen(false);
                 resetForm();
@@ -510,7 +633,7 @@ export default function VesselRolesPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleSubmitInvite} disabled={isSubmitting}>
+            <Button className="rounded-lg" onClick={handleSubmitInvite} disabled={isSubmitting}>
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -523,8 +646,8 @@ export default function VesselRolesPage() {
                 </>
               )}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </SeaDialogFooter>
+        </SeaDialogContent>
       </Dialog>
 
       {/* ---- Remove confirmation ---- */}
@@ -577,6 +700,75 @@ export default function VesselRolesPage() {
 
 /* ----------------------------- subcomponents ----------------------------- */
 
+function ConsoleHeader({
+  stats,
+  loading,
+  onAdd,
+}: {
+  stats: { accounts: number; live: number; setup: number; grants: number };
+  loading: boolean;
+  onAdd: () => void;
+}) {
+  const metrics = [
+    { key: 'accounts', label: 'Accounts', value: stats.accounts, hint: 'Linked to this vessel' },
+    { key: 'live', label: 'Live', value: stats.live, hint: 'Have signed in' },
+    { key: 'setup', label: 'Setup', value: stats.setup, hint: 'Invitation pending' },
+    { key: 'grants', label: 'Grants', value: stats.grants, hint: 'Extra features on' },
+  ] as const;
+
+  return (
+    <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
+        <div>
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
+            <Shield className="h-3.5 w-3.5" />
+            Access control
+          </div>
+          <h1 className="mt-1 text-xl font-semibold tracking-tight">Vessel roles</h1>
+          <p className="mt-1 max-w-xl text-xs text-muted-foreground">
+            Linked logins owned by this vessel. Grant each account only the tools it needs.
+          </p>
+        </div>
+        <Button onClick={onAdd}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add account
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 border-t bg-muted/30 sm:grid-cols-4">
+        {metrics.map((m) => (
+          <div
+            key={m.key}
+            className="border-border px-5 py-3 sm:border-r sm:last:border-r-0 [&:nth-child(odd)]:border-r max-sm:[&:nth-child(-n+2)]:border-b"
+          >
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {m.label}
+            </div>
+            <div className="mt-1 font-mono text-2xl font-semibold tabular-nums leading-none">
+              {loading ? '—' : String(m.value).padStart(2, '0')}
+            </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">{m.hint}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-x-5 gap-y-2 border-t px-5 py-2.5">
+        {(Object.keys(ROLE_META) as VesselLinkedRole[]).map((r) => {
+          const meta = ROLE_META[r];
+          const Icon = meta.icon;
+          return (
+            <div key={r} className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span className={cn('h-2 w-2 rounded-full', meta.rail)} />
+              <Icon className="h-3 w-3" />
+              <span className="font-medium text-foreground">{meta.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PageHeader({ children }: { children?: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -593,46 +785,22 @@ function PageHeader({ children }: { children?: React.ReactNode }) {
   );
 }
 
-function RoleLegend() {
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {(Object.keys(ROLE_META) as VesselLinkedRole[]).map((r) => {
-        const meta = ROLE_META[r];
-        const Icon = meta.icon;
-        return (
-          <Card key={r} className="overflow-hidden">
-            <CardHeader className="pb-3">
-              <div className={`inline-flex h-9 w-9 items-center justify-center rounded-lg ${meta.tone}`}>
-                <Icon className="h-4 w-4" />
-              </div>
-              <CardTitle className="mt-2 text-base">{meta.label}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">{meta.description}</p>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
-  );
-}
-
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-      <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+    <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
+      <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl border bg-muted/40 text-muted-foreground">
         <UserCog className="h-6 w-6" />
       </div>
       <div>
         <h3 className="text-base font-semibold">No linked accounts yet</h3>
         <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-          Add the captain, officers, engineer, or manager who will sign documents on the vessel&apos;s
-          behalf. They&apos;ll get an email to set their password.
+          Add the captain, officers, engineer, or manager who will operate this vessel&apos;s
+          dashboard. They&apos;ll get an email to set a password.
         </p>
       </div>
       <Button onClick={onAdd}>
         <Plus className="mr-2 h-4 w-4" />
-        Add the first linked account
+        Add the first account
       </Button>
     </div>
   );
@@ -640,54 +808,209 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
 
 function LinkedAccountRow({
   account,
+  grantableFeatures,
+  saving,
   onRemove,
+  onToggleFeature,
 }: {
   account: LinkedAccountRow;
+  grantableFeatures: VesselLinkedFeatureDefinition[];
+  saving: boolean;
   onRemove: () => void;
+  onToggleFeature: (key: VesselLinkedFeatureKey, enabled: boolean) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const meta = ROLE_META[account.role];
   const Icon = meta.icon;
   const fullName = [account.firstName, account.lastName].filter(Boolean).join(' ') || account.email;
   const initials = (
     (account.firstName?.[0] || '') + (account.lastName?.[0] || '') || account.email[0] || '?'
   ).toUpperCase();
-  const status = account.lastSignInAt ? 'Active' : 'Invitation sent';
+  const isLive = Boolean(account.lastSignInAt);
+  const grantableKeys = useMemo(
+    () => new Set(grantableFeatures.map((f) => f.key)),
+    [grantableFeatures],
+  );
+  const granted = new Set(
+    account.features.filter((key) => grantableKeys.has(key)),
+  );
+  const enabledCount = granted.size;
+  const totalCount = grantableFeatures.length;
+  const coreItems = VESSEL_LINKED_CORE_FEATURES.filter(
+    (item) => !item.captainOnly || account.role === 'captain',
+  );
+  const visibleGroups = useMemo(
+    () =>
+      VESSEL_LINKED_FEATURE_GROUPS.map((group) => ({
+        ...group,
+        features: grantableFeatures.filter((f) => f.group === group.key),
+      })).filter((group) => group.features.length > 0),
+    [grantableFeatures],
+  );
 
   return (
-    <li className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 items-center gap-3">
-        <Avatar className="h-10 w-10">
-          <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate font-medium">{fullName}</span>
-            <Badge variant="secondary" className={`gap-1 ${meta.tone}`}>
-              <Icon className="h-3 w-3" />
-              {meta.label}
-            </Badge>
+    <li className="relative">
+      <span className={cn('absolute inset-y-0 left-0 w-1', meta.rail)} />
+      <div className="flex items-center justify-between gap-3 py-2.5 pl-4 pr-3">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          onClick={() => setExpanded((open) => !open)}
+          aria-expanded={expanded}
+        >
+          <span
+            className={cn(
+              'h-2 w-2 shrink-0 rounded-full',
+              isLive ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)]' : 'bg-amber-400',
+            )}
+            title={isLive ? 'Live' : 'Invitation sent'}
+          />
+          <Avatar className="h-8 w-8">
+            <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="truncate text-sm font-semibold">{fullName}</span>
+              <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <Icon className="h-3 w-3" />
+                {meta.label}
+              </span>
+            </div>
+            <div className="truncate font-mono text-[11px] text-muted-foreground">
+              {account.email}
+            </div>
           </div>
-          <div className="truncate text-xs text-muted-foreground">{account.email}</div>
+        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            className={cn(
+              'hidden font-mono text-[11px] tabular-nums sm:inline',
+              enabledCount > 0 ? 'text-foreground' : 'text-muted-foreground',
+            )}
+          >
+            {String(enabledCount).padStart(2, '0')}/{String(totalCount).padStart(2, '0')}
+          </span>
+          <span
+            className={cn(
+              'hidden rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider sm:inline',
+              isLive
+                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                : 'bg-amber-500/15 text-amber-800 dark:text-amber-200',
+            )}
+          >
+            {isLive ? 'Live' : 'Setup'}
+          </span>
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
+          <Button
+            variant={expanded ? 'default' : 'outline'}
+            size="sm"
+            className="h-8 font-mono text-[11px] uppercase tracking-wider"
+            onClick={() => setExpanded((open) => !open)}
+          >
+            <Activity className="mr-1 h-3.5 w-3.5" />
+            Panel
+            <ChevronDown
+              className={cn('ml-1 h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')}
+            />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onRemove}
+            className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            aria-label="Remove linked account"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
       </div>
-      <div className="flex items-center gap-2 sm:gap-3">
-        <span className="text-xs text-muted-foreground">
-          {status}
-          {account.lastSignInAt
-            ? ` · last seen ${new Date(account.lastSignInAt).toLocaleDateString()}`
-            : ''}
-        </span>
-        <Separator orientation="vertical" className="hidden h-6 sm:block" />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onRemove}
-          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-        >
-          <Trash2 className="mr-1.5 h-4 w-4" />
-          Remove
-        </Button>
-      </div>
+
+      {expanded ? (
+        <div className="space-y-3 border-t bg-muted/20 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Lock className="h-3 w-3 text-muted-foreground" />
+            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Core
+            </span>
+            {coreItems.map((item) => (
+              <span
+                key={item.label}
+                title={item.description}
+                className="inline-flex items-center gap-1 rounded border bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide"
+              >
+                <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                {item.label}
+              </span>
+            ))}
+          </div>
+
+          <div className="grid gap-2 lg:grid-cols-3">
+            {visibleGroups.map((group) => {
+              const features = group.features;
+              const onCount = features.filter((f) => granted.has(f.key)).length;
+              return (
+                <section
+                  key={group.key}
+                  className="overflow-hidden rounded-md border bg-background/80"
+                >
+                  <div className="flex items-center justify-between border-b bg-muted/50 px-2.5 py-1.5">
+                    <h4 className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      {group.label}
+                    </h4>
+                    <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                      {onCount}/{features.length}
+                    </span>
+                  </div>
+                  <div className="divide-y">
+                    {features.map((feature) => {
+                      const enabled = granted.has(feature.key);
+                      return (
+                        <label
+                          key={feature.key}
+                          title={feature.description}
+                          className={cn(
+                            'flex cursor-pointer items-center justify-between gap-2 px-2.5 py-1.5 transition-colors',
+                            enabled ? 'bg-emerald-500/[0.06]' : 'hover:bg-muted/40',
+                          )}
+                        >
+                          <span className="min-w-0 truncate text-[13px] font-medium">
+                            {feature.label}
+                          </span>
+                          <span className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                'font-mono text-[10px] font-semibold uppercase tracking-wider',
+                                enabled
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-muted-foreground/70',
+                              )}
+                            >
+                              {enabled ? 'On' : 'Off'}
+                            </span>
+                            <Switch
+                              checked={enabled}
+                              disabled={saving}
+                              onCheckedChange={(checked) => onToggleFeature(feature.key, checked)}
+                              aria-label={`Allow ${feature.label}`}
+                              className="h-5 w-9 shrink-0 [&>span]:h-4 [&>span]:w-4 [&>span]:data-[state=checked]:translate-x-4"
+                            />
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+          {visibleGroups.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No extra features are available to grant right now. Platform features may be
+              temporarily disabled by an admin.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </li>
   );
 }

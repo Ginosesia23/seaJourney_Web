@@ -28,6 +28,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import type { Vessel, UserProfile, VesselAssignment } from '@/lib/types';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { isLinkedVesselWatchViewer, isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
 
 interface WatchLog {
   id: string;
@@ -166,6 +167,23 @@ export default function BridgeWatchLogPage() {
     return role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
   }, [userProfile]);
 
+  const linkedBridgeGranted = useMemo(
+    () => isVesselLinkedFeatureGranted(userProfileRaw, 'bridge_watch_log'),
+    [userProfileRaw],
+  );
+
+  const linkedWatchViewer = useMemo(
+    () => isLinkedVesselWatchViewer(userProfileRaw),
+    [userProfileRaw],
+  );
+
+  useEffect(() => {
+    if (isLoadingProfile) return;
+    if (linkedWatchViewer) {
+      router.replace('/dashboard/watch-schedule');
+    }
+  }, [isLoadingProfile, linkedWatchViewer, router]);
+
   // Premium / Pro entitlement (includes cancel-at-period-end until current_period_end)
   const hasAccess = useMemo(() => {
     if (!userProfile || !userProfileRaw) return false;
@@ -179,6 +197,10 @@ export default function BridgeWatchLogPage() {
       .toLowerCase();
 
     if (role === 'vessel') return true;
+
+    if (isVesselLinkedFeatureGranted(userProfileRaw, 'bridge_watch_log')) {
+      return hasActiveSubscription(userProfileRaw);
+    }
 
     const tierOk = subscriptionTier === 'premium' || subscriptionTier === 'pro';
     return tierOk && hasActiveSubscription(userProfileRaw);
@@ -357,10 +379,10 @@ export default function BridgeWatchLogPage() {
 
   // Redirect non-officers, non-premium users, or vessel accounts to dashboard
   useEffect(() => {
-    if (!isLoadingProfile && userProfile && (isVesselAccount || !isOfficer || !hasAccess)) {
+    if (!isLoadingProfile && userProfile && !linkedWatchViewer && (isVesselAccount || (!isOfficer && !linkedBridgeGranted) || !hasAccess)) {
       router.push('/dashboard');
     }
-  }, [isLoadingProfile, userProfile, isVesselAccount, isOfficer, hasAccess, router]);
+  }, [isLoadingProfile, userProfile, isVesselAccount, isOfficer, linkedBridgeGranted, hasAccess, linkedWatchViewer, router]);
 
   const getVesselName = (vesselId: string) => {
     return vessels?.find(v => v.id === vesselId)?.name || 'Unknown Vessel';
@@ -637,7 +659,7 @@ export default function BridgeWatchLogPage() {
   }
 
   // Show loading while redirecting non-officers or non-premium users
-  if (userProfile && (!isOfficer || !hasAccess)) {
+  if (userProfile && ((!isOfficer && !linkedBridgeGranted) || !hasAccess)) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

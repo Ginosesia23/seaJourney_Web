@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import {
+  extractPosCodeBody,
+  formatPosVerificationCode,
+  posVerificationLookupCandidates,
+} from '@/lib/proof-of-service/verification-code';
 
 /**
  * GET /api/verify/proof-of-service?code=POS-XXXXXXXX
  * Looks up a Proof of Service record by verification code (server-side, bypasses RLS).
  * Returns public-safe fields only. Used by the public verify page.
+ *
+ * Tolerates legacy storage formats (no POS- prefix, 10-char UUID fragments).
  */
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
@@ -12,19 +19,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing code' }, { status: 400 });
   }
 
-  const cleaned = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (cleaned.length < 8) {
+  const body = extractPosCodeBody(code);
+  if (body.length < 8) {
     return NextResponse.json({ error: 'Code too short' }, { status: 400 });
   }
 
-  const posCode = cleaned.startsWith('POS') ? `POS-${cleaned.slice(3, 11)}` : `POS-${cleaned.substring(0, 8)}`;
+  const candidates = posVerificationLookupCandidates(code);
+  const orFilter = candidates
+    .map((c) => `verification_code.eq.${c}`)
+    .join(',');
 
   const { data: row, error } = await supabaseAdmin
     .from('proof_of_service')
     .select(
-      'id, verification_code, vessel_name, vessel_type, vessel_imo, crew_name, crew_position, start_date, end_date, total_days, at_sea_days, standby_days, yard_days, leave_days, generated_by_name, generated_by_email, created_at'
+      'id, verification_code, vessel_name, vessel_type, vessel_imo, crew_name, crew_position, start_date, end_date, total_days, at_sea_days, standby_days, yard_days, leave_days, generated_by_name, generated_by_email, created_at',
     )
-    .eq('verification_code', posCode)
+    .or(orFilter)
+    .limit(1)
     .maybeSingle();
 
   if (error) {
@@ -36,10 +47,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ found: false }, { status: 404 });
   }
 
+  const displayCode =
+    formatPosVerificationCode(row.verification_code) ||
+    formatPosVerificationCode(code) ||
+    row.verification_code;
+
   return NextResponse.json({
     found: true,
     record: {
-      verification_code: row.verification_code,
+      verification_code: displayCode,
       vessel_name: row.vessel_name,
       vessel_type: row.vessel_type,
       vessel_imo: row.vessel_imo,

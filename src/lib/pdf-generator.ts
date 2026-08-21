@@ -22,6 +22,12 @@ import QRCode from 'qrcode';
 import type { SeaTimeReportData } from '@/app/actions';
 import type { AmsaSeaServiceReference } from '@/lib/amsa-sea-service-reference';
 import { formatAmsaReferencePartsForPdf } from '@/lib/amsa-sea-service-reference';
+import {
+  SEAJOURNEY_LOGO_PNG_HEIGHT,
+  SEAJOURNEY_LOGO_PNG_WIDTH,
+  getSeaJourneyLogoDataUrl,
+  getSeaJourneyLogoPngBytes,
+} from '@/lib/seajourney-logo-png';
 
 /* ========================================================================== */
 /*                        VERIFICATION QR HELPERS                             */
@@ -39,6 +45,30 @@ function getVerificationBaseUrl(): string {
     process.env.SITE_URL ||
     'https://www.seajourney.co.uk'
   );
+}
+
+/** SeaJourney brand navy (#172b42) + accent blue for PDF page headers. */
+const SJ_PDF_NAVY_RGB: [number, number, number] = [23, 43, 66];
+const SJ_PDF_ACCENT_RGB: [number, number, number] = [37, 99, 235];
+const SJ_PDF_HEADER_ACCENT_MM = 1.1;
+const SJ_PDF_NAVY = rgb(23 / 255, 43 / 255, 66 / 255);
+const SJ_PDF_ACCENT = rgb(37 / 255, 99 / 255, 235 / 255);
+const SJ_PDF_HEADER_ACCENT_PT = 2.5;
+
+/**
+ * Full-width navy header band with the signature blue accent line under it.
+ * Returns the Y offset (mm from top) just below the accent — start content there.
+ */
+function drawJsPdfBrandHeaderBand(
+  doc: jsPDF,
+  pageWidth: number,
+  headerHeightMm: number,
+): number {
+  doc.setFillColor(...SJ_PDF_NAVY_RGB);
+  doc.rect(0, 0, pageWidth, headerHeightMm, 'F');
+  doc.setFillColor(...SJ_PDF_ACCENT_RGB);
+  doc.rect(0, headerHeightMm, pageWidth, SJ_PDF_HEADER_ACCENT_MM, 'F');
+  return headerHeightMm + SJ_PDF_HEADER_ACCENT_MM;
 }
 
 /**
@@ -194,13 +224,24 @@ export interface TestimonialPDFOptions {
 
 const A4_RECEIPT_PT = { w: 595.28, h: 841.89 };
 
-/** Embed a PNG logo into a pdf-lib PDFDocument. Returns null if not available. */
+/** White lockup used on navy PDF headers (public/logo-seajourney.png). */
+export const SEAJOURNEY_LOGO_PUBLIC_PATH = '/logo-seajourney.png';
+
+/** Embed the inlined PNG logo into a pdf-lib PDFDocument (browser + Node). */
 async function embedLogoForPdfLib(
   pdfDoc: PDFDocument,
-  path: string,
+  path: string = SEAJOURNEY_LOGO_PUBLIC_PATH,
 ): Promise<{ image: import('pdf-lib').PDFImage; width: number; height: number } | null> {
   try {
-    if (typeof window === 'undefined') return null;
+    if (path === SEAJOURNEY_LOGO_PUBLIC_PATH || path.endsWith('logo-seajourney.png')) {
+      const bytes = getSeaJourneyLogoPngBytes();
+      const image = await pdfDoc.embedPng(bytes);
+      return {
+        image,
+        width: SEAJOURNEY_LOGO_PNG_WIDTH,
+        height: SEAJOURNEY_LOGO_PNG_HEIGHT,
+      };
+    }
     const { dataURL, width, height } = await loadLogoImageWithDimensions(path);
     const base64 = dataURL.split(',')[1] || '';
     const bin =
@@ -211,7 +252,8 @@ async function embedLogoForPdfLib(
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const image = await pdfDoc.embedPng(bytes);
     return { image, width, height };
-  } catch {
+  } catch (err) {
+    console.warn('[pdf] Failed to embed logo:', path, err);
     return null;
   }
 }
@@ -295,9 +337,8 @@ async function embedSeaJourneyWordmarkLockup(
  *   DOCUMENT VERIFICATION SUMMARY  •          │     <value>
  *                                             │     ISSUED
  *                                             │     <date>
- * Single deep-navy fill across the whole band, with a thin vertical accent
- * rule separating the brand side from the meta card on the right. No top or
- * bottom accent stripes — the section reads as one calm, solid slab.
+ * Brand navy fill across the whole band, blue accent line along the bottom,
+ * and a thin vertical accent rule separating brand from the meta card.
  */
 async function drawSeaJourneyReceiptHeader(
   pdfDoc: PDFDocument,
@@ -325,13 +366,13 @@ async function drawSeaJourneyReceiptHeader(
   const dateStr = format(opts.generatedAt ?? new Date(), 'dd MMMM yyyy');
 
   // Brand palette
-  const NAVY_DEEP = rgb(0.04, 0.09, 0.18);
-  const ACCENT = rgb(0.12, 0.45, 0.95);
+  const NAVY_DEEP = SJ_PDF_NAVY;
+  const ACCENT = SJ_PDF_ACCENT;
   const ACCENT_SOFT = rgb(0.62, 0.80, 1.0);
   const DIVIDER = rgb(0.28, 0.38, 0.55);
   const WHITE = rgb(1, 1, 1);
 
-  // Single-tone deep navy header covering the full width + height
+  // Brand navy header + blue accent line along the bottom edge
   const metaPanelW = 210;
   page.drawRectangle({
     x: 0,
@@ -340,18 +381,25 @@ async function drawSeaJourneyReceiptHeader(
     height: headerH,
     color: NAVY_DEEP,
   });
+  page.drawRectangle({
+    x: 0,
+    y: H - headerH - SJ_PDF_HEADER_ACCENT_PT,
+    width: W,
+    height: SJ_PDF_HEADER_ACCENT_PT,
+    color: ACCENT,
+  });
 
-  // ====== LEFT SIDE: Logo lockup (icon + wordmark) + subtitle ======
+  // ====== LEFT SIDE: Logo (public/logo-seajourney.png) + subtitle ======
   const navyCenterY = H - headerH / 2; // vertical center of navy band
-  const logoMaxH = 30;
+  const logoMaxH = 28;
   const logoBottomY = navyCenterY - logoMaxH / 2 + 4; // nudge up a hair
 
-  const lockup = await embedSeaJourneyWordmarkLockup(pdfDoc, 200);
-  if (lockup) {
-    const aspect = lockup.width / lockup.height;
+  const logo = await embedLogoForPdfLib(pdfDoc, SEAJOURNEY_LOGO_PUBLIC_PATH);
+  if (logo) {
+    const aspect = logo.width / Math.max(logo.height, 1);
     const h = logoMaxH;
     const w = aspect * h;
-    page.drawImage(lockup.image, {
+    page.drawImage(logo.image, {
       x: M,
       y: logoBottomY,
       width: w,
@@ -496,8 +544,8 @@ async function drawSeaJourneyVerificationPanel(
   const ribbonLabel = (opts.ribbonLabel ?? 'Verified Sea Service Record').toUpperCase();
 
   // Brand palette
-  const NAVY = rgb(0.06, 0.14, 0.26);
-  const ACCENT = rgb(0.12, 0.45, 0.95);
+  const NAVY = SJ_PDF_NAVY;
+  const ACCENT = SJ_PDF_ACCENT;
   const ACCENT_SOFT = rgb(0.62, 0.80, 1.0);
   const CREAM = rgb(0.984, 0.990, 0.998);
   const INK = rgb(0.11, 0.14, 0.20);
@@ -750,8 +798,8 @@ async function appendSeaJourneyTestimonialReceiptPage(
   const H = A4_RECEIPT_PT.h;
   const page = pdfDoc.addPage([W, H]);
 
-  const NAVY = rgb(0.06, 0.14, 0.26);
-  const ACCENT = rgb(0.12, 0.45, 0.95);
+  const NAVY = SJ_PDF_NAVY;
+  const ACCENT = SJ_PDF_ACCENT;
   const INK = rgb(0.1, 0.1, 0.12);
   const MUTED = rgb(0.42, 0.45, 0.52);
   const LINE = rgb(0.86, 0.88, 0.92);
@@ -815,7 +863,7 @@ async function appendSeaJourneyTestimonialReceiptPage(
     headerH,
   });
 
-  const panelTopY = H - headerH - 30;
+  const panelTopY = H - headerH - SJ_PDF_HEADER_ACCENT_PT - 30;
   const codeDisplay = refCode.startsWith('SJ-') ? refCode : `SJ-${refCode}`;
   const panelBottomY = await drawSeaJourneyVerificationPanel(pdfDoc, page, {
     x: M,
@@ -1518,19 +1566,38 @@ function ensureSpace(
 }
 
 /**
- * Load PNG logo image for PDF from public folder (cached + CORS-safe)
+ * Load PNG logo for PDF headers (cached).
+ * Uses the inlined SeaJourney lockup so browser and Node API routes both work
+ * without importing Node \`fs\` (which breaks the client webpack bundle).
  */
 const __logoCache = new Map<string, string>();
 const __logoDimensionsCache = new Map<string, { width: number; height: number }>();
 
-function loadLogoImage(logoPath: string): Promise<string> {
+async function loadLogoImage(logoPath: string): Promise<string> {
   const cached = __logoCache.get(logoPath);
-  if (cached) return Promise.resolve(cached);
+  if (cached) return cached;
+
+  if (
+    logoPath === SEAJOURNEY_LOGO_PUBLIC_PATH ||
+    logoPath.endsWith('logo-seajourney.png')
+  ) {
+    const dataURL = getSeaJourneyLogoDataUrl();
+    __logoCache.set(logoPath, dataURL);
+    __logoDimensionsCache.set(logoPath, {
+      width: SEAJOURNEY_LOGO_PNG_WIDTH,
+      height: SEAJOURNEY_LOGO_PNG_HEIGHT,
+    });
+    return dataURL;
+  }
+
+  if (typeof window === 'undefined') {
+    throw new Error(`Logo not available on server: ${logoPath}`);
+  }
 
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    
+
     img.onload = () => {
       try {
         const canvas = document.createElement('canvas');
@@ -1556,18 +1623,17 @@ function loadLogoImage(logoPath: string): Promise<string> {
         reject(new Error(`Failed to convert image to data URL: ${error}`));
       }
     };
-    
+
     img.onerror = () => {
       reject(new Error(`Failed to load logo from ${logoPath}. Make sure it exists in /public.`));
     };
-    
-    const absoluteSrc =
-      logoPath.startsWith('http')
-        ? logoPath
-        : `${window.location.origin}${logoPath.startsWith('/') ? '' : '/'}${logoPath}`;
+
+    const absoluteSrc = logoPath.startsWith('http')
+      ? logoPath
+      : `${window.location.origin}${logoPath.startsWith('/') ? '' : '/'}${logoPath}`;
 
     img.src = absoluteSrc;
-    
+
     if (img.complete) {
       img.onload(new Event('load') as any);
     }
@@ -1576,12 +1642,16 @@ function loadLogoImage(logoPath: string): Promise<string> {
 
 /** Load logo and return data URL plus natural dimensions (for aspect-ratio–correct scaling in PDF). */
 function loadLogoImageWithDimensions(
-  logoPath: string
+  logoPath: string,
 ): Promise<{ dataURL: string; width: number; height: number }> {
   return loadLogoImage(logoPath).then((dataURL) => {
     const dims = __logoDimensionsCache.get(logoPath);
     if (dims) return { dataURL, ...dims };
-    return { dataURL, width: 1, height: 1 };
+    return {
+      dataURL,
+      width: SEAJOURNEY_LOGO_PNG_WIDTH,
+      height: SEAJOURNEY_LOGO_PNG_HEIGHT,
+    };
   });
 }
 
@@ -1642,11 +1712,11 @@ export async function generateTestimonialPDF(
   const isMCATemplate = resolvedPdfFormat === 'mca';
   const textDark: RGB = [20, 20, 20];
   const textGray: RGB = [80, 80, 80];
-  const primaryBlue: RGB = isMCATemplate ? [0, 0, 0] : [0, 29, 55];
+  const primaryBlue: RGB = isMCATemplate ? [0, 0, 0] : SJ_PDF_NAVY_RGB;
   const borderColor: RGB = [180, 180, 180];
-  const headerColor: RGB = isMCATemplate ? [240, 240, 240] : [0, 29, 55];
+  const headerColor: RGB = isMCATemplate ? [240, 240, 240] : SJ_PDF_NAVY_RGB;
   const sectionBg: RGB = [248, 249, 250];
-  const accentBlue: RGB = isMCATemplate ? [0, 0, 0] : [0, 51, 102];
+  const accentBlue: RGB = isMCATemplate ? [0, 0, 0] : SJ_PDF_ACCENT_RGB;
 
   const setFillColor = (c: RGB) => doc.setFillColor(c[0], c[1], c[2]);
   const setTextColor = (c: RGB) => doc.setTextColor(c[0], c[1], c[2]);
@@ -1676,12 +1746,7 @@ export async function generateTestimonialPDF(
     currentY += 12;
   } else {
   const headerHeight = 50;
-  setFillColor(headerColor);
-  doc.rect(0, 0, pageWidth, headerHeight, 'F');
-
-  setDrawColor([0, 0, 0]);
-  doc.setLineWidth(0.5);
-  doc.line(0, headerHeight, pageWidth, headerHeight);
+  drawJsPdfBrandHeaderBand(doc, pageWidth, headerHeight);
 
     let headerY = 12;
 
@@ -1715,7 +1780,7 @@ export async function generateTestimonialPDF(
     doc.text('Official Certificate of Service', pageWidth / 2, headerY, { align: 'center' });
   
   setTextColor(textDark);
-  currentY = headerHeight + 20;
+  currentY = headerHeight + SJ_PDF_HEADER_ACCENT_MM + 20;
   if (debug) {
     positions.headerHeight = { h: headerHeight };
     positions.afterHeaderY = { y: currentY };
@@ -2494,8 +2559,8 @@ async function generateSeaJourneyTestimonialModern(
   const contentWidth = pageWidth - margin * 2;
 
   const colors = {
-    navy: [15, 23, 42] as RGB,
-    blue: [37, 99, 235] as RGB,
+    navy: SJ_PDF_NAVY_RGB as RGB,
+    blue: SJ_PDF_ACCENT_RGB as RGB,
     purple: [126, 34, 206] as RGB,
     text: [28, 28, 30] as RGB,
     muted: [107, 114, 128] as RGB,
@@ -2577,8 +2642,7 @@ async function generateSeaJourneyTestimonialModern(
   };
 
   // ===== Header =====
-  setFill(colors.navy);
-  doc.rect(0, 0, pageWidth, 36, 'F');
+  const headerBandBottom = drawJsPdfBrandHeaderBand(doc, pageWidth, 36);
   try {
     const { dataURL: logoData, width: imgW, height: imgH } =
       await loadLogoImageWithDimensions('/logo-seajourney.png');
@@ -2606,7 +2670,7 @@ async function generateSeaJourneyTestimonialModern(
     });
   }
 
-  let y = 44;
+  let y = headerBandBottom + 8;
 
   // ===== Card helpers (key/value spec-sheet style) =====
   // Each card has a section label at the top, a thin colored accent rule
@@ -2803,7 +2867,7 @@ async function generateSeaJourneyTestimonialModern(
       [
         'Stand-by service',
         String(testimonial.standby_days),
-        'Ready to depart, waiting for owner. Should not exceed days at sea; max 14 consecutive days in port.',
+        'Ready to depart, waiting for owner. Should not exceed days at sea; max 14 consecutive days moored.',
       ],
       ['Shipyard service', String(testimonial.yard_days), 'Maximum 90 days per application.'],
       [
@@ -2853,7 +2917,7 @@ async function generateSeaJourneyTestimonialModern(
         startY: y,
         margin: { left: margin, right: margin },
         tableWidth: contentWidth,
-        head: [['Passage start', 'Passage end', 'In-port standby', 'Days']],
+        head: [['Passage start', 'Passage end', 'Moored standby', 'Days']],
         body: periodsSorted.map((p) => [
           fmtDate(p.passageStartDate),
           fmtDate(p.passageEndDate),
@@ -3283,9 +3347,9 @@ export async function generateSeaTimeTestimonial(
 
   const textDark: RGB = [20, 20, 20];
   const textGray: RGB = [80, 80, 80];
-  const primaryBlue: RGB = [0, 29, 55];
+  const primaryBlue: RGB = SJ_PDF_NAVY_RGB;
   const borderColor: RGB = [180, 180, 180];
-  const headerColor: RGB = [0, 29, 55];
+  const headerColor: RGB = SJ_PDF_NAVY_RGB;
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -3298,12 +3362,7 @@ export async function generateSeaTimeTestimonial(
 
   // ===== HEADER =====
   const headerHeight = 50;
-  setFillColor(headerColor);
-  doc.rect(0, 0, pageWidth, headerHeight, 'F');
-
-  setDrawColor([0, 0, 0]);
-  doc.setLineWidth(0.5);
-  doc.line(0, headerHeight, pageWidth, headerHeight);
+  drawJsPdfBrandHeaderBand(doc, pageWidth, headerHeight);
 
   let headerY = 12;
 
@@ -3337,7 +3396,7 @@ export async function generateSeaTimeTestimonial(
   doc.text('Overview of logged sea service for use as supporting documentation', pageWidth / 2, headerY, { align: 'center' });
 
   setTextColor(textDark);
-  currentY = headerHeight + 20;
+  currentY = headerHeight + SJ_PDF_HEADER_ACCENT_MM + 20;
 
   // ===== Seafarer Information =====
   doc.setFontSize(13);
@@ -3580,8 +3639,8 @@ export async function generateProofOfServicePDF(
   const contentWidth = pageWidth - margin * 2;
 
   const colors = {
-    navy: [15, 23, 42] as [number, number, number],
-    blue: [37, 99, 235] as [number, number, number],
+    navy: SJ_PDF_NAVY_RGB as [number, number, number],
+    blue: SJ_PDF_ACCENT_RGB as [number, number, number],
     purple: [126, 34, 206] as [number, number, number],
     text: [28, 28, 30] as [number, number, number],
     muted: [107, 114, 128] as [number, number, number],
@@ -3675,8 +3734,7 @@ export async function generateProofOfServicePDF(
 
   const drawHeader = async (title: string, subtitle: string) => {
     const headerHeight = 34;
-    setFill(colors.navy);
-    doc.rect(0, 0, pageWidth, headerHeight, 'F');
+    drawJsPdfBrandHeaderBand(doc, pageWidth, headerHeight);
 
     try {
       const { dataURL: logoData, width: imgW, height: imgH } = await loadLogoImageWithDimensions('/logo-seajourney.png');
@@ -3780,9 +3838,14 @@ export async function generateProofOfServicePDF(
     await drawHeader('Proof of Service Record', 'Individual vessel service entry');
 
     const displayCode = entry.verificationCode
-      ? entry.verificationCode.startsWith('POS-')
-        ? entry.verificationCode
-        : `POS-${entry.verificationCode.replace(/^POS-/, '').substring(0, 8)}`
+      ? (() => {
+          const cleaned = entry.verificationCode
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z0-9]/g, '');
+          const body = cleaned.startsWith('POS') ? cleaned.slice(3) : cleaned;
+          return body.length >= 8 ? `POS-${body.slice(0, 8)}` : 'Not assigned';
+        })()
       : 'Not assigned';
 
     const periodStr = `${format(parse(entry.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – ${format(
@@ -3991,8 +4054,8 @@ export async function generateSeaServiceBreakdownPDF(
   const contentWidth = pageWidth - margin * 2;
 
   const colors = {
-    navy: [15, 23, 42] as [number, number, number],
-    blue: [37, 99, 235] as [number, number, number],
+    navy: SJ_PDF_NAVY_RGB as [number, number, number],
+    blue: SJ_PDF_ACCENT_RGB as [number, number, number],
     purple: [126, 34, 206] as [number, number, number],
     text: [28, 28, 30] as [number, number, number],
     muted: [107, 114, 128] as [number, number, number],
@@ -4051,8 +4114,7 @@ export async function generateSeaServiceBreakdownPDF(
     return y + 4.5 + lines.length * 4.2;
   };
 
-  setFill(colors.navy);
-  doc.rect(0, 0, pageWidth, 34, 'F');
+  const headerBandBottom = drawJsPdfBrandHeaderBand(doc, pageWidth, 34);
   try {
     const { dataURL: logoData, width: imgW, height: imgH } = await loadLogoImageWithDimensions('/logo-seajourney.png');
     const targetH = 8;
@@ -4071,7 +4133,7 @@ export async function generateSeaServiceBreakdownPDF(
   doc.setTextColor(203, 213, 225);
   doc.text('Reference only — not an official form', pageWidth - margin, 20, { align: 'right' });
 
-  let y = 42;
+  let y = headerBandBottom + 8;
 
   drawRoundedRect(margin, y, contentWidth, 22, colors.warnBg, colors.warnBorder);
   doc.setFont('helvetica', 'normal');
@@ -4138,7 +4200,7 @@ export async function generateSeaServiceBreakdownPDF(
           ['Sea service (all onboard days except leave)', String(data.seaServiceDays)],
           ['Underway (logged state)', String(data.underwayDays)],
           ['At anchor (logged state)', String(data.atAnchorDays)],
-          ['In port (logged state)', String(data.inPortDays)],
+          ['Moored (logged state)', String(data.inPortDays)],
           ['In yard (included in commercial sea service)', String(data.yardDays)],
         ]
       : [
@@ -4147,7 +4209,7 @@ export async function generateSeaServiceBreakdownPDF(
           ['Standby (qualifying days)', String(data.standbyDays)],
           ['Sea service total (underway + standby)', String(data.seaServiceDays)],
           ['At anchor', String(data.atAnchorDays)],
-          ['In port', String(data.inPortDays)],
+          ['Moored', String(data.inPortDays)],
           ['In yard', String(data.yardDays)],
         ];
 
@@ -4159,7 +4221,7 @@ export async function generateSeaServiceBreakdownPDF(
     head: [['Metric', 'Days']],
     body: breakdownRows,
     styles: { fontSize: 9, cellPadding: 2.5 },
-    headStyles: { fillColor: [15, 23, 42] },
+    headStyles: { fillColor: SJ_PDF_NAVY_RGB },
     columnStyles: {
       0: { cellWidth: contentWidth - daysValueColW },
       1: { cellWidth: daysValueColW, halign: 'right', fontStyle: 'bold' },
@@ -4184,7 +4246,7 @@ export async function generateSeaServiceBreakdownPDF(
         String(p.standbyDays),
       ]),
       styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [15, 23, 42] },
+      headStyles: { fillColor: SJ_PDF_NAVY_RGB },
       columnStyles: {
         0: { cellWidth: standbyDatePairW },
         1: { cellWidth: standbyDatePairW },
@@ -4241,13 +4303,15 @@ export async function generateCustomDocumentPDF(
   const margin = 16;
   const contentWidth = pageWidth - margin * 2;
   const colors = {
-    navy: [15, 23, 42] as [number, number, number],
-    blue: [37, 99, 235] as [number, number, number],
+    navy: SJ_PDF_NAVY_RGB as [number, number, number],
+    blue: SJ_PDF_ACCENT_RGB as [number, number, number],
+    purple: [126, 34, 206] as [number, number, number],
     text: [28, 28, 30] as [number, number, number],
     muted: [107, 114, 128] as [number, number, number],
     border: [226, 232, 240] as [number, number, number],
     soft: [248, 250, 252] as [number, number, number],
     softBlue: [239, 246, 255] as [number, number, number],
+    white: [255, 255, 255] as [number, number, number],
   };
   const setText = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
   const setDraw = (c: [number, number, number]) => doc.setDrawColor(c[0], c[1], c[2]);
@@ -4281,12 +4345,18 @@ export async function generateCustomDocumentPDF(
     ? factPairs([
         ['Name', facts.vessel.name],
         ['Type', facts.vessel.type],
-        ['IMO', facts.vessel.imo],
-        ['Official No.', facts.vessel.officialNumber],
         ['Flag', facts.vessel.flag],
-        ['GT', facts.vessel.grossTonnage],
-        ['Length', facts.vessel.lengthM ? `${facts.vessel.lengthM} m` : null],
-        ['Call sign', facts.vessel.callSign],
+        ['IMO', facts.vessel.imo],
+        ['Official no.', facts.vessel.officialNumber],
+        [
+          'Length / GT',
+          [
+            facts.vessel.lengthM ? `${facts.vessel.lengthM} m` : null,
+            facts.vessel.grossTonnage ? `${facts.vessel.grossTonnage} GT` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ') || null,
+        ],
         ['Management', facts.vessel.managementCompany],
       ])
     : [];
@@ -4304,6 +4374,7 @@ export async function generateCustomDocumentPDF(
     h: number,
     fill?: [number, number, number],
     stroke?: [number, number, number],
+    radius = 2.5,
   ) => {
     if (fill) setFill(fill);
     if (stroke) setDraw(stroke);
@@ -4312,7 +4383,7 @@ export async function generateCustomDocumentPDF(
     if (rounded) {
       (doc as unknown as {
         roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, style: string) => void;
-      }).roundedRect(x, y, w, h, 2.5, 2.5, fill ? 'FD' : 'S');
+      }).roundedRect(x, y, w, h, radius, radius, fill ? 'FD' : 'S');
     } else {
       doc.rect(x, y, w, h, fill ? 'FD' : 'S');
     }
@@ -4335,53 +4406,125 @@ export async function generateCustomDocumentPDF(
     return y;
   };
 
-  const drawFieldList = (pairs: FactPair[], x: number, y: number, width: number): number => {
-    let cy = y;
-    for (const [label, value] of pairs) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      setText(colors.muted);
-      doc.text(label.toUpperCase(), x, cy);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      setText(colors.text);
-      const lines = doc.splitTextToSize(value, width);
-      doc.text(lines, x, cy + 4);
-      cy += 4 + lines.length * 4 + 3.5;
-    }
-    return cy;
+  const PANEL_RADIUS = 1.6;
+  const HEADER_H = 9.5;
+  const ACCENT_H = 0.65;
+  const BODY_PAD_X = 6;
+  const BODY_PAD_Y = 4.5;
+  const FIELD_GAP = 1.2;
+  const FIELD_COL_GAP = 8;
+
+  const colsForWidth = (width: number) => (width >= 100 ? 2 : 1);
+
+  const measureField = (value: string, width: number): number => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.2);
+    const lines = doc.splitTextToSize(value, width);
+    const n = Math.min(Math.max(lines.length, 1), 2);
+    return 3.2 + n * 3.8 + 2.6;
   };
 
-  const drawFactCard = (
-    title: string,
+  const measureColumn = (pairs: FactPair[], width: number, cols: number): number => {
+    if (pairs.length === 0) return 16;
+    const colW = cols === 1 ? width : (width - FIELD_COL_GAP) / 2;
+    if (cols === 1) {
+      return pairs.reduce((sum, [, value]) => sum + measureField(value, colW), 0);
+    }
+    let h = 0;
+    for (let i = 0; i < pairs.length; i += 2) {
+      const leftH = measureField(pairs[i]![1], colW);
+      const right = pairs[i + 1];
+      const rightH = right ? measureField(right[1], colW) : 0;
+      h += Math.max(leftH, rightH);
+    }
+    return h;
+  };
+
+  const drawFieldColumn = (
     pairs: FactPair[],
     x: number,
     y: number,
     width: number,
-  ): number => {
-    if (pairs.length === 0) return y;
-    const innerPad = 4;
-    const valueWidth = width - innerPad * 2;
-    let contentH = 8;
-    for (const [, value] of pairs) {
+  ) => {
+    const cols = colsForWidth(width);
+    const colW = cols === 1 ? width : (width - FIELD_COL_GAP) / 2;
+    let cy = y;
+
+    const drawOne = (label: string, value: string, fx: number, fy: number, fw: number) => {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.6);
+      doc.setCharSpace(0.18);
+      setText(colors.muted);
+      doc.text(label.toUpperCase(), fx, fy + 2.6);
+      doc.setCharSpace(0);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      const lines = doc.splitTextToSize(value, valueWidth);
-      contentH += 4 + lines.length * 4 + 3.5;
+      doc.setFontSize(9.2);
+      setText(colors.navy);
+      const lines = doc.splitTextToSize(value, fw);
+      doc.text(lines.slice(0, 2), fx, fy + 7);
+      return measureField(value, fw);
+    };
+
+    if (cols === 1) {
+      pairs.forEach(([label, value], i) => {
+        const h = drawOne(label, value, x, cy, colW);
+        if (i < pairs.length - 1) {
+          setDraw(colors.border);
+          doc.setLineWidth(0.12);
+          doc.line(x, cy + h - FIELD_GAP, x + width, cy + h - FIELD_GAP);
+        }
+        cy += h;
+      });
+      return;
     }
-    const h = contentH + 2;
-    drawRounded(x, y, width, h, colors.soft, colors.border);
+
+    for (let i = 0; i < pairs.length; i += 2) {
+      const left = pairs[i]!;
+      const right = pairs[i + 1];
+      const leftH = drawOne(left[0], left[1], x, cy, colW);
+      const rightH = right
+        ? drawOne(right[0], right[1], x + colW + FIELD_COL_GAP, cy, colW)
+        : 0;
+      cy += Math.max(leftH, rightH);
+    }
+  };
+
+  const drawPanelHeader = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    titles: Array<{ text: string; x: number }>,
+    mid?: number,
+  ) => {
+    drawRounded(x, y, w, h, colors.white, colors.border, PANEL_RADIUS);
+    drawRounded(x, y, w, HEADER_H + PANEL_RADIUS, colors.navy, undefined, PANEL_RADIUS);
+    setFill(colors.soft);
+    doc.rect(x, y + HEADER_H, w, h - HEADER_H, 'F');
+    setFill(colors.blue);
+    doc.rect(x, y + HEADER_H, w, ACCENT_H, 'F');
+    drawRounded(x, y, w, h, undefined, colors.border, PANEL_RADIUS);
+
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    setText(colors.muted);
-    doc.text(title.toUpperCase(), x + innerPad, y + 5.5);
-    drawFieldList(pairs, x + innerPad, y + 11, valueWidth);
-    return y + h;
+    doc.setFontSize(7.6);
+    doc.setCharSpace(0.45);
+    doc.setTextColor(255, 255, 255);
+    titles.forEach(({ text, x: tx }) => {
+      doc.text(text.toUpperCase(), tx, y + 6.1);
+    });
+    doc.setCharSpace(0);
+
+    if (mid != null) {
+      setDraw([255, 255, 255]);
+      doc.setLineWidth(0.3);
+      doc.line(mid, y + 2.2, mid, y + HEADER_H - 1.4);
+      setDraw([203, 213, 225]);
+      doc.setLineWidth(0.2);
+      doc.line(mid, y + HEADER_H + ACCENT_H + 1.5, mid, y + h - 2.5);
+    }
   };
 
   const drawTwoColumnCards = (yStart: number): number => {
-    const gap = 5;
-    const half = (contentWidth - gap) / 2;
     const left = purpose === 'visa'
       ? identityPairs.length
         ? identityPairs
@@ -4390,15 +4533,51 @@ export async function generateCustomDocumentPDF(
     const right = vesselPairs;
     if (left.length === 0 && right.length === 0) return yStart;
 
-    if (left.length > 0 && right.length > 0) {
-      const leftEnd = drawFactCard(purpose === 'visa' ? 'Identity' : 'Crew', left, margin, yStart, half);
-      const rightEnd = drawFactCard('Vessel', right, margin + half + gap, yStart, half);
-      return Math.max(leftEnd, rightEnd) + 6;
+    const leftTitle = purpose === 'visa' ? 'Identity' : 'Crew';
+    const split = left.length > 0 && right.length > 0;
+    const paneW = split
+      ? contentWidth / 2 - BODY_PAD_X * 2
+      : contentWidth - BODY_PAD_X * 2;
+    const cols = colsForWidth(paneW);
+    const bodyH =
+      BODY_PAD_Y * 2 +
+      Math.max(measureColumn(left, paneW, cols), measureColumn(right, paneW, cols));
+    const cardH = HEADER_H + ACCENT_H + bodyH;
+    const y = ensureSpace(yStart, cardH + 6);
+
+    if (split) {
+      const mid = margin + contentWidth / 2;
+      drawPanelHeader(margin, y, contentWidth, cardH, [
+        { text: leftTitle, x: margin + BODY_PAD_X },
+        { text: 'Vessel', x: mid + BODY_PAD_X },
+      ], mid);
+      drawFieldColumn(
+        left,
+        margin + BODY_PAD_X,
+        y + HEADER_H + ACCENT_H + BODY_PAD_Y,
+        mid - margin - BODY_PAD_X * 2,
+      );
+      drawFieldColumn(
+        right,
+        mid + BODY_PAD_X,
+        y + HEADER_H + ACCENT_H + BODY_PAD_Y,
+        margin + contentWidth - mid - BODY_PAD_X * 2,
+      );
+      return y + cardH + 6;
     }
-    if (left.length > 0) {
-      return drawFactCard(purpose === 'visa' ? 'Identity' : 'Crew', left, margin, yStart, contentWidth) + 6;
-    }
-    return drawFactCard('Vessel', right, margin, yStart, contentWidth) + 6;
+
+    const pairs = left.length > 0 ? left : right;
+    const title = left.length > 0 ? leftTitle : 'Vessel';
+    drawPanelHeader(margin, y, contentWidth, cardH, [
+      { text: title, x: margin + BODY_PAD_X },
+    ]);
+    drawFieldColumn(
+      pairs,
+      margin + BODY_PAD_X,
+      y + HEADER_H + ACCENT_H + BODY_PAD_Y,
+      contentWidth - BODY_PAD_X * 2,
+    );
+    return y + cardH + 6;
   };
 
   const drawAssignmentBanner = (yStart: number): number => {
@@ -4406,7 +4585,7 @@ export async function generateCustomDocumentPDF(
     const start = facts.assignment.startDate || '—';
     const end = facts.assignment.endDate || 'Current';
     const rank = facts.crew.position ? ` · ${facts.crew.position}` : '';
-    drawRounded(margin, yStart, contentWidth, 14, colors.softBlue, colors.border);
+    drawRounded(margin, yStart, contentWidth, 14, colors.softBlue, colors.border, PANEL_RADIUS);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     setText(colors.muted);
@@ -4451,7 +4630,7 @@ export async function generateCustomDocumentPDF(
             ['Calendar days', String(st.totalDays)],
             ['Underway', String(st.underwayDays)],
             ['At anchor', String(st.atAnchorDays)],
-            ['In port', String(st.inPortDays)],
+            ['Moored', String(st.inPortDays)],
             ['Yard', String(st.yardDays)],
             ['Leave', String(st.leaveDays)],
           ])
@@ -4460,7 +4639,7 @@ export async function generateCustomDocumentPDF(
             ['Underway', String(st.underwayDays)],
             ['Standby', String(st.standbyDays)],
             ['At anchor', String(st.atAnchorDays)],
-            ['In port', String(st.inPortDays)],
+            ['Moored', String(st.inPortDays)],
             ['Yard', String(st.yardDays)],
             ['Leave', String(st.leaveDays)],
           ]);
@@ -4548,8 +4727,8 @@ export async function generateCustomDocumentPDF(
   };
 
   // Header
-  setFill(colors.navy);
-  doc.rect(0, 0, pageWidth, purpose === 'application' || hasSeaTime ? 28 : 30, 'F');
+  const headerHeight = purpose === 'application' || hasSeaTime ? 28 : 30;
+  drawJsPdfBrandHeaderBand(doc, pageWidth, headerHeight);
   try {
     const { dataURL: logoData, width: imgW, height: imgH } = await loadLogoImageWithDimensions(
       '/logo-seajourney.png',
@@ -4570,7 +4749,7 @@ export async function generateCustomDocumentPDF(
   doc.setFontSize(8);
   doc.text(format(new Date(), 'd MMMM yyyy'), pageWidth - margin, 18.5, { align: 'right' });
 
-  let y = 38;
+  let y = headerHeight + SJ_PDF_HEADER_ACCENT_MM + 18;
   const composed = data.document;
 
   doc.setFont('helvetica', 'bold');
@@ -4691,11 +4870,11 @@ export async function generatePassageLogPDF(
   ).slice(0, 5)}`;
 
   // Official navy / ink palette
-  const ink: RGB = [15, 23, 42];
+  const ink: RGB = SJ_PDF_NAVY_RGB;
   const textDark: RGB = [22, 27, 34];
   const textMuted: RGB = [71, 85, 105];
   const borderColor: RGB = [203, 213, 225];
-  const headerBg: RGB = [15, 23, 42];
+  const headerBg: RGB = SJ_PDF_NAVY_RGB;
   const sectionBg: RGB = [241, 245, 249];
   const monthBarBg: RGB = [30, 41, 59];
   const altRow: RGB = [248, 250, 252];
@@ -4785,8 +4964,7 @@ export async function generatePassageLogPDF(
 
   // ===== DOCUMENT HEADER =====
   const headerHeight = 24;
-  setFillColor(headerBg);
-  doc.rect(0, 0, pageWidth, headerHeight, 'F');
+  drawJsPdfBrandHeaderBand(doc, pageWidth, headerHeight);
 
   try {
     const { dataURL: logoData, width: imgW, height: imgH } =
@@ -4824,9 +5002,7 @@ export async function generatePassageLogPDF(
   doc.text('Document date', pageWidth - marginX, 13.5, { align: 'right' });
   doc.text(docRef, pageWidth - marginX, 18.5, { align: 'right' });
 
-  let currentY = headerHeight + 7;
-
-  // ===== TITLE BLOCK =====
+  let currentY = headerHeight + SJ_PDF_HEADER_ACCENT_MM + 7;
   setDrawColor(borderColor);
   doc.setLineWidth(0.3);
   setFillColor(sectionBg);
@@ -5102,9 +5278,9 @@ export async function generateNavWatchApplicationPDF(
   // Color scheme
   const textDark: RGB = [20, 20, 20];
   const textGray: RGB = [80, 80, 80];
-  const primaryBlue: RGB = [0, 29, 55];
+  const primaryBlue: RGB = SJ_PDF_NAVY_RGB;
   const borderColor: RGB = [180, 180, 180];
-  const headerColor: RGB = [0, 29, 55];
+  const headerColor: RGB = SJ_PDF_NAVY_RGB;
   const sectionBg: RGB = [248, 249, 250];
 
   const setFillColor = (c: RGB) => doc.setFillColor(c[0], c[1], c[2]);
@@ -5128,15 +5304,25 @@ export async function generateNavWatchApplicationPDF(
   };
 
   // Header
-  setFillColor(headerColor);
-  doc.rect(0, 0, pageWidth, 40, 'F');
-  
-  setTextColor([255, 255, 255]);
-  doc.setFontSize(20);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Navigation Watch Application', margin, 25);
+  const navHeaderH = 40;
+  drawJsPdfBrandHeaderBand(doc, pageWidth, navHeaderH);
+  try {
+    const { dataURL: logoData, width: imgW, height: imgH } =
+      await loadLogoImageWithDimensions(SEAJOURNEY_LOGO_PUBLIC_PATH);
+    const targetH = 8;
+    const aspect = imgW / Math.max(imgH, 1);
+    const logoW = aspect * targetH;
+    doc.addImage(logoData, 'PNG', margin, (navHeaderH - targetH) / 2, logoW, targetH);
+  } catch {
+    /* logo optional */
+  }
 
-  yPos = 50;
+  setTextColor([255, 255, 255]);
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Navigation Watch Application', pageWidth - margin, 24, { align: 'right' });
+
+  yPos = navHeaderH + SJ_PDF_HEADER_ACCENT_MM + 10;
 
   // Applicant Information Section
   setTextColor(textDark);
@@ -7837,8 +8023,8 @@ export async function generateMCADeckhandTestimonial(
     const { w: W, h: H } = A4_PORTRAIT;
   
     // Brand styling
-    const NAVY = rgb(0.06, 0.14, 0.26);
-    const ACCENT = rgb(0.12, 0.45, 0.95);
+    const NAVY = SJ_PDF_NAVY;
+    const ACCENT = SJ_PDF_ACCENT;
     const INK = rgb(0.10, 0.10, 0.12);
     const MUTED = rgb(0.42, 0.45, 0.52);
     const LINE = rgb(0.86, 0.88, 0.92);
@@ -7914,7 +8100,7 @@ export async function generateMCADeckhandTestimonial(
 
     // ===== Authentication Code Display =====
     const codeDisplay = refCode.startsWith('SJ-') ? refCode : `SJ-${refCode}`;
-    const panelTopY = H - headerH - 30;
+    const panelTopY = H - headerH - SJ_PDF_HEADER_ACCENT_PT - 30;
     const panelBottomY = await drawSeaJourneyVerificationPanel(pdfDoc, page, {
       x: M,
       y: panelTopY,
@@ -8432,8 +8618,8 @@ export async function generateMCAOfficerTestimonial(
     const { w: W, h: H } = A4_PORTRAIT;
   
     // Brand styling
-    const NAVY = rgb(0.06, 0.14, 0.26);
-    const ACCENT = rgb(0.12, 0.45, 0.95);
+    const NAVY = SJ_PDF_NAVY;
+    const ACCENT = SJ_PDF_ACCENT;
     const INK = rgb(0.10, 0.10, 0.12);
     const MUTED = rgb(0.42, 0.45, 0.52);
     const LINE = rgb(0.86, 0.88, 0.92);
@@ -8509,7 +8695,7 @@ export async function generateMCAOfficerTestimonial(
 
     // ===== Authentication Code Display =====
     const codeDisplay = refCode.startsWith('SJ-') ? refCode : `SJ-${refCode}`;
-    const panelTopY = H - headerH - 30;
+    const panelTopY = H - headerH - SJ_PDF_HEADER_ACCENT_PT - 30;
     const panelBottomY = await drawSeaJourneyVerificationPanel(pdfDoc, page, {
       x: M,
       y: panelTopY,

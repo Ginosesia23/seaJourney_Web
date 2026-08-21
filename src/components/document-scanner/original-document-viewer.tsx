@@ -82,7 +82,21 @@ interface OriginalDocumentViewerProps {
    */
   onLassoSelect?: (
     indices: number[],
-    mods: { shift: boolean; meta: boolean },
+    mods?: { shift: boolean; meta: boolean },
+  ) => void;
+  /**
+   * When true, dragging empty space on the page draws a new field box
+   * instead of (or in addition to) lasso-select. Used by the Form Builder
+   * "draw boxes yourself" flow.
+   */
+  drawCreateMode?: boolean;
+  /**
+   * Fires when the user finishes dragging a new box in `drawCreateMode`.
+   * Coordinates are normalised [0,1000] on `page`.
+   */
+  onBoxCreate?: (
+    bbox: { xMin: number; yMin: number; xMax: number; yMax: number },
+    page: number,
   ) => void;
 }
 
@@ -116,7 +130,7 @@ function sourceTextColor(source: string): string {
  * Renders the original uploaded document with optional value-overlay hotspots
  * positioned using normalized [0,1000] bounding boxes returned by the AI.
  */
-export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedValues = {}, onFieldBboxChange, onPageShift, onPageInfoChange, onFieldSelect, selectedIndices, onFieldDelete, onFieldsMove, onLassoSelect }: OriginalDocumentViewerProps) {
+export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedValues = {}, onFieldBboxChange, onPageShift, onPageInfoChange, onFieldSelect, selectedIndices, onFieldDelete, onFieldsMove, onLassoSelect, drawCreateMode = false, onBoxCreate }: OriginalDocumentViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -175,6 +189,9 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
     () => new Set(selectedIndices ?? []),
     [selectedIndices],
   );
+
+  const creatingBoxes = drawCreateMode && !!onBoxCreate;
+  const boxEditMode = adjustMode || creatingBoxes;
 
   const isPDF = file.type === 'application/pdf';
 
@@ -293,7 +310,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
 
   const handleOverlayMouseDown = useCallback(
     (e: React.MouseEvent, globalIndex: number, bbox: { yMin: number; xMin: number; yMax: number; xMax: number }, mode: DragMode) => {
-      if (!adjustMode || !onFieldBboxChange) return;
+      if (!boxEditMode || !onFieldBboxChange) return;
       e.preventDefault();
       e.stopPropagation();
       // Group move: if the user grabs a box that's part of a multi-
@@ -324,21 +341,15 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
         startBbox: { ...bbox },
       };
     },
-    [adjustMode, onFieldBboxChange, onFieldsMove, selectedIndexSet],
+    [boxEditMode, onFieldBboxChange, onFieldsMove, selectedIndexSet],
   );
 
-  // Lasso start: only fires when the mousedown target is the document
-  // surface itself (canvas / image / docRef) — overlay boxes stop
-  // propagation in `handleOverlayMouseDown`, so those clicks never reach
-  // this handler. We intentionally only enable lasso in adjust mode
-  // because that's the mode dedicated to positioning fields; in normal
-  // browsing mode a drag on empty canvas should stay a no-op.
+  // Lasso start: empty-canvas drag. In adjust mode this selects existing
+  // boxes; in draw-create mode it creates a new field from the rectangle.
   const handleLassoMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      if (!adjustMode || !onLassoSelect || !docRef.current) return;
-      // Don't start a lasso on right-click, middle-click, or if the
-      // target is an interactive element (resize handle / delete button
-      // — those also stopPropagation, but belt + braces).
+      if (!docRef.current) return;
+      if (!creatingBoxes && (!adjustMode || !onLassoSelect)) return;
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
@@ -353,11 +364,11 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
         modifiers: { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey },
       });
     },
-    [adjustMode, onLassoSelect],
+    [adjustMode, onLassoSelect, creatingBoxes],
   );
 
   useEffect(() => {
-    if (!adjustMode) return;
+    if (!boxEditMode) return;
 
     const onMouseMove = (e: MouseEvent) => {
       if (!renderedSize) return;
@@ -420,7 +431,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [adjustMode, renderedSize, onFieldBboxChange, onFieldsMove]);
+  }, [boxEditMode, renderedSize, onFieldBboxChange, onFieldsMove]);
 
   // Lasso drag: extend the rubber-band rectangle on mousemove, and on
   // mouseup compute which overlays have their centre inside the box
@@ -429,8 +440,8 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
   // matches mouse-selection UX in most design tools and is more
   // forgiving with small boxes.
   useEffect(() => {
-    if (!adjustMode || !onLassoSelect) return;
     if (!lasso) return;
+    if (!creatingBoxes && (!adjustMode || !onLassoSelect)) return;
 
     const onMove = (e: MouseEvent) => {
       const doc = docRef.current;
@@ -454,23 +465,37 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
       const x2 = Math.max(snap.startDocX, snap.currentDocX);
       const y1 = Math.min(snap.startDocY, snap.currentDocY);
       const y2 = Math.max(snap.startDocY, snap.currentDocY);
-      // Treat a near-zero drag as a deselect click (parent decides how
-      // to interpret modifiers — usually "replace selection with empty").
       const dragged = Math.abs(x2 - x1) > 4 || Math.abs(y2 - y1) > 4;
+      const nx1 = (x1 / renderedSize.width) * 1000;
+      const nx2 = (x2 / renderedSize.width) * 1000;
+      const ny1 = (y1 / renderedSize.height) * 1000;
+      const ny2 = (y2 / renderedSize.height) * 1000;
+
+      if (creatingBoxes && onBoxCreate) {
+        if (dragged && nx2 - nx1 >= 12 && ny2 - ny1 >= 10) {
+          onBoxCreate(
+            {
+              xMin: Math.round(nx1),
+              yMin: Math.round(ny1),
+              xMax: Math.round(nx2),
+              yMax: Math.round(ny2),
+            },
+            currentPage,
+          );
+        }
+        setLasso(null);
+        return;
+      }
+
+      if (!onLassoSelect) {
+        setLasso(null);
+        return;
+      }
       if (!dragged) {
         onLassoSelect([], snap.modifiers);
         setLasso(null);
         return;
       }
-      // Convert lasso rect (doc pixels) to the 0..1000 normalized space
-      // the overlay bboxes use, then pick every visible overlay whose
-      // centre falls inside it. We check overlayFields — which already
-      // filters by current page — so we never select fields on pages
-      // the user isn't looking at.
-      const nx1 = (x1 / renderedSize.width) * 1000;
-      const nx2 = (x2 / renderedSize.width) * 1000;
-      const ny1 = (y1 / renderedSize.height) * 1000;
-      const ny2 = (y2 / renderedSize.height) * 1000;
       const hits: number[] = [];
       for (const { field: f, globalIndex } of overlayFields) {
         const b = f.bbox;
@@ -491,7 +516,16 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [adjustMode, renderedSize, lasso, onLassoSelect, overlayFields]);
+  }, [
+    adjustMode,
+    creatingBoxes,
+    renderedSize,
+    lasso,
+    onLassoSelect,
+    onBoxCreate,
+    overlayFields,
+    currentPage,
+  ]);
 
   // ---- Align-all handling: drag anywhere on the document to shift every
   // box on the current page by the same delta. Applies incremental deltas so
@@ -577,7 +611,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
           viewer is ever used outside the Form Builder it just stays
           sticky at the same offset, which is a harmless no-op on pages
           that aren't tall enough to scroll. */}
-      {fields.length > 0 && (
+      {(fields.length > 0 || creatingBoxes) && (
         <div className="sticky top-[53px] z-20 flex w-full items-center justify-between gap-3 rounded-lg border bg-muted/95 backdrop-blur supports-[backdrop-filter]:bg-muted/80 px-3 py-2">
           <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
             <span className="font-medium text-foreground">
@@ -606,7 +640,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
             )}
           </div>
           <div className="flex items-center gap-2">
-            {onPageShift && hasOverlays && showOverlay && (
+            {onPageShift && hasOverlays && showOverlay && !creatingBoxes && (
               <Button
                 variant={alignMode ? 'default' : 'outline'}
                 size="sm"
@@ -620,7 +654,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
                 {alignMode ? 'Done aligning' : 'Align all'}
               </Button>
             )}
-            {onFieldBboxChange && hasOverlays && showOverlay && (
+            {onFieldBboxChange && hasOverlays && showOverlay && !creatingBoxes && (
               <Button
                 variant={adjustMode ? 'default' : 'outline'}
                 size="sm"
@@ -645,6 +679,11 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
               {showOverlay ? 'Hide overlay' : 'Show overlay'}
             </Button>
           </div>
+        </div>
+      )}
+      {creatingBoxes && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-[11px] text-primary">
+          Drag on the form to draw a fill box. Click a box to select it, drag a corner to resize, or press the × to remove it.
         </div>
       )}
       {alignMode && (
@@ -675,12 +714,10 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
         ref={docRef}
         className={cn(
           'relative mx-auto max-w-full self-center',
-          (alignMode || adjustMode) && 'select-none',
+          (alignMode || boxEditMode) && 'select-none',
           alignMode && 'cursor-move',
-          // In adjust mode a drag on empty canvas starts a lasso — show a
-          // crosshair so users understand that's a selection surface and
-          // not just page background.
-          adjustMode && !alignMode && onLassoSelect && 'cursor-crosshair',
+          creatingBoxes && !alignMode && 'cursor-crosshair',
+          adjustMode && !alignMode && !creatingBoxes && onLassoSelect && 'cursor-crosshair',
         )}
         style={{
           display: loading && isPDF ? 'none' : 'inline-block',
@@ -691,12 +728,12 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
           // pixel buffer size (canvasSize) causes a mismatch when max-w-full
           // constrains the canvas to a smaller CSS width.
           // Disable touch scroll / pinch while in an editing mode so drags don't scroll the page.
-          touchAction: alignMode || adjustMode ? 'none' : undefined,
+          touchAction: alignMode || boxEditMode ? 'none' : undefined,
         }}
         onMouseDown={
           alignMode
             ? handleAlignMouseDown
-            : adjustMode && onLassoSelect
+            : creatingBoxes || (adjustMode && onLassoSelect)
             ? handleLassoMouseDown
             : undefined
         }
@@ -705,7 +742,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
         {isPDF ? (
           <canvas
             ref={canvasRef}
-            className="block max-w-full rounded-lg border shadow-sm"
+            className="block max-w-full rounded-lg shadow-sm ring-1 ring-border"
             draggable={false}
             onDragStart={(e) => e.preventDefault()}
           />
@@ -714,7 +751,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
             ref={imgRef}
             src={previewUrl}
             alt="Uploaded document"
-            className="block max-w-full rounded-lg border shadow-sm"
+            className="block max-w-full rounded-lg shadow-sm ring-1 ring-border"
             draggable={false}
             onDragStart={(e) => e.preventDefault()}
             onLoad={handleImgLoad}
@@ -771,7 +808,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
                     'group absolute rounded-sm border-2 transition-colors duration-150',
                     // Boxes catch pointer events only when NOT in align mode (so align-drag passes through the whole surface).
                     alignMode ? 'pointer-events-none' : 'pointer-events-auto',
-                    adjustMode ? 'cursor-move ring-2 ring-primary/40' : onFieldSelect ? 'cursor-pointer' : '',
+                    boxEditMode ? 'cursor-move ring-2 ring-primary/40' : onFieldSelect ? 'cursor-pointer' : '',
                     sourceStyle(f.source),
                     isSelected && 'ring-2 ring-offset-1 ring-primary shadow-lg z-10',
                   )}
@@ -801,14 +838,14 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
                   <div
                     className={cn(
                       'pointer-events-none absolute left-0 -top-5 max-w-[260px] truncate rounded-sm bg-background/95 px-1.5 py-0.5 text-[10px] font-medium shadow-sm ring-1 ring-border',
-                      adjustMode ? 'opacity-100' : 'opacity-0 transition-opacity duration-150 group-hover:opacity-100',
+                      boxEditMode ? 'opacity-100' : 'opacity-0 transition-opacity duration-150 group-hover:opacity-100',
                       sourceTextColor(f.source),
                     )}
                   >
                     {f.fieldName}
                   </div>
                   {/* Inline value rendered inside the box when something to show */}
-                  {displayValue && !adjustMode && (
+                  {displayValue && !boxEditMode && (
                     <div
                       className={cn(
                         'pointer-events-none absolute inset-0 flex items-center justify-start overflow-hidden px-0.5 text-[10px] font-medium leading-none',
@@ -819,7 +856,7 @@ export function OriginalDocumentViewer({ file, previewUrl, fields = [], editedVa
                     </div>
                   )}
                   {/* Resize handle — only in adjust mode */}
-                  {adjustMode && (
+                  {boxEditMode && (
                     <div
                       role="button"
                       aria-label="Resize"

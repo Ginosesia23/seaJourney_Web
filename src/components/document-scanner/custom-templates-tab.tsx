@@ -579,7 +579,7 @@ export function CustomTemplatesTab({
       <VesselPremiumFeatureGate
         title="Available on Vessel Premium"
         featureLabel="Form Builder"
-        description="Scan MCA and company forms, auto-detect fields, and save reusable templates for your vessel."
+        description="Scan MCA and company forms, auto-detect or draw fill boxes, and save reusable templates for your vessel."
       />
     );
   }
@@ -625,9 +625,9 @@ export function CustomTemplatesTab({
           <div>
             <h2 className="text-xl font-semibold tracking-tight">New form</h2>
             <p className="text-sm text-muted-foreground max-w-xl">
-              Upload the document you want to turn into a reusable form. We&apos;ll
-              scan it and drop you straight into the Form Builder editor with
-              the detected fields.
+              Upload the document you want to turn into a reusable form, then
+              auto-detect fields or draw the fill boxes yourself. Either path
+              opens the Form Builder editor so you can fine-tune before saving.
             </p>
           </div>
           <Button
@@ -656,9 +656,9 @@ export function CustomTemplatesTab({
             Form Builder
           </h2>
           <p className="text-sm text-muted-foreground max-w-xl">
-            Turn any document into a reusable, fillable form. Scan a PDF or
-            image, position + configure the fields, then fill it for any crew
-            member in one click.
+            Turn any document into a reusable, fillable form. Upload a PDF or
+            image, auto-detect fields or draw the boxes yourself, then fill it
+            for any crew member in one click.
           </p>
         </div>
         <Button
@@ -687,8 +687,8 @@ export function CustomTemplatesTab({
       ) : templates.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="pt-6 text-sm text-muted-foreground">
-            No forms yet. Click <strong>New form</strong> to scan a document,
-            configure its fields, and save it as a reusable template.
+            No forms yet. Click <strong>New form</strong> to upload a document,
+            detect or draw its fields, and save it as a reusable template.
           </CardContent>
         </Card>
       ) : (

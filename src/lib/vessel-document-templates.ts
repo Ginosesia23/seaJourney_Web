@@ -147,8 +147,8 @@ export const SITE_VALUE_OPTIONS: SiteValueOption[] = [
   },
   {
     key: 'inPortDays',
-    label: 'In-port days',
-    description: 'Subset of "standby" — days alongside in port',
+    label: 'Moored days',
+    description: 'Subset of "standby" — days moored / alongside',
     group: 'sea-time',
     dateRangeScoped: true,
   },
@@ -916,7 +916,7 @@ export const PROFILE_KEY_OPTIONS: ProfileKeyOption[] = [
   { value: 'leaveDays', label: 'Leave days', category: 'service' },
   { value: 'underwayDays', label: 'Underway days', category: 'service', description: 'Daily status = underway', aliases: ['sailing'] },
   { value: 'atAnchorDays', label: 'At-anchor days', category: 'service', aliases: ['anchored'] },
-  { value: 'inPortDays', label: 'In-port days', category: 'service', aliases: ['alongside'] },
+  { value: 'inPortDays', label: 'Moored days', category: 'service', aliases: ['alongside', 'in port'] },
 
   // ---------- Captain ----------
   {

@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
     // Verify the requesting user has vessel or admin role
     const { data: requestingUser } = await supabase
       .from('users')
-      .select('role, active_vessel_id, subscription_tier, subscription_status, cancel_at_period_end, current_period_end')
+      .select('role, active_vessel_id, subscription_tier, subscription_status, stripe_subscription_id, cancel_at_period_end, current_period_end')
       .eq('id', user.id)
       .maybeSingle();
 

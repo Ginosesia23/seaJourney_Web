@@ -24,6 +24,7 @@ import { useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, VisaTracker, VisaEntry } from '@/lib/types';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -129,6 +130,8 @@ export default function VisaTrackerPage() {
       const tierLower = tier.toLowerCase();
       return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && entitled;
     }
+
+    if (isVesselLinkedFeatureGranted(userProfileRaw, 'visa_tracker')) return entitled;
 
     // Crew accounts: premium or pro only
     return (tier === 'premium' || tier === 'pro') && entitled;

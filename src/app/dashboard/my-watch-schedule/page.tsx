@@ -17,6 +17,7 @@ import {
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { getVesselAssignments } from '@/supabase/database/queries';
+import { isLinkedVesselWatchViewer } from '@/lib/vessel-linked-features';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -96,6 +97,7 @@ export default function MyWatchSchedulePage() {
   );
 
   const role = (profileRaw?.role as string) || 'crew';
+  const linkedWatchViewer = isLinkedVesselWatchViewer(profileRaw);
 
   useEffect(() => {
     if (isUserLoading || isProfileLoading) return;
@@ -103,8 +105,10 @@ export default function MyWatchSchedulePage() {
       router.replace('/dashboard');
       return;
     }
-    if (role === 'vessel') router.replace('/dashboard/watch-schedule');
-  }, [isUserLoading, isProfileLoading, user, role, router]);
+    if (role === 'vessel' || (linkedWatchViewer && role === 'captain')) {
+      router.replace('/dashboard/watch-schedule');
+    }
+  }, [isUserLoading, isProfileLoading, user, role, linkedWatchViewer, router]);
 
   const [schedules, setSchedules] = useState<WatchSchedule[]>([]);
   const [vesselNames, setVesselNames] = useState<Record<string, string>>({});

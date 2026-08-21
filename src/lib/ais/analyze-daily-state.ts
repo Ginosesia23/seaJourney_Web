@@ -731,7 +731,7 @@ export function analyzeAisDailyState(
   return {
     state: 'in-port',
     confidence: 'low',
-    reason: 'Inconclusive AIS data — defaulting to in-port.',
+    reason: 'Inconclusive AIS data — defaulting to moored.',
     metrics,
   };
 }
@@ -743,7 +743,7 @@ function humanState(state: DailyStatus): string {
     case 'at-anchor':
       return 'At anchor';
     case 'in-port':
-      return 'Moored / In port';
+      return 'Moored';
     case 'in-yard':
       return 'In yard';
     case 'on-leave':

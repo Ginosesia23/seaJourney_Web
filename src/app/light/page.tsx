@@ -320,7 +320,7 @@ function HeroShowcase() {
   const states = [
     { key: 'underway', name: 'Underway', icon: Waves, c: '#2563eb' },
     { key: 'at-anchor', name: 'At Anchor', icon: Anchor, c: '#ea580c' },
-    { key: 'in-port', name: 'In Port', icon: Building, c: '#059669', active: true },
+    { key: 'in-port', name: 'Moored', icon: Building, c: '#059669', active: true },
     { key: 'on-leave', name: 'On Leave', icon: Briefcase, c: '#64748b' },
     { key: 'in-yard', name: 'In Yard', icon: Wrench, c: '#b91c1c' },
   ];
@@ -1041,7 +1041,7 @@ function AISImport() {
           </h2>
           <p className="mt-4 text-lg" style={{ color: PALETTE.inkSoft }}>
             Let SeaJourney listen to your vessel's AIS feed. States update
-            automatically — underway, at anchor, in port — and your sea time log
+            automatically — underway, at anchor, moored — and your sea time log
             stays accurate without lifting a finger.
           </p>
         </div>

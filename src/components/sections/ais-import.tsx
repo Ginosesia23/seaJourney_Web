@@ -29,7 +29,7 @@ const AISImport = () => {
     {
       icon: Ship,
       title: 'Vessel State History',
-      description: 'Automatically populate vessel state logs (underway, at anchor, in port) since vessel launch',
+      description: 'Automatically populate vessel state logs (underway, at anchor, moored) since vessel launch',
       color: '#8b5cf6',
     },
     {
@@ -210,7 +210,7 @@ const AISImport = () => {
                     {[
                       { state: 'Underway', date: '2024-01-15', days: '5 days' },
                       { state: 'At Anchor', date: '2024-01-20', days: '2 days' },
-                      { state: 'In Port', date: '2024-01-22', days: '3 days' },
+                      { state: 'Moored', date: '2024-01-22', days: '3 days' },
                     ].map((state, idx) => (
                       <div key={idx} className="flex items-center justify-between p-2 rounded" style={{ backgroundColor: 'rgba(15, 23, 42, 0.4)' }}>
                         <div className="flex items-center gap-2">

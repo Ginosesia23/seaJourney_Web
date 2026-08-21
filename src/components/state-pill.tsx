@@ -14,7 +14,7 @@ export const STATE_COLORS: Record<string, string> = {
 export const STATE_LABELS: Record<string, string> = {
   underway: 'Underway',
   'at-anchor': 'At anchor',
-  'in-port': 'Moored / In port',
+  'in-port': 'Moored',
   'on-leave': 'On leave',
   'in-yard': 'In yard',
 };

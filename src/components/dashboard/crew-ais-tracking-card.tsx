@@ -62,7 +62,7 @@ type Props = {
 const STATE_LABELS: Record<string, string> = {
   underway: 'Underway',
   'at-anchor': 'At anchor',
-  'in-port': 'Moored / In port',
+  'in-port': 'Moored',
   'in-yard': 'In yard',
   'on-leave': 'On leave',
 };

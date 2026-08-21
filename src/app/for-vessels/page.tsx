@@ -78,7 +78,7 @@ const AIS_FEATURES = [
     Icon: Ship,
     title: 'Vessel state history',
     description:
-      'Automatically populate vessel state logs (underway, at anchor, in port) since vessel launch.',
+      'Automatically populate vessel state logs (underway, at anchor, moored) since vessel launch.',
     color: '#8b5cf6',
   },
   {

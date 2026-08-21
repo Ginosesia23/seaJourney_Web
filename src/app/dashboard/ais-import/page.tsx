@@ -92,7 +92,7 @@ import type { VesselAssignment } from '@/lib/types';
 const STATE_LABELS: Record<DailyStatus, string> = {
   underway: 'Underway',
   'at-anchor': 'At Anchor',
-  'in-port': 'Moored / In port',
+  'in-port': 'Moored',
   'on-leave': 'On Leave',
   'in-yard': 'In Yard',
 };

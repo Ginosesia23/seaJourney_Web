@@ -18,6 +18,9 @@
  *  - `users.active_vessel_id` set to the vessel
  *  - A `vessel_assignments` row with `assignment_role` mapped from the
  *    chosen role and `position` set to a sensible default label
+ *  - For Captain: an approved `vessel_claim_requests` row + signing
+ *    authority are created immediately (vessel manager invite = approval;
+ *    no separate admin/vessel claim review)
  *
  * The captain/officer/etc. receives an email with a password setup link,
  * exactly like the existing "Invite Crew" flow (`/api/users/invite-crew`).
@@ -34,6 +37,15 @@ import { Resend } from 'resend';
 import { sendWelcomeEmail } from '@/lib/welcome-email';
 import { EMAIL_PRIMARY_BLUE } from '@/lib/email-colors';
 import type { VesselLinkedRole } from '@/lib/types';
+import {
+  DEFAULT_VESSEL_LINKED_FEATURES,
+  filterFeaturesByPlatformFlags,
+} from '@/lib/vessel-linked-features';
+import { loadFeatureFlagState } from '@/lib/feature-flags/server';
+import {
+  canAddCaptainToVessel,
+  grantVesselLinkedCaptaincy,
+} from '@/lib/vessel-linked-captaincy';
 
 const resendApiKey = process.env.RESEND_API_KEY;
 const resend = resendApiKey ? new Resend(resendApiKey) : null;
@@ -235,6 +247,31 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Captain linked accounts are auto-assigned as the vessel's captain
+    // (approved claim + signing authority). Enforce the 2-captain limit
+    // before creating the auth user so we never leave an orphaned account.
+    if (role === 'captain') {
+      try {
+        const canAdd = await canAddCaptainToVessel(vesselId);
+        if (!canAdd) {
+          return NextResponse.json(
+            {
+              error: 'Maximum captain limit reached',
+              message:
+                'This vessel already has 2 approved captains. Maximum of 2 captains allowed per vessel for rotational partners.',
+            },
+            { status: 400 },
+          );
+        }
+      } catch (limitErr) {
+        console.error('[INVITE VESSEL ROLE] Failed to check captain limit:', limitErr);
+        return NextResponse.json(
+          { error: 'Failed to check captain limit' },
+          { status: 500 },
+        );
+      }
+    }
+
     // Check the email isn't already in use anywhere on the platform.
     try {
       const { data: existingUser, error: existingUserError } =
@@ -302,6 +339,11 @@ export async function POST(req: NextRequest) {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Upsert the profile with the vessel-managed flags.
+    const flagState = await loadFeatureFlagState();
+    const initialFeatures = filterFeaturesByPlatformFlags(
+      DEFAULT_VESSEL_LINKED_FEATURES,
+      (key) => !!flagState.map[key],
+    );
     const baseUsername = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_${userId.substring(0, 6)}`.replace(/[^a-z0-9_]/g, '_');
     let username = baseUsername;
     let attempt = 0;
@@ -322,6 +364,7 @@ export async function POST(req: NextRequest) {
             subscription_status: 'active',
             active_vessel_id: vesselId,
             managed_by_vessel_id: vesselId,
+            linked_account_features: initialFeatures,
           },
           { onConflict: 'id' },
         );
@@ -372,6 +415,43 @@ export async function POST(req: NextRequest) {
       console.error('[INVITE VESSEL ROLE] Failed to create vessel assignment:', assignErr);
       // Non-fatal — the account exists; the vessel manager can re-create the
       // assignment on the Crew page. Surface a warning.
+    }
+
+    // Captain role: auto-grant captaincy so vessel/admin claim approval is
+    // not required. The vessel manager inviting this account is the
+    // authorization.
+    if (role === 'captain') {
+      try {
+        await grantVesselLinkedCaptaincy({
+          captainUserId: userId,
+          vesselId,
+          vesselUserId,
+          position: config.position,
+        });
+      } catch (captaincyErr) {
+        console.error('[INVITE VESSEL ROLE] Failed to auto-grant captaincy:', captaincyErr);
+        // Account + assignment already exist; roll back the auth user so the
+        // manager can retry cleanly rather than leaving a half-assigned captain.
+        try {
+          await supabaseAdmin.auth.admin.deleteUser(userId);
+        } catch (delErr) {
+          console.error('[INVITE VESSEL ROLE] Cleanup deleteUser after captaincy failure:', delErr);
+        }
+        try {
+          await supabaseAdmin.from('users').delete().eq('id', userId);
+        } catch {
+          /* best-effort */
+        }
+        const message =
+          captaincyErr instanceof Error ? captaincyErr.message : 'Failed to assign captaincy';
+        return NextResponse.json(
+          {
+            error: 'Failed to assign captain to vessel',
+            details: message,
+          },
+          { status: 500 },
+        );
+      }
     }
 
     // Email — invitation + standard welcome.

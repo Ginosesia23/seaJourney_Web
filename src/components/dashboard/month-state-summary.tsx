@@ -45,7 +45,7 @@ const STATE_META: Record<
 > = {
   underway: { label: 'Underway', shortLabel: 'Underway', Icon: Waves },
   'at-anchor': { label: 'At Anchor', shortLabel: 'Anchor', Icon: Anchor },
-  'in-port': { label: 'Moored / In port', shortLabel: 'Port', Icon: Building },
+  'in-port': { label: 'Moored', shortLabel: 'Moored', Icon: Building },
   'on-leave': { label: 'On Leave', shortLabel: 'Leave', Icon: Briefcase },
   'in-yard': { label: 'In Yard', shortLabel: 'Yard', Icon: Wrench },
 };

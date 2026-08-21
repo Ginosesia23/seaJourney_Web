@@ -51,7 +51,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { DateRange } from 'react-day-picker';
 import type { UserProfile, Vessel, SeaServiceRecord, StateLog, DailyStatus, VesselAssignment, PassageLog } from '@/lib/types';
-import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { hasActiveSubscription, isVesselLinkedAccount } from '@/supabase/database/subscription-helpers';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
@@ -145,7 +145,7 @@ const POSITION_OPTIONS = [
 const vesselStates: { value: DailyStatus; label: string; color: string; icon: React.FC<any> }[] = [
   { value: 'underway', label: 'Underway', color: calendarStateSolid('underway'), icon: Waves },
   { value: 'at-anchor', label: 'At Anchor', color: calendarStateSolid('at-anchor'), icon: Anchor },
-  { value: 'in-port', label: 'Moored / In port', color: calendarStateSolid('in-port'), icon: Building },
+  { value: 'in-port', label: 'Moored', color: calendarStateSolid('in-port'), icon: Building },
   { value: 'on-leave', label: 'On Leave', color: calendarStateSolid('on-leave'), icon: Briefcase },
   { value: 'in-yard', label: 'In Yard', color: calendarStateSolid('in-yard'), icon: Wrench },
 ];
@@ -234,6 +234,12 @@ export default function CurrentPage() {
       subscriptionStatus: (userProfileRaw as any).subscription_status || (userProfileRaw as any).subscriptionStatus || 'inactive',
       startDate: startDate || undefined,
     } as UserProfile;
+  }, [userProfileRaw]);
+
+  // Vessel-roles secondary accounts belong to the vessel — they view the
+  // vessel record and cannot keep a personal sea-time log.
+  const isVesselLinked = useMemo(() => {
+    return isVesselLinkedAccount(userProfileRaw);
   }, [userProfileRaw]);
   
   // Query all vessels (vessels are shared, not owned by users)
@@ -482,12 +488,17 @@ export default function CurrentPage() {
     checkCaptaincyAndFindVesselAccount();
   }, [currentVessel?.id, user?.id, userProfile?.role, supabase]);
 
-  // Reset view mode to 'personal' if user is no longer an approved captain
+  // Reset view mode to 'personal' if user is no longer an approved captain.
+  // Vessel-linked accounts always stay on the vessel record.
   useEffect(() => {
+    if (isVesselLinked) {
+      if (captainViewMode !== 'vessel') setCaptainViewMode('vessel');
+      return;
+    }
     if (!isApprovedCaptain && captainViewMode === 'vessel') {
       setCaptainViewMode('personal');
     }
-  }, [isApprovedCaptain, captainViewMode]);
+  }, [isVesselLinked, isApprovedCaptain, captainViewMode]);
 
   // Fetch state logs using the query function for proper transformation
   // For approved captains, fetch logs from vessel account user only (or all vessel logs if no account exists)
@@ -525,8 +536,11 @@ export default function CurrentPage() {
 
           // For captains: check view mode to determine which logs to fetch
       let userIdToFetch: string | undefined = user.id;
-      
-      if (userProfile?.role === 'captain' && captainViewMode === 'vessel') {
+
+      if (isVesselLinked) {
+        const vesselManagerId = (vessel as any).vessel_manager_id || (vessel as any).vesselManagerId;
+        userIdToFetch = vesselManagerId || undefined;
+      } else if (userProfile?.role === 'captain' && captainViewMode === 'vessel') {
         // Captain wants to see vessel logs - check if they have approved captaincy
         try {
           const { data: captaincyData } = await supabase
@@ -577,7 +591,9 @@ export default function CurrentPage() {
           new Map(allLogs.map(log => [`${log.date}-${log.vesselId}`, log])).values()
         );
 
-        const isCaptainVesselView = userProfile?.role === 'captain' && captainViewMode === 'vessel';
+        const isCaptainVesselView =
+          isVesselLinked ||
+          (userProfile?.role === 'captain' && captainViewMode === 'vessel');
         if (!isCaptainVesselView) {
           try {
             const userWide = await getAllStateLogsForUser(supabase, user.id);
@@ -611,7 +627,7 @@ export default function CurrentPage() {
     };
     
     fetchAllLogs();
-  }, [user?.id, vessels, vesselAssignments, currentVessel?.id, userProfile?.role, captainViewMode, supabase, stateLogsRefreshKey]);
+  }, [user?.id, vessels, vesselAssignments, currentVessel?.id, userProfile?.role, captainViewMode, supabase, stateLogsRefreshKey, isVesselLinked]);
 
   // Fetch vessel assignments for date validation
   useEffect(() => {
@@ -1028,6 +1044,7 @@ export default function CurrentPage() {
 
         const useVesselPassages =
           isVesselAccount ||
+          isVesselLinked ||
           (userProfile?.role === 'captain' && captainViewMode === 'vessel');
 
         if (useVesselPassages) {
@@ -1067,6 +1084,7 @@ export default function CurrentPage() {
     user?.id,
     supabase,
     isVesselAccount,
+    isVesselLinked,
     userProfile?.role,
     captainViewMode,
     currentVessel?.id,
@@ -1425,7 +1443,7 @@ export default function CurrentPage() {
   const handleTogglePartOfActivePassage = async () => {
     if (!user?.id || !currentVessel?.id) return;
 
-    if (isCaptain && captainViewMode === 'vessel') {
+    if (isVesselLinked || (isCaptain && captainViewMode === 'vessel')) {
       toast({
         title: 'Cannot Edit',
         description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
@@ -1513,7 +1531,7 @@ export default function CurrentPage() {
   const handleToggleWatch = async () => {
     if (!user?.id || !currentVessel?.id || !isOfficer) return;
 
-    if (isCaptain && captainViewMode === 'vessel') {
+    if (isVesselLinked || (isCaptain && captainViewMode === 'vessel')) {
       toast({
         title: 'Cannot Edit',
         description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
@@ -1778,7 +1796,7 @@ export default function CurrentPage() {
     }
     
     // For approved captains viewing vessel account logs, prevent editing
-    if (isCaptain && captainViewMode === 'vessel') {
+    if (isVesselLinked || (isCaptain && captainViewMode === 'vessel')) {
       toast({
         title: 'View Only',
         description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
@@ -2021,7 +2039,7 @@ export default function CurrentPage() {
       // For approved captains viewing vessel account logs, they should not be able to edit
       // They can only view the vessel account's logs
       // For captains viewing vessel logs (vessel view mode), they should not be able to edit
-      if (isCaptain && captainViewMode === 'vessel') {
+      if (isVesselLinked || (isCaptain && captainViewMode === 'vessel')) {
         toast({
           title: 'Cannot Edit',
           description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
@@ -2343,7 +2361,7 @@ export default function CurrentPage() {
     }));
     
     // For captains viewing vessel logs (vessel view mode), they should not be able to edit
-    if (isCaptain && captainViewMode === 'vessel') {
+    if (isVesselLinked || (isCaptain && captainViewMode === 'vessel')) {
       toast({
         title: 'Cannot Edit',
         description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
@@ -2409,7 +2427,7 @@ export default function CurrentPage() {
     if (!currentVessel || !user?.id) return;
     
     // For captains viewing vessel logs (vessel view mode), they should not be able to edit
-    if (isCaptain && captainViewMode === 'vessel') {
+    if (isVesselLinked || (isCaptain && captainViewMode === 'vessel')) {
       toast({
         title: 'Cannot Edit',
         description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
@@ -2570,7 +2588,7 @@ export default function CurrentPage() {
       }
 
       // For captains viewing vessel logs (vessel view mode), they should not be able to edit
-      if (isCaptain && captainViewMode === 'vessel') {
+      if (isVesselLinked || (isCaptain && captainViewMode === 'vessel')) {
         toast({
           title: 'Cannot Edit',
           description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
@@ -2657,7 +2675,7 @@ export default function CurrentPage() {
     if (!currentVessel || !user?.id) return;
 
     // For captains viewing vessel logs (vessel view mode), they should not be able to edit
-    if (isCaptain && captainViewMode === 'vessel') {
+    if (isVesselLinked || (isCaptain && captainViewMode === 'vessel')) {
       toast({
         title: 'Cannot Edit',
         description: 'You can only view the vessel account logs. The vessel manager must update the logs.',
@@ -3376,8 +3394,9 @@ export default function CurrentPage() {
             </p>
           </div>
           <div className="flex items-center gap-4">
-            {/* Captain View Mode Toggle - Only show for approved captains */}
-            {isApprovedCaptain && isDisplayingStatus && (
+            {/* Captain View Mode Toggle — personal captains only.
+                Vessel-linked accounts belong to the vessel and stay on vessel sea time. */}
+            {isApprovedCaptain && isDisplayingStatus && !isVesselLinked && (
               <div className="flex items-center gap-2 rounded-lg border bg-card p-1">
                 <Button
                   variant={captainViewMode === 'personal' ? 'default' : 'ghost'}
@@ -3405,7 +3424,7 @@ export default function CurrentPage() {
                 </Button>
               </div>
             )}
-            {isDisplayingStatus && !isVesselAccount && (
+            {isDisplayingStatus && !isVesselAccount && !isVesselLinked && (
               <Button onClick={handleEndTrip} variant="destructive" className="rounded-xl">End Current Service</Button>
             )}
           </div>
@@ -3435,8 +3454,8 @@ export default function CurrentPage() {
                                         <p className="text-xs text-muted-foreground mt-1">Started {format(serviceDate, 'PPP')}</p>
                                     )}
                                     
-                                    {/* Captaincy Request Section */}
-                                    {isCaptain && currentVessel && (
+                                    {/* Captaincy Request Section — not for vessel-linked accounts */}
+                                    {isCaptain && currentVessel && !isVesselLinked && (
                                         <div className="mt-6 pt-4 border-t border-border/50 relative">
                                             {/* Captaincy Request Icon - positioned in left column aligned with text */}
                                             {!isApprovedCaptain && (
@@ -3503,7 +3522,7 @@ export default function CurrentPage() {
                   <Card className="rounded-xl border shadow-sm">
                     <CardContent className="p-4 sm:p-5">
                       {(() => {
-                        const canEditLogbookExtras = !(isCaptain && captainViewMode === 'vessel');
+                        const canEditLogbookExtras = !isVesselLinked && !(isCaptain && captainViewMode === 'vessel');
                         return (
                           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
                             <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
@@ -3612,6 +3631,7 @@ export default function CurrentPage() {
                         : undefined;
                       const TodayTriggerIcon = cur?.icon;
                       const canEditTodayState =
+                        !isVesselLinked &&
                         !(isCaptain && captainViewMode === 'vessel') &&
                         !(isVesselAccount && aisTrackingEnabled);
 
@@ -3756,7 +3776,7 @@ export default function CurrentPage() {
                 <Card className="rounded-xl border shadow-sm">
                   <CardContent className="p-4 sm:p-5">
                     {(() => {
-                      const canEditLogbookExtras = !(isCaptain && captainViewMode === 'vessel');
+                      const canEditLogbookExtras = !isVesselLinked && !(isCaptain && captainViewMode === 'vessel');
                       const hasTodayState = !!todayStatusValue;
                       const isUnderwayToday = todayStatusValue === 'underway';
                       const passageDisabled =
@@ -3875,7 +3895,21 @@ export default function CurrentPage() {
               />
             )}
 
-            {!isVesselAccount && currentVessel && (
+            {isVesselLinked && currentVessel && (
+              <AisTrackingCard
+                readOnly
+                vesselId={currentVessel.id}
+                mmsi={currentVessel.mmsi}
+                imo={currentVessel.imo ?? currentVessel.officialNumber}
+                accessToken={session?.access_token ?? null}
+                profileRaw={userProfileRaw}
+                todayState={todayStatusValue}
+                onEnabledChange={handleAisEnabledChange}
+                onStateUpdated={handleAisStateUpdated}
+              />
+            )}
+
+            {!isVesselAccount && !isVesselLinked && currentVessel && (
               <CrewAisTrackingCard
                 accessToken={session?.access_token ?? null}
                 profileRaw={userProfileRaw}
@@ -3884,7 +3918,7 @@ export default function CurrentPage() {
               />
             )}
 
-            {!isVesselAccount && currentVessel && (
+            {!isVesselAccount && !isVesselLinked && currentVessel && (
               <CrewAisDebugPanel
                 accessToken={session?.access_token ?? null}
                 profileRaw={userProfileRaw}
@@ -4388,6 +4422,16 @@ export default function CurrentPage() {
                 </CardContent>
             </Card>
         </div>
+      ) : isVesselLinked ? (
+        <Card className="rounded-xl border shadow-sm">
+          <CardHeader>
+            <CardTitle>Vessel record</CardTitle>
+            <CardDescription>
+              This login belongs to the vessel and does not keep a personal sea-time log.
+              Open the daily log once the vessel has an active service.
+            </CardDescription>
+          </CardHeader>
+        </Card>
       ) : (
         <div className="space-y-6">
           {/* Unified Vessel Service Card - Adapts to Role */}

@@ -109,7 +109,7 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     label: 'Testimonials',
     description: 'Crew sea-time testimonials / applications list.',
     audience: 'crew',
-    routes: ['/dashboard/applications'],
+    routes: ['/dashboard/career-documents', '/dashboard/applications'],
     defaultEnabled: true,
   },
   {
@@ -141,7 +141,7 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     label: 'Proof of service',
     description: 'Crew proof-of-service documents.',
     audience: 'crew',
-    routes: ['/dashboard/proof-of-service'],
+    routes: ['/dashboard/career-documents', '/dashboard/proof-of-service'],
     defaultEnabled: true,
   },
   {

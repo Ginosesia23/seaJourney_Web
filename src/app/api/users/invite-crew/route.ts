@@ -15,7 +15,7 @@ const FROM_EMAIL = process.env.BILLING_FROM_EMAIL || 'SeaJourney <team@seajourne
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { firstName, lastName, email, vesselId, vesselName, vesselUserId } = body;
+    const { firstName, lastName, email, vesselId, vesselName, vesselUserId, position } = body;
 
     // Validate required fields
     if (!firstName || !lastName || !email || !vesselId) {
@@ -24,6 +24,9 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    const assignedPosition =
+      typeof position === 'string' && position.trim().length > 0 ? position.trim() : null;
 
     // Check crew limit if vesselUserId is provided (vessel manager inviting)
     if (vesselUserId) {
@@ -197,6 +200,7 @@ export async function POST(req: NextRequest) {
           subscription_tier: 'crew_limited',
           subscription_status: 'active',
           active_vessel_id: vesselId,
+          ...(assignedPosition ? { position: assignedPosition } : {}),
         }, {
           onConflict: 'id',
         });
@@ -241,9 +245,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create vessel assignment
+    // Create vessel assignment (+ optional career history so position shows on profile)
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
     try {
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
       await createVesselAssignment(
         supabaseAdmin as any,
         {
@@ -251,12 +255,34 @@ export async function POST(req: NextRequest) {
           vesselId: vesselId,
           startDate: today,
           endDate: null, // Active assignment
-          position: null,
+          position: assignedPosition,
         }
       );
     } catch (assignmentError: any) {
       console.error('[INVITE CREW] Error creating vessel assignment:', assignmentError);
       // Don't fail the whole operation, but log it
+    }
+
+    if (assignedPosition) {
+      try {
+        const { error: historyError } = await supabaseAdmin
+          .from('position_history')
+          .insert({
+            user_id: userId,
+            position: assignedPosition,
+            start_date: today,
+            end_date: null,
+            vessel_id: vesselId,
+            notes: vesselName
+              ? `Assigned on invite to ${vesselName}`
+              : 'Assigned on vessel invite',
+          });
+        if (historyError) {
+          console.error('[INVITE CREW] Error creating position history:', historyError);
+        }
+      } catch (historyError: any) {
+        console.error('[INVITE CREW] Error creating position history:', historyError);
+      }
     }
 
     // Send password reset email (this acts as the invitation)

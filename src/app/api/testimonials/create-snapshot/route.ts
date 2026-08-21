@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { persistApprovedTestimonialPdf } from '@/lib/testimonials/persist-approved-pdf';
 
 export const runtime = 'nodejs';
 
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
     // Explicitly select only the columns we need to avoid issues with non-existent columns
     const { data: testimonial, error: testimonialError } = await supabaseAdmin
       .from('testimonials')
-      .select('id, user_id, vessel_id, start_date, end_date, total_days, at_sea_days, standby_days, yard_days, leave_days, status, testimonial_code, captain_name, captain_email, captain_position, captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general, captain_user_id, updated_at, generated_by_user_id, data_source')
+      .select('id, user_id, vessel_id, start_date, end_date, total_days, at_sea_days, standby_days, yard_days, leave_days, status, testimonial_code, captain_name, captain_email, captain_position, captain_signature, captain_comment_conduct, captain_comment_ability, captain_comment_general, captain_user_id, updated_at, generated_by_user_id, data_source, pdf_url')
       .eq('id', testimonialId)
       .maybeSingle();
 
@@ -108,16 +109,18 @@ export async function POST(req: NextRequest) {
     // Check if snapshot already exists
     const { data: existingSnapshot } = await supabaseAdmin
       .from('approved_testimonials')
-      .select('id')
+      .select('id, pdf_path')
       .eq('testimonial_id', testimonialId)
       .maybeSingle();
 
     if (existingSnapshot) {
       console.log('[SNAPSHOT API] Snapshot already exists for testimonial:', testimonialId);
+      const pdfResult = await persistApprovedTestimonialPdf(testimonialId);
       return NextResponse.json({
         success: true,
         message: 'Snapshot already exists',
         snapshot: existingSnapshot,
+        pdf: pdfResult,
       });
     }
 
@@ -169,12 +172,12 @@ export async function POST(req: NextRequest) {
       standby_days: testimonial.standby_days,
       captain_name: captainName,
       captain_license: captainLicense,
-      captain_signature: testimonial.captain_signature || null, // Captain's signature saved at approval time
-      captain_comment_conduct: testimonial.captain_comment_conduct || null, // Captain comment on conduct
-      captain_comment_ability: testimonial.captain_comment_ability || null, // Captain comment on ability
-      captain_comment_general: testimonial.captain_comment_general || null, // Captain general comments
-      document_id: testimonial.id, // The UUID used as Document ID
-      testimonial_code: currentTestimonialCode || testimonial.testimonial_code || null, // Use the fetched code
+      captain_signature: testimonial.captain_signature || null,
+      captain_comment_conduct: testimonial.captain_comment_conduct || null,
+      captain_comment_ability: testimonial.captain_comment_ability || null,
+      captain_comment_general: testimonial.captain_comment_general || null,
+      document_id: testimonial.id,
+      testimonial_code: currentTestimonialCode || testimonial.testimonial_code || null,
       approved_at: testimonial.updated_at || new Date().toISOString(),
       generated_by_user_id: (testimonial as any).generated_by_user_id ?? null,
       data_source: (testimonial as any).data_source ?? null,
@@ -221,9 +224,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const pdfResult = await persistApprovedTestimonialPdf(testimonialId);
+    if ('error' in pdfResult) {
+      console.error('[SNAPSHOT API] PDF persist failed (snapshot ok):', pdfResult.error);
+    }
+
     return NextResponse.json({
       success: true,
       snapshot: insertedData,
+      pdf: pdfResult,
     });
   } catch (error: any) {
     console.error('[SNAPSHOT API] Unexpected error:', error);
@@ -233,4 +242,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

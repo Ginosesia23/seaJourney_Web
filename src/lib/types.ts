@@ -23,6 +23,7 @@ export interface UserProfile {
   dischargeBookNumber?: string | null; // Discharge book number for use in testimonials
   // Crew details (profile / PDFs — date of birth, address, etc.)
   title?: string | null; // Mr/Mrs/Miss/etc
+  dateOfBirth?: string | null;
   placeOfBirth?: string | null;
   countryOfBirth?: string | null;
   nationality?: string | null;
@@ -41,6 +42,11 @@ export interface UserProfile {
    * See: /dashboard/vessel-roles
    */
   managedByVesselId?: string | null;
+  /**
+   * Extra dashboard features granted by the vessel manager for a linked account.
+   * See `src/lib/vessel-linked-features.ts`. Core pages are always available.
+   */
+  linkedAccountFeatures?: string[] | null;
 }
 
 /** Roles a vessel manager (Pro/Fleet tier) can create as a linked secondary account. */
@@ -201,6 +207,8 @@ export interface ProofOfService {
   dataSource: 'crew' | 'vessel';
   notes: string | null;
   verificationCode: string;
+  /** Storage path in testimonials bucket when PDF was frozen at save time. */
+  pdfPath?: string | null;
   createdAt: string;
   updatedAt: string;
 }

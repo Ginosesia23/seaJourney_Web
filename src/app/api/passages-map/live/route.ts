@@ -31,6 +31,7 @@ import {
   type LiveSamplePoint,
 } from '@/lib/passages-map/build-live-track';
 import { assignOrderedVesselColors } from '@/lib/passages-map/vessel-colors';
+import { resolveLinkedVesselScope } from '@/lib/passages-map/linked-vessel-scope';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -105,7 +106,7 @@ export async function GET(req: NextRequest) {
     const { data: profile } = await supabaseAdmin
       .from('users')
       .select(
-        'id, role, active_vessel_id, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, ais_live_tracking_enabled',
+        'id, role, active_vessel_id, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, ais_live_tracking_enabled, linked_account_features, managed_by_vessel_id',
       )
       .eq('id', user.id)
       .maybeSingle();
@@ -126,7 +127,12 @@ export async function GET(req: NextRequest) {
     const role = ((profile as { role?: string }).role || '')
       .toString()
       .toLowerCase();
-    const isVesselAccount = role === 'vessel';
+    const linkedScope = await resolveLinkedVesselScope(
+      supabaseAdmin,
+      profile,
+      'passages_map',
+    );
+    const isVesselAccount = role === 'vessel' || Boolean(linkedScope);
 
     let vesselIds: string[] = [];
     let trackingEnabled = Boolean(
@@ -135,7 +141,20 @@ export async function GET(req: NextRequest) {
     let emptyScopeMessage =
       'No active vessel assignment — live position unavailable.';
 
-    if (isVesselAccount) {
+    if (linkedScope) {
+      vesselIds = [linkedScope.vesselId];
+      const { data: linkedVessel } = await supabaseAdmin
+        .from('vessels')
+        .select('id, ais_tracking_enabled')
+        .eq('id', linkedScope.vesselId)
+        .maybeSingle();
+      trackingEnabled = Boolean(
+        (linkedVessel as { ais_tracking_enabled?: boolean | null } | null)
+          ?.ais_tracking_enabled,
+      );
+      emptyScopeMessage =
+        'No managed vessel found — live position unavailable.';
+    } else if (isVesselAccount) {
       const { data: managedRaw, error: managedErr } = await supabaseAdmin
         .from('vessels')
         .select('id, ais_tracking_enabled')

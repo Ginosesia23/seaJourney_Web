@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  canonicalizeVesselTier,
   hasActiveSubscription,
   hasAisHistoryImportTier,
   VESSEL_PREMIUM_PLUS_TIERS,
@@ -18,10 +19,9 @@ export function hasVesselAisTrackingTier(userProfile: unknown): boolean {
   if (role === 'admin') return true;
   if (role !== 'vessel') return false;
 
-  const tier = (p.subscription_tier || p.subscriptionTier || 'free')
-    .toString()
-    .toLowerCase()
-    .trim();
+  const tier = canonicalizeVesselTier(
+    (p.subscription_tier || p.subscriptionTier || 'free').toString(),
+  );
 
   return VESSEL_PREMIUM_PLUS_TIERS.has(tier) && hasActiveSubscription(p);
 }
@@ -62,7 +62,7 @@ async function authenticateBearerUser(
   const { data: profile } = await supabaseAdmin
     .from('users')
     .select(
-      'id, role, active_vessel_id, start_date, subscription_tier, subscription_status, cancel_at_period_end, current_period_end',
+      'id, role, active_vessel_id, start_date, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, linked_account_features, managed_by_vessel_id',
     )
     .eq('id', user.id)
     .maybeSingle();
@@ -172,6 +172,85 @@ export async function assertVesselManagerForVessel(
   }
 
   return { vessel: vessel as VesselAisRow };
+}
+
+/**
+ * Vessel-linked Team accounts may read AIS status for the vessel they belong to.
+ * They cannot enable/disable tracking — that stays with the vessel manager.
+ */
+export async function assertVesselLinkedViewerForVessel(
+  auth: AisHistoryAuth,
+  vesselId: string,
+  supabaseAdmin: SupabaseClient,
+): Promise<{ vessel: VesselAisRow } | { error: NextResponse }> {
+  const tier = String(
+    auth.profile.subscription_tier || auth.profile.subscriptionTier || '',
+  ).toLowerCase();
+  if (tier !== 'vessel_linked') {
+    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+  }
+
+  const managedBy = (auth.profile.managed_by_vessel_id as string | null) || null;
+  const activeVesselId = (auth.profile.active_vessel_id as string | null) || null;
+  if (managedBy !== vesselId && activeVesselId !== vesselId) {
+    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+  }
+
+  const { data: vessel, error } = await supabaseAdmin
+    .from('vessels')
+    .select(
+      'id, name, mmsi, imo, vessel_manager_id, ais_tracking_enabled, ais_last_sync_at, ais_last_nav_status, ais_last_speed, ais_last_position_at, ais_last_sync_error',
+    )
+    .eq('id', vesselId)
+    .maybeSingle();
+
+  if (error || !vessel) {
+    return { error: NextResponse.json({ error: 'Vessel not found' }, { status: 404 }) };
+  }
+
+  return { vessel: vessel as VesselAisRow };
+}
+
+/** GET AIS status: vessel managers (Premium+) or linked accounts on that vessel. */
+export async function authenticateAisTrackingStatusReader(
+  request: Request,
+  supabaseAdmin: SupabaseClient,
+  vesselId: string,
+): Promise<{ vessel: VesselAisRow } | { error: NextResponse }> {
+  const authResult = await authenticateBearerUser(request, supabaseAdmin);
+  if ('error' in authResult) return authResult;
+
+  const role = String(authResult.auth.profile.role || '').toLowerCase();
+  const tier = String(
+    authResult.auth.profile.subscription_tier ||
+      authResult.auth.profile.subscriptionTier ||
+      '',
+  ).toLowerCase();
+
+  if (role === 'admin' || role === 'vessel') {
+    if (role === 'vessel' && !hasVesselAisTrackingTier(authResult.auth.profile)) {
+      return {
+        error: NextResponse.json(
+          {
+            error:
+              'Live AIS tracking requires Vessel Premium, Professional, or Fleet.',
+          },
+          { status: 402 },
+        ),
+      };
+    }
+    return assertVesselManagerForVessel(authResult.auth, vesselId, supabaseAdmin);
+  }
+
+  if (tier === 'vessel_linked') {
+    return assertVesselLinkedViewerForVessel(
+      authResult.auth,
+      vesselId,
+      supabaseAdmin,
+    );
+  }
+
+  return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
 }
 
 export async function assertAisHistoryVesselAccess(

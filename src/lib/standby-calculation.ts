@@ -11,6 +11,8 @@
  *    days that have been counted as standby (those are reclassified to avoid double-counting).
  * 3. In-yard and on-leave are NEVER standby: they end the standby period. Example: 4 days passage,
  *    then 1 day at anchor, then yard → 4 at sea, 1 standby, rest are in-yard only.
+ *    Going on leave (or any non-standby state) ends the block; standby does not resume after the
+ *    crew member returns onboard until a new voyage has completed.
  * 4. Max 14 consecutive days of standby can be counted from any single period
  * 5. A standby block can't be longer than the previous voyage
  * 6. Total standby service can never exceed total actual sea service

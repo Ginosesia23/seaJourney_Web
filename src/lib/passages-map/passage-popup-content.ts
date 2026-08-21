@@ -563,7 +563,7 @@ function formatLiveState(state?: string): string {
   if (!state) return 'Underway';
   if (state === 'underway') return 'Underway';
   if (state === 'at-anchor') return 'At anchor';
-  if (state === 'in-port') return 'In port';
+  if (state === 'in-port') return 'Moored';
   if (state === 'in-yard') return 'In yard';
   return state;
 }

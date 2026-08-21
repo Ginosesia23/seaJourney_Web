@@ -110,9 +110,9 @@ function hrefForType(type: ApplicationRequirement['requirement_type']): string |
       return '/dashboard/certificates';
     case 'testimonial':
     case 'sea_time_min':
-      return '/dashboard/applications';
+      return '/dashboard/career-documents?tab=testimonials';
     case 'proof_of_service':
-      return '/dashboard/proof-of-service';
+      return '/dashboard/career-documents?tab=proof';
     default:
       return undefined;
   }
@@ -317,7 +317,7 @@ function evaluateOne(
         current,
         target: min,
         detail: `${current} / ${min} ${label} (${sourceLabel})`,
-        href: source === 'tracked' ? '/dashboard/export' : '/dashboard/applications',
+        href: source === 'tracked' ? '/dashboard/export' : '/dashboard/career-documents?tab=testimonials',
       };
     }
     case 'manual_checklist': {

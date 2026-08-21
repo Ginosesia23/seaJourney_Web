@@ -4746,14 +4746,14 @@ function AISImportGraphic() {
   const stateStyles: Record<string, { bg: string; text: string }> = {
     Underway: { bg: 'color-mix(in srgb, #0ea5e9 16%, transparent)', text: '#0ea5e9' },
     'At Anchor': { bg: 'color-mix(in srgb, #f59e0b 16%, transparent)', text: '#d97706' },
-    'In Port': { bg: 'color-mix(in srgb, #8b5cf6 16%, transparent)', text: '#7c3aed' },
+    'Moored': { bg: 'color-mix(in srgb, #8b5cf6 16%, transparent)', text: '#7c3aed' },
   };
 
   const previewDays = [
     { date: 'Mon 3 Mar', nav: 'Under way using engine · 12.4 kn', state: 'Underway', badge: 'New' },
     { date: 'Tue 4 Mar', nav: 'At anchor', state: 'At Anchor', badge: 'New' },
     { date: 'Wed 5 Mar', nav: 'At anchor', state: 'At Anchor', badge: 'Matches' },
-    { date: 'Thu 6 Mar', nav: 'Moored', state: 'In Port', badge: 'New' },
+    { date: 'Thu 6 Mar', nav: 'Moored', state: 'Moored', badge: 'New' },
     { date: 'Fri 7 Mar', nav: 'Under way using engine · 9.1 kn', state: 'Underway', badge: 'Conflict' },
   ];
 
@@ -5026,7 +5026,7 @@ function AISImport() {
     {
       num: '2',
       title: 'Review AIS daily states',
-      desc: 'See underway, at anchor, and in port for each day — with new, matching, and conflicting rows flagged.',
+      desc: 'See underway, at anchor, and moored for each day — with new, matching, and conflicting rows flagged.',
     },
     {
       num: '3',
@@ -5039,7 +5039,7 @@ function AISImport() {
     {
       icon: Navigation,
       title: 'Daily vessel states',
-      desc: 'Last AIS position each day mapped to underway, at anchor, in port, and more.',
+      desc: 'Last AIS position each day mapped to underway, at anchor, moored, and more.',
       accent: '#0ea5e9',
     },
     {
@@ -5178,7 +5178,7 @@ function LiveAISMobile() {
     {
       icon: Zap,
       title: 'Auto-logged sea time',
-      desc: "Your vessel's live AIS state — underway, at anchor, in port — is written straight to your calendar. No taps required.",
+      desc: "Your vessel's live AIS state — underway, at anchor, moored — is written straight to your calendar. No taps required.",
       accent: '#0ea5e9',
     },
     {
@@ -5368,7 +5368,7 @@ function LiveAISPhoneGraphic() {
   }> = [
     { key: 'underway', label: 'Underway',  icon: Compass,  tint: '#38bdf8' },
     { key: 'anchor',   label: 'At Anchor', icon: Anchor,   tint: '#f97316' },
-    { key: 'in-port',  label: 'In Port',   icon: Building, tint: '#34d399' },
+    { key: 'in-port',  label: 'Moored',   icon: Building, tint: '#34d399' },
     { key: 'in-yard',  label: 'In Yard',   icon: Wrench,   tint: '#f87171' },
   ];
   // Force an active state (matches the screenshot: "At Anchor" selected).

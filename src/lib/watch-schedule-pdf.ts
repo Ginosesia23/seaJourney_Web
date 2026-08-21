@@ -83,11 +83,13 @@ function loadLogo(path: string): Promise<{ dataURL: string; w: number; h: number
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i); // 0..23
 
-const NAVY: RGB   = [15, 23, 42];
+const NAVY: RGB   = [23, 43, 66];
+const ACCENT: RGB = [37, 99, 235];
 const GREY: RGB   = [100, 116, 139];
 const LGREY: RGB  = [241, 245, 249];
 const MGREY: RGB  = [226, 232, 240];
 const WHITE: RGB  = [255, 255, 255];
+const HEADER_ACCENT_H = 1.1;
 
 // A rotating palette for crew whose blocks carry no named shift colour
 const CREW_PALETTE = [
@@ -119,6 +121,8 @@ export async function generateWatchSchedulePDF(data: WatchSchedulePDFData): Prom
     const HH = 18;
     doc.setFillColor(...NAVY);
     doc.rect(0, 0, pageW, HH, 'F');
+    doc.setFillColor(...ACCENT);
+    doc.rect(0, HH, pageW, HEADER_ACCENT_H, 'F');
 
     // Logo (best-effort)
     // We pre-load below; if it succeeds we draw it
@@ -138,7 +142,7 @@ export async function generateWatchSchedulePDF(data: WatchSchedulePDFData): Prom
       pageW - M, HH / 2 + 1.5, { align: 'right' },
     );
 
-    return HH;
+    return HH + HEADER_ACCENT_H;
   }
 
   // -------------------------------------------------------------------------
@@ -153,7 +157,8 @@ export async function generateWatchSchedulePDF(data: WatchSchedulePDFData): Prom
     if (!logoData) return;
     const lh = 6; // fixed height regardless of header band size
     const lw = (logoData.w / logoData.h) * lh;
-    const ly = (headerH - lh) / 2; // vertically centred in the header
+    const navyH = Math.max(headerH - HEADER_ACCENT_H, lh);
+    const ly = (navyH - lh) / 2; // vertically centred in the navy band
     doc.addImage(logoData.dataURL, 'PNG', M, ly, lw, lh);
   }
 
@@ -470,6 +475,8 @@ export async function generateCrewWatchSchedulePDF(data: CrewWatchSchedulePDFDat
   const HH = 22;
   doc.setFillColor(...NAVY);
   doc.rect(0, 0, pageW, HH, 'F');
+  doc.setFillColor(...ACCENT);
+  doc.rect(0, HH, pageW, HEADER_ACCENT_H, 'F');
 
   if (logoData) {
     const lh = 7;
@@ -483,7 +490,7 @@ export async function generateCrewWatchSchedulePDF(data: CrewWatchSchedulePDFDat
   doc.text('WATCH SCHEDULE PROOF', pageW / 2, HH / 2 + 1.5, { align: 'center' });
 
   // ---- Sub-header: vessel + schedule ----
-  let y = HH + 8;
+  let y = HH + HEADER_ACCENT_H + 8;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(...NAVY);

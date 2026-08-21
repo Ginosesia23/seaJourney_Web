@@ -28,6 +28,10 @@ import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { cn } from '@/lib/utils';
 import { VesselSummaryCard, VesselSummarySkeleton } from '@/components/dashboard/vessel-summary-card';
 import { AdminVesselEditDialog } from '@/components/dashboard/admin-vessel-edit-dialog';
+import {
+  AdminVesselsTable,
+  type VesselManagerInfo,
+} from '@/components/dashboard/admin-vessels-table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -89,7 +93,7 @@ type PastVesselFormValues = z.infer<typeof pastVesselSchema>;
 const vesselStates: { value: DailyStatus; label: string; color: string }[] = [
   { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))' },
   { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))' },
-  { value: 'in-port', label: 'Moored / In port', color: 'hsl(var(--chart-green))' },
+  { value: 'in-port', label: 'Moored', color: 'hsl(var(--chart-green))' },
   { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))' },
   { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))' },
 ];
@@ -139,6 +143,8 @@ export default function VesselsPage() {
   const [isUpdatingStartDate, setIsUpdatingStartDate] = useState(false);
   const [adminEditVesselOpen, setAdminEditVesselOpen] = useState(false);
   const [adminEditVessel, setAdminEditVessel] = useState<Vessel | null>(null);
+  const [vesselManagers, setVesselManagers] = useState<Map<string, VesselManagerInfo>>(new Map());
+  const [vesselsRefresh, setVesselsRefresh] = useState(0);
 
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -197,7 +203,9 @@ export default function VesselsPage() {
   // Query all vessels (vessels are shared, not owned by users)
   const { data: allVessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
     user?.id ? 'vessels' : null,
-    user?.id ? { orderBy: 'created_at', ascending: false } : undefined
+    user?.id
+      ? { orderBy: 'created_at', ascending: false, refreshTrigger: vesselsRefresh }
+      : undefined
   );
   
   // Fetch user profile to get activeVesselId
@@ -328,6 +336,7 @@ export default function VesselsPage() {
       setVesselPastPeopleCounts(new Map());
       setVesselActivePeople(new Map());
       setVesselPastPeople(new Map());
+      setVesselManagers(new Map());
       return;
     }
 
@@ -461,21 +470,34 @@ export default function VesselsPage() {
           const { data: managers, error: mgrErr } = await supabase
             .from('users')
             .select(
-              'id, subscription_tier, subscription_status, cancel_at_period_end, current_period_end',
+              'id, first_name, last_name, email, subscription_tier, subscription_status, cancel_at_period_end, current_period_end',
             )
             .in('id', managerIds);
           if (mgrErr) {
             console.error('[VESSELS] managers for subscription', mgrErr);
           } else {
             const activeManagers = new Set<string>();
+            const managerById = new Map<string, VesselManagerInfo>();
             (managers || []).forEach((m: any) => {
               if (hasActiveSubscription(m)) activeManagers.add(m.id);
+              managerById.set(m.id, {
+                userId: m.id,
+                name: displayPersonName(m),
+                email: m.email ?? null,
+              });
             });
+            const nextManagers = new Map<string, VesselManagerInfo>();
             allVessels.forEach((v: any) => {
               const mid = v.vessel_manager_id || v.vesselManagerId;
               if (mid && activeManagers.has(mid)) subscribed.add(v.id);
+              if (mid && managerById.has(mid)) {
+                nextManagers.set(v.id, managerById.get(mid)!);
+              }
             });
+            setVesselManagers(nextManagers);
           }
+        } else {
+          setVesselManagers(new Map());
         }
       } catch (e) {
         console.error('[VESSELS] subscription badge fetch failed', e);
@@ -1169,6 +1191,44 @@ export default function VesselsPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      {isAdmin ? (
+        <>
+          <div className="space-y-1">
+            <h1 className="text-3xl font-bold tracking-tight">Vessels</h1>
+            <p className="text-muted-foreground">
+              Platform directory of every vessel. Search, filter, and edit records.
+            </p>
+          </div>
+          <AdminVesselsTable
+            vessels={allVessels ?? []}
+            isLoading={isLoadingVessels || isLoadingProfile}
+            crewCounts={vesselCrewCounts}
+            pastCounts={vesselPastPeopleCounts}
+            subscribedIds={subscribedVesselIds}
+            managers={vesselManagers}
+            onEdit={(vessel) => {
+              setAdminEditVessel(vessel);
+              setAdminEditVesselOpen(true);
+            }}
+            onDelete={(vessel) => setVesselToDelete(vessel)}
+            onViewActiveCrew={(vessel) =>
+              setPeopleDialog({
+                vesselId: vessel.id,
+                vesselName: vessel.name,
+                kind: 'active',
+              })
+            }
+            onViewPastCrew={(vessel) =>
+              setPeopleDialog({
+                vesselId: vessel.id,
+                vesselName: vessel.name,
+                kind: 'past',
+              })
+            }
+          />
+        </>
+      ) : (
+        <>
       {/* Header Section */}
       <div className="space-y-2">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1730,6 +1790,8 @@ export default function VesselsPage() {
           </CardContent>
         </Card>
       )}
+        </>
+      )}
 
       {/* Add Past Vessel Dialog */}
       <Dialog open={isAddPastVesselDialogOpen} onOpenChange={(open) => {
@@ -2221,6 +2283,7 @@ export default function VesselsPage() {
           if (!open) setAdminEditVessel(null);
         }}
         vessel={adminEditVessel}
+        onSaved={() => setVesselsRefresh((n) => n + 1)}
       />
 
       {/* Edit Start Date Dialog */}

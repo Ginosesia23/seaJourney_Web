@@ -37,7 +37,7 @@ import {
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: LucideIcon }[] = [
   { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
   { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
-  { value: 'in-port', label: 'Moored / In port', color: 'hsl(var(--chart-green))', icon: Building },
+  { value: 'in-port', label: 'Moored', color: 'hsl(var(--chart-green))', icon: Building },
   { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: LifeBuoy },
   { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Wrench },
 ];
@@ -251,7 +251,7 @@ export default function DashboardPage() {
         const stateLabels: Record<string, string> = {
           underway: 'Underway',
           'at-anchor': 'At anchor',
-          'in-port': 'Moored / In port',
+          'in-port': 'Moored',
           'on-leave': 'On leave',
           'in-yard': 'In yard',
         };
@@ -2224,7 +2224,7 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-2">
                         <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-green))' }} />
                         <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.inPortDays}</span> day{past7DaysStats.inPortDays !== 1 ? 's' : ''} in port
+                          <span className="font-semibold text-foreground">{past7DaysStats.inPortDays}</span> day{past7DaysStats.inPortDays !== 1 ? 's' : ''} moored
                         </span>
                       </div>
                     )}
@@ -2321,7 +2321,7 @@ export default function DashboardPage() {
         items={[
           { label: 'Total days', value: totalDays, hint: 'On board, excluding leave' },
           { label: 'At sea', value: atSeaDays, hint: `${thisMonthStats.atSeaDays} this month` },
-          { label: 'Standby', value: standbyDays, hint: 'In port or at anchor' },
+          { label: 'Standby', value: standbyDays, hint: 'Moored or at anchor' },
           { label: 'Vessels', value: userVesselCount, hint: 'Career assignments' },
         ]}
       />

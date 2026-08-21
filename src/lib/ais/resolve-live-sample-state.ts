@@ -479,7 +479,7 @@ export function resolveLiveSampleState(
       return {
         state: 'in-port',
         confidence: 'geo-inferred',
-        reason: `Stationary at ${locationContext.endOfDayPlaceName ?? 'a populated area'} — treating as in port.`,
+        reason: `Stationary at ${locationContext.endOfDayPlaceName ?? 'a populated area'} — treating as moored.`,
         distanceFromPreviousNm: distanceNm,
         positionChangedMeaningfully,
       };

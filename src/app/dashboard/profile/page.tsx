@@ -1756,400 +1756,457 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
   if (!vessel) {
     return (
       <div className="flex flex-col gap-6">
-        <DashboardHeader
-          title="Vessel profile"
-          description="View and manage your vessel information"
-        />
-        <Card className="rounded-xl border shadow-none">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <Ship className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Vessel Found</h3>
-            <p className="text-sm text-muted-foreground max-w-md">
-              You don't have an active vessel assigned. Please contact support to set up your vessel.
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <div className="px-5 py-8 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border bg-muted/40 text-muted-foreground">
+              <Ship className="h-6 w-6" />
+            </div>
+            <h1 className="mt-4 text-lg font-semibold tracking-tight">No vessel found</h1>
+            <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+              You don&apos;t have an active vessel assigned. Contact support to set up your vessel profile.
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
 
+  const typeLabel =
+    vesselTypes.find((t) => t.value === (watchedType || vessel.type || ''))?.label ||
+    vessel.type ||
+    '—';
+  const flagValue = (form.watch('flag_state') || vesselData?.flag_state || '').toString().trim() || '—';
+  const lengthValue = form.watch('length_m');
+  const crewValue = form.watch('number_of_crew');
+  const imoValue = (form.watch('imo') || vesselData?.imo || '').toString().trim() || '—';
+
   return (
     <div className="flex flex-col gap-6">
-      <DashboardHeader
-        title={vessel.name || 'Vessel profile'}
-        description="Vessel profile — identity, specs, company, and account"
-        actions={
-          !isEditing ? (
-            <Button onClick={() => setIsEditing(true)} size="sm" className="rounded-lg">
-              <Edit className="h-4 w-4 mr-2" />
-              Edit details
-            </Button>
-          ) : null
-        }
-      />
+      {/* Console header */}
+      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
+              <Ship className="h-3.5 w-3.5" />
+              Vessel profile
+            </div>
+            <h1 className="mt-1 truncate text-xl font-semibold tracking-tight sm:text-2xl">
+              {vessel.name || 'Unnamed vessel'}
+            </h1>
+            <p className="mt-1 max-w-xl text-xs text-muted-foreground">
+              Identity, specs, company details, and account — used on testimonials and official documents.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {isEditing ? (
+              <Badge variant="secondary" className="rounded-md font-mono text-[10px] uppercase tracking-wider">
+                Editing
+              </Badge>
+            ) : (
+              <Button onClick={() => setIsEditing(true)} size="sm" className="rounded-lg">
+                <Edit className="mr-2 h-4 w-4" />
+                Edit details
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 border-t bg-muted/30 sm:grid-cols-4">
+          {[
+            { label: 'Type', value: typeLabel, hint: 'Vessel class' },
+            { label: 'Flag', value: flagValue, hint: 'Registry' },
+            {
+              label: 'Length',
+              value: lengthValue ? `${lengthValue} m` : '—',
+              hint: 'Overall',
+            },
+            {
+              label: 'Crew',
+              value: crewValue ? String(crewValue) : '—',
+              hint: 'Complement',
+            },
+          ].map((m, i, arr) => (
+            <div
+              key={m.label}
+              className={cn(
+                'border-border px-5 py-3',
+                i < arr.length - 1 && 'sm:border-r',
+                i % 2 === 0 && 'max-sm:border-r',
+                i < 2 && 'max-sm:border-b',
+              )}
+            >
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                {m.label}
+              </div>
+              <div className="mt-1 truncate font-mono text-lg font-semibold tabular-nums leading-none sm:text-xl">
+                {m.value}
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">{m.hint}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-x-5 gap-y-1.5 border-t px-5 py-2.5 text-[11px] text-muted-foreground">
+          <span>
+            IMO{' '}
+            <span className="font-mono font-medium text-foreground">{imoValue}</span>
+          </span>
+          {(form.watch('call_sign') || vesselData?.call_sign) && (
+            <span>
+              Call sign{' '}
+              <span className="font-mono font-medium text-foreground">
+                {form.watch('call_sign') || vesselData?.call_sign}
+              </span>
+            </span>
+          )}
+          {(form.watch('mmsi') || vesselData?.mmsi) && (
+            <span>
+              MMSI{' '}
+              <span className="font-mono font-medium text-foreground">
+                {form.watch('mmsi') || vesselData?.mmsi}
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" key={`vessel-form-${vesselData?.id}-${vesselData?.type || 'no-type'}`}>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <Card className="rounded-xl border shadow-none">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold tracking-tight">
-                  Identity
-                </CardTitle>
-                <CardDescription className="text-xs">Name, type, and identifiers</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Vessel Name</FormLabel>
-                      <FormControl>
-                        <Input {...field} disabled={!isEditing} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="type"
-                  render={({ field }) => {
-                    const currentValue = watchedType || field.value || '';
-                    return (
-                      <FormItem>
-                        <FormLabel>Vessel Type</FormLabel>
-                        <Select 
-                          key={`type-select-${vesselData?.id || 'no-id'}-${currentValue || 'empty'}`}
-                          onValueChange={field.onChange} 
-                          value={currentValue} 
-                          disabled={!isEditing}
-                        >
+          <Form {...form}>
+            <form
+              onSubmit={form.handleSubmit(onSubmit)}
+              className={cn(
+                'space-y-6',
+                '[&_label]:font-mono [&_label]:text-[10px] [&_label]:font-semibold [&_label]:uppercase [&_label]:tracking-wider [&_label]:text-muted-foreground',
+                '[&_input]:h-10 [&_input]:rounded-lg',
+                '[&_textarea]:rounded-lg',
+                '[&_button[role=combobox]]:h-10 [&_button[role=combobox]]:rounded-lg',
+              )}
+              key={`vessel-form-${vesselData?.id}-${vesselData?.type || 'no-type'}`}
+            >
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <DashboardPanel title="Identity" description="Name, type, and identifiers">
+                  <div className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Vessel Name</FormLabel>
                           <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select vessel type" />
-                            </SelectTrigger>
+                            <Input {...field} disabled={!isEditing} />
                           </FormControl>
-                          <SelectContent>
-                            {vesselTypes.map((type) => (
-                              <SelectItem key={type.value} value={type.value}>
-                                {type.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    );
-                  }}
-                />
-                <FormField
-                  control={form.control}
-                  name="imo"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>IMO Number</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="International Maritime Organization number" disabled={!isEditing} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="call_sign"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Call Sign</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="Radio call sign" disabled={!isEditing} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="mmsi"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>MMSI</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="Maritime Mobile Service Identity" disabled={!isEditing} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </CardContent>
-            </Card>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="type"
+                      render={({ field }) => {
+                        const currentValue = watchedType || field.value || '';
+                        return (
+                          <FormItem>
+                            <FormLabel>Vessel Type</FormLabel>
+                            <Select
+                              key={`type-select-${vesselData?.id || 'no-id'}-${currentValue || 'empty'}`}
+                              onValueChange={field.onChange}
+                              value={currentValue}
+                              disabled={!isEditing}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select vessel type" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {vesselTypes.map((type) => (
+                                  <SelectItem key={type.value} value={type.value}>
+                                    {type.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        );
+                      }}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="imo"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>IMO Number</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="International Maritime Organization number" disabled={!isEditing} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="call_sign"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Call Sign</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="Radio call sign" disabled={!isEditing} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="mmsi"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>MMSI</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="Maritime Mobile Service Identity" disabled={!isEditing} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </DashboardPanel>
 
-            <Card className="rounded-xl border shadow-none">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold tracking-tight">
-                  Specifications
-                </CardTitle>
-                <CardDescription className="text-xs">Dimensions, tonnage, flag, and crew</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="length_m"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Length (m)</FormLabel>
-                        <FormControl>
-                          <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="beam"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Beam (m)</FormLabel>
-                        <FormControl>
-                          <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="draft"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Draft (m)</FormLabel>
-                        <FormControl>
-                          <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="gross_tonnage"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Tonnage (tonnes)</FormLabel>
-                        <FormControl>
-                          <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <FormField
-                  control={form.control}
-                  name="number_of_crew"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Number of Crew</FormLabel>
-                      <FormControl>
-                        <Input {...field} type="number" placeholder="0" disabled={!isEditing} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="build_year"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Year Built</FormLabel>
-                      <FormControl>
-                        <Input {...field} type="number" placeholder="YYYY" min="1900" max={new Date().getFullYear()} disabled={!isEditing} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="flag_state"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Flag State</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="Country of registration" disabled={!isEditing} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card className="rounded-xl border shadow-none">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold tracking-tight">Description</CardTitle>
-              <CardDescription className="text-xs">Optional notes about the vessel</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description</FormLabel>
-                    <FormControl>
-                      <Textarea {...field} placeholder="Additional vessel information, notes, or description..." disabled={!isEditing} rows={4} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border shadow-none">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold tracking-tight">
-                Company
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Management company details for testimonials and documents
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <FormField
-                control={form.control}
-                name="management_company"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Company Name</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="Company or management company name" disabled={!isEditing} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="company_address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Company Address</FormLabel>
-                    <FormControl>
-                      <Textarea {...field} placeholder="Full company address" disabled={!isEditing} rows={3} />
-                    </FormControl>
-                    <FormDescription>
-                      Add the address on multiple lines (use Enter) so it fits correctly on testimonials and PDFs. For example:
-                      <span className="mt-1.5 block rounded border border-muted bg-muted/30 px-2 py-1.5 font-mono text-xs">
-                        Company Address Line 1<br />
-                        Company Address Line 2<br />
-                        Company Address Line 3
-                      </span>
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="company_email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input 
-                          {...field} 
-                          type="email"
-                          placeholder="company@example.com" 
-                          disabled={!isEditing} 
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="company_phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Phone Number</FormLabel>
-                      <FormControl>
-                        <Input 
-                          {...field} 
-                          type="tel"
-                          placeholder="+1 (555) 123-4567" 
-                          disabled={!isEditing} 
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <DashboardPanel title="Specifications" description="Dimensions, tonnage, flag, and crew">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="length_m"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Length (m)</FormLabel>
+                            <FormControl>
+                              <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="beam"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Beam (m)</FormLabel>
+                            <FormControl>
+                              <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="draft"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Draft (m)</FormLabel>
+                            <FormControl>
+                              <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="gross_tonnage"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Tonnage (t)</FormLabel>
+                            <FormControl>
+                              <Input {...field} type="number" step="0.01" placeholder="0.00" disabled={!isEditing} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <FormField
+                      control={form.control}
+                      name="number_of_crew"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Number of Crew</FormLabel>
+                          <FormControl>
+                            <Input {...field} type="number" placeholder="0" disabled={!isEditing} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="build_year"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Year Built</FormLabel>
+                          <FormControl>
+                            <Input {...field} type="number" placeholder="YYYY" min="1900" max={new Date().getFullYear()} disabled={!isEditing} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="flag_state"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Flag State</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="Country of registration" disabled={!isEditing} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </DashboardPanel>
               </div>
-            </CardContent>
-          </Card>
 
-          {isEditing && (
-            <div className="sticky bottom-4 z-10 flex justify-end gap-3 rounded-xl border bg-card/95 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="rounded-lg"
-                onClick={() => {
-                  setIsEditing(false);
-                  form.reset();
-                }}
-                disabled={isSaving}
+              <DashboardPanel title="Description" description="Optional notes about the vessel">
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Textarea {...field} placeholder="Additional vessel information, notes, or description..." disabled={!isEditing} rows={4} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </DashboardPanel>
+
+              <DashboardPanel
+                title="Company"
+                description="Management company details for testimonials and documents"
               >
-                Cancel
-              </Button>
-              <Button type="submit" size="sm" className="rounded-lg" disabled={isSaving}>
-                {isSaving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4 mr-2" />
-                    Save changes
-                  </>
-                )}
-              </Button>
-            </div>
-          )}
-        </form>
-      </Form>
+                <div className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="management_company"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Company Name</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="Company or management company name" disabled={!isEditing} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="company_address"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Company Address</FormLabel>
+                        <FormControl>
+                          <Textarea {...field} placeholder="Full company address" disabled={!isEditing} rows={3} />
+                        </FormControl>
+                        <FormDescription>
+                          Add the address on multiple lines (use Enter) so it fits correctly on testimonials and PDFs.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <FormField
+                      control={form.control}
+                      name="company_email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type="email"
+                              placeholder="company@example.com"
+                              disabled={!isEditing}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="company_phone"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Phone Number</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type="tel"
+                              placeholder="+1 (555) 123-4567"
+                              disabled={!isEditing}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+              </DashboardPanel>
+
+              {isEditing && (
+                <div className="sticky bottom-4 z-10 flex justify-end gap-3 rounded-xl border bg-card/95 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-lg"
+                    onClick={() => {
+                      setIsEditing(false);
+                      form.reset();
+                    }}
+                    disabled={isSaving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="sm" className="rounded-lg" disabled={isSaving}>
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" />
+                        Save changes
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+            </form>
+          </Form>
         </div>
 
         <div className="space-y-6">
-          <Card className="rounded-xl border shadow-none">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold tracking-tight">
-                Official start date
-              </CardTitle>
-              <CardDescription className="text-xs">
-                States can only be logged from this date onwards
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <VesselStartDateCard userProfile={userProfile} />
-            </CardContent>
-          </Card>
+          <DashboardPanel
+            title="Official start date"
+            description="States can only be logged from this date onwards"
+          >
+            <VesselStartDateCard userProfile={userProfile} />
+          </DashboardPanel>
 
           <VesselStampCard
             vesselId={vessel.id}

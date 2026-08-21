@@ -43,6 +43,7 @@ import {
 import type { Vessel, UserProfile, PassageLog, StateLog, VesselAssignment } from '@/lib/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasActiveSubscription, hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import { isVesselLinkedFeatureGranted, vesselLinkedOwnedVesselId } from '@/lib/vessel-linked-features';
 import {
   findLinkedOrOverlappingPassage,
   isAisSourcedPassage,
@@ -376,7 +377,7 @@ export default function PassageLogbookPage() {
   const [historyMonthsInitialized, setHistoryMonthsInitialized] = useState(false);
 
   const { user } = useUser();
-  const { supabase } = useSupabase();
+  const { supabase, session } = useSupabase();
   const { toast } = useToast();
   const { isEnabled: isFeatureEnabled, isLoading: isFlagsLoading } =
     useFeatureFlags();
@@ -401,12 +402,22 @@ export default function PassageLogbookPage() {
   }, [userProfileRaw]);
 
   const isVesselAccount = (userProfile?.role as string) === 'vessel';
+  const linkedLogbookVesselId = useMemo(
+    () =>
+      isVesselLinkedFeatureGranted(userProfileRaw, 'passage_logbook')
+        ? vesselLinkedOwnedVesselId(userProfileRaw)
+        : null,
+    [userProfileRaw],
+  );
+  const isVesselScopedLogbook = isVesselAccount || Boolean(linkedLogbookVesselId);
 
   // Query vessels
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
     user?.id ? 'vessels' : null,
     user?.id ? { orderBy: 'created_at', ascending: false } : undefined
   );
+
+  const [linkedVesselRow, setLinkedVesselRow] = useState<Vessel | null>(null);
 
   const loadPassagesData = useCallback(async () => {
     if (!user?.id || !userProfile) return;
@@ -416,7 +427,7 @@ export default function PassageLogbookPage() {
       (userProfile as any).active_vessel_id ?? (userProfile as any).activeVesselId ?? null;
 
     let assignments: VesselAssignment[] = [];
-    if (role !== 'vessel' && role !== 'admin') {
+    if (role !== 'vessel' && role !== 'admin' && !linkedLogbookVesselId) {
       try {
         assignments = await getVesselAssignments(supabase, user.id);
       } catch {
@@ -426,12 +437,38 @@ export default function PassageLogbookPage() {
     setVesselAssignments(assignments);
 
     let data: PassageLog[];
-    if (role === 'vessel') {
-      if (!activeVesselId) {
+    if (isVesselScopedLogbook) {
+      const vesselId =
+        role === 'vessel' ? activeVesselId : linkedLogbookVesselId;
+      if (!vesselId) {
         setPassages([]);
         return;
       }
-      data = await getPassageLogsByVessel(supabase, activeVesselId);
+      if (linkedLogbookVesselId) {
+        const token = session?.access_token;
+        if (!token) {
+          setPassages([]);
+          return;
+        }
+        const res = await fetch(
+          `/api/passage-logbook?vesselId=${encodeURIComponent(vesselId)}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!res.ok) {
+          throw new Error('Failed to load vessel passages');
+        }
+        const json = await res.json();
+        data = Array.isArray(json.passages) ? json.passages : [];
+        if (json.vessel && json.vessel.id) {
+          setLinkedVesselRow({
+            id: json.vessel.id,
+            name: json.vessel.name || 'Vessel',
+            type: json.vessel.type || '',
+          } as Vessel);
+        }
+      } else {
+        data = await getPassageLogsByVessel(supabase, vesselId);
+      }
     } else {
       data = await getPassageLogs(supabase, user.id);
       if (role !== 'admin' && role !== 'vessel') {
@@ -451,7 +488,7 @@ export default function PassageLogbookPage() {
       }
     }
     setPassages(data);
-  }, [user?.id, userProfile, supabase]);
+  }, [user?.id, userProfile, supabase, linkedLogbookVesselId, isVesselScopedLogbook, session?.access_token]);
 
   useEffect(() => {
     if (!user?.id || !userProfile) {
@@ -487,17 +524,21 @@ export default function PassageLogbookPage() {
 
   // Vessel options for passage form: vessel account = single active vessel (no dropdown); crew = only assigned vessels
   const vesselsForPassageForm = useMemo(() => {
-    if (!vessels?.length) return [];
     const role = (userProfile?.role as string) || 'crew';
-    if (role === 'vessel') {
-      const activeId = (userProfile as any).activeVesselId;
+    if (isVesselScopedLogbook) {
+      const activeId = role === 'vessel'
+        ? (userProfile as any).activeVesselId
+        : linkedLogbookVesselId;
       if (!activeId) return [];
-      const v = vessels.find((x) => x.id === activeId);
-      return v ? [v] : [];
+      const fromCollection = vessels?.find((x) => x.id === activeId);
+      if (fromCollection) return [fromCollection];
+      if (linkedVesselRow && linkedVesselRow.id === activeId) return [linkedVesselRow];
+      return [];
     }
+    if (!vessels?.length) return [];
     const assignedIds = new Set(vesselAssignments.map((a) => a.vesselId));
     return vessels.filter((v) => assignedIds.has(v.id));
-  }, [vessels, userProfile, vesselAssignments]);
+  }, [vessels, userProfile, vesselAssignments, linkedLogbookVesselId, linkedVesselRow]);
 
   // When export dialog opens: vessel accounts use their active vessel only (no "By Vessel" option)
   useEffect(() => {
@@ -512,7 +553,7 @@ export default function PassageLogbookPage() {
 
   // Load state logs for all vessels that have passages (to detect calendar conflicts)
   useEffect(() => {
-    if (!user?.id || passages.length === 0) {
+    if (!user?.id || passages.length === 0 || linkedLogbookVesselId) {
       setStateLogsByVessel({});
       return;
     }
@@ -533,7 +574,7 @@ export default function PassageLogbookPage() {
       if (!cancelled) setStateLogsByVessel(map);
     })();
     return () => { cancelled = true; };
-  }, [user?.id, passages.length, supabase]);
+  }, [user?.id, passages.length, supabase, linkedLogbookVesselId]);
 
   const form = useForm<PassageFormValues>({
     resolver: zodResolver(passageSchema),
@@ -575,7 +616,8 @@ export default function PassageLogbookPage() {
     }
 
     if (tier === 'crew_limited' && entitled) return false;
-    if (tier === 'vessel_linked' && entitled) return false;
+    if (isVesselLinkedFeatureGranted(userProfileRaw, 'passage_logbook')) return entitled;
+    if (tier === 'vessel_linked') return false;
 
     return PASSAGE_LOG_CREW_TIERS.has(tier) && entitled;
   }, [userProfile, userProfileRaw]);
@@ -759,13 +801,19 @@ export default function PassageLogbookPage() {
     }
 
     const vesselId =
-      (userProfile?.role as string) === 'vessel' && (userProfile as any).activeVesselId
-        ? (userProfile as any).activeVesselId
+      isVesselScopedLogbook &&
+      ((userProfile as any).activeVesselId || linkedLogbookVesselId)
+        ? ((userProfile?.role as string) === 'vessel'
+            ? (userProfile as any).activeVesselId
+            : linkedLogbookVesselId)
         : data.vesselId;
     if (!vesselId) {
       toast({
         title: 'Error',
-        description: (userProfile?.role as string) === 'vessel' ? 'No active vessel set. Set your vessel in Profile.' : 'Please select a vessel.',
+        description:
+          isVesselScopedLogbook
+            ? 'No active vessel set. Set your vessel in Profile.'
+            : 'Please select a vessel.',
         variant: 'destructive',
       });
       return;

@@ -1,5 +1,7 @@
 import type Stripe from 'stripe';
 
+import { canonicalizeVesselTier } from '@/supabase/database/subscription-helpers';
+
 export function normalizeTier(raw: string | undefined | null): string {
   const t = (raw || '').toLowerCase().trim();
   return t || 'standard';
@@ -27,12 +29,18 @@ export function extractTierFromSubscription(sub: Stripe.Subscription): string {
     items[0];
 
   const price = picked?.price as Stripe.Price | undefined;
+  const prod = price?.product as Stripe.Product | string | undefined;
+  const prodId = typeof prod === 'string' ? prod : prod?.id;
 
   const tierFromPriceMeta = price?.metadata?.tier as string | undefined;
   const tierFromNickname = price?.nickname || undefined;
   const tierFromSubMeta = (sub.metadata as Record<string, string> | undefined)?.tier;
 
-  return normalizeTier(tierFromPriceMeta || tierFromNickname || tierFromSubMeta);
+  const raw = normalizeTier(tierFromPriceMeta || tierFromNickname || tierFromSubMeta);
+  if (vesselProductId && prodId === vesselProductId) {
+    return canonicalizeVesselTier(raw);
+  }
+  return raw;
 }
 
 /**

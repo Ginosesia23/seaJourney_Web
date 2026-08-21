@@ -65,24 +65,43 @@ export async function PATCH(req: NextRequest) {
     }
 
     const dateOfBirth = mcaFields.dateOfBirth;
-    const updatePayload: Record<string, unknown> = {
-      title: mcaFields.title ?? null,
-      date_of_birth: dateOfBirth ? (typeof dateOfBirth === 'string' ? dateOfBirth : format(new Date(dateOfBirth), 'yyyy-MM-dd')) : null,
-      sex: mcaFields.sex ?? null,
-      place_of_birth: mcaFields.placeOfBirth ?? null,
-      country_of_birth: mcaFields.countryOfBirth ?? null,
-      nationality: mcaFields.nationality ?? null,
-      telephone: mcaFields.telephone ?? null,
-      mobile: mcaFields.mobile ?? null,
-      address_line1: mcaFields.addressLine1 ?? null,
-      address_line2: mcaFields.addressLine2 ?? null,
-      address_district: mcaFields.addressDistrict ?? null,
-      address_town_city: mcaFields.addressTownCity ?? null,
-      address_county_state: mcaFields.addressCountyState ?? null,
-      address_post_code: mcaFields.addressPostCode ?? null,
-      address_country: mcaFields.addressCountry ?? null,
-      discharge_book_number: mcaFields.dischargeBookNumber ?? null,
+    const updatePayload: Record<string, unknown> = {};
+
+    const setIfPresent = (key: string, column: string) => {
+      if (!(key in mcaFields)) return;
+      const raw = mcaFields[key];
+      updatePayload[column] = raw === '' || raw == null ? null : raw;
     };
+
+    setIfPresent('title', 'title');
+    if ('dateOfBirth' in mcaFields) {
+      updatePayload.date_of_birth = dateOfBirth
+        ? typeof dateOfBirth === 'string'
+          ? dateOfBirth
+          : format(new Date(dateOfBirth), 'yyyy-MM-dd')
+        : null;
+    }
+    setIfPresent('sex', 'sex');
+    setIfPresent('placeOfBirth', 'place_of_birth');
+    setIfPresent('countryOfBirth', 'country_of_birth');
+    setIfPresent('nationality', 'nationality');
+    setIfPresent('telephone', 'telephone');
+    setIfPresent('mobile', 'mobile');
+    setIfPresent('addressLine1', 'address_line1');
+    setIfPresent('addressLine2', 'address_line2');
+    setIfPresent('addressDistrict', 'address_district');
+    setIfPresent('addressTownCity', 'address_town_city');
+    setIfPresent('addressCountyState', 'address_county_state');
+    setIfPresent('addressPostCode', 'address_post_code');
+    setIfPresent('addressCountry', 'address_country');
+    setIfPresent('dischargeBookNumber', 'discharge_book_number');
+    setIfPresent('firstName', 'first_name');
+    setIfPresent('lastName', 'last_name');
+    setIfPresent('position', 'position');
+
+    if (Object.keys(updatePayload).length === 0) {
+      return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
+    }
 
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('users')

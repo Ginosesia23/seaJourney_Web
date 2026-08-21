@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const { data: requestingUser } = await supabase
       .from('users')
-      .select('role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end')
+      .select('role, subscription_tier, subscription_status, stripe_subscription_id, cancel_at_period_end, current_period_end')
       .eq('id', user.id)
       .maybeSingle();
     if (

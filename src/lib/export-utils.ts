@@ -464,7 +464,7 @@ function formatState(state: string): string {
   if (!state) return '—';
   const stateMap: Record<string, string> = {
     'underway': 'Underway',
-    'in-port': 'In Port',
+    'in-port': 'Moored',
     'at-anchor': 'At Anchor',
     'on-leave': 'On Leave',
     'in-yard': 'In Yard',
@@ -631,7 +631,7 @@ function masterStateLabel(state: string | null | undefined): string {
   const map: Record<string, string> = {
     underway: 'Underway',
     'at-anchor': 'At Anchor',
-    'in-port': 'Moored / In Port',
+    'in-port': 'Moored',
     'on-leave': 'On Leave',
     'in-yard': 'In Yard',
   };

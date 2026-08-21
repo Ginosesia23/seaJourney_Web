@@ -130,14 +130,12 @@ const SITEMAP_SECTIONS: SitemapSection[] = [
   {
     id: 'career',
     title: 'Career & documents',
-    blurb: 'Testimonials, tickets, certificates, and service proof.',
+    blurb: 'Career documents, tickets, certificates, and watch roster.',
     icon: Award,
     links: [
-      { href: '/dashboard/applications', label: 'Testimonials', description: 'Sea-time testimonials and applications', signedIn: true },
+      { href: '/dashboard/career-documents', label: 'Career documents', description: 'Testimonials, proof of service, and vessel-issued docs', signedIn: true },
       { href: '/dashboard/apply', label: 'Apply for tickets', description: 'Certificate / ticket application templates', signedIn: true },
       { href: '/dashboard/certificates', label: 'Certificates', description: 'Certificate vault', signedIn: true },
-      { href: '/dashboard/proof-of-service', label: 'Proof of service', description: 'Service proof documents', signedIn: true },
-      { href: '/dashboard/vessel-documents', label: 'Vessel documents', description: 'Documents shared by your vessel', signedIn: true },
       { href: '/dashboard/my-watch-schedule', label: 'My watch roster', description: 'Personal watch schedule view', signedIn: true },
       { href: '/dashboard/settings/signature', label: 'Signature', description: 'Digital signature for captains', signedIn: true },
     ],

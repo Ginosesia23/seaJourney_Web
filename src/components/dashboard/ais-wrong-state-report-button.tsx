@@ -28,7 +28,7 @@ import type { DailyStatus } from '@/lib/types';
 const STATE_OPTIONS: { value: DailyStatus; label: string }[] = [
   { value: 'underway', label: 'Underway' },
   { value: 'at-anchor', label: 'At anchor' },
-  { value: 'in-port', label: 'In port' },
+  { value: 'in-port', label: 'Moored' },
   { value: 'in-yard', label: 'In yard' },
   { value: 'on-leave', label: 'On leave' },
 ];

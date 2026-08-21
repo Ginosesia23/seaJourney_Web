@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { useCollection } from '@/supabase/database';
 import { format as formatDate, differenceInDays } from 'date-fns';
-import { FileText, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send, ShieldCheck, Table2, LayoutTemplate, Sparkles } from 'lucide-react';
+import { FileText, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send, ShieldCheck, Table2, LayoutTemplate, Sparkles, Eye, ExternalLink, UserRoundPen, AlertTriangle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -48,7 +48,9 @@ import {
   generateCustomDocumentPDF,
   type TestimonialPDFFormat,
   type TestimonialPDFOutput,
+  type TestimonialPDFData,
 } from '@/lib/pdf-generator';
+import { generatePosVerificationCode } from '@/lib/proof-of-service/verification-code';
 import {
   composeCustomDocumentFallback,
   customDocumentNeedsSeaTime,
@@ -56,6 +58,7 @@ import {
   getCustomDocumentPreset,
   type CustomDocumentFacts,
   type CustomDocumentInclude,
+  type CustomDocumentComposeResult,
 } from '@/lib/custom-document';
 import { requestCaptainSignoff, notifyLinkedCaptain } from '@/lib/testimonial-signoff';
 import { cn } from '@/lib/utils';
@@ -75,6 +78,53 @@ import {
 interface CrewOption {
   profile: UserProfile;
   assignment: VesselAssignment;
+}
+
+type DocCrewDetails = {
+  firstName: string;
+  lastName: string;
+  position: string;
+  dateOfBirth: string;
+  dischargeBookNumber: string;
+  nationality: string;
+  mobile: string;
+};
+
+const EMPTY_DOC_CREW_DETAILS: DocCrewDetails = {
+  firstName: '',
+  lastName: '',
+  position: '',
+  dateOfBirth: '',
+  dischargeBookNumber: '',
+  nationality: '',
+  mobile: '',
+};
+
+type MissingDocFieldKey =
+  | 'firstName'
+  | 'lastName'
+  | 'dateOfBirth'
+  | 'dischargeBookNumber';
+
+const MISSING_DOC_FIELD_LABELS: Record<MissingDocFieldKey, string> = {
+  firstName: 'First name',
+  lastName: 'Last name',
+  dateOfBirth: 'Date of birth',
+  dischargeBookNumber: 'Discharge book number',
+};
+
+function detailsFromProfile(p: UserProfile | null | undefined): DocCrewDetails {
+  if (!p) return { ...EMPTY_DOC_CREW_DETAILS };
+  const raw = p as UserProfile & { date_of_birth?: string | null; discharge_book_number?: string | null };
+  return {
+    firstName: p.firstName || '',
+    lastName: p.lastName || '',
+    position: p.position || '',
+    dateOfBirth: String(raw.dateOfBirth || raw.date_of_birth || '').slice(0, 10),
+    dischargeBookNumber: p.dischargeBookNumber || raw.discharge_book_number || '',
+    nationality: p.nationality || '',
+    mobile: p.mobile || '',
+  };
 }
 
 const DOCUMENT_TYPES = [
@@ -168,14 +218,29 @@ export default function DocumentsGeneratorPage() {
   const [generatingProofOfServicePDF, setGeneratingProofOfServicePDF] = useState(false);
   const [generatingBreakdownPDF, setGeneratingBreakdownPDF] = useState(false);
   const [generatingCustomPDF, setGeneratingCustomPDF] = useState(false);
+  const [documentPreviewUrl, setDocumentPreviewUrl] = useState<string | null>(null);
+  const [documentPreviewLoading, setDocumentPreviewLoading] = useState(false);
+  const [documentPreviewError, setDocumentPreviewError] = useState<string | null>(null);
+  const documentPreviewUrlRef = useRef<string | null>(null);
+  const documentPreviewGenRef = useRef(0);
   const [customTitle, setCustomTitle] = useState(INITIAL_CUSTOM_PRESET.title);
   const [customPurpose, setCustomPurpose] = useState<string>(INITIAL_CUSTOM_PRESET.value);
   const [customInstructions, setCustomInstructions] = useState('');
   const [customInclude, setCustomInclude] = useState<CustomDocumentInclude>(
     INITIAL_CUSTOM_PRESET.include,
   );
+  const [customLetterTitle, setCustomLetterTitle] = useState(INITIAL_CUSTOM_PRESET.title);
+  const [customLetterRecipient, setCustomLetterRecipient] = useState(
+    INITIAL_CUSTOM_PRESET.recipientLine ?? 'To whom it may concern',
+  );
+  const [customLetterIntro, setCustomLetterIntro] = useState('');
+  const [customLetterClosing, setCustomLetterClosing] = useState('');
+  const [customLetterDirty, setCustomLetterDirty] = useState(false);
+  const [rewritingCustomLetter, setRewritingCustomLetter] = useState(false);
   const [leavePeriods, setLeavePeriods] = useState<Array<{ startDate: string; endDate: string }>>([]);
   const [leavePeriodsFromLogs, setLeavePeriodsFromLogs] = useState<Array<{ startDate: string; endDate: string; notes?: string }>>([]);
+  const [docCrewDetails, setDocCrewDetails] = useState<DocCrewDetails>(EMPTY_DOC_CREW_DETAILS);
+  const [savingCrewDetails, setSavingCrewDetails] = useState(false);
 
   // Top-level page tab. Only two tabs now — the AI Scanner has been
   // folded into the Form Builder tab (scanning is triggered inline when
@@ -192,6 +257,27 @@ export default function DocumentsGeneratorPage() {
     () => crewList.find((c) => c.profile.id === selectedCrewId) ?? null,
     [crewList, selectedCrewId]
   );
+
+  useEffect(() => {
+    setDocCrewDetails(detailsFromProfile(selectedCrew?.profile));
+  }, [selectedCrew?.profile.id]);
+
+  /** Required-for-document fields that are still empty on the saved profile. */
+  const missingDocFieldKeys = useMemo((): MissingDocFieldKey[] => {
+    if (!selectedCrew) return [];
+    const saved = detailsFromProfile(selectedCrew.profile);
+    const missing: MissingDocFieldKey[] = [];
+    if (!saved.firstName.trim()) missing.push('firstName');
+    if (!saved.lastName.trim()) missing.push('lastName');
+    if (!saved.dateOfBirth) missing.push('dateOfBirth');
+    if (!saved.dischargeBookNumber.trim()) missing.push('dischargeBookNumber');
+    return missing;
+  }, [selectedCrew]);
+
+  const resolvedCrewName = useMemo(() => {
+    const fromDetails = [docCrewDetails.firstName, docCrewDetails.lastName].filter(Boolean).join(' ').trim();
+    return fromDetails || selectedCrew?.profile.username || 'Crew member';
+  }, [docCrewDetails.firstName, docCrewDetails.lastName, selectedCrew?.profile.username]);
 
   const crewSelectOptions = useMemo(
     () =>
@@ -350,7 +436,23 @@ export default function DocumentsGeneratorPage() {
     setCustomPurpose(preset.value);
     setCustomTitle(preset.title);
     setCustomInclude(preset.include);
+    setCustomLetterDirty(false);
   };
+
+  useEffect(() => {
+    setCustomLetterDirty(false);
+  }, [selectedCrewId]);
+
+  const previousDocumentTypeRef = useRef(documentType);
+  useEffect(() => {
+    const prev = previousDocumentTypeRef.current;
+    previousDocumentTypeRef.current = documentType;
+    if (prev !== 'custom' && documentType === 'custom' && documentPreviewUrlRef.current) {
+      URL.revokeObjectURL(documentPreviewUrlRef.current);
+      documentPreviewUrlRef.current = null;
+      setDocumentPreviewUrl(null);
+    }
+  }, [documentType]);
 
   useEffect(() => {
     if (!selectedCrewId || !currentUserProfile?.activeVesselId || !user?.id) {
@@ -563,7 +665,29 @@ export default function DocumentsGeneratorPage() {
           .order('is_primary', { ascending: false })
           .limit(1);
         if (error || !signingAuthorities?.length) {
-          setActiveCaptain(null);
+          // Fallback: vessel-linked captain (Vessel Roles) without waiting
+          // for a separate claim — mirrors Crew page resolution.
+          const { data: linkedRow } = await supabase
+            .from('users')
+            .select('id')
+            .eq('managed_by_vessel_id', activeVesselId)
+            .eq('role', 'captain')
+            .limit(1)
+            .maybeSingle();
+          const linkedId = (linkedRow as { id?: string } | null)?.id || null;
+          if (!linkedId) {
+            setActiveCaptain(null);
+            return;
+          }
+          const { data: captainUser } = await supabase
+            .from('users')
+            .select('first_name, last_name')
+            .eq('id', linkedId)
+            .maybeSingle();
+          const name = captainUser
+            ? [captainUser.first_name, captainUser.last_name].filter(Boolean).join(' ').trim() || 'Captain'
+            : 'Captain';
+          setActiveCaptain({ id: linkedId, name });
           return;
         }
         const captainId = signingAuthorities[0].captain_user_id;
@@ -719,6 +843,242 @@ export default function DocumentsGeneratorPage() {
     };
   };
 
+  const buildUnsavedTestimonialPdfData = useCallback((): TestimonialPDFData | null => {
+    if (!selectedCrew || !vessel || !documentStartDate || !documentEndDate || !calculatedSeaTime) {
+      return null;
+    }
+    const startDateStr = formatDate(documentStartDate, 'yyyy-MM-dd');
+    const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
+    const totalDays = calculatedSeaTime.totalDays;
+    const standbyDays = Math.min(
+      calculatedSeaTime.standbyDays,
+      totalDays,
+      calculatedSeaTime.atSeaDays,
+    );
+    const nowIso = new Date().toISOString();
+    const generatedByName =
+      currentUserProfile?.firstName && currentUserProfile?.lastName
+        ? `${currentUserProfile.firstName} ${currentUserProfile.lastName}`
+        : currentUserProfile?.email || 'Vessel Manager';
+    return {
+      testimonial: {
+        id: 'preview',
+        start_date: startDateStr,
+        end_date: endDateStr,
+        total_days: totalDays,
+        at_sea_days: calculatedSeaTime.atSeaDays,
+        standby_days: standbyDays,
+        yard_days: calculatedSeaTime.yardDays,
+        leave_days: calculatedSeaTime.leaveDays,
+        captain_name: generatedByName,
+        captain_email: currentUserProfile?.email ?? null,
+        captain_position: null,
+        captain_signature: null,
+        captain_comment_conduct: null,
+        captain_comment_ability: null,
+        captain_comment_general: null,
+        official_body: null,
+        official_reference: null,
+        notes: null,
+        testimonial_code: null,
+        status: 'approved',
+        signoff_used_at: null,
+        approved_at: nowIso,
+        created_at: nowIso,
+        updated_at: nowIso,
+      },
+      userProfile: {
+        firstName: docCrewDetails.firstName || selectedCrew.profile.firstName,
+        lastName: docCrewDetails.lastName || selectedCrew.profile.lastName,
+        username: selectedCrew.profile.username,
+        email: selectedCrew.profile.email ?? '',
+        dateOfBirth: docCrewDetails.dateOfBirth || null,
+        position: docCrewDetails.position || selectedCrew.profile.position || null,
+        dischargeBookNumber: docCrewDetails.dischargeBookNumber || null,
+        mobile: docCrewDetails.mobile || (selectedCrew.profile as any).mobile || null,
+        telephone: (selectedCrew.profile as any).telephone ?? null,
+      },
+      vessel: {
+        name: vessel.name,
+        type: vessel.type ?? null,
+        officialNumber: (vessel as any).officialNumber ?? (vessel as any).imo ?? null,
+        flag_state: (vessel as any).flag_state ?? (vessel as any).flag ?? null,
+        length_m: (vessel as any).length_m ?? null,
+        gross_tonnage: (vessel as any).gross_tonnage ?? null,
+        call_sign: (vessel as any).call_sign ?? null,
+        company_contact: (vessel as any).company_contact ?? null,
+        stamp: (vessel as any).stamp ?? null,
+      },
+      captainProfile: null,
+      companyDetails: {
+        name: (vessel as any).management_company ?? null,
+        address: (vessel as any).company_address ?? null,
+        contactDetails: (vessel as any).company_contact ?? null,
+      },
+      standbyPeriods: calculatedSeaTime.standbyPeriodsForPdf?.length
+        ? calculatedSeaTime.standbyPeriodsForPdf
+        : undefined,
+    };
+  }, [
+    selectedCrew,
+    vessel,
+    documentStartDate,
+    documentEndDate,
+    calculatedSeaTime,
+    currentUserProfile,
+    docCrewDetails,
+  ]);
+
+  useEffect(() => {
+    const revoke = () => {
+      if (documentPreviewUrlRef.current) {
+        URL.revokeObjectURL(documentPreviewUrlRef.current);
+        documentPreviewUrlRef.current = null;
+      }
+    };
+
+    if (
+      documentType !== 'testimonial' ||
+      !calculatedSeaTime ||
+      !selectedCrew ||
+      !vessel ||
+      !documentStartDate ||
+      !documentEndDate
+    ) {
+      if (documentType === 'custom') {
+        return;
+      }
+      documentPreviewGenRef.current += 1;
+      revoke();
+      setDocumentPreviewUrl(null);
+      setDocumentPreviewLoading(false);
+      setDocumentPreviewError(null);
+      return;
+    }
+
+    const gen = ++documentPreviewGenRef.current;
+    setDocumentPreviewLoading(true);
+    setDocumentPreviewError(null);
+
+    void (async () => {
+      try {
+        const data = buildUnsavedTestimonialPdfData();
+        if (!data) throw new Error('Missing crew or vessel details');
+        const format = selectedNewDocFormat;
+        let blob: Blob | void;
+        if (format === 'mca') {
+          blob = calculatedSeaTime.isOfficer
+            ? await generateMCAOfficerTestimonial(data, 'blob')
+            : await generateMCADeckhandTestimonial(data, 'blob');
+        } else {
+          blob = await generateTestimonialPDF(data, format, 'blob');
+        }
+        if (gen !== documentPreviewGenRef.current) return;
+        if (!(blob instanceof Blob)) throw new Error('Preview could not be built');
+        const url = URL.createObjectURL(blob);
+        revoke();
+        documentPreviewUrlRef.current = url;
+        setDocumentPreviewUrl(url);
+      } catch (err) {
+        if (gen !== documentPreviewGenRef.current) return;
+        revoke();
+        setDocumentPreviewUrl(null);
+        setDocumentPreviewError(
+          err instanceof Error ? err.message : 'Could not build document preview',
+        );
+      } finally {
+        if (gen === documentPreviewGenRef.current) {
+          setDocumentPreviewLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      documentPreviewGenRef.current += 1;
+    };
+  }, [
+    documentType,
+    calculatedSeaTime,
+    selectedCrew,
+    vessel,
+    documentStartDate,
+    documentEndDate,
+    selectedNewDocFormat,
+    buildUnsavedTestimonialPdfData,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (documentPreviewUrlRef.current) {
+        URL.revokeObjectURL(documentPreviewUrlRef.current);
+        documentPreviewUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleSaveCrewDocumentDetails = async () => {
+    if (!selectedCrew || !session?.access_token) {
+      toast({ title: 'Not signed in', description: 'Refresh and try again.', variant: 'destructive' });
+      return;
+    }
+    setSavingCrewDetails(true);
+    try {
+      const res = await fetch('/api/crew-mca-details', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          crewUserId: selectedCrew.profile.id,
+          firstName: docCrewDetails.firstName.trim() || null,
+          lastName: docCrewDetails.lastName.trim() || null,
+          position: docCrewDetails.position.trim() || null,
+          dateOfBirth: docCrewDetails.dateOfBirth || null,
+          dischargeBookNumber: docCrewDetails.dischargeBookNumber.trim() || null,
+          nationality: docCrewDetails.nationality.trim() || null,
+          mobile: docCrewDetails.mobile.trim() || null,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || json.details || 'Failed to save');
+      const updated = json.profile || {};
+      setCrewList((prev) =>
+        prev.map((c) =>
+          c.profile.id === selectedCrew.profile.id
+            ? {
+                ...c,
+                profile: {
+                  ...c.profile,
+                  ...updated,
+                  firstName: updated.first_name ?? docCrewDetails.firstName,
+                  lastName: updated.last_name ?? docCrewDetails.lastName,
+                  position: updated.position ?? docCrewDetails.position,
+                  dateOfBirth: updated.date_of_birth ?? docCrewDetails.dateOfBirth,
+                  dischargeBookNumber:
+                    updated.discharge_book_number ?? docCrewDetails.dischargeBookNumber,
+                  nationality: updated.nationality ?? docCrewDetails.nationality,
+                  mobile: updated.mobile ?? docCrewDetails.mobile,
+                },
+              }
+            : c,
+        ),
+      );
+      toast({
+        title: 'Crew details saved',
+        description: 'These values are stored on the crew profile and used in generated documents.',
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Could not save details',
+        description: err?.message || 'Try again',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingCrewDetails(false);
+    }
+  };
+
   const handleSaveDocument = async () => {
     const payload = saveTestimonialPayload();
     if (!payload) {
@@ -787,14 +1147,14 @@ export default function DocumentsGeneratorPage() {
           updated_at: testimonial.updated_at,
         },
         userProfile: {
-          firstName: selectedCrew!.profile.firstName,
-          lastName: selectedCrew!.profile.lastName,
+          firstName: docCrewDetails.firstName || selectedCrew!.profile.firstName,
+          lastName: docCrewDetails.lastName || selectedCrew!.profile.lastName,
           username: selectedCrew!.profile.username,
           email: selectedCrew!.profile.email ?? '',
-          dateOfBirth: (selectedCrew!.profile as any).date_of_birth ?? (selectedCrew!.profile as any).dateOfBirth ?? null,
-          position: selectedCrew!.profile.position ?? null,
-          dischargeBookNumber: (selectedCrew!.profile as any).discharge_book_number ?? (selectedCrew!.profile as any).dischargeBookNumber ?? null,
-          mobile: (selectedCrew!.profile as any).mobile ?? null,
+          dateOfBirth: docCrewDetails.dateOfBirth || null,
+          position: docCrewDetails.position || selectedCrew!.profile.position || null,
+          dischargeBookNumber: docCrewDetails.dischargeBookNumber || null,
+          mobile: docCrewDetails.mobile || (selectedCrew!.profile as any).mobile || null,
           telephone: (selectedCrew!.profile as any).telephone ?? null,
         },
         vessel: {
@@ -876,13 +1236,13 @@ export default function DocumentsGeneratorPage() {
       const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
       const totalDays = calculatedSeaTime.totalDays;
       const standbyCap = Math.min(calculatedSeaTime.standbyDays, totalDays, calculatedSeaTime.atSeaDays);
-      const crewName = [selectedCrew.profile.firstName, selectedCrew.profile.lastName].filter(Boolean).join(' ').trim() || selectedCrew.profile.username || 'Crew member';
+      const crewName = resolvedCrewName;
       const generatedByName = currentUserProfile.firstName && currentUserProfile.lastName
         ? `${currentUserProfile.firstName} ${currentUserProfile.lastName}`
         : currentUserProfile.email || 'Vessel Manager';
       const dataSource = (hasApprovedAccess ? (calculatedSeaTime?.dataSource ?? effectiveDataSource) : 'vessel') as 'crew' | 'vessel';
 
-      const { error } = await supabase.from('proof_of_service').insert({
+      const { data: inserted, error } = await supabase.from('proof_of_service').insert({
         crew_user_id: selectedCrew.profile.id,
         vessel_id: activeVesselId,
         vessel_user_id: currentUserProfile.id,
@@ -897,14 +1257,44 @@ export default function DocumentsGeneratorPage() {
         vessel_type: vessel.type ?? null,
         vessel_imo: (vessel as any).imo ?? (vessel as any).officialNumber ?? null,
         crew_name: crewName,
-        crew_position: selectedCrew.profile.position ?? null,
+        crew_position: docCrewDetails.position || selectedCrew.profile.position || null,
         generated_by_name: generatedByName,
         generated_by_email: currentUserProfile.email ?? null,
         data_source: dataSource,
         notes: null,
-      });
+        verification_code: generatePosVerificationCode(),
+      }).select('id, verification_code').single();
       if (error) throw error;
-      toast({ title: 'Saved', description: 'Proof of Service has been saved to the crew member\'s profile. They can view and download it from Proof of Service.' });
+
+      let pdfArchived = false;
+      if (inserted?.id) {
+        try {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            const persistRes = await fetch(`/api/proof-of-service/${inserted.id}/file`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${session.access_token}` },
+            });
+            if (persistRes.ok) {
+              pdfArchived = true;
+            } else {
+              const body = await persistRes.json().catch(() => null);
+              console.warn('[documents] Proof of Service PDF persist failed:', body || persistRes.status);
+            }
+          }
+        } catch (persistErr) {
+          console.warn('[documents] Proof of Service PDF persist skipped:', persistErr);
+        }
+      }
+
+      toast({
+        title: 'Saved',
+        description: pdfArchived
+          ? 'Proof of Service saved and PDF archived for the crew member.'
+          : 'Proof of Service saved to the crew profile. The PDF will be archived on first download.',
+      });
       setCalculatedSeaTime(null);
       setDocumentStartDate(undefined);
       setDocumentEndDate(undefined);
@@ -926,7 +1316,7 @@ export default function DocumentsGeneratorPage() {
       const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
       const totalDays = calculatedSeaTime.totalDays;
       const standbyCap = Math.min(calculatedSeaTime.standbyDays, totalDays, calculatedSeaTime.atSeaDays);
-      const crewName = [selectedCrew.profile.firstName, selectedCrew.profile.lastName].filter(Boolean).join(' ').trim() || selectedCrew.profile.username || 'Crew member';
+      const crewName = resolvedCrewName;
       const generatedByName = currentUserProfile.firstName && currentUserProfile.lastName
         ? `${currentUserProfile.firstName} ${currentUserProfile.lastName}`
         : currentUserProfile.email || 'Vessel Manager';
@@ -967,10 +1357,7 @@ export default function DocumentsGeneratorPage() {
       const endDateStr = formatDate(documentEndDate, 'yyyy-MM-dd');
       const totalDays = calculatedSeaTime.totalDays;
       const standbyCap = Math.min(calculatedSeaTime.standbyDays, totalDays, calculatedSeaTime.atSeaDays);
-      const crewName =
-        [selectedCrew.profile.firstName, selectedCrew.profile.lastName].filter(Boolean).join(' ').trim() ||
-        selectedCrew.profile.username ||
-        'Crew member';
+      const crewName = resolvedCrewName;
       const generatedByName =
         currentUserProfile.firstName && currentUserProfile.lastName
           ? `${currentUserProfile.firstName} ${currentUserProfile.lastName}`
@@ -992,7 +1379,7 @@ export default function DocumentsGeneratorPage() {
           vesselType: vessel.type ?? null,
           vesselImo: (vessel as any).imo ?? (vessel as any).officialNumber ?? null,
           crewName,
-          crewPosition: selectedCrew.profile.position ?? null,
+          crewPosition: docCrewDetails.position || selectedCrew.profile.position || null,
           startDate: startDateStr,
           endDate: endDateStr,
           totalDays,
@@ -1027,7 +1414,7 @@ export default function DocumentsGeneratorPage() {
   const buildCustomDocumentFacts = (): CustomDocumentFacts | null => {
     if (!selectedCrew || !vessel || !currentUserProfile) return null;
     const crewName =
-      [selectedCrew.profile.firstName, selectedCrew.profile.lastName].filter(Boolean).join(' ').trim() ||
+      [docCrewDetails.firstName, docCrewDetails.lastName].filter(Boolean).join(' ').trim() ||
       selectedCrew.profile.username ||
       'Crew member';
     const generatedByName =
@@ -1035,7 +1422,6 @@ export default function DocumentsGeneratorPage() {
         ? `${currentUserProfile.firstName} ${currentUserProfile.lastName}`
         : currentUserProfile.email || 'Vessel manager';
     const v = vessel as any;
-    const profile = selectedCrew.profile as UserProfile & { dateOfBirth?: string | null; date_of_birth?: string | null };
     const category = getVesselCalculationCategory(vessel.type ?? null);
     const usesAllOnboardDaysRule = isAllDaysExceptLeaveCountAsSea(category);
     let seaTime: CustomDocumentFacts['seaTime'] = null;
@@ -1079,11 +1465,11 @@ export default function DocumentsGeneratorPage() {
     return {
       crew: {
         name: crewName,
-        position: selectedCrew.profile.position ?? null,
+        position: docCrewDetails.position || selectedCrew.profile.position || null,
         email: selectedCrew.profile.email ?? null,
-        nationality: selectedCrew.profile.nationality ?? null,
-        dischargeBookNumber: selectedCrew.profile.dischargeBookNumber ?? null,
-        dateOfBirth: profile.dateOfBirth ?? profile.date_of_birth ?? null,
+        nationality: docCrewDetails.nationality || selectedCrew.profile.nationality || null,
+        dischargeBookNumber: docCrewDetails.dischargeBookNumber || null,
+        dateOfBirth: docCrewDetails.dateOfBirth || null,
       },
       vessel: {
         name: vessel.name,
@@ -1110,6 +1496,198 @@ export default function DocumentsGeneratorPage() {
     };
   };
 
+  const applyComposedLetter = (composed: CustomDocumentComposeResult) => {
+    setCustomLetterTitle(composed.title);
+    setCustomLetterRecipient(composed.recipientLine ?? '');
+    setCustomLetterIntro(composed.intro);
+    setCustomLetterClosing(composed.closing ?? '');
+  };
+
+  const customComposedDocument = useMemo((): CustomDocumentComposeResult => {
+    const preset = getCustomDocumentPreset(customPurpose);
+    return {
+      title: customLetterTitle.trim() || preset.title,
+      subtitle: preset.label,
+      recipientLine: customLetterRecipient.trim() || null,
+      intro: customLetterIntro,
+      sections: [],
+      closing: customLetterClosing.trim() || null,
+      purpose: customPurpose,
+    };
+  }, [
+    customPurpose,
+    customLetterTitle,
+    customLetterRecipient,
+    customLetterIntro,
+    customLetterClosing,
+  ]);
+
+  useEffect(() => {
+    if (documentType !== 'custom' || customLetterDirty) return;
+    const facts = buildCustomDocumentFacts();
+    if (!facts) return;
+    applyComposedLetter(
+      composeCustomDocumentFallback(
+        {
+          title: customTitle.trim(),
+          purpose: customPurpose,
+          instructions: customInstructions.trim(),
+          include: customInclude,
+        },
+        facts,
+      ),
+    );
+  }, [
+    documentType,
+    customLetterDirty,
+    customTitle,
+    customPurpose,
+    customInstructions,
+    customInclude,
+    selectedCrew,
+    vessel,
+    currentUserProfile,
+    docCrewDetails,
+    calculatedSeaTime,
+    documentStartDate,
+    documentEndDate,
+  ]);
+
+  useEffect(() => {
+    if (documentType !== 'custom') return;
+
+    const revoke = () => {
+      if (documentPreviewUrlRef.current) {
+        URL.revokeObjectURL(documentPreviewUrlRef.current);
+        documentPreviewUrlRef.current = null;
+      }
+    };
+
+    if (!selectedCrew || !vessel || !currentUserProfile || !customLetterIntro.trim()) {
+      documentPreviewGenRef.current += 1;
+      revoke();
+      setDocumentPreviewUrl(null);
+      setDocumentPreviewLoading(false);
+      setDocumentPreviewError(null);
+      return;
+    }
+
+    const facts = buildCustomDocumentFacts();
+    if (!facts) {
+      documentPreviewGenRef.current += 1;
+      revoke();
+      setDocumentPreviewUrl(null);
+      setDocumentPreviewLoading(false);
+      setDocumentPreviewError(null);
+      return;
+    }
+
+    const gen = ++documentPreviewGenRef.current;
+    if (!documentPreviewUrlRef.current) {
+      setDocumentPreviewLoading(true);
+    }
+    setDocumentPreviewError(null);
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const blob = await generateCustomDocumentPDF(
+            {
+              document: customComposedDocument,
+              purpose: customPurpose,
+              facts,
+              include: customInclude,
+              vesselName: vessel.name,
+              generatedByName: facts.generatedBy.name,
+              generatedByEmail: facts.generatedBy.email,
+            },
+            'blob',
+          );
+          if (gen !== documentPreviewGenRef.current) return;
+          if (!(blob instanceof Blob)) throw new Error('Preview could not be built');
+          const url = URL.createObjectURL(blob);
+          revoke();
+          documentPreviewUrlRef.current = url;
+          setDocumentPreviewUrl(url);
+        } catch (err) {
+          if (gen !== documentPreviewGenRef.current) return;
+          revoke();
+          setDocumentPreviewUrl(null);
+          setDocumentPreviewError(
+            err instanceof Error ? err.message : 'Could not build document preview',
+          );
+        } finally {
+          if (gen === documentPreviewGenRef.current) {
+            setDocumentPreviewLoading(false);
+          }
+        }
+      })();
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timer);
+      documentPreviewGenRef.current += 1;
+    };
+  }, [
+    documentType,
+    selectedCrew,
+    vessel,
+    currentUserProfile,
+    customLetterIntro,
+    customComposedDocument,
+    customPurpose,
+    customInclude,
+    docCrewDetails,
+    calculatedSeaTime,
+    documentStartDate,
+    documentEndDate,
+  ]);
+
+  const handleRewriteCustomLetter = async () => {
+    const facts = buildCustomDocumentFacts();
+    if (!facts) {
+      toast({ title: 'Select a crew member', description: 'Pick who this document is about first.' });
+      return;
+    }
+    if (!session?.access_token) {
+      toast({ title: 'Not signed in', description: 'Refresh and try again.', variant: 'destructive' });
+      return;
+    }
+    setRewritingCustomLetter(true);
+    try {
+      const res = await fetch('/api/custom-document/compose', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          request: {
+            title: customTitle.trim(),
+            purpose: customPurpose,
+            instructions: customInstructions.trim(),
+            include: customInclude,
+          },
+          facts,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.document?.intro) {
+        throw new Error(data.error || 'Could not rewrite the letter');
+      }
+      applyComposedLetter(data.document as CustomDocumentComposeResult);
+      setCustomLetterDirty(true);
+    } catch (err: any) {
+      toast({
+        title: 'Could not rewrite',
+        description: err?.message || 'Try again, or edit the text yourself.',
+        variant: 'destructive',
+      });
+    } finally {
+      setRewritingCustomLetter(false);
+    }
+  };
+
   const handleDownloadCustomDocument = async () => {
     if (!selectedCrew || !vessel || !currentUserProfile) {
       toast({ title: 'Select a crew member', description: 'Pick who this document is about first.' });
@@ -1124,36 +1702,15 @@ export default function DocumentsGeneratorPage() {
     }
     const facts = buildCustomDocumentFacts();
     if (!facts) return;
-    const request = {
-      title: customTitle.trim(),
-      purpose: customPurpose,
-      instructions: customInstructions.trim(),
-      include: customInclude,
-    };
+    if (!customLetterIntro.trim()) {
+      toast({ title: 'Letter is empty', description: 'Add some letter text before downloading.' });
+      return;
+    }
     setGeneratingCustomPDF(true);
     try {
-      let composed = composeCustomDocumentFallback(request, facts);
-      if (session?.access_token) {
-        try {
-          const res = await fetch('/api/custom-document/compose', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            body: JSON.stringify({ request, facts }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (res.ok && data.document?.title) {
-            composed = data.document;
-          }
-        } catch {
-          /* fallback already set */
-        }
-      }
       await generateCustomDocumentPDF(
         {
-          document: composed,
+          document: customComposedDocument,
           purpose: customPurpose,
           facts,
           include: customInclude,
@@ -1163,7 +1720,7 @@ export default function DocumentsGeneratorPage() {
         },
         'download',
       );
-      toast({ title: 'Downloaded', description: 'Custom document generated from this vessel’s data.' });
+      toast({ title: 'Downloaded', description: 'Document uses the letter text you see in the preview.' });
     } catch (e: any) {
       toast({ title: 'Error', description: e?.message ?? 'Failed to generate document.', variant: 'destructive' });
     } finally {
@@ -1629,6 +2186,109 @@ export default function DocumentsGeneratorPage() {
         )}
       </div>
 
+      {selectedCrew && missingDocFieldKeys.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <UserRoundPen className="h-4 w-4" />
+                  Missing details
+                </CardTitle>
+                <CardDescription>
+                  {missingDocFieldKeys.length === 1
+                    ? `${MISSING_DOC_FIELD_LABELS[missingDocFieldKeys[0]]} is not on this crew profile yet. Add it so it appears on generated documents.`
+                    : 'These fields are not on the crew profile yet. Fill them so they appear on generated documents.'}
+                </CardDescription>
+              </div>
+              <Badge variant="secondary" className="gap-1 font-normal">
+                <AlertTriangle className="h-3 w-3" />
+                {missingDocFieldKeys.map((k) => MISSING_DOC_FIELD_LABELS[k]).join(', ')}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {missingDocFieldKeys.includes('firstName') && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="doc-first-name" className="text-xs">First name</Label>
+                  <Input
+                    id="doc-first-name"
+                    value={docCrewDetails.firstName}
+                    onChange={(e) =>
+                      setDocCrewDetails((d) => ({ ...d, firstName: e.target.value }))
+                    }
+                    className="rounded-xl h-9 border-amber-400/70"
+                  />
+                </div>
+              )}
+              {missingDocFieldKeys.includes('lastName') && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="doc-last-name" className="text-xs">Last name</Label>
+                  <Input
+                    id="doc-last-name"
+                    value={docCrewDetails.lastName}
+                    onChange={(e) =>
+                      setDocCrewDetails((d) => ({ ...d, lastName: e.target.value }))
+                    }
+                    className="rounded-xl h-9 border-amber-400/70"
+                  />
+                </div>
+              )}
+              {missingDocFieldKeys.includes('dateOfBirth') && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="doc-dob" className="text-xs">Date of birth</Label>
+                  <Input
+                    id="doc-dob"
+                    type="date"
+                    value={docCrewDetails.dateOfBirth}
+                    onChange={(e) =>
+                      setDocCrewDetails((d) => ({ ...d, dateOfBirth: e.target.value }))
+                    }
+                    className="rounded-xl h-9 border-amber-400/70"
+                  />
+                </div>
+              )}
+              {missingDocFieldKeys.includes('dischargeBookNumber') && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="doc-discharge" className="text-xs">Discharge book number</Label>
+                  <Input
+                    id="doc-discharge"
+                    value={docCrewDetails.dischargeBookNumber}
+                    onChange={(e) =>
+                      setDocCrewDetails((d) => ({ ...d, dischargeBookNumber: e.target.value }))
+                    }
+                    placeholder="e.g. R123456"
+                    className="rounded-xl h-9 border-amber-400/70"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="rounded-xl"
+                onClick={() => void handleSaveCrewDocumentDetails()}
+                disabled={savingCrewDetails}
+              >
+                {savingCrewDetails ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  'Save to crew profile'
+                )}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Saving writes this to the crew profile for later documents.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {selectedCrew && documentType === 'testimonial' && (
         <div className="space-y-1.5">
           <Label className="text-xs">PDF format</Label>
@@ -1657,74 +2317,205 @@ export default function DocumentsGeneratorPage() {
       )}
 
       {selectedCrew && documentType === 'custom' && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-4 w-4" />
-              Letter type
-            </CardTitle>
-            <CardDescription>
-              Pick the letter. We fill it from this crew member and vessel. Sea-time totals are only used when the type needs them.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-2 sm:grid-cols-2">
-              {CUSTOM_DOCUMENT_PURPOSES.map((p) => {
-                const selected = customPurpose === p.value;
-                const needsDays = customDocumentNeedsSeaTime(p.include);
-                return (
-                  <button
-                    key={p.value}
+        <>
+        <div className="flex flex-col gap-1.5 sm:max-w-md">
+          <Label className="text-xs">Letter type</Label>
+          <Select
+            value={customPurpose}
+            onValueChange={(value) => applyCustomPurpose(value)}
+          >
+            <SelectTrigger className="h-9 w-full rounded-lg text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CUSTOM_DOCUMENT_PURPOSES.map((p) => (
+                <SelectItem key={p.value} value={p.value}>
+                  {p.label}
+                  {customDocumentNeedsSeaTime(p.include) ? ' (needs dates)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {getCustomDocumentPreset(customPurpose).description}
+          </p>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base">Letter text</CardTitle>
+                  <CardDescription>
+                    Edit the wording only. Crew/vessel boxes, dates, sea-time figures, logo, and footer are not editable.
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
                     type="button"
-                    onClick={() => applyCustomPurpose(p.value)}
-                    className={cn(
-                      'rounded-xl border px-3 py-2.5 text-left transition-colors',
-                      selected
-                        ? 'border-foreground bg-muted/60'
-                        : 'border-border hover:bg-muted/40',
-                    )}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-lg text-xs"
+                    onClick={() => void handleRewriteCustomLetter()}
+                    disabled={rewritingCustomLetter}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium">{p.label}</span>
-                      {needsDays ? (
-                        <span className="text-[10px] text-muted-foreground">Needs dates</span>
-                      ) : null}
-                    </div>
-                    <p className="mt-1 text-xs leading-snug text-muted-foreground">{p.description}</p>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Note (optional)</Label>
-              <Textarea
-                value={customInstructions}
-                onChange={(e) => setCustomInstructions(e.target.value)}
-                placeholder="Addressee, extra line, or anything not already on file"
-                className="min-h-[72px]"
-              />
-            </div>
-            {selectedCrew && !customNeedsSeaTime && (
-              <Button
-                onClick={handleDownloadCustomDocument}
-                disabled={generatingCustomPDF}
-                className="rounded-xl"
-              >
-                {generatingCustomPDF ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Generating…
-                  </>
-                ) : (
-                  <>
-                    <Download className="mr-2 h-4 w-4" />
-                    Generate document
-                  </>
+                    {rewritingCustomLetter ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    Rewrite with AI
+                  </Button>
+                  {customLetterDirty && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 rounded-lg text-xs"
+                      onClick={() => setCustomLetterDirty(false)}
+                    >
+                      <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                      Reset text
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="custom-letter-title" className="text-xs">Title</Label>
+                <Input
+                  id="custom-letter-title"
+                  value={customLetterTitle}
+                  onChange={(e) => {
+                    setCustomLetterDirty(true);
+                    setCustomLetterTitle(e.target.value);
+                  }}
+                  className="rounded-xl h-9"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="custom-letter-recipient" className="text-xs">Recipient line</Label>
+                <Input
+                  id="custom-letter-recipient"
+                  value={customLetterRecipient}
+                  onChange={(e) => {
+                    setCustomLetterDirty(true);
+                    setCustomLetterRecipient(e.target.value);
+                  }}
+                  placeholder="To whom it may concern"
+                  className="rounded-xl h-9"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="custom-letter-note" className="text-xs">Note (optional)</Label>
+                <Input
+                  id="custom-letter-note"
+                  value={customInstructions}
+                  onChange={(e) => setCustomInstructions(e.target.value)}
+                  placeholder="Addressee or extra line — added until you edit the body"
+                  className="rounded-xl h-9"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="custom-letter-intro" className="text-xs">Letter body</Label>
+                <Textarea
+                  id="custom-letter-intro"
+                  value={customLetterIntro}
+                  onChange={(e) => {
+                    setCustomLetterDirty(true);
+                    setCustomLetterIntro(e.target.value);
+                  }}
+                  className="min-h-[220px] rounded-xl text-sm leading-relaxed"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="xl:sticky xl:top-20">
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                    Live preview
+                  </CardTitle>
+                  <CardDescription>
+                    Updates as you edit. Download uses this version.
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {documentPreviewUrl && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 rounded-lg text-xs"
+                      onClick={() =>
+                        window.open(documentPreviewUrl, '_blank', 'noopener,noreferrer')
+                      }
+                    >
+                      <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                      Open
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 rounded-lg text-xs"
+                    onClick={() => void handleDownloadCustomDocument()}
+                    disabled={
+                      generatingCustomPDF ||
+                      !customLetterIntro.trim() ||
+                      (customNeedsSeaTime && !calculatedSeaTime)
+                    }
+                  >
+                    {generatingCustomPDF ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    Download
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {customNeedsSeaTime && !calculatedSeaTime && (
+                <p className="text-xs text-muted-foreground">
+                  Calculate sea time below to stamp day counts onto the letter, then download.
+                </p>
+              )}
+              <div className="relative overflow-hidden rounded-lg border bg-muted/30">
+                {documentPreviewLoading && !documentPreviewUrl && (
+                  <div className="flex h-[min(70vh,720px)] items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Building preview…
+                  </div>
                 )}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
+                {!documentPreviewLoading && documentPreviewError && (
+                  <div className="flex h-[min(40vh,280px)] items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                    {documentPreviewError}
+                  </div>
+                )}
+                {documentPreviewUrl && (
+                  <iframe
+                    title="Custom document preview"
+                    src={documentPreviewUrl}
+                    className="h-[min(70vh,720px)] w-full bg-white"
+                  />
+                )}
+                {!documentPreviewLoading && !documentPreviewError && !documentPreviewUrl && (
+                  <div className="flex h-[min(40vh,280px)] items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                    Choose a letter type to see the preview.
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        </>
       )}
 
       {selectedCrew &&
@@ -1924,85 +2715,84 @@ export default function DocumentsGeneratorPage() {
                 : calculatedSeaTime.underwayDays + standbyCappedForExport;
               return (
               <Card className="bg-muted/50 border-2">
-                <CardHeader>
+                <CardHeader className="pb-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <CardTitle className="text-base">Calculated Sea Time</CardTitle>
                     <Badge variant="secondary">{categoryDetails.label}</Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {calculatedSeaTime.dataSource === 'crew' ? "Crew member's logs" : 'Vessel logs'}
+                    </span>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Using {calculatedSeaTime.dataSource === 'crew' ? "Crew Member's Logs" : 'Vessel Logs'}
-                  </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="rounded-lg border border-primary/30 bg-primary/5 dark:bg-primary/10 px-4 py-3">
-                    <div className="text-xs font-medium text-muted-foreground">
-                      {usesAllOnboardDaysRule
-                        ? 'Sea service (all onboard days except leave)'
-                        : 'Sea service (underway + qualifying standby)'}
+                  <div
+                    className={cn(
+                      'grid gap-4 items-start',
+                      documentType === 'testimonial' &&
+                        'lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)]',
+                    )}
+                  >
+                  <div className="space-y-3 min-w-0">
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 dark:bg-primary/10 px-3 py-2.5">
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Sea service
                     </div>
-                    <div className="text-2xl font-bold text-primary">{seaServiceDays} days</div>
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <div className="text-xl font-bold tabular-nums text-primary leading-tight">
+                      {seaServiceDays}
+                      <span className="ml-1 text-xs font-medium text-muted-foreground">days</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
                       {usesAllOnboardDaysRule
-                        ? 'Commercial-class rule: every calendar day in the service period counts, except leave.'
-                        : 'At-sea service plus qualifying standby. This is the total used in the sea service breakdown PDF.'}
+                        ? 'All onboard days except leave'
+                        : 'Underway + qualifying standby'}
                     </p>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Total Days</div>
-                      <div className="text-2xl font-bold">{calculatedSeaTime.totalDays}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">
-                        {usesAllOnboardDaysRule
-                          ? 'Sea service days'
-                          : 'At sea (underway)'}
+                  <dl className="rounded-lg border divide-y text-sm">
+                    {[
+                      { label: 'Total', value: calculatedSeaTime.totalDays, className: '' },
+                      {
+                        label: usesAllOnboardDaysRule ? 'Sea service' : 'At sea',
+                        value: calculatedSeaTime.atSeaDays,
+                        className: 'text-blue-600 dark:text-blue-400',
+                      },
+                      {
+                        label: 'Standby',
+                        value: calculatedSeaTime.standbyDays,
+                        className: 'text-purple-600 dark:text-purple-400',
+                      },
+                      { label: 'Yard', value: calculatedSeaTime.yardDays, className: '' },
+                      { label: 'Leave', value: calculatedSeaTime.leaveDays, className: '' },
+                      ...((calculatedSeaTime.otherDays ?? 0) > 0
+                        ? [{ label: 'Other', value: calculatedSeaTime.otherDays as number, className: '' }]
+                        : []),
+                    ].map((row) => (
+                      <div key={row.label} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
+                        <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                        <dd className={cn('tabular-nums font-semibold', row.className)}>
+                          {row.value}
+                        </dd>
                       </div>
-                      <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{calculatedSeaTime.atSeaDays}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Standby (qualifying)</div>
-                      <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{calculatedSeaTime.standbyDays}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Yard Days</div>
-                      <div className="text-2xl font-bold">{calculatedSeaTime.yardDays}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Leave Days</div>
-                      <div className="text-2xl font-bold">{calculatedSeaTime.leaveDays}</div>
-                    </div>
-                    {(calculatedSeaTime.otherDays ?? 0) > 0 && (
-                      <div className="space-y-1 col-span-2 md:col-span-5">
-                        <div className="text-xs text-muted-foreground">Other (in port/at anchor, not counted as standby — standby cannot exceed at-sea days)</div>
-                        <div className="text-lg font-semibold">{calculatedSeaTime.otherDays}</div>
+                    ))}
+                  </dl>
+                  <dl className="rounded-lg border divide-y text-sm">
+                    {[
+                      { label: 'Underway', value: calculatedSeaTime.underwayDays },
+                      { label: 'At anchor', value: calculatedSeaTime.atAnchorDays },
+                      { label: 'Moored', value: calculatedSeaTime.inPortDays },
+                    ].map((row) => (
+                      <div key={row.label} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
+                        <dt className="text-[11px] text-muted-foreground">{row.label}</dt>
+                        <dd className="tabular-nums text-sm font-medium">{row.value}</dd>
                       </div>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border/60">
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Underway (logged)</div>
-                      <div className="text-xl font-semibold">{calculatedSeaTime.underwayDays}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">At anchor (logged)</div>
-                      <div className="text-xl font-semibold">{calculatedSeaTime.atAnchorDays}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">In port (logged)</div>
-                      <div className="text-xl font-semibold">{calculatedSeaTime.inPortDays}</div>
-                    </div>
-                  </div>
-
-                  <Separator />
-                  <div className="flex flex-wrap gap-2">
-                    {documentType === 'testimonial' && (
-                      <>
+                    ))}
+                  </dl>
+                  {documentType === 'testimonial' && (
+                    <div className="flex flex-col gap-2">
                     <Button
                       onClick={handleSaveDocument}
                       disabled={isSaving || generatingPDF === 'date-range' || generatingBreakdownPDF}
                       variant="outline"
-                      className="rounded-xl"
+                      className="rounded-xl w-full justify-start"
                     >
                       {isSaving ? (
                         <>
@@ -2020,7 +2810,7 @@ export default function DocumentsGeneratorPage() {
                       variant="outline"
                       onClick={handleDownloadPDF}
                       disabled={generatingPDF === 'date-range' || isSaving || generatingBreakdownPDF}
-                      className="rounded-xl"
+                      className="rounded-xl w-full justify-start"
                     >
                       {generatingPDF === 'date-range' ? (
                         <>
@@ -2038,7 +2828,7 @@ export default function DocumentsGeneratorPage() {
                       <Button
                         onClick={handleSendToCaptain}
                         disabled={isSendingToCaptain || generatingBreakdownPDF}
-                        className="rounded-xl"
+                        className="rounded-xl w-full justify-start"
                       >
                         {isSendingToCaptain ? (
                           <>
@@ -2058,7 +2848,7 @@ export default function DocumentsGeneratorPage() {
                         onClick={() => setSendTestimonialByEmailOpen(true)}
                         disabled={isSendingTestimonialByEmail || generatingBreakdownPDF}
                         variant="outline"
-                        className="rounded-xl"
+                        className="rounded-xl w-full justify-start"
                       >
                         {isSendingTestimonialByEmail ? (
                           <>
@@ -2068,13 +2858,68 @@ export default function DocumentsGeneratorPage() {
                         ) : (
                           <>
                             <Send className="mr-2 h-4 w-4" />
-                            Send to captain by email
+                            Email captain
                           </>
                         )}
                       </Button>
                     )}
-                      </>
-                    )}
+                    </div>
+                  )}
+                  </div>
+
+                  {documentType === 'testimonial' && (
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                          Document preview
+                        </div>
+                        {documentPreviewUrl && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 rounded-lg text-xs"
+                            onClick={() =>
+                              window.open(documentPreviewUrl, '_blank', 'noopener,noreferrer')
+                            }
+                          >
+                            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                            Open
+                          </Button>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Preview only — not saved until you Save or Download.
+                      </p>
+                      <div className="relative overflow-hidden rounded-lg border bg-muted/30">
+                        {documentPreviewLoading && (
+                          <div className="flex h-[min(80vh,860px)] items-center justify-center gap-2 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Filling document…
+                          </div>
+                        )}
+                        {!documentPreviewLoading && documentPreviewError && (
+                          <div className="flex h-[min(40vh,320px)] items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                            {documentPreviewError}
+                          </div>
+                        )}
+                        {!documentPreviewLoading && documentPreviewUrl && (
+                          <iframe
+                            title="Filled testimonial preview"
+                            src={documentPreviewUrl}
+                            className="h-[min(80vh,860px)] w-full bg-white"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  </div>
+
+                  {documentType !== 'testimonial' && documentType !== 'custom' && (
+                  <>
+                  <Separator />
+                  <div className="flex flex-wrap gap-2">
                     {documentType === 'sea_service_breakdown' && (
                       <div className="flex flex-col gap-2 w-full sm:w-auto">
                         <Button
@@ -2105,25 +2950,6 @@ export default function DocumentsGeneratorPage() {
                           Reference only — not stored on the crew profile. Use the figures to fill other forms manually.
                         </p>
                       </div>
-                    )}
-                    {documentType === 'custom' && (
-                      <Button
-                        onClick={handleDownloadCustomDocument}
-                        disabled={generatingCustomPDF}
-                        className="rounded-xl"
-                      >
-                        {generatingCustomPDF ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Generating…
-                          </>
-                        ) : (
-                          <>
-                            <Download className="mr-2 h-4 w-4" />
-                            Generate document
-                          </>
-                        )}
-                      </Button>
                     )}
                     {documentType === 'proof_of_service' && (
                       <>
@@ -2185,6 +3011,8 @@ export default function DocumentsGeneratorPage() {
                       </Button>
                     )}
                   </div>
+                  </>
+                  )}
                 </CardContent>
               </Card>
               );

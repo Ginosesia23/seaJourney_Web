@@ -29,7 +29,7 @@ import {
 const vesselStates: { value: DailyStatus; label: string; color: string; icon: React.FC<any> }[] = [
   { value: 'underway', label: 'Underway', color: calendarStateSolid('underway'), icon: Waves },
   { value: 'at-anchor', label: 'At Anchor', color: calendarStateSolid('at-anchor'), icon: Anchor },
-  { value: 'in-port', label: 'Moored / In port', color: calendarStateSolid('in-port'), icon: Building },
+  { value: 'in-port', label: 'Moored', color: calendarStateSolid('in-port'), icon: Building },
   { value: 'on-leave', label: 'On Leave', color: calendarStateSolid('on-leave'), icon: Briefcase },
   { value: 'in-yard', label: 'In Yard', color: calendarStateSolid('in-yard'), icon: Wrench },
 ];
@@ -258,12 +258,17 @@ export default function CalendarPage() {
     checkCaptaincyAndFindVesselAccount();
   }, [currentVessel?.id, user?.id, userProfile?.role, supabase]);
 
-  // Reset view mode to 'personal' if user is no longer an approved captain
+  // Reset view mode to 'personal' if user is no longer an approved captain.
+  // Vessel-linked accounts always stay on the vessel record.
   useEffect(() => {
+    if (isVesselLinked) {
+      if (captainViewMode !== 'vessel') setCaptainViewMode('vessel');
+      return;
+    }
     if (!isApprovedCaptain && captainViewMode === 'vessel') {
       setCaptainViewMode('personal');
     }
-  }, [isApprovedCaptain, captainViewMode]);
+  }, [isVesselLinked, isApprovedCaptain, captainViewMode]);
 
   // Fetch state logs from ALL vessels the user has assignments for
   // This allows viewing states from previous vessels and current vessel
@@ -1892,8 +1897,8 @@ export default function CalendarPage() {
                   : 'View and manage your vessel states throughout the year. Use single date, date range, or multi-select to choose dates, then change their state.'}
               </p>
           </div>
-          {/* Captain View Mode Toggle - Only show for approved captains */}
-          {isApprovedCaptain && (
+          {/* Captain View Mode Toggle — personal captains only */}
+          {isApprovedCaptain && !isVesselLinked && (
             <div className="flex items-center gap-2 rounded-lg border bg-card p-1">
               <Button
                 variant={captainViewMode === 'personal' ? 'default' : 'ghost'}

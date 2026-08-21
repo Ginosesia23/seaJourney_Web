@@ -35,7 +35,7 @@ interface MainChartProps {
 
 const dataKeys = [
     { key: "underway", name: "Underway", color: "hsl(var(--chart-blue))" },
-    { key: "inPort", name: "Moored / In port", color: "hsl(var(--chart-green))" },
+    { key: "inPort", name: "Moored", color: "hsl(var(--chart-green))" },
     { key: "atAnchor", name: "At Anchor", color: "hsl(var(--chart-orange))" },
     { key: "onLeave", name: "On Leave", color: "hsl(var(--chart-gray))" },
     { key: "inYard", name: "In Yard", color: "hsl(var(--chart-red))" }

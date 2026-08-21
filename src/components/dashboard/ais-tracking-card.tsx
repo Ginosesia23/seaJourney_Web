@@ -49,6 +49,8 @@ type AisTrackingCardProps = {
   todayState?: DailyStatus | string | null;
   onStateUpdated?: () => void;
   onEnabledChange?: (enabled: boolean) => void;
+  /** Linked Team accounts: view vessel AIS when it is on; no toggle or sync. */
+  readOnly?: boolean;
 };
 
 export function AisTrackingCard({
@@ -60,8 +62,9 @@ export function AisTrackingCard({
   todayState,
   onStateUpdated,
   onEnabledChange,
+  readOnly = false,
 }: AisTrackingCardProps) {
-  const eligible = hasVesselAisTrackingTier(profileRaw);
+  const eligible = readOnly || hasVesselAisTrackingTier(profileRaw);
   const [status, setStatus] = useState<AisTrackingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
@@ -115,7 +118,7 @@ export function AisTrackingCard({
 
   const runSync = useCallback(
     async (options?: { silent?: boolean; refreshLogs?: boolean }) => {
-      if (!accessToken || !status?.enabled) return false;
+      if (readOnly || !accessToken || !status?.enabled) return false;
       setSyncing(true);
       try {
         const res = await fetch('/api/ais/sync', {
@@ -162,7 +165,7 @@ export function AisTrackingCard({
         setSyncing(false);
       }
     },
-    [accessToken, loadStatus, status?.enabled, vesselId],
+    [accessToken, loadStatus, readOnly, status?.enabled, vesselId],
   );
 
   // Sync on page load (if stale) and at most once per hour while this page stays open.
@@ -172,7 +175,7 @@ export function AisTrackingCard({
   }, [runSync]);
 
   useEffect(() => {
-    if (!status?.enabled || !accessToken || loading) return;
+    if (readOnly || !status?.enabled || !accessToken || loading) return;
 
     let cancelled = false;
 
@@ -193,10 +196,10 @@ export function AisTrackingCard({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [status?.enabled, status?.lastSyncAt, accessToken, loading]);
+  }, [status?.enabled, status?.lastSyncAt, accessToken, loading, readOnly]);
 
   const handleToggle = async (enabled: boolean) => {
-    if (!accessToken) return;
+    if (readOnly || !accessToken) return;
     setToggling(true);
     try {
       const res = await fetch('/api/vessels/ais-tracking', {
@@ -262,6 +265,11 @@ export function AisTrackingCard({
     );
   }
 
+  // Linked accounts only see this card when the vessel is actually tracking.
+  if (readOnly && (loading || !status?.enabled)) {
+    return null;
+  }
+
   const hasIdentifier = !!(mmsi || imo || status?.mmsi || status?.imo);
   const liveBits = [
     status?.lastNavStatus || null,
@@ -313,13 +321,15 @@ export function AisTrackingCard({
                 </p>
               ) : (
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  Hourly background sync sets each day automatically when enabled.
+                  {readOnly
+                    ? 'Daily state is set from this vessel’s live AIS.'
+                    : 'Hourly background sync sets each day automatically when enabled.'}
                 </p>
               )}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-3 sm:pt-0.5">
-            {status?.enabled && (
+            {status?.enabled && !readOnly && (
               <AisWrongStateReportButton
                 accessToken={accessToken}
                 vesselId={vesselId}
@@ -330,6 +340,8 @@ export function AisTrackingCard({
                 aisSpeedKn={status.lastSpeed}
               />
             )}
+            {!readOnly && (
+              <>
             <Button
               variant="ghost"
               size="sm"
@@ -353,6 +365,8 @@ export function AisTrackingCard({
               disabled={toggling || !hasIdentifier}
               onCheckedChange={handleToggle}
             />
+              </>
+            )}
           </div>
         </div>
       )}

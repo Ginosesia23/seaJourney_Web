@@ -448,6 +448,15 @@ export async function POST(req: NextRequest) {
         // Don't fail the request - approval succeeded, snapshot is just for record keeping
       } else {
         console.log('[SNAPSHOT] Successfully created snapshot via email signoff:', insertedData);
+        try {
+          const { persistApprovedTestimonialPdf } = await import(
+            '@/lib/testimonials/persist-approved-pdf'
+          );
+          const pdfResult = await persistApprovedTestimonialPdf(data.id);
+          console.log('[SNAPSHOT] PDF persist via email signoff:', pdfResult);
+        } catch (pdfErr) {
+          console.error('[SNAPSHOT] PDF persist failed after email signoff:', pdfErr);
+        }
       }
     } catch (snapshotErr: any) {
       console.error('Error creating approved testimonial snapshot:', snapshotErr);

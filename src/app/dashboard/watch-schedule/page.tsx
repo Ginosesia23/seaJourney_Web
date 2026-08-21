@@ -31,6 +31,15 @@ import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { hasVesselPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
+import {
+  isLinkedVesselWatchViewer,
+  vesselLinkedOwnedVesselId,
+} from '@/lib/vessel-linked-features';
+import {
+  assignmentsOnWatchNow,
+  fmtWatchHour,
+  type OnWatchNow,
+} from '@/lib/watch-schedule-now';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -100,25 +109,33 @@ function uid(): string {
 export default function WatchSchedulePage() {
   const router = useRouter();
   const { user, isUserLoading } = useUser();
-  const { supabase } = useSupabase();
+  const { supabase, session } = useSupabase();
   const { data: profileRaw, isLoading: isProfileLoading } = useDoc<Record<string, unknown>>(
     'users',
     user?.id,
   );
 
   const role = (profileRaw?.role as string) || 'crew';
-  const activeVesselId = (profileRaw?.active_vessel_id as string) || null;
+  const isLinkedViewer = isLinkedVesselWatchViewer(profileRaw);
+  const linkedVesselId = vesselLinkedOwnedVesselId(profileRaw);
+  const activeVesselId =
+    linkedVesselId || (profileRaw?.active_vessel_id as string) || null;
+  const [linkedVesselName, setLinkedVesselName] = useState<string | null>(null);
   const vesselName =
+    linkedVesselName ||
     (profileRaw?.vessel_name as string) ||
     (profileRaw?.active_vessel_name as string) ||
     'Vessel';
+  const readOnly = isLinkedViewer;
 
   // ---- Auth guard ----
   useEffect(() => {
     if (isUserLoading || isProfileLoading) return;
     if (!user) { router.replace('/dashboard'); return; }
-    if (profileRaw && role !== 'vessel') router.replace('/dashboard');
-  }, [isUserLoading, isProfileLoading, user, profileRaw, role, router]);
+    if (profileRaw && role !== 'vessel' && !isLinkedViewer) {
+      router.replace('/dashboard');
+    }
+  }, [isUserLoading, isProfileLoading, user, profileRaw, role, isLinkedViewer, router]);
 
   const hasPremiumPlusTier = useMemo(
     () => hasVesselPremiumPlusFeatures(profileRaw),
@@ -148,7 +165,7 @@ export default function WatchSchedulePage() {
 
   // ---- Fetch crew ----
   const fetchCrew = useCallback(async () => {
-    if (!supabase || !activeVesselId) return;
+    if (!supabase || !activeVesselId || isLinkedViewer) return;
     setIsLoadingCrew(true);
     try {
       const [linkedRes, assignRes] = await Promise.all([
@@ -215,15 +232,15 @@ export default function WatchSchedulePage() {
     } finally {
       setIsLoadingCrew(false);
     }
-  }, [supabase, activeVesselId]);
+  }, [supabase, activeVesselId, isLinkedViewer]);
 
   useEffect(() => {
-    if (activeVesselId) void fetchCrew();
-  }, [activeVesselId, fetchCrew]);
+    if (activeVesselId && !isLinkedViewer) void fetchCrew();
+  }, [activeVesselId, fetchCrew, isLinkedViewer]);
 
   // ---- DB probe — loads all saved schedules ----
   const tryLoadFromDb = useCallback(async () => {
-    if (!supabase || !activeVesselId) return;
+    if (!supabase || !activeVesselId || isLinkedViewer) return;
     try {
       const { data, error } = await supabase
         .from('watch_schedules')
@@ -260,11 +277,45 @@ export default function WatchSchedulePage() {
     } catch {
       setDbAvailable(false);
     }
-  }, [supabase, activeVesselId]);
+  }, [supabase, activeVesselId, isLinkedViewer]);
 
   useEffect(() => {
-    if (activeVesselId) void tryLoadFromDb();
-  }, [activeVesselId, tryLoadFromDb]);
+    if (activeVesselId && !isLinkedViewer) void tryLoadFromDb();
+  }, [activeVesselId, tryLoadFromDb, isLinkedViewer]);
+
+  const loadLinkedWatchBoard = useCallback(async () => {
+    if (!isLinkedViewer) return;
+    const token = session?.access_token;
+    if (!token) return;
+    setIsLoadingCrew(true);
+    try {
+      const res = await fetch('/api/watch-schedule', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setDbAvailable(false);
+        return;
+      }
+      const json = await res.json();
+      setLinkedVesselName(
+        typeof json.vesselName === 'string' ? json.vesselName : null,
+      );
+      setSavedSchedules(
+        Array.isArray(json.schedules) ? (json.schedules as WatchSchedule[]) : [],
+      );
+      setCrewPool(Array.isArray(json.crew) ? (json.crew as SchedulableCrew[]) : []);
+      setDbAvailable(true);
+    } catch (err) {
+      console.error('[WATCH SCHEDULE] linked load failed', err);
+      setDbAvailable(false);
+    } finally {
+      setIsLoadingCrew(false);
+    }
+  }, [isLinkedViewer, session?.access_token]);
+
+  useEffect(() => {
+    if (isLinkedViewer) void loadLinkedWatchBoard();
+  }, [isLinkedViewer, loadLinkedWatchBoard]);
 
   // ---- Build schedule ----
   // We persist `watchSystem: 'custom'` and `shifts: []` so the DB
@@ -541,6 +592,11 @@ export default function WatchSchedulePage() {
     return { upcoming, past };
   }, [savedSchedules]);
 
+  const currentlyOnWatch = useMemo(
+    () => assignmentsOnWatchNow(savedSchedules),
+    [savedSchedules],
+  );
+
   // Show-all-past toggle — defaults to false so the most-relevant
   // schedules stay visible and the page doesn't get long.
   const [showPastSchedules, setShowPastSchedules] = useState(false);
@@ -577,9 +633,9 @@ export default function WatchSchedulePage() {
     );
   }
 
-  if (!user || role !== 'vessel') return null;
+  if (!user || (role !== 'vessel' && !isLinkedViewer)) return null;
 
-  if (!hasPremiumPlusTier) {
+  if (!isLinkedViewer && !hasPremiumPlusTier) {
     return (
       <div className="space-y-6 p-4 md:p-6">
         <PageHeader />
@@ -647,7 +703,7 @@ export default function WatchSchedulePage() {
   // ---- Render ----
   return (
     <div className="space-y-6 p-4 md:p-6">
-      <PageHeader>
+      <PageHeader readOnly={readOnly} vesselName={readOnly ? vesselName : undefined}>
         {isEditorOpen ? (
           <>
             <Button variant="ghost" onClick={handleNewSchedule}>
@@ -658,7 +714,7 @@ export default function WatchSchedulePage() {
               {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
               Export PDF
             </Button>
-            {dbAvailable && (
+            {dbAvailable && !readOnly && (
               <Button onClick={handleSave} disabled={isSaving}>
                 {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Save to vessel
@@ -676,6 +732,28 @@ export default function WatchSchedulePage() {
          ===================================================== */}
       {!isEditorOpen && (
         <>
+          {currentlyOnWatch.length > 0 ? (
+            <CurrentlyOnWatchCard
+              people={currentlyOnWatch}
+              onOpenSchedule={(scheduleId) => {
+                const match = savedSchedules.find((s) => s.id === scheduleId);
+                if (match) handleLoadSchedule(match);
+              }}
+            />
+          ) : readOnly && savedSchedules.length > 0 ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Clock className="h-4 w-4" />
+                  On watch now
+                </CardTitle>
+                <CardDescription>
+                  Nobody is assigned to a watch slot at this hour. Open an active plan below to see the full board.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          ) : null}
+
           {/* Stats strip — only shown when there are saved schedules so
               new vessels don't see a row of zeroes. */}
           {dbAvailable && savedSchedules.length > 0 && (
@@ -817,7 +895,7 @@ export default function WatchSchedulePage() {
                   <div className="mt-2 flex items-center justify-between border-t border-border/60 pt-2">
                     <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
                       <FolderOpen className="h-3 w-3" />
-                      Open editor
+                      {readOnly ? 'Open schedule' : 'Open editor'}
                     </span>
                     <div className="flex items-center gap-1">
                       <button
@@ -831,6 +909,7 @@ export default function WatchSchedulePage() {
                           ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           : <Download className="h-3.5 w-3.5" />}
                       </button>
+                      {!readOnly && (
                       <button
                         type="button"
                         className="inline-flex h-7 w-7 items-center justify-center rounded-md text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
@@ -842,6 +921,7 @@ export default function WatchSchedulePage() {
                           ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           : <Trash2 className="h-3.5 w-3.5" />}
                       </button>
+                      )}
                     </div>
                   </div>
                 </button>
@@ -862,8 +942,8 @@ export default function WatchSchedulePage() {
                           </span>
                         </h2>
                         <p className="text-xs text-muted-foreground">
-                          Click a schedule to open the editor.
-                        </p>
+                        Click a schedule to open it.
+                      </p>
                       </div>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -913,13 +993,15 @@ export default function WatchSchedulePage() {
               <CalendarRange className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
               <h2 className="text-base font-semibold">No saved watch schedules yet</h2>
               <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-                Build your first watch rota below. Once saved, you'll be able to open it again, edit it, or export to PDF from this page.
+                {readOnly
+                  ? 'No watch plans have been saved for this vessel yet. They will appear here once the vessel builds a rota.'
+                  : "Build your first watch rota below. Once saved, you'll be able to open it again, edit it, or export to PDF from this page."}
               </p>
             </div>
           )}
 
           {/* No-crew notice (only relevant when building from scratch) */}
-          {!isLoadingCrew && crewPool.length === 0 && (
+          {!readOnly && !isLoadingCrew && crewPool.length === 0 && (
             <Alert>
               <Users className="h-4 w-4" />
               <AlertTitle>No crew currently onboard</AlertTitle>
@@ -939,6 +1021,7 @@ export default function WatchSchedulePage() {
               "create" intent is obvious and the primary CTA is
               impossible to miss. Settings inside the editor reuse the
               same form fields via `renderSetupFields()`. */}
+          {!readOnly && (
           <Card className="overflow-hidden">
             {/* ── Hero band ───────────────────────────────────────── */}
             <div className="relative border-b bg-gradient-to-br from-primary/10 via-primary/5 to-background px-6 py-6">
@@ -1025,6 +1108,7 @@ export default function WatchSchedulePage() {
               </Button>
             </div>
           </Card>
+          )}
         </>
       )}
 
@@ -1087,9 +1171,10 @@ export default function WatchSchedulePage() {
                       return `${format(parseISO(schedule.startDate), 'd MMM')} – ${format(parseISO(schedule.endDate), 'd MMM yyyy')}`;
                     } catch { return `${schedule.startDate} – ${schedule.endDate}`; }
                   })()}
-                  {' '}&middot; {scheduleDays.length} days &middot; drag to add, drag edges to resize
+                  {' '}&middot; {scheduleDays.length} days{readOnly ? '' : ' · drag to add, drag edges to resize'}
                 </CardDescription>
               </div>
+              {!readOnly && (
               <Button
                 size="sm"
                 variant="outline"
@@ -1099,6 +1184,7 @@ export default function WatchSchedulePage() {
                 <Settings2 className="h-3.5 w-3.5" />
                 {showSetupInEditor ? 'Hide settings' : 'Edit settings'}
               </Button>
+              )}
             </div>
 
             {/* Live coverage strip */}
@@ -1172,6 +1258,7 @@ export default function WatchSchedulePage() {
                 addBlock={addBlock}
                 removeBlock={removeBlock}
                 resizeBlock={resizeBlock}
+                readOnly={readOnly}
               />
             )}
           </CardContent>
@@ -1313,13 +1400,23 @@ export default function WatchSchedulePage() {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function PageHeader({ children }: { children?: React.ReactNode }) {
+function PageHeader({
+  children,
+  readOnly,
+  vesselName,
+}: {
+  children?: React.ReactNode;
+  readOnly?: boolean;
+  vesselName?: string;
+}) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Watch Schedule</h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Plan crew watch rotations for a voyage or period. Drag on a crew member's row to mark their working hours, then export as a PDF or save to the vessel.
+          {readOnly
+            ? `Active watch plans for ${vesselName || 'this vessel'}. See who is on watch now, then open a rota to review the full board.`
+            : 'Plan crew watch rotations for a voyage or period. Drag on a crew member\'s row to mark their working hours, then export as a PDF or save to the vessel.'}
         </p>
       </div>
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
@@ -1358,6 +1455,53 @@ function StatTile({
         <p className="text-lg font-semibold leading-tight tabular-nums">{value}</p>
       </div>
     </div>
+  );
+}
+
+function CurrentlyOnWatchCard({
+  people,
+  onOpenSchedule,
+}: {
+  people: OnWatchNow[];
+  onOpenSchedule: (scheduleId: string | null) => void;
+}) {
+  return (
+    <Card className="border-emerald-500/30 bg-emerald-500/[0.06]">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+          </span>
+          On watch now
+        </CardTitle>
+        <CardDescription>
+          {people.length === 1
+            ? '1 person is on watch right now.'
+            : `${people.length} people are on watch right now.`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {people.map((person) => (
+          <button
+            key={`${person.userId}-${person.startHour}-${person.endHour}`}
+            type="button"
+            className="flex w-full items-center justify-between gap-3 rounded-lg border bg-background/70 px-3 py-2.5 text-left transition-colors hover:bg-background"
+            onClick={() => onOpenSchedule(person.scheduleId)}
+          >
+            <div className="min-w-0">
+              <p className="truncate font-medium">{person.userName}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {[person.userPosition, person.scheduleName].filter(Boolean).join(' · ')}
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full bg-emerald-600/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+              {fmtWatchHour(person.startHour)}–{fmtWatchHour(person.endHour)}
+            </span>
+          </button>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1759,6 +1903,7 @@ interface DayCellProps {
   /** When true, the cell renders with a primary tint so today's
    *  column reads at a glance across the grid. */
   isToday?: boolean;
+  readOnly?: boolean;
   onAdd:    (startHour: number, endHour: number) => void;
   onRemove: (blockId: string) => void;
   onResize: (blockId: string, startHour: number, endHour: number) => void;
@@ -1790,7 +1935,7 @@ type DragState =
       ghost: { start: number; end: number };
     };
 
-function DayCell({ blocks, color, isToday: isTodayDay, onAdd, onRemove, onResize, clipboard, onCopy, onPaste }: DayCellProps) {
+function DayCell({ blocks, color, isToday: isTodayDay, readOnly, onAdd, onRemove, onResize, clipboard, onCopy, onPaste }: DayCellProps) {
   const [cellHovered, setCellHovered] = useState(false);
   const barRef  = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -1908,6 +2053,7 @@ function DayCell({ blocks, color, isToday: isTodayDay, onAdd, onRemove, onResize
   const handleBarMouseLeave = () => setHoverHour(null);
 
   const handleBarMouseDown = (e: React.MouseEvent) => {
+    if (readOnly) return;
     // Defer to block / handle / button click targets.
     const target = e.target as HTMLElement;
     if (target.closest('[data-handle]') || target.closest('[data-remove]')) return;
@@ -1918,6 +2064,7 @@ function DayCell({ blocks, color, isToday: isTodayDay, onAdd, onRemove, onResize
   };
 
   const handleBarTouchStart = (e: React.TouchEvent) => {
+    if (readOnly) return;
     const target = e.target as HTMLElement;
     if (target.closest('[data-handle]') || target.closest('[data-remove]')) return;
     startCreate(e.touches[0].clientX);
@@ -1925,6 +2072,7 @@ function DayCell({ blocks, color, isToday: isTodayDay, onAdd, onRemove, onResize
   };
 
   const handleHandleMouseDown = (e: React.MouseEvent, block: WatchAssignment, edge: 'left' | 'right') => {
+    if (readOnly) return;
     e.preventDefault();
     e.stopPropagation();
     startResize(e.clientX, block, edge);
@@ -1953,7 +2101,8 @@ function DayCell({ blocks, color, isToday: isTodayDay, onAdd, onRemove, onResize
       <div
         ref={barRef}
         className={[
-          'relative h-11 w-full rounded-lg border cursor-crosshair overflow-visible shadow-inner transition-colors',
+          'relative h-11 w-full rounded-lg border overflow-visible shadow-inner transition-colors',
+          readOnly ? 'cursor-default' : 'cursor-crosshair',
           isTodayDay
             ? 'border-primary/40 bg-primary/5'
             : 'border-border bg-muted/30',
@@ -1992,7 +2141,7 @@ function DayCell({ blocks, color, isToday: isTodayDay, onAdd, onRemove, onResize
         {/* Empty-state hint — only shown when the cell has no blocks
             and the cursor is hovering, so it's a gentle nudge for new
             users without distracting once the row is being edited. */}
-        {blocks.length === 0 && cellHovered && !dragGhost && (
+        {blocks.length === 0 && cellHovered && !dragGhost && !readOnly && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span className="text-[10px] font-medium text-muted-foreground/80 italic">
               Drag to add hours
@@ -2047,6 +2196,7 @@ function DayCell({ blocks, color, isToday: isTodayDay, onAdd, onRemove, onResize
                 {fmtHour(b.startHour)}–{fmtHour(b.endHour)}
               </span>
               {/* Remove button — always visible (subtle), brighter on hover */}
+              {!readOnly && (
               <button
                 data-remove="1"
                 className="absolute top-0.5 right-1 h-4 w-4 flex items-center justify-center rounded-full bg-black/30 text-white opacity-60 hover:opacity-100 hover:bg-destructive transition-opacity"
@@ -2055,6 +2205,7 @@ function DayCell({ blocks, color, isToday: isTodayDay, onAdd, onRemove, onResize
               >
                 <X className="h-2.5 w-2.5" />
               </button>
+              )}
             </div>
           );
         })}
@@ -2090,7 +2241,7 @@ function DayCell({ blocks, color, isToday: isTodayDay, onAdd, onRemove, onResize
           </div>
         )}
         {/* Copy / paste — top-right, visible on cell hover */}
-        {cellHovered && !dragGhost && (
+        {cellHovered && !dragGhost && !readOnly && (
           <div className="absolute top-0.5 right-0.5 flex items-center gap-0.5 z-20">
             <button
               type="button"
@@ -2144,6 +2295,7 @@ interface WeeklyScheduleGridProps {
   addBlock: (userId: string, userName: string, userPosition: string | null, date: string, startHour: number, endHour: number) => void;
   removeBlock: (blockId: string) => void;
   resizeBlock: (blockId: string, startHour: number, endHour: number) => void;
+  readOnly?: boolean;
 }
 
 function WeeklyScheduleGrid({
@@ -2153,6 +2305,7 @@ function WeeklyScheduleGrid({
   addBlock,
   removeBlock,
   resizeBlock,
+  readOnly,
 }: WeeklyScheduleGridProps) {
   // Per-crew clipboard: maps userId → copied time ranges
   const [clipboards, setClipboards] = useState<Record<string, CopiedBlocks>>({});
@@ -2298,6 +2451,7 @@ function WeeklyScheduleGrid({
                               blocks={blocks}
                               color={color}
                               isToday={today}
+                              readOnly={readOnly}
                               onAdd={(startHour, endHour) =>
                                 addBlock(crew.id, crew.displayName, crew.position ?? null, dateStr, startHour, endHour)
                               }

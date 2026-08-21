@@ -647,7 +647,7 @@ async function notifyCrewOfStateChange(args: {
 const HUMAN_STATE_LABELS: Record<DailyStatus, string> = {
   underway: 'underway',
   'at-anchor': 'at anchor',
-  'in-port': 'moored / in port',
+  'in-port': 'moored',
   'in-yard': 'in yard',
   'on-leave': 'on leave',
 };

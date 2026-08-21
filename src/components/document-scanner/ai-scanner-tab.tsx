@@ -20,6 +20,7 @@ import {
   type TemplateField,
 } from '@/lib/vessel-document-templates';
 import { autoAlignTemplateFields } from '@/lib/auto-align-template-fields';
+import { snapTemplateFieldsToPdfText } from '@/lib/snap-fields-to-pdf-text';
 import { getVesselStateLogs } from '@/supabase/database/queries';
 import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
 import { computeSeaTimeInDateRange } from '@/lib/sea-time-in-range';
@@ -513,6 +514,19 @@ export function AIScannerTab({
     [scanResult, editedValues],
   );
 
+  const finalizeFieldsForBuilder = useCallback(
+    async (fields: TemplateField[]): Promise<TemplateField[]> => {
+      if (!scanFile || scanFile.type !== 'application/pdf') return fields;
+      try {
+        return await snapTemplateFieldsToPdfText(scanFile, fields);
+      } catch (err) {
+        console.warn('[form-builder] PDF text snap failed, using AI boxes', err);
+        return fields;
+      }
+    },
+    [scanFile],
+  );
+
   // Once a scan finishes while in template-build mode we hand the draft
   // straight to the Form Builder (the parent mounts the editor). Each scan
   // triggers only once — rescans reset the guard via a new scan signature.
@@ -522,32 +536,43 @@ export function AIScannerTab({
     const key = `${scanFile.name}-${scanResult.documentTitle}`;
     if (didHandOffToBuilder.current === key) return;
 
-    // Preferred path: let the parent swap us out for the full builder.
-    if (onOpenInBuilder) {
-      const built = buildTemplateFieldsFromScan();
-      if (!built || !built.fields.length) return;
-      didHandOffToBuilder.current = key;
-      const suggested =
-        scanResult.documentTitle || scanFile.name.replace(/\.[^.]+$/, '');
-      onOpenInBuilder({
-        file: scanFile,
-        previewUrl: scanFilePreview,
-        suggestedName: suggested,
-        fields: built.fields,
-      });
-      // Clear templateBuildMode so we don't re-trigger on a subsequent
-      // rescan of the same session.
-      setTemplateBuildMode(false);
-      return;
-    }
+    let cancelled = false;
 
-    // Legacy fallback: open the old quick-save dialog.
-    didHandOffToBuilder.current = key;
-    setTemplateName((prev) =>
-      prev || scanResult.documentTitle || scanFile.name.replace(/\.[^.]+$/, ''),
-    );
-    setTemplateDescription((prev) => prev || scanResult.documentDescription || '');
-    setSaveTemplateOpen(true);
+    const handOff = async () => {
+      // Preferred path: let the parent swap us out for the full builder.
+      if (onOpenInBuilder) {
+        const built = buildTemplateFieldsFromScan();
+        if (!built || !built.fields.length) return;
+        didHandOffToBuilder.current = key;
+        const fields = await finalizeFieldsForBuilder(built.fields);
+        if (cancelled) return;
+        const suggested =
+          scanResult.documentTitle || scanFile.name.replace(/\.[^.]+$/, '');
+        onOpenInBuilder({
+          file: scanFile,
+          previewUrl: scanFilePreview,
+          suggestedName: suggested,
+          fields,
+        });
+        // Clear templateBuildMode so we don't re-trigger on a subsequent
+        // rescan of the same session.
+        setTemplateBuildMode(false);
+        return;
+      }
+
+      // Legacy fallback: open the old quick-save dialog.
+      didHandOffToBuilder.current = key;
+      setTemplateName((prev) =>
+        prev || scanResult.documentTitle || scanFile.name.replace(/\.[^.]+$/, ''),
+      );
+      setTemplateDescription((prev) => prev || scanResult.documentDescription || '');
+      setSaveTemplateOpen(true);
+    };
+
+    void handOff();
+    return () => {
+      cancelled = true;
+    };
   }, [
     templateBuildMode,
     scanResult,
@@ -555,6 +580,7 @@ export function AIScannerTab({
     scanFilePreview,
     onOpenInBuilder,
     buildTemplateFieldsFromScan,
+    finalizeFieldsForBuilder,
   ]);
 
   /**
@@ -1338,7 +1364,7 @@ export function AIScannerTab({
                       variant="secondary"
                       size="sm"
                       className="rounded-lg text-xs h-8"
-                      onClick={() => {
+                      onClick={async () => {
                         // If the parent wired up a Form Builder handoff,
                         // hand the draft over there — gives the user the
                         // full editor (positioning, criteria, etc.).
@@ -1353,6 +1379,7 @@ export function AIScannerTab({
                             });
                             return;
                           }
+                          const fields = await finalizeFieldsForBuilder(built.fields);
                           // Guard the auto-effect so it doesn't fire again
                           // for the same scan after we navigate.
                           didHandOffToBuilder.current = `${scanFile.name}-${scanResult.documentTitle}`;
@@ -1362,7 +1389,7 @@ export function AIScannerTab({
                             suggestedName:
                               scanResult.documentTitle ||
                               scanFile.name.replace(/\.[^.]+$/, ''),
-                            fields: built.fields,
+                            fields,
                           });
                           return;
                         }

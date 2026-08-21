@@ -16,6 +16,7 @@ import {
 } from '@/lib/passages/ais-logbook-link';
 import { timeRangeOverlapsLeave } from '@/lib/passages-map/filter-by-leave-periods';
 import { loadCrewLeavePeriodsByVessel } from '@/lib/passages-map/load-crew-leave-periods';
+import { resolveLinkedVesselScope } from '@/lib/passages-map/linked-vessel-scope';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest) {
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from('users')
       .select(
-        'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, active_vessel_id',
+        'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, active_vessel_id, linked_account_features, managed_by_vessel_id',
       )
       .eq('id', user.id)
       .single();
@@ -87,12 +88,23 @@ export async function POST(req: NextRequest) {
     const blocked = await assertPassagesFeatures(profile);
     if (blocked) return blocked;
 
+    const linkedScope = await resolveLinkedVesselScope(
+      supabaseAdmin,
+      profile,
+      'passages_map',
+    );
+    const cacheUserId = linkedScope?.cacheUserId || user.id;
+    const isVesselScoped = Boolean(linkedScope);
+
     const body = (await req.json().catch(() => ({}))) as {
       vesselId?: string;
     };
-    const vesselFilter = body.vesselId?.trim() || null;
+    const vesselFilter =
+      linkedScope?.vesselId || body.vesselId?.trim() || null;
 
-    const { candidates, monthCount } = await loadAisCandidatesForUser(user.id);
+    const { candidates, monthCount } = await loadAisCandidatesForUser(
+      cacheUserId,
+    );
     const scoped = vesselFilter
       ? candidates.filter((c) => c.vesselId === vesselFilter)
       : candidates;
@@ -114,14 +126,19 @@ export async function POST(req: NextRequest) {
     }
 
     const vesselIds = Array.from(new Set(scoped.map((c) => c.vesselId)));
-    const leaveByVessel = await loadCrewLeavePeriodsByVessel(user.id, vesselIds);
+    const leaveByVessel = isVesselScoped
+      ? new Map<string, never[]>()
+      : await loadCrewLeavePeriodsByVessel(user.id, vesselIds);
 
-    const { data: existingRows, error: logErr } = await supabaseAdmin
+    let existingQuery = supabaseAdmin
       .from('passage_logs')
       .select(
         'id, vessel_id, start_time, end_time, source, ais_fingerprint, track_data',
-      )
-      .eq('crew_id', user.id);
+      );
+    existingQuery = isVesselScoped && linkedScope
+      ? existingQuery.eq('vessel_id', linkedScope.vesselId)
+      : existingQuery.eq('crew_id', user.id);
+    const { data: existingRows, error: logErr } = await existingQuery;
     if (logErr) throw logErr;
     const existing = existingRows || [];
 
@@ -281,7 +298,7 @@ export async function GET(req: NextRequest) {
     const { data: profile } = await supabaseAdmin
       .from('users')
       .select(
-        'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end',
+        'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, linked_account_features, managed_by_vessel_id, active_vessel_id',
       )
       .eq('id', user.id)
       .single();
@@ -295,23 +312,41 @@ export async function GET(req: NextRequest) {
     const blocked = await assertPassagesFeatures(profile);
     if (blocked) return blocked;
 
-    const vesselFilter = req.nextUrl.searchParams.get('vesselId')?.trim() || null;
-    const { candidates, monthCount } = await loadAisCandidatesForUser(user.id);
+    const linkedScope = await resolveLinkedVesselScope(
+      supabaseAdmin,
+      profile,
+      'passages_map',
+    );
+    const cacheUserId = linkedScope?.cacheUserId || user.id;
+    const isVesselScoped = Boolean(linkedScope);
+
+    const vesselFilter =
+      linkedScope?.vesselId ||
+      req.nextUrl.searchParams.get('vesselId')?.trim() ||
+      null;
+    const { candidates, monthCount } = await loadAisCandidatesForUser(
+      cacheUserId,
+    );
     const scoped = vesselFilter
       ? candidates.filter((c) => c.vesselId === vesselFilter)
       : candidates;
 
-    const { data: existingRows, error: logErr } = await supabaseAdmin
+    let existingQuery = supabaseAdmin
       .from('passage_logs')
       .select(
         'id, vessel_id, start_time, end_time, source, ais_fingerprint, track_data, distance_nm, avg_speed_knots, departure_port, arrival_port, departure_lat, arrival_lat',
-      )
-      .eq('crew_id', user.id);
+      );
+    existingQuery = isVesselScoped && linkedScope
+      ? existingQuery.eq('vessel_id', linkedScope.vesselId)
+      : existingQuery.eq('crew_id', user.id);
+    const { data: existingRows, error: logErr } = await existingQuery;
     if (logErr) throw logErr;
     const existing = existingRows || [];
 
     const vesselIds = Array.from(new Set(scoped.map((c) => c.vesselId)));
-    const leaveByVessel = await loadCrewLeavePeriodsByVessel(user.id, vesselIds);
+    const leaveByVessel = isVesselScoped
+      ? new Map<string, never[]>()
+      : await loadCrewLeavePeriodsByVessel(user.id, vesselIds);
 
     let missing = 0;
     let alreadyLinked = 0;

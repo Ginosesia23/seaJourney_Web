@@ -25,6 +25,7 @@ import { useToast } from '@/hooks/use-toast';
 import { DateRange } from 'react-day-picker';
 import type { Vessel, SeaTimeRequest, VesselAssignment, UserProfile } from '@/lib/types';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -87,6 +88,8 @@ export default function SeaTimeRequestPage() {
       const tierLower = tier.toLowerCase();
       return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && entitled;
     }
+
+    if (isVesselLinkedFeatureGranted(userProfileRaw, 'sea_time_request')) return entitled;
 
     // Crew accounts: premium or pro only
     return (tier === 'premium' || tier === 'pro') && entitled;

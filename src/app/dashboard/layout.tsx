@@ -4,7 +4,8 @@ import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { hasActiveSubscription as checkActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { hasPaidDashboardAccess as checkDashboardAccess, isCrewLimitedAccount, isVesselLinkedAccount } from '@/supabase/database/subscription-helpers';
+import { isCrewLimitedHrefAllowed, isVesselLinkedHrefAllowed } from '@/lib/vessel-linked-features';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { Loader2 } from 'lucide-react';
 import { AppSidebar } from '@/components/app-sidebar';
@@ -38,9 +39,8 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   } = useDoc<UserProfile>('users', user?.id);
 
 
-  // Check subscription status using helper function
-  // This ensures we're reading from the correct Supabase field (subscription_status)
-  const hasActiveSubscription = checkActiveSubscription(userProfile);
+  // Paid (or vessel-managed) entitlement — free / inactive accounts stay on /offers
+  const hasActiveSubscription = checkDashboardAccess(userProfile);
   const isLoading = isUserLoading || isProfileLoading;
 
   useEffect(() => {
@@ -129,6 +129,14 @@ useEffect(() => {
     if (pathname === '/dashboard') return;
     if (!isRouteEnabled(pathname)) {
       router.replace('/dashboard');
+      return;
+    }
+    if (isVesselLinkedAccount(userProfile) && !isVesselLinkedHrefAllowed(userProfile, pathname)) {
+      router.replace('/dashboard');
+      return;
+    }
+    if (isCrewLimitedAccount(userProfile) && !isCrewLimitedHrefAllowed(pathname)) {
+      router.replace('/dashboard');
     }
   }, [
     isLoading,
@@ -137,6 +145,7 @@ useEffect(() => {
     user,
     hasActiveSubscription,
     pathname,
+    userProfile,
     isRouteEnabled,
     router,
   ]);
@@ -165,7 +174,10 @@ useEffect(() => {
     !isAdmin &&
     !isFlagsLoading &&
     pathname !== '/dashboard' &&
-    !isRouteEnabled(pathname)
+    (!isRouteEnabled(pathname) ||
+      (isVesselLinkedAccount(userProfile) &&
+        !isVesselLinkedHrefAllowed(userProfile, pathname)) ||
+      (isCrewLimitedAccount(userProfile) && !isCrewLimitedHrefAllowed(pathname)))
   ) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">

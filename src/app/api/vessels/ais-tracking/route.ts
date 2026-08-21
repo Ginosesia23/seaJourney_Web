@@ -4,6 +4,7 @@ import { syncVesselStateFromAis } from '@/lib/ais/sync-vessel-state-from-ais';
 import { normalizeAisNavStatus } from '@/lib/ais/map-ais-to-state';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
+  authenticateAisTrackingStatusReader,
   assertVesselManagerForVessel,
   authenticateVesselManager,
 } from '@/lib/vessel-ais-access';
@@ -14,18 +15,15 @@ import {
  */
 export async function GET(req: NextRequest) {
   try {
-    const authResult = await authenticateVesselManager(req, supabaseAdmin);
-    if ('error' in authResult) return authResult.error;
-
     const vesselId = req.nextUrl.searchParams.get('vesselId');
     if (!vesselId) {
       return NextResponse.json({ error: 'vesselId is required' }, { status: 400 });
     }
 
-    const vesselResult = await assertVesselManagerForVessel(
-      authResult.auth,
-      vesselId,
+    const vesselResult = await authenticateAisTrackingStatusReader(
+      req,
       supabaseAdmin,
+      vesselId,
     );
     if ('error' in vesselResult) return vesselResult.error;
 

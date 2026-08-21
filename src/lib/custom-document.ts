@@ -325,7 +325,7 @@ export function composeCustomDocumentFallback(
           ['Underway', String(facts.seaTime.underwayDays)],
           ['Standby (qualifying)', String(facts.seaTime.standbyDays)],
           ['At anchor', String(facts.seaTime.atAnchorDays)],
-          ['In port', String(facts.seaTime.inPortDays)],
+          ['Moored', String(facts.seaTime.inPortDays)],
           ['Yard', String(facts.seaTime.yardDays)],
           ['Leave', String(facts.seaTime.leaveDays)],
         ],

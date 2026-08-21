@@ -88,13 +88,16 @@ import { signOutLocal } from "@/lib/auth-utils"
 import {
   hasActiveSubscription as hasActiveSubscriptionEntitlement,
   hasAisHistoryImportTier,
+  hasPaidDashboardAccess,
   hasPassagesMapAccess as hasPassagesMapAccessGate,
   hasVesselPremiumPlusFeatures,
   isVesselLinkedAccount,
+  isCrewLimitedAccount,
 } from "@/supabase/database/subscription-helpers"
 import { getSubscriptionTierAccentColor } from "@/lib/subscription-tier-colors"
 import { useFeatureFlags } from "@/hooks/use-feature-flags"
 import type { FeatureFlagKey } from "@/lib/feature-flags/catalog"
+import { CREW_LIMITED_ALLOWED_HREFS, isVesselLinkedFeatureGranted, vesselLinkedAllowedHrefs } from "@/lib/vessel-linked-features"
 import { cn } from "@/lib/utils"
 
 type NavItem = {
@@ -147,11 +150,9 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     title: "Career",
     hideForRoles: ['admin', 'vessel'],
     items: [
-      { href: "/dashboard/applications", label: "Testimonials", icon: FileSignature, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true, featureFlag: 'testimonials' },
+      { href: "/dashboard/career-documents", label: "Career documents", icon: FileSignature, disabled: false, hideForRoles: ['vessel', 'admin'] },
       { href: "/dashboard/apply", label: "Apply for tickets", icon: Award, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true, featureFlag: 'apply_tickets' },
-      { href: "/dashboard/vessel-documents", label: "Vessel documents", icon: FolderOpen, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], crewLimitedOnly: true },
       { href: "/dashboard/certificates", label: "Certificates", icon: ShieldCheck, disabled: false, hideForCrewLimited: true, featureFlag: 'certificates' },
-      { href: "/dashboard/proof-of-service", label: "Proof of service", icon: FileCheck, disabled: false, hideForCrewLimited: true, featureFlag: 'proof_of_service' },
       { href: "/dashboard/my-watch-schedule", label: "My watch roster", icon: Clock, disabled: false, hideForCrewLimited: true, featureFlag: 'watch_schedule' },
     ]
   },
@@ -160,6 +161,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     hideForRoles: ['crew', 'captain', 'admin'],
     items: [
       { href: "/dashboard/documents", label: "Document generator", icon: Layers, disabled: false, requiredRole: "vessel", featureFlag: 'vessel_document_generator' },
+      { href: "/dashboard/vessel-documents", label: "Generated documents", icon: FolderOpen, disabled: false, requiredRole: "vessel" },
     ]
   },
   {
@@ -293,13 +295,12 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   
   // Check if user has crew_limited tier (restricted access - only: Home, Current, Calendar, Profile, Feedback)
   const isCrewLimited = React.useMemo(() => {
-    if (!userProfile) return false;
-    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
-    const role = (userProfile as any).role || userProfile.role || 'crew';
-    const entitled = hasActiveSubscriptionEntitlement(userProfile);
+    return isCrewLimitedAccount(userProfile);
+  }, [userProfile]);
 
-    // Only crew members can have crew_limited tier
-    return role === 'crew' && tier === 'crew_limited' && entitled;
+  const hasPaidAccess = React.useMemo(() => {
+    if (!userProfile) return false;
+    return hasPaidDashboardAccess(userProfile);
   }, [userProfile]);
 
   // Vessel-linked secondary accounts (created via /dashboard/vessel-roles by a
@@ -307,9 +308,14 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   // allowed-hrefs whitelist. Captain-linked accounts have role='captain' so
   // they additionally see captain-only nav items (signature, requests).
   const isVesselLinked = React.useMemo(() => {
-    if (!userProfile) return false;
-    return isVesselLinkedAccount(userProfile) && hasActiveSubscriptionEntitlement(userProfile);
+    return isVesselLinkedAccount(userProfile);
   }, [userProfile]);
+
+  const restrictedAllowedHrefs = React.useMemo(() => {
+    if (isVesselLinked) return new Set(vesselLinkedAllowedHrefs(userProfile));
+    if (isCrewLimited) return new Set<string>(CREW_LIMITED_ALLOWED_HREFS);
+    return null;
+  }, [isVesselLinked, isCrewLimited, userProfile]);
 
   // Check if user has premium/pro subscription for visa tracker access
   const hasPremiumAccess = React.useMemo(() => {
@@ -403,6 +409,82 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     
     return role === 'captain' || role === 'admin' || officerPositions.some(op => position.includes(op));
   }, [userProfile]);
+
+  const shouldShowNavItem = React.useCallback((item: NavItem): boolean => {
+    if (item.requiredRole) {
+      const userRole = userProfile?.role;
+      if (!userRole) return false;
+      if (userRole !== 'admin') {
+        if (item.requiredRole === 'vessel') {
+          if (userRole !== 'vessel' && userRole !== 'captain') return false;
+        } else if (item.requiredRole === 'captain') {
+          if (userRole !== 'captain' && userRole !== 'vessel') return false;
+        } else if (item.requiredRole === 'admin') {
+          return false;
+        } else if (userRole !== item.requiredRole) {
+          return false;
+        }
+      }
+    }
+
+    if (
+      !isVesselLinked &&
+      item.hideForRoles &&
+      userProfile?.role &&
+      item.hideForRoles.includes(userProfile.role as 'vessel' | 'admin' | 'captain')
+    ) {
+      return false;
+    }
+
+    if (item.disabled) return false;
+    if (item.crewLimitedOnly && !isCrewLimited) return false;
+    if (item.hideForCrewLimited && isCrewLimited) return false;
+    if (item.href === '/dashboard/vessel-documents' && !hasPaidAccess) return false;
+    if (item.featureFlag && !isFeatureEnabled(item.featureFlag)) return false;
+
+    if (restrictedAllowedHrefs && !restrictedAllowedHrefs.has(item.href)) {
+      return false;
+    }
+
+    if (
+      item.href === '/dashboard/bridge-watch-log' &&
+      !isOfficer &&
+      !isVesselLinked
+    ) {
+      return false;
+    }
+
+    if (
+      isVesselLinked &&
+      item.href === '/dashboard/watch-schedule' &&
+      isVesselLinkedFeatureGranted(userProfile, 'bridge_watch_log')
+    ) {
+      return false;
+    }
+
+    if (
+      isVesselLinked &&
+      item.href === '/dashboard/my-watch-schedule' &&
+      String(userProfile?.role || '').toLowerCase() === 'captain'
+    ) {
+      return false;
+    }
+
+    if (item.href === '/dashboard/requests' && requestsCount === 0) {
+      return false;
+    }
+
+    return true;
+  }, [
+    userProfile,
+    isVesselLinked,
+    isCrewLimited,
+    hasPaidAccess,
+    isFeatureEnabled,
+    restrictedAllowedHrefs,
+    isOfficer,
+    requestsCount,
+  ]);
   
   // Use admin navGroups for admin, regular navGroups for others
   const displayNavGroups = isAdmin ? adminNavGroups : navGroups
@@ -924,6 +1006,9 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
             }
           }
 
+          const visibleItems = group.items.filter(shouldShowNavItem);
+          if (visibleItems.length === 0) return null;
+
           // For vessel accounts, show "Vessel" as the Account section heading
           const groupLabel = (group.title === "Account" && userProfile?.role === "vessel") ? "Vessel" : group.title;
           return (
@@ -933,115 +1018,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu className="gap-0.5">
-                {group.items.map((item) => {
-                  if ('requiredRole' in item && item.requiredRole) {
-                    // Show item if user has the required role or is admin
-                    // Also allow captains to access items that require 'captain' or 'vessel' role
-                    const userRole = userProfile?.role;
-                    if (!userRole) return null;
-                    
-                    // Admin can access everything - check this first
-                    const isAdmin = userRole === 'admin';
-                    if (isAdmin) {
-                      // Admin has access - continue
-                    } else if (item.requiredRole === 'vessel') {
-                      // Vessel-required items: captains and vessel roles can access
-                      if (userRole !== 'vessel' && userRole !== 'captain') {
-                        return null;
-                      }
-                    } else if (item.requiredRole === 'captain') {
-                      // Captain-required items: captains and vessel roles can access
-                      if (userRole !== 'captain' && userRole !== 'vessel') {
-                        return null;
-                      }
-                    } else if (item.requiredRole === 'admin') {
-                      // Only admins can access admin-required items (userRole is not admin here since isAdmin is false)
-                      return null;
-                    } else {
-                      // For any other required roles (shouldn't happen given our type, but handle it)
-                      // Only show if user has that exact role
-                      const requiredRole = item.requiredRole;
-                      if (userRole !== requiredRole) {
-                        return null;
-                      }
-                    }
-                  }
-                  
-                  // Hide individual item if it's in hideForRoles
-                  if ('hideForRoles' in item && item.hideForRoles && userProfile?.role && item.hideForRoles.includes(userProfile.role as 'vessel' | 'admin' | 'captain')) {
-                    return null
-                  }
-                  
-                  if ('disabled' in item && item.disabled) {
-                    return null
-                  }
-
-                  if ('crewLimitedOnly' in item && item.crewLimitedOnly && !isCrewLimited) {
-                    return null
-                  }
-                  if ('hideForCrewLimited' in item && item.hideForCrewLimited && isCrewLimited) {
-                    return null
-                  }
-
-                  if (
-                    'featureFlag' in item &&
-                    item.featureFlag &&
-                    !isFeatureEnabled(item.featureFlag)
-                  ) {
-                    return null
-                  }
-
-                  // For crew_limited tier, only show: Home, Current, Calendar, Profile, Feedback, Inbox, Documents (vessel-documents)
-                  if (isCrewLimited) {
-                    const allowedHrefs = [
-                      '/dashboard', 
-                      '/dashboard/current', 
-                      '/dashboard/calendar', 
-                      '/dashboard/profile',
-                      '/dashboard/feedback',
-                      '/dashboard/inbox',
-                      '/dashboard/vessel-documents',
-                    ];
-                    if (!allowedHrefs.includes(item.href)) {
-                      return null;
-                    }
-                  }
-
-                  // For vessel_linked tier (Captain/Officer/Engineer/Manager
-                  // secondary accounts owned by a vessel): a flat allowed
-                  // list scoped to what these accounts actually need —
-                  // viewing the vessel's state, completing assigned tasks,
-                  // and managing their own profile. Personal-portfolio
-                  // pages (export, certificates, proof-of-service) are
-                  // intentionally excluded because linked accounts don't
-                  // own portable sea-time history. Captain-linked accounts
-                  // additionally see captain-only items (signature,
-                  // requests) because their users.role = 'captain'
-                  // matches the `requiredRole` checks already applied
-                  // above. Sign-offs live in Inbox for now.
-                  if (isVesselLinked) {
-                    const allowedHrefs = [
-                      '/dashboard',
-                      '/dashboard/current',
-                      '/dashboard/calendar',
-                      '/dashboard/profile',
-                      '/dashboard/applications',
-                      '/dashboard/vessel-documents',
-                      '/dashboard/inbox',
-                      '/dashboard/feedback',
-                      // Captain-only items (already gated by requiredRole):
-                      '/dashboard/settings/signature',
-                      '/dashboard/requests',
-                    ];
-                    if (!allowedHrefs.includes(item.href)) {
-                      return null;
-                    }
-                  }
-
-                  // Check if feature requires premium access (visa tracker, bridge watch, export, request sea time, certificates)
-                  // Passage log uses hasPassageLogAccess (Premium+ crew, vessel tiers)
-                  // Note: Applications page is accessible to all users (testimonials are free), but Nav Watch/OOW are premium-only
-                  // Note: Export is accessible to crew_limited users, so we exclude it from premium requirement for them
+                {visibleItems.map((item) => {
+                  // Locked teasers (upgrade sparkles) are for paying plans that
+                  // don't include a feature yet. Restricted vessel-managed
+                  // accounts only see pages they can actually open.
                   const isVisaTracker = item.href === '/dashboard/visa-tracker';
                   const isPassageLog = item.href === '/dashboard/passage-logbook';
                   const isPassagesMap = item.href === '/dashboard/passages-map';
@@ -1050,58 +1030,36 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const isSeaTimeRequest = item.href === '/dashboard/sea-time-request';
                   const isCertificates = item.href === '/dashboard/certificates';
                   const isAisImport = item.href === '/dashboard/ais-import';
-                  // vessel_linked accounts never reach this branch for the
-                  // hrefs filtered out above (export, certificates,
-                  // proof-of-service). For the items they *can* see we still
-                  // keep the `!isVesselLinked` guard so no item is
-                  // mistakenly marked premium-locked — their feature surface
-                  // comes from the vessel's Pro/Fleet plan, not personal billing.
+                  const hideLockedTeasers = isCrewLimited || isVesselLinked;
                   const requiresPremium =
-                    (isVisaTracker || isBridgeWatch || isSeaTimeRequest || isCertificates || (isExport && !isCrewLimited)) &&
-                    !hasPremiumAccess &&
-                    !isCrewLimited &&
-                    !isVesselLinked;
-                  const passageNavLocked = isPassageLog && !hasPassageLogAccess && !isCrewLimited && !isVesselLinked;
+                    !hideLockedTeasers &&
+                    (isVisaTracker || isBridgeWatch || isSeaTimeRequest || isCertificates || isExport) &&
+                    !hasPremiumAccess;
+                  const passageNavLocked = !hideLockedTeasers && isPassageLog && !hasPassageLogAccess;
                   const aisImportNavLocked =
-                    isAisImport && !hasAisHistoryImportAccess && !isCrewLimited && !isVesselLinked;
-                  // Passages Map: lock when the shared access gate fails
-                  // (crew below Professional/TEMP Premium, or vessel below Premium+).
+                    !hideLockedTeasers && isAisImport && !hasAisHistoryImportAccess;
                   const passagesMapNavLocked =
-                    isPassagesMap && !hasPassagesMapAccess && !isCrewLimited && !isVesselLinked;
+                    !hideLockedTeasers && isPassagesMap && !hasPassagesMapAccess;
                   const vesselPremiumNavLocked =
+                    !hideLockedTeasers &&
                     VESSEL_PREMIUM_PLUS_NAV.has(item.href) &&
                     userProfile?.role === 'vessel' &&
                     !hasVesselPremiumPlus;
-                  
-                  // Hide bridge watch log for non-officers
-                  if (isBridgeWatch && !isOfficer) {
-                    return null;
-                  }
 
                   const isActive =
                     item.href === '/dashboard'
                       ? pathname === '/dashboard'
                       : pathname === item.href || pathname.startsWith(`${item.href}/`)
                   
-                  // Use a combination of href and label for unique keys (since two items can have the same href)
                   const uniqueKey = `${item.href}-${item.label}`
                   
-                  // Check if this is the inbox item and show count badge
                   const isInbox = item.href === '/dashboard/inbox';
-                  // Check if this is the feedback item and show count badge
                   const isFeedback = item.href === '/dashboard/feedback';
-                  // Check if this is the requests item - only show if there are active requests
                   const isRequests = item.href === '/dashboard/requests';
                   const isPendingSent = item.href === '/dashboard/pending-requests';
 
                   const countBadgeClass =
                     'ml-auto h-5 min-w-5 rounded-full border-0 bg-sky-400/20 px-1.5 text-[10px] font-semibold tabular-nums text-sky-100 group-data-[collapsible=icon]:hidden'
-                  
-                  // Always show inbox link (don't hide even if count is 0)
-                  // Hide requests link if no active requests
-                  if (isRequests && requestsCount === 0) {
-                    return null;
-                  }
                   
                   return (
                     <SidebarMenuItem key={uniqueKey}>

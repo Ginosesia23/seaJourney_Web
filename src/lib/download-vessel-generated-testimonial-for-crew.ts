@@ -40,7 +40,7 @@ export async function downloadVesselGeneratedTestimonialForCrew(
   crewProfile: UserProfile,
   format: TestimonialPDFFormat = 'mca',
   output: TestimonialPDFOutput = 'download',
-): Promise<void> {
+): Promise<Blob | void> {
   const { data: vesselRow, error: vErr } = await supabase
     .from('vessels')
     .select('*')
@@ -324,10 +324,9 @@ export async function downloadVesselGeneratedTestimonialForCrew(
     };
 
     if (isOfficerUser) {
-      await generateMCAOfficerTestimonial(testimonialDataWithReceipt, output);
-    } else {
-      await generateMCADeckhandTestimonial(testimonialDataWithReceipt, output);
+      return await generateMCAOfficerTestimonial(testimonialDataWithReceipt, output);
     }
+    return await generateMCADeckhandTestimonial(testimonialDataWithReceipt, output);
   } else {
     const payload =
       format === 'amsa'
@@ -347,6 +346,6 @@ export async function downloadVesselGeneratedTestimonialForCrew(
           }
         : testimonialData;
 
-    await generateTestimonialPDF(payload, format, output);
+    return await generateTestimonialPDF(payload, format, output);
   }
 }

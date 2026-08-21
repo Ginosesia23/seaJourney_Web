@@ -25,6 +25,7 @@ import {
   type DiscoveredPlace,
   type DiscoveredPlaceKind,
 } from '@/lib/passages-map/discover-places';
+import { resolveLinkedVesselScope } from '@/lib/passages-map/linked-vessel-scope';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -66,29 +67,34 @@ async function authUser(req: NextRequest) {
   return user;
 }
 
-async function assertAccess(userId: string): Promise<NextResponse | null> {
+async function assertAccess(userId: string): Promise<
+  | { profile: Record<string, unknown>; error?: undefined }
+  | { error: NextResponse; profile?: undefined }
+> {
   const { data: profile } = await supabaseAdmin
     .from('users')
     .select(
-      'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, active_vessel_id',
+      'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, active_vessel_id, linked_account_features, managed_by_vessel_id',
     )
     .eq('id', userId)
     .single();
   if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    return { error: NextResponse.json({ error: 'Profile not found' }, { status: 404 }) };
   }
   const isAdmin = String(profile.role || '').toLowerCase() === 'admin';
   const mapOn = await isFeatureEnabledServer('passages_map', { isAdmin });
   if (!mapOn) {
-    return NextResponse.json(
-      { error: 'Passages Map is temporarily unavailable.' },
-      { status: 403 },
-    );
+    return {
+      error: NextResponse.json(
+        { error: 'Passages Map is temporarily unavailable.' },
+        { status: 403 },
+      ),
+    };
   }
   if (!hasPassagesMapAccess(profile as any) && !isAdmin) {
-    return NextResponse.json({ error: 'Upgrade required' }, { status: 403 });
+    return { error: NextResponse.json({ error: 'Upgrade required' }, { status: 403 }) };
   }
-  return null;
+  return { profile: profile as Record<string, unknown> };
 }
 
 async function loadUserPlaces(userId: string): Promise<DiscoveredPlace[]> {
@@ -198,10 +204,16 @@ export async function GET(req: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const denied = await assertAccess(user.id);
-    if (denied) return denied;
+    const gate = await assertAccess(user.id);
+    if (gate.error) return gate.error;
 
-    const places = await loadUserPlaces(user.id);
+    const linkedScope = await resolveLinkedVesselScope(
+      supabaseAdmin,
+      gate.profile,
+      'passages_map',
+    );
+    const placesUserId = linkedScope?.cacheUserId || user.id;
+    const places = await loadUserPlaces(placesUserId);
     return NextResponse.json({ places });
   } catch (err) {
     console.error('[passages-map/places] GET', err);
@@ -215,8 +227,16 @@ export async function POST(req: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const denied = await assertAccess(user.id);
-    if (denied) return denied;
+    const gate = await assertAccess(user.id);
+    if (gate.error) return gate.error;
+
+    const linkedScope = await resolveLinkedVesselScope(
+      supabaseAdmin,
+      gate.profile,
+      'passages_map',
+    );
+    const placesUserId = linkedScope?.cacheUserId || user.id;
+    const readOnlyPlaces = Boolean(linkedScope);
 
     const body = (await req.json().catch(() => null)) as {
       samples?: SampleIn[];
@@ -238,8 +258,16 @@ export async function POST(req: NextRequest) {
       samples.push({ lat, lon, cellKey });
     }
 
-    const existing = await loadUserPlaces(user.id);
+    const existing = await loadUserPlaces(placesUserId);
     const existingKeys = new Set(existing.map((p) => p.cellKey));
+
+    if (readOnlyPlaces) {
+      return NextResponse.json({
+        places: existing,
+        newlyDiscovered: 0,
+        resolvedThisBatch: 0,
+      });
+    }
 
     const toResolve = samples
       .filter((s) => !existingKeys.has(s.cellKey))
@@ -271,7 +299,7 @@ export async function POST(req: NextRequest) {
 
     // Prefer reloading so concurrent discoveries + ignoreDuplicates stay
     // consistent; fall back to merge if the table is missing.
-    const reloaded = await loadUserPlaces(user.id);
+    const reloaded = await loadUserPlaces(placesUserId);
     const places =
       reloaded.length > 0 || existing.length > 0
         ? reloaded.length > 0

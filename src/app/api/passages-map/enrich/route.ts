@@ -13,6 +13,7 @@ import {
   passageNeedsAisEnrichment,
   type AisPassageCandidate,
 } from '@/lib/passages/ais-logbook-link';
+import { resolveLinkedVesselScope } from '@/lib/passages-map/linked-vessel-scope';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -83,22 +84,35 @@ type Proposal = {
   };
 };
 
-async function buildProposals(userId: string): Promise<{
+async function buildProposals(opts: {
+  cacheUserId: string;
+  crewId?: string;
+  vesselId?: string;
+}): Promise<{
   proposals: Proposal[];
   aisPassageCount: number;
   cachedMonthCount: number;
 }> {
-  const aisBundle = await loadAisCandidatesForUser(userId);
-  const { data: logRows, error: logErr } = await supabaseAdmin
-    .from('passage_logs')
-    .select('*')
-    .eq('crew_id', userId)
-    .order('start_time', { ascending: false });
+  const aisBundle = await loadAisCandidatesForUser(opts.cacheUserId);
+  const candidates = opts.vesselId
+    ? aisBundle.candidates.filter((c) => c.vesselId === opts.vesselId)
+    : aisBundle.candidates;
+
+  let logQuery = supabaseAdmin.from('passage_logs').select('*');
+  if (opts.vesselId) {
+    logQuery = logQuery.eq('vessel_id', opts.vesselId);
+  } else if (opts.crewId) {
+    logQuery = logQuery.eq('crew_id', opts.crewId);
+  }
+  const { data: logRows, error: logErr } = await logQuery.order(
+    'start_time',
+    { ascending: false },
+  );
   if (logErr) throw logErr;
 
   const proposals: Proposal[] = [];
   for (const log of logRows || []) {
-    const found = findBestAisMatchForLog(log, aisBundle.candidates);
+    const found = findBestAisMatchForLog(log, candidates);
     if (!found) {
       proposals.push({
         passageId: log.id,
@@ -190,7 +204,7 @@ async function buildProposals(userId: string): Promise<{
 
   return {
     proposals,
-    aisPassageCount: aisBundle.candidates.length,
+    aisPassageCount: candidates.length,
     cachedMonthCount: aisBundle.monthCount,
   };
 }
@@ -223,7 +237,7 @@ async function requireMapUser(req: NextRequest): Promise<
   const { data: profile, error: profileErr } = await supabaseAdmin
     .from('users')
     .select(
-      'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, active_vessel_id',
+      'id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, active_vessel_id, linked_account_features, managed_by_vessel_id',
     )
     .eq('id', user.id)
     .single();
@@ -251,9 +265,20 @@ export async function GET(req: NextRequest) {
   try {
     const gate = await requireMapUser(req);
     if (gate.error) return gate.error;
-    const { user } = gate;
-
-    const result = await buildProposals(user.id);
+    const { user, profile } = gate;
+    const linkedScope = await resolveLinkedVesselScope(
+      supabaseAdmin,
+      profile,
+      'passages_map',
+    );
+    const result = await buildProposals(
+      linkedScope
+        ? {
+            cacheUserId: linkedScope.cacheUserId || user.id,
+            vesselId: linkedScope.vesselId,
+          }
+        : { cacheUserId: user.id, crewId: user.id },
+    );
     const enrichable = result.proposals.filter((p) => p.status === 'enrichable');
     const matched = result.proposals.filter((p) => p.status === 'matched_complete');
     const unmatched = result.proposals.filter((p) => p.status === 'no_match');
@@ -289,7 +314,7 @@ export async function POST(req: NextRequest) {
   try {
     const gate = await requireMapUser(req);
     if (gate.error) return gate.error;
-    const { user, supabase } = gate;
+    const { user, supabase, profile } = gate;
 
     const body = (await req.json().catch(() => ({}))) as {
       passageIds?: string[];
@@ -298,12 +323,27 @@ export async function POST(req: NextRequest) {
       overwritePorts?: boolean;
     };
 
-    const { candidates } = await loadAisCandidatesForUser(user.id);
-    const { data: logRows, error: logErr } = await supabaseAdmin
-      .from('passage_logs')
-      .select('*')
-      .eq('crew_id', user.id);
+    const linkedScope = await resolveLinkedVesselScope(
+      supabaseAdmin,
+      profile,
+      'passages_map',
+    );
+    const cacheUserId = linkedScope?.cacheUserId || user.id;
+    const { candidates: allCandidates } = await loadAisCandidatesForUser(
+      cacheUserId,
+    );
+    const candidates = linkedScope
+      ? allCandidates.filter((c) => c.vesselId === linkedScope.vesselId)
+      : allCandidates;
+
+    let logQuery = supabaseAdmin.from('passage_logs').select('*');
+    logQuery = linkedScope
+      ? logQuery.eq('vessel_id', linkedScope.vesselId)
+      : logQuery.eq('crew_id', user.id);
+    const { data: logRows, error: logErr } = await logQuery;
     if (logErr) throw logErr;
+
+    const db = linkedScope ? supabaseAdmin : supabase;
 
     const idFilter =
       Array.isArray(body.passageIds) && body.passageIds.length > 0
@@ -335,7 +375,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      await updatePassageLog(supabase, log.id, {
+      await updatePassageLog(db, log.id, {
         startTime: patch.startTime,
         endTime: patch.endTime,
         distanceNm: patch.distanceNm,

@@ -55,6 +55,7 @@ import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
 import { isFeatureEnabledServer } from '@/lib/feature-flags/server';
+import { resolveLinkedVesselScope } from '@/lib/passages-map/linked-vessel-scope';
 import { DatalasticApiError, fetchVesselHistoryRange } from '@/lib/datalastic/client';
 import { todayDateKey } from '@/lib/vessel-assignment-dates';
 import { parseHistoryPosition } from '@/lib/ais/historical-import';
@@ -315,7 +316,7 @@ async function authenticate(req: NextRequest): Promise<
   const { data: profile } = await supabaseAdmin
     .from('users')
     .select(
-      'id, role, active_vessel_id, start_date, subscription_tier, subscription_status, cancel_at_period_end, current_period_end',
+      'id, role, active_vessel_id, start_date, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, linked_account_features, managed_by_vessel_id',
     )
     .eq('id', user.id)
     .maybeSingle();
@@ -367,9 +368,42 @@ async function resolvePassagesMapScope(
 ): Promise<{
   assignments: AssignmentRow[];
   isVesselAccount: boolean;
+  cacheUserId: string;
+  cacheOnly: boolean;
   emptyMessage: string;
 }> {
   const role = (profile.role || '').toString().toLowerCase();
+
+  const linkedScope = await resolveLinkedVesselScope(
+    supabaseAdmin,
+    profile,
+    'passages_map',
+  );
+  if (linkedScope) {
+    const { data: vessel } = await supabaseAdmin
+      .from('vessels')
+      .select('id, created_at')
+      .eq('id', linkedScope.vesselId)
+      .maybeSingle();
+    const created = vessel?.created_at
+      ? String(vessel.created_at).slice(0, 10)
+      : '1970-01-01';
+    return {
+      assignments: [
+        {
+          id: `linked-scope:${linkedScope.vesselId}`,
+          vessel_id: linkedScope.vesselId,
+          start_date: created,
+          end_date: null,
+        },
+      ],
+      isVesselAccount: true,
+      cacheUserId: linkedScope.cacheUserId || userId,
+      cacheOnly: true,
+      emptyMessage:
+        'No AIS passage history for this vessel yet. Tracks appear here after the vessel has used Passage tracks.',
+    };
+  }
 
   if (role === 'vessel') {
     const { data: managedRaw, error: managedErr } = await supabaseAdmin
@@ -427,6 +461,8 @@ async function resolvePassagesMapScope(
     return {
       assignments,
       isVesselAccount: true,
+      cacheUserId: userId,
+      cacheOnly: false,
       emptyMessage:
         'No managed vessel found — link a vessel to this account to plot passages.',
     };
@@ -442,6 +478,8 @@ async function resolvePassagesMapScope(
   return {
     assignments: (assignmentsRaw ?? []) as AssignmentRow[],
     isVesselAccount: false,
+    cacheUserId: userId,
+    cacheOnly: false,
     emptyMessage:
       'No vessel assignments yet — add a vessel on Current Service and your passages will appear here.',
   };
@@ -466,6 +504,7 @@ export async function GET(req: NextRequest) {
 
     // 1. Load scope (crew assignments, or managed vessels for vessel accounts).
     const scope = await resolvePassagesMapScope(auth.userId, auth.profile);
+    const cacheUserId = scope.cacheUserId;
     const assignments = scope.assignments;
 
     if (assignments.length === 0) {
@@ -586,11 +625,11 @@ export async function GET(req: NextRequest) {
     );
 
     // 3. Handle explicit refresh (delete cache rows before we load them).
-    if (refresh) {
+    if (refresh && !scope.cacheOnly) {
       let q = supabaseAdmin
         .from('crew_passage_month_cache')
         .delete()
-        .eq('user_id', auth.userId);
+        .eq('user_id', cacheUserId);
       if (refreshVesselId) q = q.eq('vessel_id', refreshVesselId);
       if (!isAllTime && requestedMonth) q = q.eq('month_key', requestedMonth);
       await q;
@@ -603,7 +642,7 @@ export async function GET(req: NextRequest) {
       .select(
         'id, user_id, vessel_id, month_key, track_geojson, bbox, passage_count, total_distance_nm, point_count, first_fix_at, last_fix_at, fetched_at, datalastic_request_count, is_current_month',
       )
-      .eq('user_id', auth.userId)
+      .eq('user_id', cacheUserId)
       .in('vessel_id', vesselIds);
     if (cacheErr) throw cacheErr;
     const cacheByKey = new Map<string, MonthCacheRow>();
@@ -625,7 +664,7 @@ export async function GET(req: NextRequest) {
     // so an underway voyage isn't truncated at the last Datalastic
     // fetch (the classic "half a track, vessel further along" gap).
     const samplesByVessel = await loadRecentSampleFixes(
-      auth.userId,
+      cacheUserId,
       vesselIds,
     );
 
@@ -755,6 +794,20 @@ export async function GET(req: NextRequest) {
         }
 
         // Need to fetch. Cost guard first.
+        if (scope.cacheOnly) {
+          vesselResponses.push(
+            buildVesselResponse(
+              vessel,
+              emptyBucket(month),
+              collectCachedMonthsForVessel(cacheByKey, vessel.id).map(
+                (r) => r.month_key,
+              ),
+              'missing',
+            ),
+          );
+          continue;
+        }
+
         if (datalasticChunks >= MAX_DATALASTIC_CHUNKS_PER_REQUEST) {
           vesselResponses.push(
             buildVesselResponse(
@@ -841,14 +894,14 @@ export async function GET(req: NextRequest) {
           await supabaseAdmin
             .from('crew_passage_month_cache')
             .delete()
-            .eq('user_id', auth.userId)
+            .eq('user_id', cacheUserId)
             .eq('vessel_id', vessel.id)
             .eq('month_key', month);
 
           const { data: inserted, error: insertErr } = await supabaseAdmin
             .from('crew_passage_month_cache')
             .insert({
-              user_id: auth.userId,
+              user_id: cacheUserId,
               vessel_id: vessel.id,
               month_key: month,
               track_geojson: requestedBucket.featureCollection,

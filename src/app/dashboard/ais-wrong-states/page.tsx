@@ -157,7 +157,7 @@ function stateLabel(s: string | null | undefined): string {
   const map: Record<string, string> = {
     underway: 'Underway',
     'at-anchor': 'At anchor',
-    'in-port': 'In port',
+    'in-port': 'Moored',
     'in-yard': 'In yard',
     'on-leave': 'On leave',
   };

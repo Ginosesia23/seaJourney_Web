@@ -18,7 +18,7 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 const PROFILE_SELECT =
-  'id, role, active_vessel_id, subscription_tier, subscription_status, cancel_at_period_end, current_period_end';
+  'id, role, active_vessel_id, subscription_tier, subscription_status, stripe_subscription_id, cancel_at_period_end, current_period_end';
 
 async function authenticate(request: NextRequest) {
   const authHeader = request.headers.get('authorization');

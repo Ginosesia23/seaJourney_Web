@@ -220,10 +220,12 @@ COORDINATE SYSTEM:
 
 WHERE TO PLACE THE BOX — THE MOST IMPORTANT RULE:
 The box must cover ONLY the blank/input area where someone would write — NEVER the printed label text.
+If the blank already contains typed/printed text (a filled-in name, IMO, phone, etc.), box THAT value text, not the label beside it.
 
-1. LABEL LEFT of blank (e.g. "Full name: ___________"):
-   → Box goes to the RIGHT of the label, on the underline/rectangle.
-   → xMin = just after the label text ends. xMax = right edge of the underline.
+1. LABEL LEFT of blank (e.g. "Full name: ___________" or "Name of Vessel: Sunrise"):
+   → Box goes to the RIGHT of the label, on the underline/rectangle/value.
+   → xMin = just after the label text (and colon) ends. xMax = right edge of the underline OR just before the next label on the same row (e.g. stop before "IMO Number:").
+   → yMin/yMax = the SAME row as the label — do not drift up or down onto the row above/below.
 
 2. LABEL ABOVE blank (label-above-input layout):
    → Box goes BELOW the label text.
@@ -232,10 +234,12 @@ The box must cover ONLY the blank/input area where someone would write — NEVER
 3. TWO-COLUMN TABLE (label cell left, empty value cell right):
    → The ENTIRE left cell is the label — put nothing there.
    → xMin = just past the vertical divider. xMax = right edge of the value cell.
+   → yMin/yMax match the label's row exactly.
    → CRITICAL: if the box would start at x=0 or xMax ≤ divider, it is on the label — shift right.
 
 4. TABLE DATA CELL (column headers + data rows):
    → Box goes in the empty DATA row cell, NOT the header row.
+   → Never place a field one row above its label.
 
 5. CHECKBOX:
    → Box covers ONLY the small square/circle, NOT the option text beside it.
@@ -530,6 +534,126 @@ export async function scanDocument(
   };
 }
 
+export interface DrawnRegion {
+  id: string;
+  page: number;
+  bbox: { xMin: number; yMin: number; xMax: number; yMax: number };
+}
+
+export interface ClassifiedDrawnRegion {
+  id: string;
+  fieldName: string;
+  fieldType: 'text' | 'multiline' | 'number' | 'date' | 'email' | 'checkbox' | 'signature';
+  profileKey: string | null;
+  fieldDescription?: string;
+}
+
+const ClassifyRegionResultSchema = z.object({
+  id: z.string(),
+  fieldName: z.string(),
+  fieldType: z.enum(['text', 'multiline', 'number', 'date', 'email', 'checkbox', 'signature']),
+  profileKey: z.string().nullable(),
+  fieldDescription: z.string().optional(),
+});
+
+const ClassifyRegionsOutputSchema = z.object({
+  results: z.array(ClassifyRegionResultSchema),
+});
+
+/**
+ * Inverse of Pass-2: the user already drew the boxes. We only ask the model
+ * what each region is (printed label, widget type, profile binding).
+ */
+export async function classifyDrawnRegions(
+  fileBase64: string,
+  mimeType: string,
+  regions: DrawnRegion[],
+): Promise<ClassifiedDrawnRegion[]> {
+  if (!regions.length) return [];
+
+  const regionList = regions
+    .map(
+      (r) =>
+        `  id="${r.id}" page=${r.page} bbox={ xMin:${Math.round(r.bbox.xMin)}, yMin:${Math.round(r.bbox.yMin)}, xMax:${Math.round(r.bbox.xMax)}, yMax:${Math.round(r.bbox.yMax)} }`,
+    )
+    .join('\n');
+
+  const prompt = `You are labelling fillable regions that a user drew on a maritime form.
+
+COORDINATES: normalised [0,1000], (0,0)=top-left. Each bbox is the VALUE AREA the user wants filled — usually the blank cell to the right of a printed label.
+
+REGIONS:
+${regionList}
+
+For EACH region:
+1. Read the printed label immediately left of, above, or inside the box. Use that exact caption as fieldName (strip trailing : and **).
+2. Pick fieldType: text | multiline | number | date | email | checkbox | signature.
+3. Bind profileKey from this list, or null if none fit:
+fullName, firstName, lastName, email, dateOfBirth, placeOfBirth, countryOfBirth, nationality, telephone, mobile, position, dischargeBookNumber, title,
+addressLine1, addressLine2, addressDistrict, addressTownCity, addressCountyState, addressPostCode, addressCountry, fullAddress,
+vesselName, vesselType, vesselIMO, vesselOfficialNumber, vesselFlag, vesselGrossTonnage, vesselLength, vesselCallSign, vesselMMSI, vesselManagementCompany, vesselCompanyAddress, vesselCompanyContact,
+servicePeriodStart, servicePeriodEnd, totalDays, atSeaDays, standbyDays, yardDays, leaveDays,
+captainName, captainPosition, captainSignature.
+4. fieldDescription: a short phrase of what to write in the box.
+
+Return JSON: { "results": [ { "id", "fieldName", "fieldType", "profileKey", "fieldDescription" }, ... ] }
+Include every region id. If a label is unreadable, use fieldName "Field" and profileKey null.`;
+
+  const callOnce = () =>
+    ai.generate({
+      model: DOCUMENT_SCAN_MODEL,
+      prompt: [
+        { text: prompt },
+        {
+          media: {
+            contentType: mimeType as 'image/png' | 'image/jpeg' | 'application/pdf',
+            url: `data:${mimeType};base64,${fileBase64}`,
+          },
+        },
+        { text: 'Identify each drawn region and return JSON.' },
+      ],
+      output: { schema: ClassifyRegionsOutputSchema },
+    });
+
+  let response;
+  try {
+    response = await callOnce();
+  } catch (err: any) {
+    if (isRateLimitError(err)) {
+      const retryAfter = extractRetryAfterSeconds(err);
+      if (retryAfter !== null && retryAfter <= 20) {
+        await sleep(retryAfter * 1000 + 250);
+        response = await callOnce();
+      } else {
+        throw new AIQuotaExceededError(
+          'AI quota exceeded. Try again shortly or upgrade the Gemini plan.',
+          retryAfter,
+        );
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  const output = response.output as z.infer<typeof ClassifyRegionsOutputSchema> | null;
+  const byId = new Map((output?.results ?? []).map((r) => [r.id, r]));
+
+  return regions.map((region) => {
+    const hit = byId.get(region.id);
+    const profileKey =
+      hit?.profileKey && hit.profileKey !== 'none' && hit.profileKey.trim()
+        ? hit.profileKey.trim()
+        : null;
+    return {
+      id: region.id,
+      fieldName: (hit?.fieldName || 'Field').trim() || 'Field',
+      fieldType: hit?.fieldType ?? 'text',
+      profileKey,
+      fieldDescription: hit?.fieldDescription,
+    };
+  });
+}
+
 /**
  * Profile field mapping definitions.
  * Maps profileKey → human-readable label + getter path in profile/vessel data.
@@ -685,7 +809,7 @@ const FIELD_ALIASES: Array<{ key: string; pattern: RegExp }> = [
   { key: 'vesselCompanyContact', pattern: /\bcompany\s*(contact|telephone|phone|email)\b/i },
 
   // Service — standby specifically caught here (table cells like "Days on standby")
-  // Ordered specific → generic so "days alongside in port" hits inPortDays
+  // Ordered specific → generic so "days moored / alongside" hits inPortDays
   // before falling through to standbyDays.
   { key: 'inPortDays', pattern: /\b(days?\s*(in[-\s]*port|alongside)|in[-\s]*port\s*days?|alongside\s*days?)\b/i },
   { key: 'atAnchorDays', pattern: /\b(at[-\s]*anchor\s*days?|days?\s*at\s*anchor|anchored\s*days?)\b/i },

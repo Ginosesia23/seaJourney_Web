@@ -155,7 +155,7 @@ export default function CalculationsPage() {
         <CardContent className="space-y-4">
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              For yacht, fishing and other class vessels, standby days are calculated using MCA/PYA compliant calculation methods and represent time spent in port or at anchor that may count towards sea service requirements. Commercial and passenger commercial vessels do not have a separate standby count (all non-leave days count as sea time).
+              For yacht, fishing and other class vessels, standby days are calculated using MCA/PYA compliant calculation methods and represent time spent moored or at anchor that may count towards sea service requirements. Commercial and passenger commercial vessels do not have a separate standby count (all non-leave days count as sea time).
             </p>
             
             <div>
