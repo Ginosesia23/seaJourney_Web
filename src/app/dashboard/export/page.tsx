@@ -268,10 +268,22 @@ export default function ExportPage() {
         return allVessels.find(v => v.id === userProfile.activeVesselId) || null;
     }, [isVesselManager, userProfile?.activeVesselId, allVessels]);
 
+    const vesselManagerNeedsVessel = isVesselManager && !currentVessel;
+
+    // Clear any stale date range when there is no linked vessel
+    useEffect(() => {
+        if (!vesselManagerNeedsVessel) return;
+        form.setValue('dateRange', { from: undefined, to: undefined }, { shouldValidate: false });
+    }, [vesselManagerNeedsVessel, form]);
+
     // Calculate available years for quick selection
-    // For vessel managers: from vessel start date to current year
+    // For vessel managers: from vessel start date to current year (only when a vessel is linked)
     // For crew: from earliest assignment to current year
     const availableYears = useMemo(() => {
+        if (isVesselManager && !currentVessel) {
+            return [];
+        }
+
         const currentYear = getYear(new Date());
         const years: number[] = [];
         
@@ -322,6 +334,7 @@ export default function ExportPage() {
 
     // Helper function to set year range
     const setYearRange = (year: number) => {
+        if (isVesselManager && !currentVessel) return;
         const yearStart = startOfYear(new Date(year, 0, 1));
         const yearEnd = endOfYear(new Date(year, 0, 1));
         form.setValue('dateRange', { from: yearStart, to: yearEnd });
@@ -329,6 +342,11 @@ export default function ExportPage() {
 
     // Helper function to set "All" date range (from vessel start date to today; does not depend on state logs)
     const setAllDateRange = () => {
+        if (isVesselManager && !currentVessel) {
+            form.setValue('dateRange', { from: undefined, to: undefined });
+            return;
+        }
+
         let startDate: Date | null = null;
         
         if (isVesselManager && currentVessel) {
@@ -361,11 +379,13 @@ export default function ExportPage() {
             }
         }
         
-        // If we have a start date, use it; otherwise use a very early date (e.g., 10 years ago)
-        const allStartDate = startDate || new Date(new Date().getFullYear() - 10, 0, 1);
+        if (!startDate) {
+            form.setValue('dateRange', { from: undefined, to: undefined });
+            return;
+        }
+
         const allEndDate = new Date(); // Today
-        
-        form.setValue('dateRange', { from: allStartDate, to: allEndDate });
+        form.setValue('dateRange', { from: startDate, to: allEndDate });
     };
 
     // Fetch preview statistics based on selected filters
@@ -385,10 +405,12 @@ export default function ExportPage() {
 
                 // For vessel managers, always filter by date range (and their active vessel if needed)
                 if (isVesselManager) {
-                    // Vessel managers should only see logs for their active vessel
-                    if (userProfile?.activeVesselId) {
-                        logsQuery = logsQuery.eq('vessel_id', userProfile.activeVesselId);
+                    if (!userProfile?.activeVesselId) {
+                        setPreviewStats({ recordCount: 0, dateRange: { earliest: null, latest: null }, vesselCount: 0, isLoading: false });
+                        return;
                     }
+                    // Vessel managers should only see logs for their active vessel
+                    logsQuery = logsQuery.eq('vessel_id', userProfile.activeVesselId);
                     if (watchedDateRange?.from && watchedDateRange?.to) {
                         const startDateStr = watchedDateRange.from.toISOString().split('T')[0];
                         const endDateStr = watchedDateRange.to.toISOString().split('T')[0];
@@ -433,10 +455,10 @@ export default function ExportPage() {
         };
 
         // Only fetch if we have valid filters
-        // For vessel managers, only check date range
+        // For vessel managers, require a linked vessel + date range
         // For others, check based on filter type
         const hasValidFilters = isVesselManager
-            ? (watchedDateRange?.from && watchedDateRange?.to)
+            ? Boolean(userProfile?.activeVesselId && watchedDateRange?.from && watchedDateRange?.to)
             : ((filterType === 'vessel' && watchedVesselId) || (filterType === 'date_range' && watchedDateRange?.from && watchedDateRange?.to));
         
         if (hasValidFilters) {
@@ -457,6 +479,15 @@ export default function ExportPage() {
         
         if (!user) {
             toast({ title: 'Error', description: 'You must be logged in to export data.', variant: 'destructive' });
+            return;
+        }
+
+        if (isVesselManager && !currentVessel) {
+            toast({
+                title: 'No vessel linked',
+                description: 'Link a vessel on your profile before exporting sea time.',
+                variant: 'destructive',
+            });
             return;
         }
 
@@ -775,21 +806,30 @@ export default function ExportPage() {
                             <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
                               <div className="font-medium">Master Document period</div>
                               <p className="mt-1 text-muted-foreground text-xs">
-                                Exports from this vessel&apos;s start date through today, including every daily state and all passage logbook entries
                                 {currentVessel ? (
                                   <>
-                                    {' '}
-                                    for <span className="font-medium text-foreground">{currentVessel.name}</span>
+                                    Exports from this vessel&apos;s start date through today, including every daily state and all passage logbook entries for{' '}
+                                    <span className="font-medium text-foreground">{currentVessel.name}</span>.
                                   </>
                                 ) : (
-                                  '. Set an active vessel first.'
+                                  <>No vessel is linked to this account. Link a vessel on Profile before exporting.</>
                                 )}
-                                .
                               </p>
                             </div>
                         )}
 
-                        {isVesselManager && selectedFormat !== 'master' && (
+                        {vesselManagerNeedsVessel && (
+                            <Alert>
+                                <Ship className="h-4 w-4" />
+                                <AlertTitle>No vessel linked</AlertTitle>
+                                <AlertDescription>
+                                    This vessel account is not managing a vessel, so there is no export date range.
+                                    Claim or create a vessel on your Profile page first.
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        {isVesselManager && selectedFormat !== 'master' && !vesselManagerNeedsVessel && (
                             <>
                                 {/* Hidden FormField to ensure filterType is registered for vessel managers */}
                                 <FormField
@@ -860,7 +900,7 @@ export default function ExportPage() {
                             />
                         )}
 
-                        {((filterType === 'date_range' || isVesselManager) && selectedFormat !== 'master') && (
+                        {((filterType === 'date_range' || isVesselManager) && selectedFormat !== 'master' && !vesselManagerNeedsVessel) && (
                             <>
                                 {/* Quick Year Selection */}
                                 {availableYears.length > 0 && (
@@ -979,7 +1019,7 @@ export default function ExportPage() {
                 </Card>
 
                 {/* Export Summary Preview */}
-                {((!isVesselManager && watchedVesselId) || (watchedDateRange?.from && watchedDateRange?.to)) && (
+                {((!isVesselManager && watchedVesselId) || (currentVessel && watchedDateRange?.from && watchedDateRange?.to) || (!isVesselManager && watchedDateRange?.from && watchedDateRange?.to)) && (
                     <Card className="bg-muted/50 border-primary/20">
                         <CardHeader>
                             <CardTitle className="text-base flex items-center gap-2">
@@ -1152,7 +1192,7 @@ export default function ExportPage() {
                 <div className="flex items-center gap-4">
                     <Button 
                         type="submit" 
-                        disabled={isGenerating} 
+                        disabled={isGenerating || vesselManagerNeedsVessel} 
                         size="lg"
                         className="w-full rounded-xl h-12 text-base font-semibold"
                         onClick={(e) => {

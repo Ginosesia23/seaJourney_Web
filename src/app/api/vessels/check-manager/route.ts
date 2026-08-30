@@ -13,10 +13,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if vessel exists
     const { data: vessel, error: vesselError } = await supabaseAdmin
       .from('vessels')
-      .select('id, name')
+      .select('id, name, vessel_manager_id')
       .eq('id', vesselId)
       .single();
 
@@ -27,10 +26,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if vessel already has a manager (user with role='vessel' and active_vessel_id matching this vessel)
     const { data: existingManager, error: managerError } = await supabaseAdmin
       .from('users')
-      .select('id, email, role, active_vessel_id')
+      .select('id, email, role, active_vessel_id, first_name, last_name')
       .eq('role', 'vessel')
       .eq('active_vessel_id', vesselId)
       .limit(1)
@@ -43,21 +41,46 @@ export async function POST(req: NextRequest) {
           error: 'Failed to check vessel manager',
           message: managerError.message,
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
+    let linkedManager: {
+      id: string;
+      email: string | null;
+      first_name: string | null;
+      last_name: string | null;
+    } | null = null;
+
+    if (vessel.vessel_manager_id) {
+      const { data } = await supabaseAdmin
+        .from('users')
+        .select('id, email, first_name, last_name')
+        .eq('id', vessel.vessel_manager_id)
+        .maybeSingle();
+      linkedManager = data;
+    }
+
+    const manager = existingManager || linkedManager;
+    const hasManager = Boolean(vessel.vessel_manager_id || existingManager);
+
     return NextResponse.json({
       success: true,
-      hasManager: !!existingManager,
+      hasManager,
       vessel: {
         id: vessel.id,
         name: vessel.name,
       },
-      existingManager: existingManager ? {
-        id: existingManager.id,
-        email: existingManager.email,
-      } : null,
+      existingManager: manager
+        ? {
+            id: manager.id,
+            email: manager.email,
+            label:
+              [manager.first_name, manager.last_name].filter(Boolean).join(' ').trim() ||
+              manager.email ||
+              null,
+          }
+        : null,
     });
   } catch (error: any) {
     console.error('[CHECK VESSEL MANAGER API] Unexpected error:', error);
@@ -67,4 +90,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

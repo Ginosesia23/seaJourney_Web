@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
-import { CreditCard, IdCard, MapPin, Phone, UserCircle2 } from 'lucide-react';
+import { CreditCard, FlaskConical, IdCard, MapPin, Phone, UserCircle2 } from 'lucide-react';
 
 import {
   Card,
@@ -12,10 +12,13 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { StatePill } from '@/components/state-pill';
 import type { DailyStatus } from '@/lib/types';
 import { useSupabase } from '@/supabase';
 import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 import { AuthStatusCard } from './auth-status-card';
 
 type Props = {
@@ -31,6 +34,8 @@ type Props = {
    *   - `null`         → no active vessel found anywhere
    */
   vesselSource?: 'assignment' | 'profile' | null;
+  /** Called after admin mutates a field on the target profile (e.g. is_testing). */
+  onTargetPatch?: (patch: Record<string, unknown>) => void;
 };
 
 type LatestState = {
@@ -39,11 +44,77 @@ type LatestState = {
   changedAt: string | null;
 };
 
-export function OverviewTab({ target, vesselName, vesselSource, currentUserId }: Props) {
+export function OverviewTab({
+  target,
+  vesselName,
+  vesselSource,
+  currentUserId,
+  onTargetPatch,
+}: Props) {
   const { supabase } = useSupabase();
   const [latestState, setLatestState] = useState<LatestState | null>(null);
   const [stateLogCount, setStateLogCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSavingTesting, setIsSavingTesting] = useState(false);
+
+  const isTesting = target.is_testing === true;
+  const isSelf = Boolean(currentUserId && currentUserId === target.id);
+
+  const setTestingFlag = useCallback(
+    async (next: boolean) => {
+      if (isSelf && next) {
+        toast({
+          variant: 'destructive',
+          title: 'Not allowed',
+          description: 'You cannot mark your own admin account as testing.',
+        });
+        return;
+      }
+      setIsSavingTesting(true);
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const res = await fetch('/api/admin/users/testing-flag', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : {}),
+          },
+          body: JSON.stringify({ userId: target.id, isTesting: next }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            variant: 'destructive',
+            title: 'Could not save',
+            description:
+              typeof json.error === 'string' ? json.error : res.statusText,
+          });
+          return;
+        }
+        onTargetPatch?.({ is_testing: next });
+        toast({
+          title: next ? 'Marked as testing' : 'Removed testing flag',
+          description: next
+            ? 'This account is excluded from platform analytics.'
+            : 'This account will count in platform analytics again.',
+        });
+      } catch (e) {
+        console.error('[overview] testing flag', e);
+        toast({
+          variant: 'destructive',
+          title: 'Could not save',
+          description: 'Unexpected error updating testing flag.',
+        });
+      } finally {
+        setIsSavingTesting(false);
+      }
+    },
+    [isSelf, onTargetPatch, supabase, target.id],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -110,9 +181,43 @@ export function OverviewTab({ target, vesselName, vesselSource, currentUserId }:
         <AuthStatusCard
           userId={target.id}
           targetRole={typeof target.role === 'string' ? target.role : 'crew'}
-          isSelf={Boolean(currentUserId && currentUserId === target.id)}
+          isSelf={isSelf}
         />
       </div>
+
+      {/* Analytics exclusion */}
+      <Card className="rounded-2xl border-dashed lg:col-span-3">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <FlaskConical className="h-4 w-4" />
+            Testing account
+          </CardTitle>
+          <CardDescription>
+            Mark QA, demo, or internal accounts so platform and crew analytics
+            ignore them and you can see real user usage.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <Label htmlFor="is-testing-toggle" className="text-sm font-medium">
+                Exclude from analytics
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {isTesting
+                  ? 'This account is currently excluded from analytics totals.'
+                  : 'Off — this account is included in analytics.'}
+              </p>
+            </div>
+            <Switch
+              id="is-testing-toggle"
+              checked={isTesting}
+              disabled={isSavingTesting || (isSelf && !isTesting)}
+              onCheckedChange={(checked) => void setTestingFlag(checked)}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Activity summary */}
       <Card className="rounded-2xl lg:col-span-2">

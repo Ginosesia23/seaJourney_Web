@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInDays, eachDayOfInterval, isSameDay, startOfDay, endOfDay, parse, isWithinInterval, startOfMonth, endOfMonth, getDaysInMonth, getDay, isSameMonth, isToday, isAfter, isBefore, addDays, subMonths, startOfYear, endOfYear } from 'date-fns';
-import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, Wrench, Clock, Waves, Anchor, Building, CalendarDays, History, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, ChevronDown, Check, XCircle, User, Play, Square, ShieldCheck } from 'lucide-react';
+import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, Wrench, Clock, Waves, Anchor, Building, CalendarDays, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, ChevronDown, Check, XCircle, User, Play, Square, ShieldCheck, Sparkles, ArrowRight } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -668,24 +668,55 @@ export default function CurrentPage() {
 
     fetchAssignments();
 
-    // Set up real-time subscription to detect changes to vessel assignments
-    // This will detect changes made from the mobile app or other sources
+    // Real-time subscription for assignment changes (mobile / other tabs).
+    // Stable channel name — remounting with Date.now() caused CHANNEL_ERROR on cleanup.
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+    const startPollingFallback = () => {
+      if (pollInterval) return;
+      pollInterval = setInterval(async () => {
+        try {
+          const assignments = await getVesselAssignments(supabase, user.id);
+          const previous = previousAssignmentsRef.current;
+          const previousMap = new Map(previous.map((a) => [a.id, a]));
+          const currentMap = new Map(assignments.map((a) => [a.id, a]));
+          const hasChanges =
+            assignments.length !== previous.length ||
+            assignments.some((a) => {
+              const prev = previousMap.get(a.id);
+              if (!prev) return true;
+              return (
+                a.vesselId !== prev.vesselId ||
+                a.startDate !== prev.startDate ||
+                a.endDate !== prev.endDate
+              );
+            }) ||
+            previous.some((a) => !currentMap.has(a.id));
+
+          if (hasChanges) {
+            setVesselAssignments(assignments);
+            previousAssignmentsRef.current = [...assignments];
+          } else {
+            previousAssignmentsRef.current = [...assignments];
+          }
+        } catch (error) {
+          console.error('[CURRENT PAGE] Error polling vessel assignments:', error);
+        }
+      }, 15000);
+    };
+
     const channel = supabase
-      .channel(`current-vessel-assignments-${user.id}-${Date.now()}`)
+      .channel(`current-vessel-assignments-${user.id}`)
       .on(
         'postgres_changes',
         {
-          event: '*', // INSERT, UPDATE, DELETE
+          event: '*',
           schema: 'public',
           table: 'vessel_assignments',
           filter: `user_id=eq.${user.id}`,
         },
-        async (payload) => {
-          console.log('[CURRENT PAGE] Vessel assignment changed via real-time:', payload);
-          // Refetch assignments when changes are detected
+        async () => {
           try {
             const assignments = await getVesselAssignments(supabase, user.id);
-            console.log('[CURRENT PAGE] Refetched assignments after real-time change:', assignments.map(a => ({ id: a.id, vesselId: a.vesselId, startDate: a.startDate, endDate: a.endDate })));
             setVesselAssignments(assignments);
             previousAssignmentsRef.current = [...assignments];
           } catch (error) {
@@ -694,63 +725,27 @@ export default function CurrentPage() {
         }
       )
       .subscribe((status) => {
-        console.log('[CURRENT PAGE] Real-time subscription status:', status);
         if (status === 'SUBSCRIBED') {
-          console.log('[CURRENT PAGE] Successfully subscribed to vessel_assignments changes');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('[CURRENT PAGE] Real-time subscription error - falling back to polling');
+          if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+          }
+          return;
+        }
+        // Connection flaps / table not in realtime publication — soft fallback
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn(
+            '[CURRENT PAGE] Realtime unavailable for vessel_assignments; using polling fallback',
+          );
+          startPollingFallback();
         }
       });
 
-    // Fallback: Poll for changes every 3 seconds if real-time doesn't work
-    // This ensures we detect changes even if real-time subscriptions fail
-    const pollInterval = setInterval(async () => {
-      try {
-        const assignments = await getVesselAssignments(supabase, user.id);
-        
-        // Check if assignments have changed by comparing end_date values
-        // Use a more robust comparison that checks all fields
-        const previous = previousAssignmentsRef.current;
-        
-        // Create maps for easier comparison
-        const previousMap = new Map(previous.map(a => [a.id, a]));
-        const currentMap = new Map(assignments.map(a => [a.id, a]));
-        
-        // Check for changes: different count, new assignments, removed assignments, or modified assignments
-        const hasChanges = 
-          assignments.length !== previous.length ||
-          assignments.some(a => {
-            const prev = previousMap.get(a.id);
-            if (!prev) return true; // New assignment
-            // Compare all relevant fields
-            return a.vesselId !== prev.vesselId ||
-              a.startDate !== prev.startDate || 
-              a.endDate !== prev.endDate;
-          }) ||
-          previous.some(a => !currentMap.has(a.id)); // Removed assignment
-        
-        // Always update if there are changes, and also update ref
-        if (hasChanges) {
-          console.log('[CURRENT PAGE] Polling detected changes in vessel assignments', {
-            previous: previous.map(a => ({ id: a.id, vesselId: a.vesselId, startDate: a.startDate, endDate: a.endDate })),
-            current: assignments.map(a => ({ id: a.id, vesselId: a.vesselId, startDate: a.startDate, endDate: a.endDate }))
-          });
-          setVesselAssignments(assignments);
-          previousAssignmentsRef.current = [...assignments];
-        } else {
-          // Even if no changes detected, update ref to latest data to prevent stale comparisons
-          previousAssignmentsRef.current = [...assignments];
-        }
-      } catch (error) {
-        console.error('[CURRENT PAGE] Error polling vessel assignments:', error);
-      }
-    }, 3000); // Poll every 3 seconds (more frequent)
-
     return () => {
-      supabase.removeChannel(channel);
-      clearInterval(pollInterval);
+      void supabase.removeChannel(channel);
+      if (pollInterval) clearInterval(pollInterval);
     };
-  }, [user?.id, supabase, userProfile?.activeVesselId, refetchUserProfile]);
+  }, [user?.id, supabase]);
 
   // Effect to automatically set activeVesselId when there's an active assignment but no activeVesselId
   useEffect(() => {
@@ -781,9 +776,18 @@ export default function CurrentPage() {
       activeAssignmentsCount: activeAssignments.length,
     });
 
-    updateUserProfile(supabase, user.id, {
+    const profileUpdates: {
+      activeVesselId: string;
+      startDate?: string;
+    } = {
       activeVesselId: activeAssignment.vesselId,
-    })
+    };
+    // Vessel accounts: use assignment start as official start_date when profile has none
+    if (userProfile.role === 'vessel' && !userProfile.startDate && activeAssignment.startDate) {
+      profileUpdates.startDate = activeAssignment.startDate;
+    }
+
+    updateUserProfile(supabase, user.id, profileUpdates)
       .then(() => {
         console.log('[CURRENT PAGE] Successfully set activeVesselId:', activeAssignment.vesselId);
         if (refetchUserProfile) {
@@ -794,6 +798,50 @@ export default function CurrentPage() {
         console.error('[CURRENT PAGE] Error setting activeVesselId:', error);
       });
   }, [userProfile, vesselAssignments, user?.id, supabase, refetchUserProfile, isLoadingProfile]);
+
+  // Vessel accounts with a linked vessel but no official start_date: seed from assignment
+  useEffect(() => {
+    if (
+      !user?.id ||
+      !userProfile ||
+      isLoadingProfile ||
+      userProfile.role !== 'vessel' ||
+      userProfile.startDate ||
+      !userProfile.activeVesselId ||
+      !vesselAssignments.length
+    ) {
+      return;
+    }
+
+    const forActiveVessel = vesselAssignments.filter(
+      (a) => a.vesselId === userProfile.activeVesselId
+    );
+    if (forActiveVessel.length === 0) return;
+
+    // Prefer active assignment; otherwise earliest start among this vessel's assignments
+    const active = forActiveVessel.find((a) => !a.endDate);
+    const startDateStr =
+      active?.startDate ||
+      [...forActiveVessel]
+        .sort((a, b) => a.startDate.localeCompare(b.startDate))[0]?.startDate;
+
+    if (!startDateStr) return;
+
+    updateUserProfile(supabase, user.id, { startDate: startDateStr })
+      .then(() => {
+        if (refetchUserProfile) refetchUserProfile();
+      })
+      .catch((error) => {
+        console.error('[CURRENT PAGE] Error seeding vessel start_date:', error);
+      });
+  }, [
+    user?.id,
+    userProfile,
+    vesselAssignments,
+    isLoadingProfile,
+    supabase,
+    refetchUserProfile,
+  ]);
 
   // Effect to automatically clear activeVesselId when all assignments are ended
   useEffect(() => {
@@ -1115,8 +1163,15 @@ export default function CurrentPage() {
   }, [passages]);
 
   // For vessel accounts, automatically set their vessel if they have active_vessel_id
+  // Skip if the user cleared the selection to pick a different vessel.
+  const vesselSelectionClearedRef = useRef(false);
   useEffect(() => {
-    if (isVesselAccount && userProfile?.activeVesselId && vessels) {
+    if (
+      isVesselAccount &&
+      userProfile?.activeVesselId &&
+      vessels &&
+      !vesselSelectionClearedRef.current
+    ) {
       const vessel = vessels.find(v => v.id === userProfile.activeVesselId);
       if (vessel) {
         startServiceForm.setValue('vesselId', vessel.id);
@@ -2313,9 +2368,23 @@ export default function CurrentPage() {
       });
 
       // 2. Update user profile to set active vessel (only if no end date, meaning it's still active)
+      // For vessel accounts, the form start date becomes the official profile start_date
+      // (used on Profile, export date ranges, and earliest editable daily-log day).
       if (isActiveService) {
-      await updateUserProfile(supabase, user.id, {
-        activeVesselId: data.vesselId,
+        const profileUpdates: {
+          activeVesselId: string;
+          startDate?: string;
+        } = {
+          activeVesselId: data.vesselId,
+        };
+        if (isVesselAccount) {
+          profileUpdates.startDate = startDateStr;
+        }
+        await updateUserProfile(supabase, user.id, profileUpdates);
+      } else if (isVesselAccount && !userProfile?.startDate) {
+        // Past service on a vessel account: still seed official start if unset
+        await updateUserProfile(supabase, user.id, {
+          startDate: startDateStr,
         });
       }
 
@@ -3368,6 +3437,278 @@ export default function CurrentPage() {
   const handleAisEnabledChange = useCallback((enabled: boolean) => {
     setAisTrackingEnabled(enabled);
   }, []);
+
+  const watchedServiceVesselId = startServiceForm.watch('vesselId');
+  const watchedServiceStartDate = startServiceForm.watch('startDate');
+  const watchedServiceEndDate = startServiceForm.watch('endDate');
+
+  const startServiceHero = isVesselAccount
+    ? {
+        eyebrow: 'Vessel account',
+        title: 'Start managing your vessel',
+        description:
+          'Confirm the vessel and set the official start date. That date becomes the earliest day you can log vessel states.',
+      }
+    : isCaptain
+      ? {
+          eyebrow: 'Captain',
+          title: 'Vessel service management',
+          description:
+            'Start personal sea service, or request captaincy to manage vessel logs for a vessel you command.',
+        }
+      : {
+          eyebrow: 'Sea service',
+          title: 'Start a new sea service',
+          description:
+            'Search for a vessel and record your dates. Leave the end date empty for an active tour, or fill both dates for a past service.',
+        };
+
+  const startServiceReady = Boolean(
+    watchedServiceVesselId && watchedServiceStartDate
+  );
+  const startServiceFooterHint = !watchedServiceVesselId
+    ? 'Select a vessel to continue.'
+    : !watchedServiceStartDate
+      ? 'Pick a start date to continue.'
+      : watchedServiceEndDate
+        ? `Past service · ${format(watchedServiceStartDate, 'd MMM yyyy')} → ${format(watchedServiceEndDate, 'd MMM yyyy')}`
+        : isVesselAccount
+          ? 'Ready · official start date will be saved to your profile'
+          : 'Ready · active service (no end date)';
+
+  const renderStartServiceFields = () => (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="space-y-5">
+        <FormField
+          control={startServiceForm.control}
+          name="vesselId"
+          render={({ field }) => {
+            if (isVesselAccount && field.value) {
+              const vessel = vessels?.find((v) => v.id === field.value);
+              if (vessel) {
+                return (
+                  <FormItem>
+                    <FormLabel className="text-sm font-semibold">Vessel</FormLabel>
+                    <div className="rounded-xl border border-sky-500/25 bg-gradient-to-br from-sky-500/[0.07] via-background to-blue-600/5 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-sky-500/20 bg-sky-500/10">
+                            <Ship className="h-5 w-5 text-sky-600 dark:text-sky-400" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-semibold tracking-tight">{vessel.name}</div>
+                            <div className="text-sm text-muted-foreground">{vessel.type}</div>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Badge className="rounded-full border-sky-500/30 bg-sky-500/10 text-sky-700 hover:bg-sky-500/10 dark:text-sky-300">
+                            Your vessel
+                          </Badge>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                            aria-label="Remove selected vessel"
+                            onClick={() => {
+                              vesselSelectionClearedRef.current = true;
+                              field.onChange('');
+                            }}
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        Wrong vessel? Clear it to search again, then set the official start date.
+                      </p>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                );
+              }
+            }
+
+            return (
+              <FormItem>
+                <FormLabel className="text-sm font-semibold">Vessel</FormLabel>
+                <FormControl>
+                  <UnifiedVesselSearchPicker
+                    value={field.value || ''}
+                    onChange={(id) => field.onChange(id)}
+                    supabase={supabase}
+                    knownVessels={(vessels ?? []).map((v) => ({
+                      id: v.id,
+                      name: v.name,
+                      type: v.type,
+                    }))}
+                    disabled={isLoadingVessels}
+                    blockManagedVessels={isVesselAccount}
+                    triggerClassName="h-11 rounded-xl"
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            );
+          }}
+        />
+
+        {!isVesselAccount && (
+          <FormField
+            control={startServiceForm.control}
+            name="position"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-sm font-semibold">Position / role</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value || ''}>
+                  <FormControl>
+                    <SelectTrigger className="h-11 rounded-xl">
+                      <SelectValue placeholder="Select your position..." />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent className="rounded-xl">
+                    {POSITION_OPTIONS.map((position) => (
+                      <SelectItem key={position} value={position}>
+                        {position}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+                <p className="text-xs text-muted-foreground">
+                  {userProfile?.position
+                    ? 'Pre-filled from your profile. Update if your role changed.'
+                    : 'Select your current position on this vessel.'}
+                </p>
+              </FormItem>
+            )}
+          />
+        )}
+      </div>
+
+      <div className="space-y-5">
+        <FormField
+          control={startServiceForm.control}
+          name="startDate"
+          render={({ field }) => (
+            <FormItem className="flex flex-col">
+              <FormLabel className="text-sm font-semibold">
+                {isVesselAccount ? 'Official start date' : 'Start date'}
+              </FormLabel>
+              {isVesselAccount && (
+                <p className="text-xs text-muted-foreground">
+                  Saved to your profile as the earliest date you can log vessel states.
+                </p>
+              )}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <FormControl>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        'h-11 w-full justify-start rounded-xl pl-3 text-left font-normal',
+                        !field.value && 'text-muted-foreground'
+                      )}
+                    >
+                      {field.value ? format(field.value, 'PPP') : <span>Pick a start date</span>}
+                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                    </Button>
+                  </FormControl>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={field.value}
+                    onSelect={field.onChange}
+                    disabled={(date) => {
+                      if (watchedServiceEndDate && date > watchedServiceEndDate) return true;
+                      return isAfter(date, new Date()) || date < new Date('1990-01-01');
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {!isVesselAccount && (
+          <FormField
+            control={startServiceForm.control}
+            name="endDate"
+            render={({ field }) => (
+              <FormItem className="flex flex-col">
+                <FormLabel className="text-sm font-semibold">End date (optional)</FormLabel>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          'h-11 w-full justify-start rounded-xl pl-3 text-left font-normal',
+                          !field.value && 'text-muted-foreground'
+                        )}
+                      >
+                        {field.value ? format(field.value, 'PPP') : <span>Leave empty for active</span>}
+                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={field.value}
+                      onSelect={field.onChange}
+                      disabled={(date) => {
+                        if (watchedServiceStartDate && date < watchedServiceStartDate) return true;
+                        return isAfter(date, new Date()) || date < new Date('1990-01-01');
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                <FormMessage />
+                <p className="text-xs text-muted-foreground">
+                  Leave empty for an active service. Fill both dates to record a past tour.
+                </p>
+              </FormItem>
+            )}
+          />
+        )}
+      </div>
+    </div>
+  );
+
+  const renderStartServiceFooter = (opts?: { formId?: string }) => (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/30 px-6 py-4">
+      <div className="min-w-0 text-sm">
+        {startServiceReady ? (
+          <span className="inline-flex items-center gap-1.5 font-medium">
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
+            {startServiceFooterHint}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">{startServiceFooterHint}</span>
+        )}
+      </div>
+      <Button
+        type="submit"
+        form={opts?.formId}
+        size="lg"
+        disabled={!startServiceReady}
+        className="h-11 shrink-0 gap-2 rounded-xl px-5"
+      >
+        <Ship className="h-4 w-4" />
+        {isVesselAccount
+          ? 'Start managing'
+          : watchedServiceEndDate
+            ? 'Record past service'
+            : 'Start tracking'}
+        <ArrowRight className="h-4 w-4" />
+      </Button>
+    </div>
+  );
 
   if (isLoadingProfile || isLoadingVessels) {
     return (
@@ -4423,495 +4764,190 @@ export default function CurrentPage() {
             </Card>
         </div>
       ) : isVesselLinked ? (
-        <Card className="rounded-xl border shadow-sm">
-          <CardHeader>
-            <CardTitle>Vessel record</CardTitle>
-            <CardDescription>
-              This login belongs to the vessel and does not keep a personal sea-time log.
-              Open the daily log once the vessel has an active service.
-            </CardDescription>
-          </CardHeader>
+        <Card className="overflow-hidden rounded-2xl border shadow-sm">
+          <div className="relative border-b bg-gradient-to-br from-sky-500/10 via-primary/5 to-background px-6 py-6">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 opacity-[0.07]"
+              style={{
+                backgroundImage: 'radial-gradient(currentColor 1px, transparent 1px)',
+                backgroundSize: '12px 12px',
+              }}
+            />
+            <div className="relative">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm ring-4 ring-primary/15">
+                <Ship className="h-5 w-5" />
+              </span>
+              <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
+                Vessel-linked account
+              </p>
+              <h2 className="mt-1 text-2xl font-semibold tracking-tight">Vessel record</h2>
+              <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">
+                This login belongs to the vessel and does not keep a personal sea-time log.
+                Open the daily log once the vessel has an active service.
+              </p>
+            </div>
+          </div>
         </Card>
       ) : (
         <div className="space-y-6">
-          {/* Unified Vessel Service Card - Adapts to Role */}
-          <Card className="rounded-xl border shadow-sm bg-gradient-to-br from-background to-muted/20">
-            <CardHeader className="pb-4">
-                <div className="flex items-start gap-4">
-                  <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center border border-primary/20">
-                    <Ship className="h-6 w-6 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <CardTitle className="text-2xl mb-1">
-                      {isCaptain ? 'Vessel Service Management' : 'Start a New Sea Service'}
-                    </CardTitle>
-                    <CardDescription className="text-base">
-                      {isCaptain 
-                        ? 'Start a new sea service as crew or request vessel captaincy to manage vessel logs.'
-                        : 'Search for a vessel and record your sea service dates. Leave end date empty for an active service, or fill both dates to add a past service.'
-                      }
-                    </CardDescription>
-                  </div>
+          {/* Start service — three-band CTA (hero / form / action footer) */}
+          <Card className="overflow-hidden rounded-2xl border shadow-sm">
+            <div className="relative border-b bg-gradient-to-br from-sky-500/10 via-primary/5 to-background px-6 py-6">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 opacity-[0.07]"
+                style={{
+                  backgroundImage: 'radial-gradient(currentColor 1px, transparent 1px)',
+                  backgroundSize: '12px 12px',
+                }}
+              />
+              <div className="relative flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm ring-4 ring-primary/15">
+                    <Ship className="h-5 w-5" />
+                  </span>
+                  <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
+                    {startServiceHero.eyebrow}
+                  </p>
+                  <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+                    {startServiceHero.title}
+                  </h2>
+                  <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">
+                    {startServiceHero.description}
+                  </p>
                 </div>
-            </CardHeader>
-            <CardContent className="pt-2">
-              {isCaptain ? (
-                <Tabs defaultValue="service" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 mb-6">
-                    <TabsTrigger value="service" className="!rounded-lg">
-                      <Ship className="mr-2 h-4 w-4" />
-                      Start Sea Service
-                    </TabsTrigger>
-                    <TabsTrigger value="captaincy" className="!rounded-lg">
-                      <UserPlus className="mr-2 h-4 w-4" />
-                      Request Captaincy
-                    </TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="service" className="mt-0">
-                    <Form {...startServiceForm}>
-                      <form onSubmit={startServiceForm.handleSubmit(onStartServiceSubmit)} className="space-y-6">
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                          <div className="space-y-6">
-                            <FormField
-                              control={startServiceForm.control}
-                              name="vesselId"
-                              render={({ field }) => {
-                                // For vessel accounts, show a confirmation card instead of dropdown
-                                if (isVesselAccount && field.value) {
-                                  const vessel = vessels?.find((v) => v.id === field.value);
-                                  if (vessel) {
-                                    return (
-                                      <FormItem>
-                                        <FormLabel className="text-base font-semibold">Vessel</FormLabel>
-                                        <Card className="border-primary/20 bg-primary/5">
-                                          <CardContent className="pt-4">
-                                            <div className="flex items-center gap-3">
-                                              <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
-                                                <Ship className="h-5 w-5 text-primary" />
-                                              </div>
-                                              <div className="flex-1">
-                                                <div className="font-semibold text-base">{vessel.name}</div>
-                                                <div className="text-sm text-muted-foreground">{vessel.type}</div>
-                                              </div>
-                                              <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
-                                                Your Vessel
-                                              </Badge>
-                                            </div>
-                                            <p className="text-xs text-muted-foreground mt-3">
-                                              This is the vessel you manage. You can start a service for this vessel.
-                                            </p>
-                                          </CardContent>
-                                        </Card>
-                                        <FormMessage />
-                                      </FormItem>
-                                    );
-                                  }
-                                }
-                                
-                                // For non-vessel accounts or vessel accounts without a vessel, show the dropdown
-                                return (
-                                  <FormItem>
-                                    <FormLabel className="text-base font-semibold">Vessel</FormLabel>
-                                    <FormControl>
-                                      <UnifiedVesselSearchPicker
-                                        value={field.value || ''}
-                                        onChange={(id) => field.onChange(id)}
-                                        supabase={supabase}
-                                        knownVessels={(vessels ?? []).map((v) => ({
-                                          id: v.id,
-                                          name: v.name,
-                                          type: v.type,
-                                        }))}
-                                        disabled={isLoadingVessels}
-                                        triggerClassName="rounded-lg"
-                                      />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                );
-                              }}
-                            />
-                            {!isVesselAccount && (
-                              <FormField
-                                control={startServiceForm.control}
-                                name="position"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel className="text-base font-semibold">Position</FormLabel>
-                                    <FormControl>
-                                      <Input placeholder="e.g., Captain, Engineer, Deckhand" {...field} className="rounded-lg" />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-                            )}
-                          </div>
-                          <div className="space-y-6">
-                            <FormField
-                              control={startServiceForm.control}
-                              name="startDate"
-                              render={({ field }) => (
-                                <FormItem className="flex flex-col">
-                                  <FormLabel className="text-base font-semibold">Start Date</FormLabel>
-                                  <Popover>
-                                    <PopoverTrigger asChild>
-                                      <FormControl>
-                                        <Button
-                                          variant={"outline"}
-                                          className={cn(
-                                            "w-full pl-3 text-left font-normal rounded-lg",
-                                            !field.value && "text-muted-foreground"
-                                          )}
-                                        >
-                                          {field.value ? (
-                                            format(field.value, "PPP")
-                                          ) : (
-                                            <span>Pick a date</span>
-                                          )}
-                                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                        </Button>
-                                      </FormControl>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                      <Calendar
-                                        mode="single"
-                                        selected={field.value}
-                                        onSelect={field.onChange}
-                                        disabled={(date) => {
-                                          const startDate = startServiceForm.watch("startDate");
-                                          const endDate = startServiceForm.watch("endDate");
-                                          if (endDate && date > endDate) return true;
-                                          return isAfter(date, new Date());
-                                        }}
-                                        initialFocus
-                                      />
-                                    </PopoverContent>
-                                  </Popover>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={startServiceForm.control}
-                              name="endDate"
-                              render={({ field }) => (
-                                <FormItem className="flex flex-col">
-                                  <FormLabel className="text-base font-semibold">End Date (Optional)</FormLabel>
-                                  <Popover>
-                                    <PopoverTrigger asChild>
-                                      <FormControl>
-                                        <Button
-                                          variant={"outline"}
-                                          className={cn(
-                                            "w-full pl-3 text-left font-normal rounded-lg",
-                                            !field.value && "text-muted-foreground"
-                                          )}
-                                        >
-                                          {field.value ? (
-                                            format(field.value, "PPP")
-                                          ) : (
-                                            <span>Leave empty for active service</span>
-                                          )}
-                                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                        </Button>
-                                      </FormControl>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                      <Calendar
-                                        mode="single"
-                                        selected={field.value}
-                                        onSelect={field.onChange}
-                                        disabled={(date) => {
-                                          const startDate = startServiceForm.watch("startDate");
-                                          if (startDate && date < startDate) return true;
-                                          return isAfter(date, new Date());
-                                        }}
-                                        initialFocus
-                                      />
-                                    </PopoverContent>
-                                  </Popover>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-                        </div>
-                        <Separator />
-                        <Button type="submit" className="w-full rounded-lg h-12 text-base font-semibold" size="lg">
-                          <Ship className="mr-2 h-5 w-5" />
-                          Start Tracking
-                        </Button>
-                      </form>
-                    </Form>
-                  </TabsContent>
-                  
-                  <TabsContent value="captaincy" className="mt-0">
-                    <div className="space-y-6">
-                  <div className="space-y-3">
-                    <Label className="text-base font-semibold">Search for Vessel</Label>
-                    <UnifiedVesselSearchPicker
-                      value={selectedVesselForAction?.id ?? ''}
-                      onChange={(id, name, type) =>
-                        setSelectedVesselForAction({ id, name, type: type || '' })
-                      }
-                      supabase={supabase}
-                      knownVessels={(vessels ?? []).map((v) => ({
-                        id: v.id,
-                        name: v.name,
-                        type: v.type,
-                      }))}
-                      disabled={isLoadingVessels}
-                      triggerClassName="h-12 rounded-lg text-base"
-                    />
+                {!isVesselAccount && (
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-md bg-background/80 px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border">
+                      Active = no end date
+                    </span>
+                    <span className="rounded-md bg-background/80 px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border">
+                      Past = start + end
+                    </span>
                   </div>
-
-                  {selectedVesselForAction && (
-                    <div className="rounded-xl border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10 p-6 space-y-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className="h-14 w-14 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/30">
-                            <Ship className="h-7 w-7 text-primary" />
-                          </div>
-                          <div>
-                            <h3 className="text-xl font-bold">{selectedVesselForAction.name}</h3>
-                            <p className="text-sm text-muted-foreground mt-1">{selectedVesselForAction.type}</p>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setSelectedVesselForAction(null)}
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          Change
-                        </Button>
-                      </div>
-                      <Separator />
-                      <Button
-                        type="button"
-                        onClick={handleOpenCaptaincyDialog}
-                        className="w-full h-12 text-base font-semibold"
-                        size="lg"
-                      >
-                        {isRequestingCaptaincy ? (
-                          <>
-                            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                            Submitting Request...
-                          </>
-                        ) : (
-                          <>
-                            <UserPlus className="mr-2 h-5 w-5" />
-                            Request Captaincy
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  )}
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              ) : (
-                <Form {...startServiceForm}>
-                  <form onSubmit={startServiceForm.handleSubmit(onStartServiceSubmit)} className="space-y-6">
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="space-y-6">
-                      <FormField
-                        control={startServiceForm.control}
-                        name="vesselId"
-                        render={({ field }) => {
-                          // For vessel accounts, show a confirmation card instead of dropdown
-                          if (isVesselAccount && field.value) {
-                            const vessel = vessels?.find((v) => v.id === field.value);
-                            if (vessel) {
-                              return (
-                                <FormItem>
-                                  <FormLabel className="text-base font-semibold">Vessel</FormLabel>
-                                  <Card className="border-primary/20 bg-primary/5">
-                                    <CardContent className="pt-4">
-                                      <div className="flex items-center gap-3">
-                                        <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
-                                          <Ship className="h-5 w-5 text-primary" />
-                                        </div>
-                                        <div className="flex-1">
-                                          <div className="font-semibold text-base">{vessel.name}</div>
-                                          <div className="text-sm text-muted-foreground">{vessel.type}</div>
-                                        </div>
-                                        <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
-                                          Your Vessel
-                                        </Badge>
-                                      </div>
-                                      <p className="text-xs text-muted-foreground mt-3">
-                                        This is the vessel you manage. You can start a service for this vessel.
-                                      </p>
-                                    </CardContent>
-                                  </Card>
-                                  <FormMessage />
-                                </FormItem>
-                              );
-                            }
-                          }
-                          
-                          // For non-vessel accounts or vessel accounts without a vessel, show the dropdown
-                          return (
-                            <FormItem>
-                              <FormLabel className="text-base font-semibold">Vessel</FormLabel>
-                              <FormControl>
-                                <UnifiedVesselSearchPicker
-                                  value={field.value || ''}
-                                  onChange={(id) => field.onChange(id)}
-                                  supabase={supabase}
-                                  knownVessels={(vessels ?? []).map((v) => ({
-                                    id: v.id,
-                                    name: v.name,
-                                    type: v.type,
-                                  }))}
-                                  disabled={isLoadingVessels}
-                                  triggerClassName="rounded-lg"
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          );
-                          }}
-                        />
-                      {!isVesselAccount && (
-                        <FormField 
-                          control={startServiceForm.control} 
-                          name="position" 
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-base font-semibold">Your Position/Role</FormLabel>
-                              <Select onValueChange={field.onChange} value={field.value || ''}>
-                                <FormControl>
-                                  <SelectTrigger className="rounded-lg">
-                                    <SelectValue placeholder="Select your position..." />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent className="rounded-lg">
-                                  {POSITION_OPTIONS.map((position) => (
-                                    <SelectItem key={position} value={position}>
-                                      {position}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                              <p className="text-xs text-muted-foreground">
-                                {userProfile?.position 
-                                  ? `Pre-filled from your profile. Update if you've changed position.`
-                                  : 'Select your current position on this vessel'}
-                              </p>
-                            </FormItem>
-                          )} 
-                        />
-                      )}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField 
-                          control={startServiceForm.control} 
-                          name="startDate" 
-                          render={({ field }) => (
-                            <FormItem className="flex flex-col">
-                              <FormLabel>Start Date</FormLabel>
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <FormControl>
-                                    <Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal rounded-lg", !field.value && "text-muted-foreground")}>
-                                      {field.value ? format(field.value, "PPP") : (<span>Pick a start date</span>)}
-                                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                    </Button>
-                                  </FormControl>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                  <Calendar 
-                                    mode="single" 
-                                    selected={field.value} 
-                                    onSelect={field.onChange} 
-                                    disabled={(date) => date > new Date() || date < new Date("1990-01-01")} 
-                                    initialFocus 
-                                  />
-                                </PopoverContent>
-                              </Popover>
-                              <FormMessage />
-                            </FormItem>
-                          )} 
-                        />
-                        <FormField 
-                          control={startServiceForm.control} 
-                          name="endDate" 
-                          render={({ field }) => (
-                            <FormItem className="flex flex-col">
-                              <FormLabel>End Date (Optional)</FormLabel>
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <FormControl>
-                                    <Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal rounded-lg", !field.value && "text-muted-foreground")}>
-                                      {field.value ? format(field.value, "PPP") : (<span>Leave empty for active</span>)}
-                                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                    </Button>
-                                  </FormControl>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                  <Calendar 
-                                    mode="single" 
-                                    selected={field.value} 
-                                    onSelect={field.onChange} 
-                                    disabled={(date) => {
-                                      const startDate = startServiceForm.watch("startDate");
-                                      return date > new Date() || 
-                                             (startDate && date < startDate) || 
-                                             date < new Date("1990-01-01");
-                                    }} 
-                                    initialFocus 
-                                  />
-                                </PopoverContent>
-                              </Popover>
-                              <FormMessage />
-                              <p className="text-xs text-muted-foreground">Leave empty for active service</p>
-                            </FormItem>
-                          )} 
-                        />
-                      </div>
-                    </div>
-                  </div>
-                      <Separator />
-                      <Button type="submit" className="w-full rounded-lg h-12 text-base font-semibold" size="lg">
-                        <Ship className="mr-2 h-5 w-5" />
-                        Start Tracking
-                      </Button>
-                    </form>
-                  </Form>
                 )}
-          </CardContent>
-        </Card>
-        
-        {!isCaptain && (
-          /* Info Card: How to Add Past Services - Only for Crew */
-          <Card className="rounded-xl border shadow-sm bg-muted/30">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-4">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <History className="h-5 w-5 text-primary" />
-              </div>
-              <div className="flex-1 space-y-2">
-                <h3 className="font-semibold text-lg">Add Past Vessel Service</h3>
-                <p className="text-sm text-muted-foreground">
-                  The form above works for both active and past services:
-                </p>
-                <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-4">
-                  <li><strong>Active Service:</strong> Fill in start date, leave end date empty</li>
-                  <li><strong>Past Service:</strong> Fill in both start and end dates (e.g., from 2 years ago)</li>
-                </ul>
-                <p className="text-sm text-muted-foreground mt-3">
-                  After adding a past service, you can edit individual date states using the monthly calendar below (once that vessel becomes active) or by resuming it from the History page.
-                </p>
               </div>
             </div>
-          </CardContent>
-        </Card>
-        )}
+
+            {isCaptain ? (
+              <Tabs defaultValue="service" className="w-full">
+                <div className="border-b bg-muted/20 px-6 pt-4">
+                  <TabsList className="grid h-11 w-full max-w-md grid-cols-2 rounded-xl bg-muted/60 p-1">
+                    <TabsTrigger value="service" className="rounded-lg gap-1.5">
+                      <Ship className="h-3.5 w-3.5" />
+                      Sea service
+                    </TabsTrigger>
+                    <TabsTrigger value="captaincy" className="rounded-lg gap-1.5">
+                      <UserPlus className="h-3.5 w-3.5" />
+                      Request captaincy
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+
+                <TabsContent value="service" className="mt-0">
+                  <Form {...startServiceForm}>
+                    <form
+                      id="start-service-form"
+                      onSubmit={startServiceForm.handleSubmit(onStartServiceSubmit)}
+                    >
+                      <CardContent className="space-y-5 p-6">
+                        {renderStartServiceFields()}
+                      </CardContent>
+                      {renderStartServiceFooter()}
+                    </form>
+                  </Form>
+                </TabsContent>
+
+                <TabsContent value="captaincy" className="mt-0">
+                  <CardContent className="space-y-5 p-6">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold">Search for vessel</Label>
+                      <UnifiedVesselSearchPicker
+                        value={selectedVesselForAction?.id ?? ''}
+                        onChange={(id, name, type) =>
+                          setSelectedVesselForAction({ id, name, type: type || '' })
+                        }
+                        supabase={supabase}
+                        knownVessels={(vessels ?? []).map((v) => ({
+                          id: v.id,
+                          name: v.name,
+                          type: v.type,
+                        }))}
+                        disabled={isLoadingVessels}
+                        triggerClassName="h-11 rounded-xl text-base"
+                      />
+                    </div>
+
+                    {selectedVesselForAction && (
+                      <div className="rounded-xl border border-sky-500/25 bg-gradient-to-br from-sky-500/[0.07] via-background to-blue-600/5 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-sky-500/20 bg-sky-500/10">
+                              <Ship className="h-6 w-6 text-sky-600 dark:text-sky-400" />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-semibold tracking-tight">
+                                {selectedVesselForAction.name}
+                              </h3>
+                              <p className="text-sm text-muted-foreground">
+                                {selectedVesselForAction.type}
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedVesselForAction(null)}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            Change
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/30 px-6 py-4">
+                    <div className="min-w-0 text-sm text-muted-foreground">
+                      {selectedVesselForAction
+                        ? 'Ready to request captaincy for this vessel.'
+                        : 'Select a vessel to request captaincy.'}
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={handleOpenCaptaincyDialog}
+                      size="lg"
+                      disabled={!selectedVesselForAction || isRequestingCaptaincy}
+                      className="h-11 shrink-0 gap-2 rounded-xl px-5"
+                    >
+                      {isRequestingCaptaincy ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Submitting…
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus className="h-4 w-4" />
+                          Request captaincy
+                          <ArrowRight className="h-4 w-4" />
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            ) : (
+              <Form {...startServiceForm}>
+                <form onSubmit={startServiceForm.handleSubmit(onStartServiceSubmit)}>
+                  <CardContent className="space-y-5 p-6">
+                    {renderStartServiceFields()}
+                  </CardContent>
+                  {renderStartServiceFooter()}
+                </form>
+              </Form>
+            )}
+          </Card>
         </div>
       )}
 

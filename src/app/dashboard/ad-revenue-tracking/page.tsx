@@ -23,7 +23,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Megaphone, Loader2, Search, Users, Ban, CircleDollarSign, ChevronsUpDown, Check } from 'lucide-react';
-import type { UserProfile } from '@/lib/types';
+import type { UserProfile } from '@/lib/types'
+import { excludeTestingAccounts } from '@/supabase/database/subscription-helpers';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 

@@ -23,7 +23,7 @@ import { findMissingDays } from '@/lib/fill-missing-days';
 import { calculateVisaCompliance, detectVisaRules } from '@/lib/visa-compliance';
 import { cn } from '@/lib/utils';
 import { StatePill } from '@/components/state-pill';
-import { hasActiveSubscription, countsTowardPaidMrr } from '@/supabase/database/subscription-helpers';
+import { hasActiveSubscription, countsTowardPaidMrr, excludeTestingAccounts } from '@/supabase/database/subscription-helpers';
 import { getSubscriptionTierPricingMap } from '@/app/actions';
 import { lookupTierPriceGbp } from '@/lib/subscription-tier-pricing';
 import {
@@ -215,10 +215,10 @@ export default function DashboardPage() {
       setIsLoadingAdminStats(true);
       try {
         // Fetch all users (crew members)
-        const { data: allUsers, error: usersError } = await supabase
+        const { data: allUsersRaw, error: usersError } = await supabase
           .from('users')
           .select(
-            'id, email, first_name, last_name, subscription_status, subscription_tier, current_period_end, cancel_at_period_end, created_at, role, stripe_subscription_id'
+            'id, email, first_name, last_name, subscription_status, subscription_tier, current_period_end, cancel_at_period_end, created_at, role, stripe_subscription_id, is_testing'
           )
           .neq('role', 'vessel');
 
@@ -227,16 +227,19 @@ export default function DashboardPage() {
         }
 
         // Fetch all vessel accounts
-        const { data: allVesselAccounts, error: vesselAccountsError } = await supabase
+        const { data: allVesselAccountsRaw, error: vesselAccountsError } = await supabase
           .from('users')
           .select(
-            'id, email, first_name, last_name, subscription_status, subscription_tier, current_period_end, cancel_at_period_end, created_at, role, active_vessel_id, stripe_subscription_id'
+            'id, email, first_name, last_name, subscription_status, subscription_tier, current_period_end, cancel_at_period_end, created_at, role, active_vessel_id, stripe_subscription_id, is_testing'
           )
           .eq('role', 'vessel');
 
         if (vesselAccountsError) {
           console.error('[ADMIN DASHBOARD] Error fetching vessel accounts:', vesselAccountsError);
         }
+
+        const allUsers = excludeTestingAccounts(allUsersRaw);
+        const allVesselAccounts = excludeTestingAccounts(allVesselAccountsRaw);
 
         // Fetch all vessels
         const { data: allVesselsData, error: vesselsError } = await supabase

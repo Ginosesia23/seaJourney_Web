@@ -24,7 +24,7 @@ import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments, updateVesselAssignment, getVesselStateLogs } from '@/supabase/database/queries';
 import { format, parse, differenceInDays, isAfter, startOfDay, isBefore, getYear, getMonth, setMonth, setYear, startOfMonth, addDays } from 'date-fns';
-import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit, Shield, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Award } from 'lucide-react';
+import { Ship, Calendar, Briefcase, Loader2, User, Save, Edit, Shield, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Award, Unlink, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { vesselTypes } from '@/lib/vessel-types';
 import {
@@ -40,6 +40,7 @@ import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { updateUserProfile } from '@/supabase/database/queries';
@@ -1652,6 +1653,177 @@ function VesselStartDateCard({ userProfile }: { userProfile: UserProfile | null 
   );
 }
 
+function StopManagingVesselCard({
+  vesselId,
+  vesselName,
+}: {
+  vesselId: string;
+  vesselName: string;
+}) {
+  const { supabase } = useSupabase();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+
+  const resetDialog = () => {
+    setAcknowledged(false);
+    setIsRemoving(false);
+  };
+
+  const handleConfirm = async () => {
+    if (!acknowledged) return;
+    setIsRemoving(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch('/api/vessels/stop-managing', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
+        },
+        body: JSON.stringify({ confirm: true, vesselId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          variant: 'destructive',
+          title: 'Could not remove vessel',
+          description: typeof json.error === 'string' ? json.error : res.statusText,
+        });
+        return;
+      }
+      toast({
+        title: 'Vessel removed',
+        description:
+          'This account no longer manages that vessel. Related logs, passages, and map data were permanently deleted.',
+      });
+      setOpen(false);
+      resetDialog();
+      // Full reload so calendar/current/profile drop the old vessel session.
+      window.location.assign('/dashboard/profile');
+    } catch (e) {
+      console.error('[profile] stop managing', e);
+      toast({
+        variant: 'destructive',
+        title: 'Could not remove vessel',
+        description: e instanceof Error ? e.message : 'Unexpected error',
+      });
+    } finally {
+      setIsRemoving(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-destructive">Wrong vessel?</p>
+          <p className="text-sm text-muted-foreground">
+            If you linked the wrong vessel, you can stop managing{' '}
+            <span className="font-medium text-foreground">{vesselName}</span> and
+            clear this account&apos;s data for it.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full gap-2 border-destructive/40 text-destructive hover:bg-destructive/10"
+          onClick={() => {
+            resetDialog();
+            setOpen(true);
+          }}
+        >
+          <Unlink className="h-4 w-4" />
+          Stop managing this vessel
+        </Button>
+      </div>
+
+      <AlertDialog
+        open={open}
+        onOpenChange={(next) => {
+          if (isRemoving) return;
+          setOpen(next);
+          if (!next) resetDialog();
+        }}
+      >
+        <AlertDialogContent className="rounded-xl max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Permanently remove {vesselName}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  This will unlink <strong className="text-foreground">{vesselName}</strong>{' '}
+                  from your vessel account. The following data for this vessel on{' '}
+                  <strong className="text-foreground">your account</strong> will be{' '}
+                  <strong className="text-destructive">permanently deleted</strong> and{' '}
+                  <strong className="text-destructive">cannot be recovered</strong>:
+                </p>
+                <ul className="list-disc space-y-1 pl-5">
+                  <li>Official start date and active vessel link</li>
+                  <li>Daily state / calendar logs</li>
+                  <li>Passages and passage map tracks</li>
+                  <li>AIS / map samples collected while you managed it</li>
+                  <li>Watch logs and assignments for this account on that vessel</li>
+                </ul>
+                <p>
+                  Other crew members&apos; personal logs and documents on the vessel are not
+                  deleted. You can claim or create a different vessel afterward.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+            <Checkbox
+              id="confirm-stop-managing"
+              checked={acknowledged}
+              disabled={isRemoving}
+              onCheckedChange={(v) => setAcknowledged(v === true)}
+              className="mt-0.5"
+            />
+            <Label
+              htmlFor="confirm-stop-managing"
+              className="text-sm font-normal leading-snug cursor-pointer"
+            >
+              I understand this data will be permanently lost and cannot be recovered.
+            </Label>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRemoving} className="rounded-xl">
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              className="rounded-xl"
+              disabled={!acknowledged || isRemoving}
+              onClick={() => void handleConfirm()}
+            >
+              {isRemoving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Removing…
+                </>
+              ) : (
+                'Confirm removal'
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: UserProfile | null; vessel: Vessel | null; vesselData: any }) {
   const { toast } = useToast();
   const [isSaving, setIsSaving] = useState(false);
@@ -2206,6 +2378,16 @@ function VesselDetailsPage({ userProfile, vessel, vesselData }: { userProfile: U
             description="States can only be logged from this date onwards"
           >
             <VesselStartDateCard userProfile={userProfile} />
+          </DashboardPanel>
+
+          <DashboardPanel
+            title="Stop managing vessel"
+            description="Use only if you linked the wrong vessel"
+          >
+            <StopManagingVesselCard
+              vesselId={vessel.id}
+              vesselName={vessel.name || 'this vessel'}
+            />
           </DashboardPanel>
 
           <VesselStampCard

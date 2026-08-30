@@ -44,6 +44,15 @@ export default function RootLayout({
             __html: `(function(){try{var p=window.location.pathname;if(p==='/reset-password')return;var h=window.location.hash||'';var s=window.location.search||'';var isRecHash=h.indexOf('type=recovery')>-1&&h.indexOf('access_token=')>-1;var isRecQuery=s.indexOf('type=recovery')>-1&&(s.indexOf('token_hash=')>-1||s.indexOf('token=')>-1);if(isRecHash||isRecQuery){window.location.replace('/reset-password'+s+h);}}catch(e){}})();`,
           }}
         />
+        {/**
+         * Landing defaults to dark before React hydrates. Honour an explicit
+         * light choice from localStorage; otherwise force dark on `/`.
+         */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{if(window.location.pathname!=='/')return;var s=null;try{s=window.localStorage.getItem('wk-theme-mode');}catch(e){}var light=s==='light';var d=document.documentElement;if(light){d.classList.add('light');d.classList.remove('dark');}else{d.classList.add('dark');d.classList.remove('light');}}catch(e){}})();`,
+          }}
+        />
         <link rel="icon" href="/icon.png" type="image/png" sizes="any" />
         <link rel="apple-touch-icon" href="/icon.png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />

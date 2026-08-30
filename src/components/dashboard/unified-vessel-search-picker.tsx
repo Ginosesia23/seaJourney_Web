@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { Check, ChevronsUpDown, Loader2, Search, Ship, X } from 'lucide-react';
+import { Check, ChevronsUpDown, Database, Loader2, Radio, Search, Ship, X } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -29,6 +30,8 @@ type KnownVessel = {
   beam?: number | null;
   gross_tonnage?: number | null;
   build_year?: number | null;
+  hasManager?: boolean;
+  managerLabel?: string | null;
 };
 
 function formatVesselSpecs(parts: {
@@ -98,13 +101,173 @@ function VesselResultDetails({
 
   return (
     <div className="min-w-0 flex-1 text-left">
-      <div className="font-medium leading-snug">{name}</div>
-      {summary ? <div className="text-xs leading-relaxed text-muted-foreground">{summary}</div> : null}
+      <div className="truncate font-semibold tracking-tight leading-snug">{name}</div>
+      {summary ? (
+        <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{summary}</div>
+      ) : null}
       {specs ? (
         <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground/90">{specs}</div>
       ) : null}
       {footnote}
     </div>
+  );
+}
+
+function ResultSectionHeader({
+  auth,
+  tone,
+  icon: Icon,
+  label,
+  count,
+}: {
+  auth: boolean;
+  tone: 'seajourney' | 'ais';
+  icon: typeof Database;
+  label: string;
+  count: number;
+}) {
+  if (auth) {
+    return <div className="wk-vessel-picker-section">{label}</div>;
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 px-2 pb-1.5 pt-2">
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            'inline-flex h-6 w-6 items-center justify-center rounded-md border',
+            tone === 'seajourney'
+              ? 'border-sky-500/25 bg-sky-500/10 text-sky-600 dark:text-sky-400'
+              : 'border-violet-500/25 bg-violet-500/10 text-violet-600 dark:text-violet-400',
+          )}
+        >
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {label}
+        </span>
+      </div>
+      <span className="text-[11px] tabular-nums text-muted-foreground/80">{count}</span>
+    </div>
+  );
+}
+
+function SourceBadge({
+  source,
+  className,
+}: {
+  source: 'seajourney' | 'ais' | 'both';
+  className?: string;
+}) {
+  if (source === 'seajourney') {
+    return (
+      <Badge
+        className={cn(
+          'rounded-full border-sky-500/30 bg-sky-500/10 text-[10px] font-semibold uppercase tracking-wide text-sky-700 hover:bg-sky-500/10 dark:text-sky-300',
+          className,
+        )}
+      >
+        SeaJourney
+      </Badge>
+    );
+  }
+  if (source === 'both') {
+    return (
+      <Badge
+        className={cn(
+          'rounded-full border-emerald-500/30 bg-emerald-500/10 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300',
+          className,
+        )}
+      >
+        On SeaJourney
+      </Badge>
+    );
+  }
+  return (
+    <Badge
+      className={cn(
+        'rounded-full border-violet-500/30 bg-violet-500/10 text-[10px] font-semibold uppercase tracking-wide text-violet-700 hover:bg-violet-500/10 dark:text-violet-300',
+        className,
+      )}
+    >
+      AIS
+    </Badge>
+  );
+}
+
+function ManagedStatusBadge({
+  managed,
+  className,
+}: {
+  managed: boolean;
+  className?: string;
+}) {
+  if (!managed) return null;
+
+  return (
+    <Badge
+      className={cn(
+        'rounded-full border-amber-500/35 bg-amber-500/10 text-[10px] font-semibold uppercase tracking-wide text-amber-800 hover:bg-amber-500/10 dark:text-amber-300',
+        className,
+      )}
+    >
+      Managed
+    </Badge>
+  );
+}
+
+function ResultRowShell({
+  auth,
+  selected,
+  disabled,
+  tone,
+  onClick,
+  children,
+}: {
+  auth: boolean;
+  selected?: boolean;
+  disabled?: boolean;
+  tone: 'seajourney' | 'ais';
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  if (auth) {
+    return (
+      <button
+        type="button"
+        data-selected={selected}
+        disabled={disabled}
+        onClick={onClick}
+        className="wk-vessel-picker-row"
+      >
+        {children}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'group relative mb-1 flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all',
+        'hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50',
+        tone === 'seajourney'
+          ? cn(
+              'border-sky-500/15 bg-gradient-to-br from-sky-500/[0.06] via-background to-background',
+              'hover:border-sky-500/35 hover:from-sky-500/[0.1]',
+              selected && 'border-sky-500/40 ring-1 ring-sky-500/20',
+            )
+          : cn(
+              'border-violet-500/15 bg-gradient-to-br from-violet-500/[0.06] via-background to-background',
+              'hover:border-violet-500/35 hover:from-violet-500/[0.1]',
+              selected && 'border-violet-500/40 ring-1 ring-violet-500/20',
+            ),
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -339,17 +502,85 @@ export function UnifiedVesselSearchPicker({
     localResults.length > 0 || aisResults.length > 0 || Boolean(aisSingle);
   const trimmedQuery = query.trim();
 
-  const renderAisFootnote = (managed: boolean, hasExisting: boolean) => {
-    if (!hasExisting) return null;
-    const label = managed
-      ? 'Already managed on SeaJourney'
-      : 'Already on SeaJourney — will use existing profile';
-
+  const renderAisFootnote = (
+    managed: boolean,
+    hasExisting: boolean,
+  ) => {
     if (isAuth) {
+      if (!hasExisting) return null;
+      const label = managed
+        ? 'Already managed on SeaJourney'
+        : 'Already on SeaJourney — will use existing profile';
       return <div className="wk-vessel-picker-row-note">{label}</div>;
     }
 
-    return <div className="mt-1 text-[11px] font-medium text-primary">{label}</div>;
+    if (managed) {
+      return (
+        <div className="mt-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+          Already managed — not available to claim
+        </div>
+      );
+    }
+
+    if (hasExisting) {
+      return (
+        <div className="mt-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+          Already on SeaJourney — will use existing profile
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  const renderLocalFootnote = (vessel: KnownVessel) => {
+    if (isAuth || !vessel.hasManager) return null;
+    return (
+      <div className="mt-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+        Already managed — not available to claim
+      </div>
+    );
+  };
+
+  const renderLocalIcon = (selected: boolean) => {
+    if (isAuth) {
+      return (
+        <Check
+          className={cn(
+            'mt-0.5 h-4 w-4 shrink-0 wk-vessel-picker-check',
+            selected ? 'opacity-100' : 'opacity-0',
+          )}
+        />
+      );
+    }
+    return (
+      <div
+        className={cn(
+          'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border',
+          'border-sky-500/25 bg-sky-500/10 text-sky-600 dark:text-sky-400',
+        )}
+      >
+        <Database className="h-4 w-4" />
+      </div>
+    );
+  };
+
+  const renderAisIcon = (alreadyOnSeaJourney: boolean) => {
+    if (isAuth) {
+      return <Ship className="mt-0.5 h-4 w-4 shrink-0 wk-vessel-picker-icon" />;
+    }
+    if (alreadyOnSeaJourney) {
+      return (
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+          <Database className="h-4 w-4" />
+        </div>
+      );
+    }
+    return (
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-500/25 bg-violet-500/10 text-violet-600 dark:text-violet-400">
+        <Radio className="h-4 w-4" />
+      </div>
+    );
   };
 
   const triggerContent = (
@@ -435,11 +666,17 @@ export function UnifiedVesselSearchPicker({
           'w-[var(--radix-popover-trigger-width)] overflow-hidden p-0',
           isAuth
             ? 'wk wk-vessel-picker-popover rounded-xl'
-            : 'rounded-xl border shadow-lg',
+            : 'rounded-2xl border shadow-lg',
         )}
         align="start"
       >
-        <div className={cn(isAuth ? 'wk-vessel-picker-search-wrap' : 'border-b bg-muted/40 p-2.5')}>
+        <div
+          className={cn(
+            isAuth
+              ? 'wk-vessel-picker-search-wrap'
+              : 'border-b bg-gradient-to-br from-sky-500/[0.06] via-muted/30 to-background p-2.5',
+          )}
+        >
           <div className="relative">
             <Search
               className={cn(
@@ -477,7 +714,7 @@ export function UnifiedVesselSearchPicker({
           </div>
         </div>
 
-        <div className={cn('max-h-[420px] overflow-y-auto', isAuth ? 'py-1' : 'p-1')}>
+        <div className={cn('max-h-[420px] overflow-y-auto', isAuth ? 'py-1' : 'space-y-1 p-2')}>
           {isLoading && !hasResults ? (
             <div
               className={cn(
@@ -496,95 +733,98 @@ export function UnifiedVesselSearchPicker({
           ) : null}
 
           {localResults.length > 0 ? (
-            <div className="mb-1">
-              <div
-                className={cn(
-                  isAuth
-                    ? 'wk-vessel-picker-section'
-                    : 'px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground',
-                )}
-              >
-                On SeaJourney
-              </div>
-              {localResults.map((vessel) => (
-                <button
-                  key={vessel.id}
-                  type="button"
-                  data-selected={value === vessel.id}
-                  onClick={() => void selectLocalVessel(vessel)}
-                  className={cn(
-                    isAuth
-                      ? 'wk-vessel-picker-row'
-                      : 'relative flex w-full cursor-pointer select-none items-start rounded-lg px-3 py-2.5 text-sm outline-none transition-colors hover:bg-accent/80',
-                    !isAuth && value === vessel.id && 'bg-accent',
-                  )}
-                >
-                  <Check
-                    className={cn(
-                      'mt-0.5 h-4 w-4 shrink-0',
-                      isAuth ? 'wk-vessel-picker-check' : undefined,
-                      value === vessel.id ? 'opacity-100' : 'opacity-0',
-                    )}
-                  />
-                  <VesselResultDetails
+            <div className={cn(!isAuth && 'mb-2')}>
+              <ResultSectionHeader
+                auth={isAuth}
+                tone="seajourney"
+                icon={Database}
+                label="On SeaJourney"
+                count={localResults.length}
+              />
+              {localResults.map((vessel) => {
+                const selected = value === vessel.id;
+                const hasManager = Boolean(vessel.hasManager);
+                const blocked = blockManagedVessels && hasManager;
+                return (
+                  <ResultRowShell
+                    key={vessel.id}
                     auth={isAuth}
-                    name={vessel.name}
-                    summary={formatLocalVesselSummary(vessel) || null}
-                    specs={formatVesselSpecs(vessel)}
-                  />
-                </button>
-              ))}
+                    selected={selected}
+                    disabled={blocked}
+                    tone="seajourney"
+                    onClick={() => void selectLocalVessel(vessel)}
+                  >
+                    {renderLocalIcon(selected)}
+                    <div className="min-w-0 flex-1">
+                      <div className={cn('flex items-start gap-2', !isAuth && 'justify-between')}>
+                        <VesselResultDetails
+                          auth={isAuth}
+                          name={vessel.name}
+                          summary={formatLocalVesselSummary(vessel) || null}
+                          specs={formatVesselSpecs(vessel)}
+                          footnote={renderLocalFootnote(vessel)}
+                        />
+                        {!isAuth ? (
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            <SourceBadge source="seajourney" />
+                            <ManagedStatusBadge managed={hasManager} />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                    {!isAuth && selected && !blocked ? (
+                      <Check className="mt-1 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
+                    ) : null}
+                  </ResultRowShell>
+                );
+              })}
             </div>
           ) : null}
 
           {aisSingle ? (
-            <div className="mb-1">
-              <div
-                className={cn(
-                  isAuth
-                    ? 'wk-vessel-picker-section'
-                    : 'px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground',
-                )}
-              >
-                From AIS
-              </div>
+            <div className={cn(!isAuth && 'mb-2')}>
+              <ResultSectionHeader
+                auth={isAuth}
+                tone="ais"
+                icon={Radio}
+                label="From AIS"
+                count={1}
+              />
               {(() => {
-                const managed =
-                  blockManagedVessels &&
-                  Boolean(aisSingle.existingInDatabase?.hasManager);
+                const hasManager = Boolean(aisSingle.existingInDatabase?.hasManager);
+                const blocked = blockManagedVessels && hasManager;
+                const alreadyOn = Boolean(aisSingle.existingInDatabase);
                 return (
-                  <button
-                    type="button"
-                    disabled={isResolving || managed}
+                  <ResultRowShell
+                    auth={isAuth}
+                    disabled={isResolving || blocked}
+                    tone={alreadyOn ? 'seajourney' : 'ais'}
                     onClick={() =>
                       void selectAisSelection({
                         autofill: aisSingle.autofill,
                         existingInDatabase: aisSingle.existingInDatabase,
                       })
                     }
-                    className={cn(
-                      isAuth
-                        ? 'wk-vessel-picker-row'
-                        : 'flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent/80 disabled:opacity-50',
-                    )}
                   >
-                    <Ship
-                      className={cn(
-                        'mt-0.5 h-4 w-4 shrink-0',
-                        isAuth ? 'wk-vessel-picker-icon' : 'text-primary',
-                      )}
-                    />
-                    <VesselResultDetails
-                      auth={isAuth}
-                      name={aisSingle.autofill.name}
-                      summary={formatAisSummary(aisSingle.autofill)}
-                      specs={formatVesselSpecs(aisSingle.autofill)}
-                      footnote={renderAisFootnote(
-                        managed,
-                        Boolean(aisSingle.existingInDatabase),
-                      )}
-                    />
-                  </button>
+                    {renderAisIcon(alreadyOn)}
+                    <div className="min-w-0 flex-1">
+                      <div className={cn('flex items-start gap-2', !isAuth && 'justify-between')}>
+                        <VesselResultDetails
+                          auth={isAuth}
+                          name={aisSingle.autofill.name}
+                          summary={formatAisSummary(aisSingle.autofill)}
+                          specs={formatVesselSpecs(aisSingle.autofill)}
+                          footnote={renderAisFootnote(hasManager, alreadyOn)}
+                        />
+                        {!isAuth ? (
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            <SourceBadge source={alreadyOn ? 'both' : 'ais'} />
+                            <ManagedStatusBadge managed={hasManager} />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </ResultRowShell>
                 );
               })()}
             </div>
@@ -592,52 +832,49 @@ export function UnifiedVesselSearchPicker({
 
           {aisResults.length > 0 ? (
             <div>
-              <div
-                className={cn(
-                  isAuth
-                    ? 'wk-vessel-picker-section'
-                    : 'px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground',
-                )}
-              >
-                From AIS
-              </div>
+              <ResultSectionHeader
+                auth={isAuth}
+                tone="ais"
+                icon={Radio}
+                label="From AIS"
+                count={aisResults.length}
+              />
               {aisResults.map((item) => {
-                const managed =
-                  blockManagedVessels && Boolean(item.existingInDatabase?.hasManager);
+                const hasManager = Boolean(item.existingInDatabase?.hasManager);
+                const blocked = blockManagedVessels && hasManager;
+                const alreadyOn = Boolean(item.existingInDatabase);
                 return (
-                  <button
+                  <ResultRowShell
                     key={item.uuid ?? `${item.autofill.mmsi}-${item.autofill.name}`}
-                    type="button"
-                    disabled={isResolving || managed}
+                    auth={isAuth}
+                    disabled={isResolving || blocked}
+                    tone={alreadyOn ? 'seajourney' : 'ais'}
                     onClick={() =>
                       void selectAisSelection({
                         autofill: item.autofill,
                         existingInDatabase: item.existingInDatabase,
                       })
                     }
-                    className={cn(
-                      isAuth
-                        ? 'wk-vessel-picker-row'
-                        : 'flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent/80 disabled:opacity-50',
-                    )}
                   >
-                    <Ship
-                      className={cn(
-                        'mt-0.5 h-4 w-4 shrink-0',
-                        isAuth ? 'wk-vessel-picker-icon' : 'text-primary',
-                      )}
-                    />
-                    <VesselResultDetails
-                      auth={isAuth}
-                      name={item.autofill.name}
-                      summary={formatAisSummary(item.autofill)}
-                      specs={formatVesselSpecs(item.autofill)}
-                      footnote={renderAisFootnote(
-                        managed,
-                        Boolean(item.existingInDatabase),
-                      )}
-                    />
-                  </button>
+                    {renderAisIcon(alreadyOn)}
+                    <div className="min-w-0 flex-1">
+                      <div className={cn('flex items-start gap-2', !isAuth && 'justify-between')}>
+                        <VesselResultDetails
+                          auth={isAuth}
+                          name={item.autofill.name}
+                          summary={formatAisSummary(item.autofill)}
+                          specs={formatVesselSpecs(item.autofill)}
+                          footnote={renderAisFootnote(hasManager, alreadyOn)}
+                        />
+                        {!isAuth ? (
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            <SourceBadge source={alreadyOn ? 'both' : 'ais'} />
+                            <ManagedStatusBadge managed={hasManager} />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </ResultRowShell>
                 );
               })}
             </div>

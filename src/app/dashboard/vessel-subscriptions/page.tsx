@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -8,6 +8,16 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { 
   Ship, 
   Calendar,
@@ -19,15 +29,16 @@ import {
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  DollarSign,
-  User
+  User,
+  Unlink,
 } from 'lucide-react';
 import type { UserProfile, Vessel } from '@/lib/types';
 import { format } from 'date-fns';
 import React from 'react';
+import { useToast } from '@/hooks/use-toast';
 
 interface VesselSubscriptionData {
-  vessel: Vessel & { isOfficial: boolean };
+  vessel: Vessel & { isOfficial: boolean; vesselManagerId?: string | null };
   vesselManager: {
     id: string;
     email: string;
@@ -52,9 +63,12 @@ interface VesselSubscriptionData {
 export default function VesselSubscriptionsPage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
+  const { toast } = useToast();
   const [vesselSubscriptions, setVesselSubscriptions] = useState<VesselSubscriptionData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [unlinkTarget, setUnlinkTarget] = useState<VesselSubscriptionData | null>(null);
+  const [isUnlinking, setIsUnlinking] = useState(false);
 
   // Fetch user profile to check if admin
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -145,153 +159,219 @@ export default function VesselSubscriptionsPage() {
     });
   };
 
+  const fetchVesselSubscriptions = useCallback(async () => {
+    if (!isAdmin || !user?.id) {
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Fetch all vessels
+      const { data: allVessels, error: vesselsError } = await supabase
+        .from('vessels')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (vesselsError) {
+        console.error('[VESSEL SUBSCRIPTIONS] Error fetching vessels:', vesselsError);
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch all vessel managers (users with role 'vessel')
+      const { data: vesselManagers, error: managersError } = await supabase
+        .from('users')
+        .select('id, email, first_name, last_name, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, current_period_end, cancel_at_period_end, active_vessel_id')
+        .eq('role', 'vessel');
+
+      if (managersError) {
+        console.error('[VESSEL SUBSCRIPTIONS] Error fetching vessel managers:', managersError);
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch active crew counts per vessel
+      const { data: allAssignments, error: assignmentsError } = await supabase
+        .from('vessel_assignments')
+        .select('vessel_id, user_id')
+        .is('end_date', null);
+
+      if (assignmentsError) {
+        console.error('[VESSEL SUBSCRIPTIONS] Error fetching assignments:', assignmentsError);
+      }
+
+      // Fetch approved sea time access requests (these count toward limit for non-official vessels)
+      const { data: approvedRequests, error: requestsError } = await supabase
+        .from('vessel_sea_time_access_requests')
+        .select('vessel_id, crew_user_id')
+        .eq('status', 'approved');
+
+      if (requestsError) {
+        console.error('[VESSEL SUBSCRIPTIONS] Error fetching approved requests:', requestsError);
+      }
+
+      // Count total crew per vessel (all crew tracking the vessel)
+      const totalCrewCounts = new Map<string, number>();
+      // Count crew that counts toward limit
+      const crewCountsTowardLimit = new Map<string, Set<string>>(); // vessel_id -> Set of user_ids
+
+      if (allAssignments) {
+        // Get user IDs to filter out vessel accounts
+        const userIds = [...new Set(allAssignments.map(a => a.user_id))];
+        const { data: usersData } = await supabase
+          .from('users')
+          .select('id, role')
+          .in('id', userIds);
+
+        const userRoleMap = new Map<string, string>();
+        usersData?.forEach(u => userRoleMap.set(u.id, u.role));
+
+        // Create a map of vessel_id -> Set of approved crew_user_ids
+        const approvedCrewByVessel = new Map<string, Set<string>>();
+        approvedRequests?.forEach(req => {
+          if (!approvedCrewByVessel.has(req.vessel_id)) {
+            approvedCrewByVessel.set(req.vessel_id, new Set());
+          }
+          approvedCrewByVessel.get(req.vessel_id)!.add(req.crew_user_id);
+        });
+
+        allAssignments.forEach(assignment => {
+          const userRole = userRoleMap.get(assignment.user_id);
+          if (userRole !== 'vessel') {
+            // Count total crew
+            totalCrewCounts.set(assignment.vessel_id, (totalCrewCounts.get(assignment.vessel_id) || 0) + 1);
+            
+            // Count toward limit if vessel is official OR crew member has approved request
+            const vessel = allVessels?.find(v => v.id === assignment.vessel_id);
+            const isOfficial = vessel && ((vessel as any).is_official === true || (vessel as any).is_official === 'true');
+            const hasApprovedRequest = approvedCrewByVessel.get(assignment.vessel_id)?.has(assignment.user_id);
+            
+            if (isOfficial || hasApprovedRequest) {
+              if (!crewCountsTowardLimit.has(assignment.vessel_id)) {
+                crewCountsTowardLimit.set(assignment.vessel_id, new Set());
+              }
+              crewCountsTowardLimit.get(assignment.vessel_id)!.add(assignment.user_id);
+            }
+          }
+        });
+      }
+
+      const managersById = new Map(
+        (vesselManagers || []).map((m) => [m.id as string, m]),
+      );
+
+      // Match vessels with their managers (prefer vessels.vessel_manager_id,
+      // fall back to users.active_vessel_id pointing at this vessel).
+      const vesselSubscriptionData: VesselSubscriptionData[] = (allVessels || []).map(vessel => {
+        const managerFromColumn = vessel.vessel_manager_id
+          ? managersById.get(vessel.vessel_manager_id as string)
+          : undefined;
+        const managerFromActive = vesselManagers?.find(
+          (m) => m.active_vessel_id === vessel.id,
+        );
+        const manager = managerFromColumn || managerFromActive;
+        
+        const subscriptionTier = manager?.subscription_tier || 'free';
+        const subscriptionStatus = manager?.subscription_status || 'inactive';
+        const isOfficial = (vessel as any).is_official === true || (vessel as any).is_official === 'true';
+        
+        return {
+          vessel: {
+            id: vessel.id,
+            name: vessel.name,
+            type: vessel.type,
+            officialNumber: vessel.imo || vessel.official_number,
+            isOfficial,
+            vesselManagerId: (vessel.vessel_manager_id as string | null) || null,
+          },
+          vesselManager: {
+            id: manager?.id || (vessel.vessel_manager_id as string) || '',
+            email: manager?.email || (vessel.vessel_manager_id ? 'Manager linked (profile missing)' : 'No manager assigned'),
+            firstName: manager?.first_name || null,
+            lastName: manager?.last_name || null,
+            subscriptionTier,
+            subscriptionStatus,
+            stripeCustomerId: manager?.stripe_customer_id || null,
+            stripeSubscriptionId: manager?.stripe_subscription_id || null,
+            currentPeriodEnd: manager?.current_period_end || null,
+            cancelAtPeriodEnd: manager?.cancel_at_period_end || null,
+          },
+          totalCrewCount: totalCrewCounts.get(vessel.id) || 0,
+          crewCountTowardLimit: crewCountsTowardLimit.get(vessel.id)?.size || 0,
+          restrictions: {
+            crewLimit: getCrewLimit(subscriptionTier, subscriptionStatus),
+            vesselLimit: getVesselLimit(subscriptionTier, subscriptionStatus),
+            canGenerateDocuments: canGenerateDocuments(subscriptionTier, subscriptionStatus),
+          },
+        };
+      });
+
+      setVesselSubscriptions(vesselSubscriptionData);
+    } catch (error) {
+      console.error('[VESSEL SUBSCRIPTIONS] Error:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isAdmin, user?.id, supabase]);
+
   useEffect(() => {
     if (!isAdmin || !user?.id || isLoadingProfile) {
       setIsLoading(false);
       return;
     }
+    void fetchVesselSubscriptions();
+  }, [isAdmin, user?.id, isLoadingProfile, fetchVesselSubscriptions]);
 
-    const fetchVesselSubscriptions = async () => {
-      setIsLoading(true);
-      try {
-        // Fetch all vessels
-        const { data: allVessels, error: vesselsError } = await supabase
-          .from('vessels')
-          .select('*')
-          .order('name', { ascending: true });
-
-        if (vesselsError) {
-          console.error('[VESSEL SUBSCRIPTIONS] Error fetching vessels:', vesselsError);
-          setIsLoading(false);
-          return;
-        }
-
-        // Fetch all vessel managers (users with role 'vessel')
-        const { data: vesselManagers, error: managersError } = await supabase
-          .from('users')
-          .select('id, email, first_name, last_name, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, current_period_end, cancel_at_period_end, active_vessel_id')
-          .eq('role', 'vessel');
-
-        if (managersError) {
-          console.error('[VESSEL SUBSCRIPTIONS] Error fetching vessel managers:', managersError);
-          setIsLoading(false);
-          return;
-        }
-
-        // Fetch active crew counts per vessel
-        const { data: allAssignments, error: assignmentsError } = await supabase
-          .from('vessel_assignments')
-          .select('vessel_id, user_id')
-          .is('end_date', null);
-
-        if (assignmentsError) {
-          console.error('[VESSEL SUBSCRIPTIONS] Error fetching assignments:', assignmentsError);
-        }
-
-        // Fetch approved sea time access requests (these count toward limit for non-official vessels)
-        const { data: approvedRequests, error: requestsError } = await supabase
-          .from('vessel_sea_time_access_requests')
-          .select('vessel_id, crew_user_id')
-          .eq('status', 'approved');
-
-        if (requestsError) {
-          console.error('[VESSEL SUBSCRIPTIONS] Error fetching approved requests:', requestsError);
-        }
-
-        // Count total crew per vessel (all crew tracking the vessel)
-        const totalCrewCounts = new Map<string, number>();
-        // Count crew that counts toward limit
-        const crewCountsTowardLimit = new Map<string, Set<string>>(); // vessel_id -> Set of user_ids
-
-        if (allAssignments) {
-          // Get user IDs to filter out vessel accounts
-          const userIds = [...new Set(allAssignments.map(a => a.user_id))];
-          const { data: usersData } = await supabase
-            .from('users')
-            .select('id, role')
-            .in('id', userIds);
-
-          const userRoleMap = new Map<string, string>();
-          usersData?.forEach(u => userRoleMap.set(u.id, u.role));
-
-          // Create a map of vessel_id -> Set of approved crew_user_ids
-          const approvedCrewByVessel = new Map<string, Set<string>>();
-          approvedRequests?.forEach(req => {
-            if (!approvedCrewByVessel.has(req.vessel_id)) {
-              approvedCrewByVessel.set(req.vessel_id, new Set());
-            }
-            approvedCrewByVessel.get(req.vessel_id)!.add(req.crew_user_id);
-          });
-
-          allAssignments.forEach(assignment => {
-            const userRole = userRoleMap.get(assignment.user_id);
-            if (userRole !== 'vessel') {
-              // Count total crew
-              totalCrewCounts.set(assignment.vessel_id, (totalCrewCounts.get(assignment.vessel_id) || 0) + 1);
-              
-              // Count toward limit if vessel is official OR crew member has approved request
-              const vessel = allVessels?.find(v => v.id === assignment.vessel_id);
-              const isOfficial = vessel && ((vessel as any).is_official === true || (vessel as any).is_official === 'true');
-              const hasApprovedRequest = approvedCrewByVessel.get(assignment.vessel_id)?.has(assignment.user_id);
-              
-              if (isOfficial || hasApprovedRequest) {
-                if (!crewCountsTowardLimit.has(assignment.vessel_id)) {
-                  crewCountsTowardLimit.set(assignment.vessel_id, new Set());
-                }
-                crewCountsTowardLimit.get(assignment.vessel_id)!.add(assignment.user_id);
-              }
-            }
-          });
-        }
-
-        // Match vessels with their managers
-        const vesselSubscriptionData: VesselSubscriptionData[] = (allVessels || []).map(vessel => {
-          const manager = vesselManagers?.find(m => m.active_vessel_id === vessel.id);
-          
-          const subscriptionTier = manager?.subscription_tier || 'free';
-          const subscriptionStatus = manager?.subscription_status || 'inactive';
-          const isOfficial = (vessel as any).is_official === true || (vessel as any).is_official === 'true';
-          
-          return {
-            vessel: {
-              id: vessel.id,
-              name: vessel.name,
-              type: vessel.type,
-              officialNumber: vessel.imo || vessel.official_number,
-              isOfficial,
-            },
-            vesselManager: {
-              id: manager?.id || '',
-              email: manager?.email || 'No manager assigned',
-              firstName: manager?.first_name || null,
-              lastName: manager?.last_name || null,
-              subscriptionTier,
-              subscriptionStatus,
-              stripeCustomerId: manager?.stripe_customer_id || null,
-              stripeSubscriptionId: manager?.stripe_subscription_id || null,
-              currentPeriodEnd: manager?.current_period_end || null,
-              cancelAtPeriodEnd: manager?.cancel_at_period_end || null,
-            },
-            totalCrewCount: totalCrewCounts.get(vessel.id) || 0,
-            crewCountTowardLimit: crewCountsTowardLimit.get(vessel.id)?.size || 0,
-            restrictions: {
-              crewLimit: getCrewLimit(subscriptionTier, subscriptionStatus),
-              vesselLimit: getVesselLimit(subscriptionTier, subscriptionStatus),
-              canGenerateDocuments: canGenerateDocuments(subscriptionTier, subscriptionStatus),
-            },
-          };
+  const unlinkManager = async () => {
+    if (!unlinkTarget) return;
+    setIsUnlinking(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin/vessels/unlink-manager', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          vesselId: unlinkTarget.vessel.id,
+          managerUserId:
+            unlinkTarget.vesselManager.id ||
+            unlinkTarget.vessel.vesselManagerId ||
+            undefined,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          variant: 'destructive',
+          title: 'Could not remove manager',
+          description: typeof json.error === 'string' ? json.error : res.statusText,
         });
-
-        setVesselSubscriptions(vesselSubscriptionData);
-      } catch (error) {
-        console.error('[VESSEL SUBSCRIPTIONS] Error:', error);
-      } finally {
-        setIsLoading(false);
+        return;
       }
-    };
-
-    fetchVesselSubscriptions();
-  }, [isAdmin, user?.id, isLoadingProfile, supabase]);
+      toast({
+        title: 'Manager removed',
+        description: `${unlinkTarget.vessel.name} is unmanaged. The vessel account’s start date, daily logs, and related session data for that vessel were cleared.`,
+      });
+      setUnlinkTarget(null);
+      await fetchVesselSubscriptions();
+    } catch (e) {
+      console.error('[VESSEL SUBSCRIPTIONS] unlink', e);
+      toast({
+        variant: 'destructive',
+        title: 'Could not remove manager',
+        description: e instanceof Error ? e.message : 'Unexpected error',
+      });
+    } finally {
+      setIsUnlinking(false);
+    }
+  };
 
   if (isLoadingProfile) {
     return (
@@ -333,6 +413,7 @@ export default function VesselSubscriptionsPage() {
         <h1 className="text-3xl font-bold tracking-tight">Vessel Subscriptions</h1>
         <p className="text-muted-foreground">
           View all vessels and their subscription status, billing dates, and restrictions.
+          Expand a row to remove a managing account if the wrong vessel account was linked.
         </p>
       </div>
 
@@ -629,6 +710,29 @@ export default function VesselSubscriptionsPage() {
                                         </div>
                                       )}
                                     </div>
+                                    {(data.vesselManager.id || data.vessel.vesselManagerId) ? (
+                                      <div className="mt-4 pt-4 border-t">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          className="gap-2 text-destructive border-destructive/30 hover:bg-destructive/10"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setUnlinkTarget(data);
+                                          }}
+                                        >
+                                          <Unlink className="h-4 w-4" />
+                                          Remove managing account
+                                        </Button>
+                                        <p className="mt-2 text-xs text-muted-foreground max-w-md">
+                                          Unlinks this vessel from the manager and resets that
+                                          account&apos;s session: clears start date, active vessel,
+                                          and that account&apos;s daily logs / passages for this
+                                          vessel. Crew data for other users is kept.
+                                        </p>
+                                      </div>
+                                    ) : null}
                                   </CardContent>
                                 </Card>
                               </div>
@@ -644,6 +748,53 @@ export default function VesselSubscriptionsPage() {
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog
+        open={!!unlinkTarget}
+        onOpenChange={(open) => {
+          if (!open && !isUnlinking) setUnlinkTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove managing account?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                This will unlink{' '}
+                <strong>
+                  {unlinkTarget?.vesselManager.email || 'the vessel account'}
+                </strong>{' '}
+                from <strong>{unlinkTarget?.vessel.name}</strong>.
+              </span>
+              <span className="block">
+                The vessel becomes unmanaged. That vessel account&apos;s start date and active
+                vessel are cleared, and its daily logs / passages / map data / assignments for
+                this vessel are permanently removed. Other crew members&apos; data is not deleted.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isUnlinking}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isUnlinking}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                void unlinkManager();
+              }}
+            >
+              {isUnlinking ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Removing…
+                </>
+              ) : (
+                'Remove manager'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

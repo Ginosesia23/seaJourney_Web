@@ -57,6 +57,21 @@ export function isVesselManagedFreeTier(userProfile: any): boolean {
   return VESSEL_MANAGED_FREE_TIERS.has(tier);
 }
 
+/**
+ * True if this account is marked as testing/QA/demo (`users.is_testing`).
+ * Handles both snake_case (raw DB) and camelCase profile shapes.
+ */
+export function isTestingAccount(userProfile: any): boolean {
+  if (!userProfile) return false;
+  return userProfile.is_testing === true || userProfile.isTesting === true;
+}
+
+/** Drop testing accounts from an analytics user list. */
+export function excludeTestingAccounts<T>(users: T[] | null | undefined): T[] {
+  if (!users?.length) return [];
+  return users.filter((u) => !isTestingAccount(u));
+}
+
 export function getSubscriptionStatus(userProfile: any): string | null {
   if (!userProfile) return null;
 

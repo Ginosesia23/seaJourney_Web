@@ -35,6 +35,7 @@ import type { UserProfile } from '@/lib/types';
 import { format, subDays, startOfDay, endOfDay, isWithinInterval, parse, startOfMonth, endOfMonth, eachMonthOfInterval } from 'date-fns';
 import { useRouter } from 'next/navigation';
 import { getVesselStateLogs, getVesselAssignments } from '@/supabase/database/queries';
+import { excludeTestingAccounts } from '@/supabase/database/subscription-helpers';
 
 interface PlatformMetrics {
   // User Metrics
@@ -128,15 +129,28 @@ export default function PlatformAnalyticsPage() {
         const lastMonthStart = startOfMonth(subDays(now, 30));
         const lastMonthEnd = endOfMonth(subDays(now, 30));
 
-        // Fetch all users (crew and captains)
-        const { data: allUsers, error: usersError } = await supabase
+        // Fetch all users (crew and captains); testing accounts excluded from metrics
+        const { data: allUsersRaw, error: usersError } = await supabase
           .from('users')
-          .select('id, first_name, last_name, username, email, role, created_at, active_vessel_id')
+          .select('id, first_name, last_name, username, email, role, created_at, active_vessel_id, is_testing')
           .in('role', ['crew', 'captain']);
 
         if (usersError) {
           console.error('[PLATFORM ANALYTICS] Error fetching users:', usersError);
         }
+
+        const allUsers = excludeTestingAccounts(allUsersRaw);
+
+        // Any testing account (incl. vessel/admin) whose activity should not inflate metrics
+        const { data: testingRows } = await supabase
+          .from('users')
+          .select('id')
+          .eq('is_testing', true);
+        const testingUserIds = new Set(
+          (testingRows || []).map((u) => u.id as string),
+        );
+        const isRealUserActivity = (userId: string | null | undefined) =>
+          !!userId && !testingUserIds.has(userId);
 
         // Fetch all vessels
         const { data: allVessels, error: vesselsError } = await supabase
@@ -149,7 +163,7 @@ export default function PlatformAnalyticsPage() {
 
         // Fetch all vessel assignments
         const allAssignments: any[] = [];
-        for (const user of allUsers || []) {
+        for (const user of allUsers) {
           try {
             const assignments = await getVesselAssignments(supabase, user.id);
             allAssignments.push(...assignments);
@@ -161,7 +175,7 @@ export default function PlatformAnalyticsPage() {
         // Fetch testimonials
         const { data: testimonials, error: testimonialsError } = await supabase
           .from('testimonials')
-          .select('id, status, created_at');
+          .select('id, status, created_at, user_id');
 
         if (testimonialsError) {
           console.error('[PLATFORM ANALYTICS] Error fetching testimonials:', testimonialsError);
@@ -176,23 +190,24 @@ export default function PlatformAnalyticsPage() {
         for (const vessel of allVessels || []) {
           try {
             const logs = await getVesselStateLogs(supabase, vessel.id, undefined);
-            totalStateLogs += logs.length;
-            
-            const thisMonthLogs = logs.filter(log => {
+            // Track by user (skip testing accounts)
+            logs.forEach(log => {
+              if (!isRealUserActivity(log.userId)) return;
+              const count = stateLogsByUser.get(log.userId) || 0;
+              stateLogsByUser.set(log.userId, count + 1);
+            });
+
+            // Track by vessel — only count non-testing user days toward totals
+            const realLogs = logs.filter((log) => isRealUserActivity(log.userId));
+            totalStateLogs += realLogs.length;
+            const thisMonthLogs = realLogs.filter(log => {
               const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
               return isWithinInterval(logDate, { start: thisMonthStart, end: now });
             });
             stateLogsThisMonth += thisMonthLogs.length;
 
-            // Track by user
-            logs.forEach(log => {
-              const count = stateLogsByUser.get(log.userId) || 0;
-              stateLogsByUser.set(log.userId, count + 1);
-            });
-
-            // Track by vessel
             const vesselCount = stateLogsByVessel.get(vessel.id) || 0;
-            stateLogsByVessel.set(vessel.id, vesselCount + logs.length);
+            stateLogsByVessel.set(vessel.id, vesselCount + realLogs.length);
           } catch (error) {
             // Continue if error
           }
@@ -269,6 +284,7 @@ export default function PlatformAnalyticsPage() {
           try {
             const logs = await getVesselStateLogs(supabase, vessel.id, undefined);
             logs.forEach(log => {
+              if (!isRealUserActivity(log.userId)) return;
               const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
               if (isWithinInterval(logDate, { start: thirtyDaysAgo, end: now })) {
                 usersWithRecentLogs.add(log.userId);
@@ -311,6 +327,7 @@ export default function PlatformAnalyticsPage() {
             try {
               const logs = await getVesselStateLogs(supabase, vessel.id, undefined);
               const monthLogs = logs.filter(log => {
+                if (!isRealUserActivity(log.userId)) return false;
                 const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
                 return isWithinInterval(logDate, { start: monthStart, end: monthEnd });
               });
@@ -352,11 +369,27 @@ export default function PlatformAnalyticsPage() {
           .sort((a, b) => b.totalDays - a.totalDays)
           .slice(0, 10);
 
-        // Users with different content types
-        const usersWithTestimonials = new Set((testimonials || []).map(t => (t as any).user_id || (t as any).userId)).size;
-        const usersWithPassageLogs = new Set(passageLogs.map(p => p.crew_id || (p as any).user_id || (p as any).userId)).size;
-        const usersWithBridgeWatch = new Set(bridgeWatchLogs.map(b => b.crew_id || (b as any).user_id || (b as any).userId)).size;
-        const usersTrackingVisas = new Set(visaTrackers.map(v => v.user_id || (v as any).userId)).size;
+        // Users with different content types (exclude testing accounts)
+        const usersWithTestimonials = new Set(
+          (testimonials || [])
+            .map((t) => (t as any).user_id || (t as any).userId)
+            .filter((id: string) => isRealUserActivity(id)),
+        ).size;
+        const usersWithPassageLogs = new Set(
+          passageLogs
+            .map((p) => p.crew_id || (p as any).user_id || (p as any).userId)
+            .filter((id: string) => isRealUserActivity(id)),
+        ).size;
+        const usersWithBridgeWatch = new Set(
+          bridgeWatchLogs
+            .map((b) => b.crew_id || (b as any).user_id || (b as any).userId)
+            .filter((id: string) => isRealUserActivity(id)),
+        ).size;
+        const usersTrackingVisas = new Set(
+          visaTrackers
+            .map((v) => v.user_id || (v as any).userId)
+            .filter((id: string) => isRealUserActivity(id)),
+        ).size;
 
         // Calculate sea time metrics
         const seaTimeThisMonth = stateLogsThisMonth;
@@ -399,8 +432,12 @@ export default function PlatformAnalyticsPage() {
           seaTimeLastMonth,
           totalStateLogs,
           stateLogsThisMonth,
-          totalPassageLogs: passageLogs.length,
-          totalBridgeWatchLogs: bridgeWatchLogs.length,
+          totalPassageLogs: passageLogs.filter((p) =>
+            isRealUserActivity(p.crew_id || (p as any).user_id || (p as any).userId),
+          ).length,
+          totalBridgeWatchLogs: bridgeWatchLogs.filter((b) =>
+            isRealUserActivity(b.crew_id || (b as any).user_id || (b as any).userId),
+          ).length,
           signupsByMonth,
           seaTimeByMonth,
           topActiveUsers,
@@ -425,6 +462,7 @@ export default function PlatformAnalyticsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Platform Analytics</h1>
           <p className="text-muted-foreground">
             Comprehensive overview of platform performance and user engagement.
+            Accounts marked as testing are excluded.
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -471,6 +509,7 @@ export default function PlatformAnalyticsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Platform Analytics</h1>
           <p className="text-muted-foreground">
             Comprehensive overview of platform performance and user engagement.
+            Accounts marked as testing are excluded.
           </p>
         </div>
         <Select value={timeRange} onValueChange={(value: any) => setTimeRange(value)}>

@@ -17,6 +17,11 @@ export interface UserProfile {
   stripeSubscriptionId?: string | null;
   /** false = No-Ads, true = Ads-Showing; null/undefined displays as Not Set. */
   ads?: boolean | null;
+  /**
+   * When true, this is a QA/demo/testing account. Platform analytics should
+   * exclude these so metrics reflect real users only.
+   */
+  isTesting?: boolean;
   activeVesselId?: string;
   startDate?: string | null; // ISO date string (YYYY-MM-DD) - Official start date for vessel accounts
   signature?: string | null; // Base64 encoded signature image for captains

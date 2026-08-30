@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation';
 import { differenceInDays, format, parseISO, startOfDay } from 'date-fns';
 import {
   ArrowUpRight,
+  FlaskConical,
   Loader2,
   Mail,
   Search,
@@ -76,6 +77,7 @@ type AdminUserRow = {
   /** null = auth status not yet loaded, true/false once known. */
   emailConfirmed: boolean | null;
   isDisabled: boolean | null;
+  isTesting: boolean;
 };
 
 const ROLE_FILTERS: Array<{ value: string; label: string }> = [
@@ -90,6 +92,12 @@ const VERIFICATION_FILTERS: Array<{ value: string; label: string }> = [
   { value: 'all', label: 'Any verification' },
   { value: 'verified', label: 'Verified only' },
   { value: 'unverified', label: 'Unverified only' },
+];
+
+const TESTING_FILTERS: Array<{ value: string; label: string }> = [
+  { value: 'all', label: 'Any testing flag' },
+  { value: 'hide', label: 'Hide testing' },
+  { value: 'only', label: 'Testing only' },
 ];
 
 export default function AdminUserLookupPage() {
@@ -121,6 +129,7 @@ export default function AdminUserLookupPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [verificationFilter, setVerificationFilter] = useState<string>('all');
+  const [testingFilter, setTestingFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'name' | 'lastLogin' | 'lastState'>(
     'lastLogin',
   );
@@ -136,7 +145,7 @@ export default function AdminUserLookupPage() {
       const { data: usersData, error: usersErr } = await supabase
         .from('users')
         .select(
-          'id, first_name, last_name, username, email, role, subscription_tier, subscription_status, active_vessel_id, last_sign_in_at, created_at',
+          'id, first_name, last_name, username, email, role, subscription_tier, subscription_status, active_vessel_id, last_sign_in_at, created_at, is_testing',
         )
         .order('created_at', { ascending: false });
 
@@ -248,6 +257,7 @@ export default function AdminUserLookupPage() {
           latestStateAt: latest?.at ?? null,
           emailConfirmed: null,
           isDisabled: null,
+          isTesting: u.is_testing === true,
         };
       });
 
@@ -328,6 +338,11 @@ export default function AdminUserLookupPage() {
     } else if (verificationFilter === 'unverified') {
       next = next.filter((r) => r.emailConfirmed === false);
     }
+    if (testingFilter === 'hide') {
+      next = next.filter((r) => !r.isTesting);
+    } else if (testingFilter === 'only') {
+      next = next.filter((r) => r.isTesting);
+    }
 
     const sorted = [...next];
     sorted.sort((a, b) => {
@@ -349,7 +364,7 @@ export default function AdminUserLookupPage() {
       return b.latestStateAt.localeCompare(a.latestStateAt);
     });
     return sorted;
-  }, [rows, searchTerm, roleFilter, verificationFilter, sortBy]);
+  }, [rows, searchTerm, roleFilter, verificationFilter, testingFilter, sortBy]);
 
   const stats = useMemo(() => {
     const total = rows.length;
@@ -481,6 +496,18 @@ export default function AdminUserLookupPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={testingFilter} onValueChange={setTestingFilter}>
+              <SelectTrigger className="w-full sm:w-[170px]">
+                <SelectValue placeholder="Testing" />
+              </SelectTrigger>
+              <SelectContent>
+                {TESTING_FILTERS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
               <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Sort by" />
@@ -538,6 +565,15 @@ export default function AdminUserLookupPage() {
                           <div className="flex flex-col">
                             <span className="inline-flex items-center gap-1.5 font-medium">
                               {fullName}
+                              {r.isTesting ? (
+                                <Badge
+                                  variant="outline"
+                                  className="gap-0.5 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-800 dark:text-amber-300"
+                                >
+                                  <FlaskConical className="h-2.5 w-2.5" />
+                                  Testing
+                                </Badge>
+                              ) : null}
                               {r.isDisabled ? (
                                 <Badge variant="destructive" className="text-[10px]">
                                   Disabled

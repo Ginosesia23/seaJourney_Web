@@ -26,6 +26,7 @@ import { format, parse, isAfter, isBefore, startOfDay } from 'date-fns';
 import { useRouter } from 'next/navigation';
 import { useCollection } from '@/supabase/database';
 import { StatePill } from '@/components/state-pill';
+import { excludeTestingAccounts } from '@/supabase/database/subscription-helpers';
 
 interface CrewWithoutVessel {
   id: string;
@@ -100,10 +101,10 @@ export default function CrewAnalyticsPage() {
     const fetchCrewAnalytics = async () => {
       setIsLoading(true);
       try {
-        // Fetch all crew users (excluding vessel accounts and admins)
-        const { data: allCrew, error: crewError } = await supabase
+        // Fetch all crew users (excluding vessel accounts, admins, and testing accounts)
+        const { data: allCrewRaw, error: crewError } = await supabase
           .from('users')
-          .select('id, first_name, last_name, username, email, role, created_at, active_vessel_id')
+          .select('id, first_name, last_name, username, email, role, created_at, active_vessel_id, is_testing')
           .in('role', ['crew', 'captain'])
           .order('created_at', { ascending: false });
 
@@ -113,6 +114,8 @@ export default function CrewAnalyticsPage() {
           setIsLoading(false);
           return;
         }
+
+        const allCrew = excludeTestingAccounts(allCrewRaw);
 
         // Fetch all vessel assignments at once (more efficient and works better with RLS)
         const crewUserIds = (allCrew || []).map(c => c.id);
@@ -393,6 +396,7 @@ export default function CrewAnalyticsPage() {
         <h1 className="text-3xl font-bold tracking-tight">Crew Analytics</h1>
         <p className="text-muted-foreground">
           View all crew members and their current vessel assignments.
+          Testing accounts are excluded.
         </p>
       </div>
 

@@ -3,11 +3,11 @@
 /**
  * SeaJourney landing page.
  *
- * Yacht Watchkeeper-inspired visual language — deep-navy canvas in dark mode,
+ * Yacht Watchkeeper-inspired visual language — deep-navy canvas by default,
  * soft-neutral canvas in light mode, sky-blue accents, partial-coloured
  * headlines, numbered gradient cards, compact feature grids, and a single
- * accent line running through every CTA. Auto light/dark via system, with a
- * manual override stored in localStorage so the choice survives navigation.
+ * accent line running through every CTA. Defaults to dark; visitors can
+ * switch to light via the theme button (choice stored in localStorage).
  */
 
 import Link from 'next/link';
@@ -81,101 +81,11 @@ type IconType = ComponentType<SVGProps<SVGSVGElement>>;
 
 // ---------------------------------------------------------------------------
 // Theme: CSS custom properties scoped to `.wk`.
-// Light by default; switches to dark when the OS says so.
+// Dark by default; light only when the visitor forces it via the theme button.
 // ---------------------------------------------------------------------------
 
 const themeCss = `
 .wk {
-  --wk-bg:          #f5f8fd;
-  --wk-bg-raised:  #ffffff;
-  --wk-bg-subtle:  #eef3fb;
-  --wk-bg-deep:    #e7edf7;
-  --wk-card:        #ffffff;
-  --wk-card-alt:   #f8fafc;
-
-  --wk-text:          #0b1628;
-  --wk-text-soft:    #3b4c64;
-  --wk-text-muted:  #6b7b91;
-
-  --wk-line:         rgba(11, 22, 40, 0.10);
-  --wk-line-strong: rgba(11, 22, 40, 0.18);
-
-  --wk-accent:       #0ea5e9;
-  --wk-accent-strong: #0284c7;
-  --wk-accent-soft: rgba(14, 165, 233, 0.10);
-  --wk-accent-ring: rgba(14, 165, 233, 0.28);
-
-  --wk-accent-2:      #14b8a6;
-  --wk-accent-2-soft: rgba(20, 184, 166, 0.12);
-  --wk-accent-2-ring: rgba(20, 184, 166, 0.30);
-
-  --wk-accent-3:       #8b5cf6;
-  --wk-accent-3-soft: rgba(139, 92, 246, 0.12);
-
-  --wk-good:    #10b981;
-  --wk-good-soft: rgba(16, 185, 129, 0.12);
-  --wk-bad:     #ef4444;
-  --wk-bad-soft: rgba(239, 68, 68, 0.10);
-  --wk-warm:   #d97706;
-  --wk-warm-soft: rgba(217, 119, 6, 0.12);
-
-  --wk-shadow-sm: 0 1px 2px rgba(11, 22, 40, 0.04);
-  --wk-shadow-md: 0 8px 24px -12px rgba(11, 22, 40, 0.18);
-  --wk-shadow-lg: 0 24px 60px -32px rgba(11, 22, 40, 0.22);
-  --wk-glow:     0 20px 60px -20px rgba(14, 165, 233, 0.35);
-  --wk-glow-2:   0 20px 60px -20px rgba(20, 184, 166, 0.35);
-
-  --wk-grad-accent: linear-gradient(135deg, var(--wk-accent) 0%, var(--wk-accent-2) 100%);
-  --wk-grad-text:   linear-gradient(120deg, var(--wk-accent) 0%, var(--wk-accent-2) 50%, var(--wk-accent) 100%);
-
-  color: var(--wk-text);
-  background-color: var(--wk-bg);
-}
-
-@media (prefers-color-scheme: dark) {
-  .wk:not([data-wk-force="light"]) {
-    --wk-bg:          #060b17;
-    --wk-bg-raised:  #0a1324;
-    --wk-bg-subtle:  #070d1c;
-    --wk-bg-deep:    #03070f;
-    --wk-card:        #0e1a2e;
-    --wk-card-alt:   #111f38;
-
-    --wk-text:        #e7eef9;
-    --wk-text-soft:  #a8b6ca;
-    --wk-text-muted:  #6f8097;
-
-    --wk-line:        rgba(255, 255, 255, 0.08);
-    --wk-line-strong: rgba(255, 255, 255, 0.16);
-
-    --wk-accent:       #38bdf8;
-    --wk-accent-strong: #0ea5e9;
-    --wk-accent-soft:  rgba(56, 189, 248, 0.14);
-    --wk-accent-ring: rgba(56, 189, 248, 0.35);
-
-    --wk-accent-2:      #2dd4bf;
-    --wk-accent-2-soft: rgba(45, 212, 191, 0.16);
-    --wk-accent-2-ring: rgba(45, 212, 191, 0.38);
-
-    --wk-accent-3:       #a78bfa;
-    --wk-accent-3-soft: rgba(167, 139, 250, 0.16);
-
-    --wk-good:        #34d399;
-    --wk-good-soft:  rgba(52, 211, 153, 0.14);
-    --wk-bad:         #f87171;
-    --wk-bad-soft:   rgba(248, 113, 113, 0.14);
-    --wk-warm:        #fbbf24;
-    --wk-warm-soft:  rgba(251, 191, 36, 0.14);
-
-    --wk-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --wk-shadow-md: 0 10px 30px -12px rgba(0, 0, 0, 0.6);
-    --wk-shadow-lg: 0 30px 80px -40px rgba(0, 0, 0, 0.8);
-    --wk-glow:      0 20px 60px -20px rgba(56, 189, 248, 0.45);
-    --wk-glow-2:    0 20px 60px -20px rgba(45, 212, 191, 0.45);
-  }
-}
-
-.wk[data-wk-force="dark"] {
   --wk-bg:          #060b17;
   --wk-bg-raised:  #0a1324;
   --wk-bg-subtle:  #070d1c;
@@ -214,6 +124,53 @@ const themeCss = `
   --wk-shadow-lg: 0 30px 80px -40px rgba(0, 0, 0, 0.8);
   --wk-glow:      0 20px 60px -20px rgba(56, 189, 248, 0.45);
   --wk-glow-2:    0 20px 60px -20px rgba(45, 212, 191, 0.45);
+
+  --wk-grad-accent: linear-gradient(135deg, var(--wk-accent) 0%, var(--wk-accent-2) 100%);
+  --wk-grad-text:   linear-gradient(120deg, var(--wk-accent) 0%, var(--wk-accent-2) 50%, var(--wk-accent) 100%);
+
+  color: var(--wk-text);
+  background-color: var(--wk-bg);
+}
+
+.wk[data-wk-force="light"] {
+  --wk-bg:          #f5f8fd;
+  --wk-bg-raised:  #ffffff;
+  --wk-bg-subtle:  #eef3fb;
+  --wk-bg-deep:    #e7edf7;
+  --wk-card:        #ffffff;
+  --wk-card-alt:   #f8fafc;
+
+  --wk-text:          #0b1628;
+  --wk-text-soft:    #3b4c64;
+  --wk-text-muted:  #6b7b91;
+
+  --wk-line:         rgba(11, 22, 40, 0.10);
+  --wk-line-strong: rgba(11, 22, 40, 0.18);
+
+  --wk-accent:       #0ea5e9;
+  --wk-accent-strong: #0284c7;
+  --wk-accent-soft: rgba(14, 165, 233, 0.10);
+  --wk-accent-ring: rgba(14, 165, 233, 0.28);
+
+  --wk-accent-2:      #14b8a6;
+  --wk-accent-2-soft: rgba(20, 184, 166, 0.12);
+  --wk-accent-2-ring: rgba(20, 184, 166, 0.30);
+
+  --wk-accent-3:       #8b5cf6;
+  --wk-accent-3-soft: rgba(139, 92, 246, 0.12);
+
+  --wk-good:    #10b981;
+  --wk-good-soft: rgba(16, 185, 129, 0.12);
+  --wk-bad:     #ef4444;
+  --wk-bad-soft: rgba(239, 68, 68, 0.10);
+  --wk-warm:   #d97706;
+  --wk-warm-soft: rgba(217, 119, 6, 0.12);
+
+  --wk-shadow-sm: 0 1px 2px rgba(11, 22, 40, 0.04);
+  --wk-shadow-md: 0 8px 24px -12px rgba(11, 22, 40, 0.18);
+  --wk-shadow-lg: 0 24px 60px -32px rgba(11, 22, 40, 0.22);
+  --wk-glow:     0 20px 60px -20px rgba(14, 165, 233, 0.35);
+  --wk-glow-2:   0 20px 60px -20px rgba(20, 184, 166, 0.35);
 }
 
 .wk-dot-grid {
@@ -796,15 +753,17 @@ const themeCss = `
 // Page
 // ---------------------------------------------------------------------------
 
-type ThemeMode = 'auto' | 'light' | 'dark';
+type ThemeMode = 'light' | 'dark';
 
 export default function Home() {
-  const [mode, setMode] = useState<ThemeMode>('auto');
+  const [mode, setMode] = useState<ThemeMode>('dark');
 
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem('wk-theme-mode') as ThemeMode | null;
-      if (saved === 'light' || saved === 'dark' || saved === 'auto') setMode(saved);
+      const saved = window.localStorage.getItem('wk-theme-mode');
+      // Prefer an explicit light/dark choice; treat legacy "auto" as dark.
+      if (saved === 'light' || saved === 'dark') setMode(saved);
+      else setMode('dark');
     } catch {}
   }, []);
 
@@ -812,6 +771,9 @@ export default function Home() {
     try {
       window.localStorage.setItem('wk-theme-mode', mode);
     } catch {}
+    // Keep the document class in sync so non-`.wk` chrome matches the toggle.
+    document.documentElement.classList.toggle('dark', mode === 'dark');
+    document.documentElement.classList.toggle('light', mode === 'light');
   }, [mode]);
 
   return (
@@ -819,7 +781,7 @@ export default function Home() {
       <style dangerouslySetInnerHTML={{ __html: themeCss }} />
       <div
         className="wk min-h-screen font-sans antialiased"
-        data-wk-force={mode === 'auto' ? undefined : mode}
+        data-wk-force={mode}
       >
         <AuthRecoveryHandler />
         <WkHeader mode={mode} setMode={setMode} />
@@ -6529,25 +6491,20 @@ function ThemeToggle({
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
 }) {
-  const cycle: Record<ThemeMode, ThemeMode> = {
-    auto: 'light',
-    light: 'dark',
-    dark: 'auto',
-  };
-  const label =
-    mode === 'auto' ? 'System theme' : mode === 'light' ? 'Light theme' : 'Dark theme';
-  const Icon = mode === 'dark' ? Moon : mode === 'light' ? Sun : Sparkles;
+  const next = mode === 'dark' ? 'light' : 'dark';
+  const label = mode === 'light' ? 'Light theme' : 'Dark theme';
+  const Icon = mode === 'dark' ? Moon : Sun;
   return (
     <button
       type="button"
-      onClick={() => setMode(cycle[mode])}
+      onClick={() => setMode(next)}
       className="inline-flex h-9 w-9 items-center justify-center rounded-full"
       style={{
         color: 'var(--wk-text-soft)',
         border: '1px solid var(--wk-line)',
         backgroundColor: 'var(--wk-bg-raised)',
       }}
-      title={`${label} · click to switch`}
+      title={`${label} · click for ${next}`}
       aria-label={label}
     >
       <Icon className="h-4 w-4" />

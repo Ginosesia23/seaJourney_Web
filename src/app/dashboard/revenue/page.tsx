@@ -25,7 +25,7 @@ import type { UserProfile } from '@/lib/types';
 import { format, subMonths, startOfMonth, endOfMonth, eachMonthOfInterval } from 'date-fns';
 import { getSubscriptionTierPricingMap } from '@/app/actions';
 import { lookupTierPriceGbp } from '@/lib/subscription-tier-pricing';
-import { countsTowardPaidMrr } from '@/supabase/database/subscription-helpers';
+import { countsTowardPaidMrr, excludeTestingAccounts } from '@/supabase/database/subscription-helpers';
 
 /** Matches Ads tracking: `false` = No-Ads purchase. */
 function normalizeAdsFlag(value: unknown): boolean | null {
@@ -90,19 +90,19 @@ export default function RevenuePage() {
         const [crewRes, vesselRes, noAdsRes, tierPricing] = await Promise.all([
           supabase
             .from('users')
-            .select('id, subscription_status, subscription_tier, created_at, role, stripe_subscription_id, current_period_end, cancel_at_period_end')
+            .select('id, subscription_status, subscription_tier, created_at, role, stripe_subscription_id, current_period_end, cancel_at_period_end, is_testing')
             .neq('role', 'vessel'),
           supabase
             .from('users')
-            .select('id, subscription_status, subscription_tier, created_at, role, stripe_subscription_id, current_period_end, cancel_at_period_end')
+            .select('id, subscription_status, subscription_tier, created_at, role, stripe_subscription_id, current_period_end, cancel_at_period_end, is_testing')
             .eq('role', 'vessel'),
-          supabase.from('users').select('ads').neq('role', 'admin'),
+          supabase.from('users').select('ads, is_testing').neq('role', 'admin'),
           getSubscriptionTierPricingMap(),
         ]);
 
-        const allUsers = crewRes.data;
+        const allUsers = excludeTestingAccounts(crewRes.data);
         const usersError = crewRes.error;
-        const allVesselAccounts = vesselRes.data;
+        const allVesselAccounts = excludeTestingAccounts(vesselRes.data);
         const vesselAccountsError = vesselRes.error;
 
         if (usersError) {
@@ -118,7 +118,7 @@ export default function RevenuePage() {
         }
 
         const noAdsUserCount =
-          noAdsRes.data?.filter((u: { ads?: unknown }) => normalizeAdsFlag(u.ads) === false).length ?? 0;
+          excludeTestingAccounts(noAdsRes.data).filter((u: { ads?: unknown }) => normalizeAdsFlag(u.ads) === false).length;
         const noAdsLifetimeGbp = noAdsUserCount * NO_ADS_ONE_TIME_GBP;
 
         // Calculate current revenue

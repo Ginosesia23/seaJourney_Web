@@ -76,11 +76,25 @@ interface CrewSubRow {
 // intentionally NOT here — those rows are only created by the vessel-roles
 // invite flow and shouldn't be hand-assigned. They will still RENDER (e.g.
 // in the table and the summary) using formatTierName.
-const MANUAL_TIERS = [
+const MANUAL_CREW_TIERS = [
   { value: 'free', label: 'Free' },
   { value: 'crew_limited', label: 'Crew limited' },
   { value: 'standard', label: 'Standard' },
   { value: 'premium', label: 'Premium' },
+] as const;
+
+const MANUAL_VESSEL_TIERS = [
+  { value: 'free', label: 'Free' },
+  { value: 'vessel_lite', label: 'Vessel Standard' },
+  { value: 'vessel_basic', label: 'Vessel Premium' },
+  { value: 'vessel_pro', label: 'Vessel Professional' },
+  { value: 'vessel_fleet', label: 'Vessel Fleet' },
+] as const;
+
+const MANUAL_ROLES = [
+  { value: 'crew', label: 'Crew' },
+  { value: 'captain', label: 'Captain' },
+  { value: 'vessel', label: 'Vessel' },
 ] as const;
 
 const MANUAL_STATUSES = [
@@ -102,6 +116,10 @@ function formatTierName(tier: string) {
   if (!tier || tier === 'free') return 'Free';
   if (tier === 'crew_limited') return 'Crew Limited';
   if (tier === 'vessel_linked') return 'Vessel Linked';
+  if (tier === 'vessel_lite') return 'Vessel Standard';
+  if (tier === 'vessel_basic') return 'Vessel Premium';
+  if (tier === 'vessel_pro') return 'Vessel Professional';
+  if (tier === 'vessel_fleet') return 'Vessel Fleet';
   const cleaned = tier.replace(/^(sj_|sea_journey_)/i, '').trim();
   return cleaned
     .split('_')
@@ -142,8 +160,14 @@ export default function CrewSubscriptionsPage() {
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [stripeDialogRow, setStripeDialogRow] = useState<CrewSubRow | null>(null);
   const [manualDialogRow, setManualDialogRow] = useState<CrewSubRow | null>(null);
+  const [manualRole, setManualRole] = useState<string>('crew');
   const [manualTier, setManualTier] = useState<string>('free');
   const [manualStatus, setManualStatus] = useState<string>('inactive');
+
+  const manualTierOptions = useMemo(
+    () => (manualRole === 'vessel' ? MANUAL_VESSEL_TIERS : MANUAL_CREW_TIERS),
+    [manualRole],
+  );
 
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
 
@@ -292,13 +316,33 @@ export default function CrewSubscriptionsPage() {
   }, [rows]);
 
   const openManualDialog = (r: CrewSubRow) => {
+    const role =
+      r.role === 'captain' || r.role === 'vessel' || r.role === 'crew'
+        ? r.role
+        : 'crew';
+    setManualRole(role);
     const tier = (r.subscriptionTier || 'free').toLowerCase();
+    const tierOptions = role === 'vessel' ? MANUAL_VESSEL_TIERS : MANUAL_CREW_TIERS;
     setManualTier(
-      MANUAL_TIERS.some((m) => m.value === tier) ? tier : 'free',
+      tierOptions.some((m) => m.value === tier)
+        ? tier
+        : role === 'vessel'
+          ? 'vessel_lite'
+          : 'free',
     );
     const st = (r.subscriptionStatus || 'inactive').replace(/_/g, '-');
     setManualStatus(MANUAL_STATUSES.some((s) => s.value === st) ? st : 'inactive');
     setManualDialogRow(r);
+  };
+
+  const onManualRoleChange = (nextRole: string) => {
+    setManualRole(nextRole);
+    const tierOptions =
+      nextRole === 'vessel' ? MANUAL_VESSEL_TIERS : MANUAL_CREW_TIERS;
+    // If current tier isn't valid for the new role, pick a sensible default.
+    if (!tierOptions.some((t) => t.value === manualTier)) {
+      setManualTier(nextRole === 'vessel' ? 'vessel_lite' : 'free');
+    }
   };
 
   const applyStripePlan = async (row: CrewSubRow, priceId: string) => {
@@ -367,6 +411,7 @@ export default function CrewSubscriptionsPage() {
         body: JSON.stringify({
           userId: manualDialogRow.id,
           action: 'manual',
+          role: manualRole,
           subscriptionTier: manualTier,
           subscriptionStatus: manualStatus,
         }),
@@ -382,8 +427,13 @@ export default function CrewSubscriptionsPage() {
       }
       if (json.warning) {
         toast({ title: 'Saved', description: json.warning });
+      } else if (json.roleChanged && manualRole === 'vessel') {
+        toast({
+          title: 'Converted to vessel',
+          description: 'Tier and status saved. Account moved to vessel type.',
+        });
       } else {
-        toast({ title: 'Saved', description: 'Tier and status updated in the database.' });
+        toast({ title: 'Saved', description: 'Account type, tier and status updated.' });
       }
       setManualDialogRow(null);
       await fetchCrew();
@@ -437,8 +487,9 @@ export default function CrewSubscriptionsPage() {
         <p className="text-muted-foreground max-w-3xl">
           Crew and captain accounts: plan tier, billing status, next renewal from{' '}
           <code className="text-xs bg-muted px-1 rounded">current_period_end</code> (synced from Stripe).
-          Use <strong>Stripe plan</strong> when they have a subscription ID; use <strong>Manual</strong> only
-          for comps or fixes (may diverge from Stripe if they still have an active subscription).
+          Use <strong>Stripe plan</strong> when they have a subscription ID; use <strong>Manual</strong> to
+          set tier/status or convert an account to a vessel manager (may diverge from Stripe if they still
+          have an active subscription).
         </p>
       </div>
 
@@ -596,7 +647,7 @@ export default function CrewSubscriptionsPage() {
                                 Change Stripe plan…
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => openManualDialog(r)}>
-                                Set tier manually…
+                                Set role / tier manually…
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -662,13 +713,16 @@ export default function CrewSubscriptionsPage() {
       <Dialog open={!!manualDialogRow} onOpenChange={(o) => !o && setManualDialogRow(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Manual tier &amp; status</DialogTitle>
+            <DialogTitle>Account type, tier &amp; status</DialogTitle>
             <DialogDescription>
-              Writes directly to the database. Stripe will still charge the old plan unless you change or
-              cancel it in Stripe.
+              Writes directly to the database. Switch account type to{' '}
+              <strong>Vessel</strong> to turn a crew/captain into a vessel manager, then assign a
+              vessel plan. Stripe will still charge the old plan unless you change or cancel it in
+              Stripe.
             </DialogDescription>
             {manualDialogRow &&
-            !MANUAL_TIERS.some(
+            manualRole !== 'vessel' &&
+            !MANUAL_CREW_TIERS.some(
               (m) => m.value === (manualDialogRow.subscriptionTier || '').toLowerCase(),
             ) ? (
               <p className="text-sm text-amber-700 dark:text-amber-300 pt-2">
@@ -677,8 +731,29 @@ export default function CrewSubscriptionsPage() {
                 tier below and save to align with plans you offer.
               </p>
             ) : null}
+            {manualRole === 'vessel' && manualDialogRow?.role !== 'vessel' ? (
+              <p className="text-sm text-amber-700 dark:text-amber-300 pt-2">
+                Saving will convert this account to a vessel manager and remove it from this list.
+                They will need a vessel linked afterward (Vessel subscriptions).
+              </p>
+            ) : null}
           </DialogHeader>
           <div className="grid gap-4 py-2">
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Account type</p>
+              <Select value={manualRole} onValueChange={onManualRoleChange}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MANUAL_ROLES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <p className="text-sm font-medium">Tier</p>
               <Select value={manualTier} onValueChange={setManualTier}>
@@ -686,7 +761,7 @@ export default function CrewSubscriptionsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {MANUAL_TIERS.map((t) => (
+                  {manualTierOptions.map((t) => (
                     <SelectItem key={t.value} value={t.value}>
                       {t.label}
                     </SelectItem>

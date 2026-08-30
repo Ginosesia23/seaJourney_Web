@@ -25,6 +25,7 @@ import {
   Calendar as CalendarIcon,
   ClipboardList,
   FileSignature,
+  FlaskConical,
   Loader2,
   Mail,
   Navigation,
@@ -237,6 +238,15 @@ export default function AdminUserDetailPage() {
                 {fullName}
               </h1>
               <RoleChip role={target.role || 'crew'} />
+              {target.is_testing === true && (
+                <Badge
+                  variant="outline"
+                  className="gap-1 border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+                >
+                  <FlaskConical className="h-3 w-3" />
+                  Testing
+                </Badge>
+              )}
               {target.subscription_tier && (
                 <Badge variant="outline" className="capitalize">
                   {target.subscription_tier} · {target.subscription_status ?? '—'}
@@ -290,6 +300,9 @@ export default function AdminUserDetailPage() {
             vesselName={vesselName}
             vesselSource={vesselSource}
             currentUserId={user?.id}
+            onTargetPatch={(patch) =>
+              setTarget((prev) => (prev ? { ...prev, ...patch } : prev))
+            }
           />
         </TabsContent>
         <TabsContent value="calendar" className="mt-4">
