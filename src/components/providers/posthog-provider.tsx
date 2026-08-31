@@ -8,7 +8,7 @@ import { useDoc } from '@/supabase/database';
 import type { UserProfile } from '@/lib/types';
 
 const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
+const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST || '/ingest';
 
 let didInit = false;
 
@@ -16,6 +16,7 @@ function initPostHog() {
   if (didInit || typeof window === 'undefined' || !POSTHOG_KEY) return;
   posthog.init(POSTHOG_KEY, {
     api_host: POSTHOG_HOST,
+    ui_host: 'https://us.posthog.com',
     capture_pageview: false,
     capture_pageleave: true,
     capture_exceptions: true,
