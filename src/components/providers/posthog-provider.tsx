@@ -12,8 +12,15 @@ const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posth
 
 let didInit = false;
 
+function analyticsEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (process.env.NODE_ENV !== 'production') return false;
+  const host = window.location.hostname;
+  return host !== 'localhost' && host !== '127.0.0.1';
+}
+
 function initPostHog() {
-  if (didInit || typeof window === 'undefined' || !POSTHOG_KEY) return;
+  if (didInit || !POSTHOG_KEY || !analyticsEnabled()) return;
   posthog.init(POSTHOG_KEY, {
     api_host: POSTHOG_HOST,
     capture_pageview: false,
@@ -40,6 +47,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!POSTHOG_KEY) return;
     initPostHog();
+    if (!didInit) return;
     if (!identityReady) return;
 
     if (isAdmin) {
@@ -75,6 +83,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!shouldCapture || !pathname) return;
     initPostHog();
+    if (!didInit) return;
     if (typeof posthog.has_opted_out_capturing === 'function' && posthog.has_opted_out_capturing()) {
       return;
     }
