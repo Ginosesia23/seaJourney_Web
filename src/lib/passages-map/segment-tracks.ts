@@ -27,7 +27,6 @@
  */
 
 import { haversineNm } from '@/lib/ais/analyze-daily-state';
-import { segmentCrossesLand } from '@/lib/passages-map/segment-crosses-land';
 
 export type RawAisFix = {
   lat: number;
@@ -161,30 +160,29 @@ function impliedSpeedKn(distanceNm: number, dtMs: number): number | null {
 function isPlausibleBridge(
   distanceNm: number,
   dtMs: number,
-  lon1: number,
-  lat1: number,
-  lon2: number,
-  lat2: number,
+  _lon1: number,
+  _lat1: number,
+  _lon2: number,
+  _lat2: number,
 ): boolean {
   if (dtMs <= 0 || dtMs > MAX_BRIDGE_GAP_MS) return false;
   const kn = impliedSpeedKn(distanceNm, dtMs);
   if (kn == null) return false;
   if (kn < BRIDGE_MIN_IMPLIED_KN || kn > BRIDGE_MAX_IMPLIED_KN) return false;
-  // Never invent a chord across an island / continent.
-  if (segmentCrossesLand(lon1, lat1, lon2, lat2)) return false;
+  // Land-crossing chords are kept — `rerouteFeaturesAroundLand` bends
+  // them around the coast at display time instead of leaving a gap.
   return true;
 }
 
 function isPlausibleMerge(
   distanceNm: number,
   dtMs: number,
-  lon1: number,
-  lat1: number,
-  lon2: number,
-  lat2: number,
+  _lon1: number,
+  _lat1: number,
+  _lon2: number,
+  _lat2: number,
 ): boolean {
   if (dtMs < 0 || dtMs > MERGE_MAX_GAP_MS) return false;
-  if (segmentCrossesLand(lon1, lat1, lon2, lat2)) return false;
   // Tiny spatial gap with a moderate time gap (AIS blip while nearly
   // stopped in a fairway) — still one passage.
   if (distanceNm <= 5 && dtMs <= 12 * 60 * 60 * 1000) return true;
@@ -500,17 +498,11 @@ export function segmentAisPositionsIntoPassages(
       continue;
     }
 
-    // A straight chord over land is never a valid boat track — close
-    // here even for short time gaps (sparse AIS around an island).
-    if (segmentCrossesLand(prev.lon, prev.lat, curr.lon, curr.lat)) {
-      closeCurrent();
-      seedCurrent(curr);
-      continue;
-    }
+    // Land-crossing chords stay in the passage; display routing bends
+    // them around the coast. Closing here used to leave island gaps.
 
     // Long AIS silence: bridge when the hop still looks like underway
-    // transit over water; otherwise close so we don't draw anchorage
-    // smears (or island shortcuts).
+    // transit; otherwise close so we don't smear anchorage waits.
     if (dtMs > MAX_SEGMENT_GAP_MS) {
       const hasOpenPassage =
         current.fixes.length >= 2 ||

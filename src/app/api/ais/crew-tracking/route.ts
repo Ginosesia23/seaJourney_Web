@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { syncCrewStateFromAis } from '@/lib/ais/sync-crew-state-from-ais';
 import { hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-helpers';
+import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -49,7 +50,9 @@ async function authenticateCrew(request: NextRequest) {
     };
   }
 
-  if (!hasCrewAisLiveTrackingTier(profile)) {
+  const vesselBoost = await getCrewVesselFeatureBoost(user.id);
+
+  if (!hasCrewAisLiveTrackingTier(profile, vesselBoost)) {
     return {
       error: NextResponse.json(
         {

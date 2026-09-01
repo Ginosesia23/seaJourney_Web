@@ -13,6 +13,23 @@ export async function syncSupabaseUserFromStripeSubscription(
   userId: string,
   sub: Stripe.Subscription,
 ): Promise<void> {
+  const { data: existing } = await supabaseAdmin
+    .from('users')
+    .select('personal_plan_paused_at, personal_plan_paused_subscription_id')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (
+    existing?.personal_plan_paused_at &&
+    (!existing.personal_plan_paused_subscription_id ||
+      existing.personal_plan_paused_subscription_id === sub.id)
+  ) {
+    console.log(
+      '[syncSupabaseUserFromStripeSubscription] Skipping — personal plan paused for vessel',
+      { userId, subId: sub.id },
+    );
+    return;
+  }
   const tier = extractTierFromSubscription(sub);
   const customerId =
     typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;

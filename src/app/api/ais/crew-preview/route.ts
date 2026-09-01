@@ -22,6 +22,7 @@ import { findPlaceMemoryHint } from '@/lib/ais/place-memory';
 import { reverseGeocodeStructured } from '@/lib/geocoding/reverse-geocode';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-helpers';
+import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
 import type { DailyStatus } from '@/lib/types';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -64,7 +65,8 @@ export async function GET(req: NextRequest) {
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
-    if (!hasCrewAisLiveTrackingTier(profile)) {
+    const vesselBoost = await getCrewVesselFeatureBoost(user.id);
+    if (!hasCrewAisLiveTrackingTier(profile, vesselBoost)) {
       return NextResponse.json({ error: 'Premium/Professional crew required' }, { status: 402 });
     }
 

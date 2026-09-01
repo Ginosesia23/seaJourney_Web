@@ -24,6 +24,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import type { Vessel, StateLog, UserProfile, SeaServiceRecord, DailyStatus, VesselAssignment } from '@/lib/types';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { isCrewLimitedNavigationRestricted } from '@/lib/crew-vessel-feature-boost';
+import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { cn } from '@/lib/utils';
 import { VesselSummaryCard, VesselSummarySkeleton } from '@/components/dashboard/vessel-summary-card';
@@ -210,6 +212,7 @@ export default function VesselsPage() {
   
   // Fetch user profile to get activeVesselId
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
+  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
   
   // Transform user profile to handle both snake_case (from DB) and camelCase (from types)
   const currentUserProfile = useMemo(() => {
@@ -237,11 +240,10 @@ export default function VesselsPage() {
   const isRestrictedTier = useMemo(() => {
     if (!currentUserProfile || !userProfileRaw) return false;
     const tier = ((currentUserProfile as any).subscription_tier || currentUserProfile.subscriptionTier || 'free').toString().toLowerCase();
-    const role = (currentUserProfile as any).role || currentUserProfile.role || 'crew';
     if (!hasActiveSubscription(userProfileRaw)) return false;
     if (tier === 'vessel_linked') return true;
-    return role === 'crew' && tier === 'crew_limited';
-  }, [currentUserProfile, userProfileRaw]);
+    return isCrewLimitedNavigationRestricted(currentUserProfile, vesselBoost);
+  }, [currentUserProfile, userProfileRaw, vesselBoost]);
 
   // Redirect restricted-tier users away from vessels page
   useEffect(() => {

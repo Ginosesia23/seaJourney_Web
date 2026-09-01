@@ -6,14 +6,10 @@
  * hourly samples.
  *
  * Cache / Datalastic:
- *   Crew path is READ-ONLY against `crew_ais_state_samples`. It never
- *   hits Datalastic — the hourly crew cron / manual sync writes samples.
- *   That keeps the map's live poll (every ~60s) free.
- *
- *   Vessel managers do not write those samples today. For vessel
- *   accounts we return managed vessels with `live: null` and surface
- *   whether vessel AIS tracking is enabled — historical passages still
- *   come from `/tracks`.
+ *   Crew — READ-ONLY against `crew_ais_state_samples` (hourly cron writes).
+ *   Vessel — READ from `vessel_ais_state_samples`. With `?refresh=1`
+ *   (map page first load), also hits Datalastic once per managed vessel
+ *   that has AIS tracking enabled so the live pin is fresh.
  *
  * Scope:
  *   Crew — one row per vessel with an ACTIVE assignment.
@@ -25,6 +21,7 @@ import { createClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
 import { todayDateKey } from '@/lib/vessel-assignment-dates';
 import {
   buildActiveLiveTrack,
@@ -32,6 +29,12 @@ import {
 } from '@/lib/passages-map/build-live-track';
 import { assignOrderedVesselColors } from '@/lib/passages-map/vessel-colors';
 import { resolveLinkedVesselScope } from '@/lib/passages-map/linked-vessel-scope';
+import { fetchVesselPosition } from '@/lib/datalastic/client';
+import {
+  getNormalizedAisNavStatus,
+  isAisPositionStale,
+  mapAisToDailyStatus,
+} from '@/lib/ais/map-ais-to-state';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -40,6 +43,8 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 /** How far back we look for samples to build the active track. */
 const ACTIVE_TRACK_LOOKBACK_MS = 72 * 60 * 60 * 1000;
+/** On refresh, skip Datalastic if we already have a fresher sample. */
+const REFRESH_IF_SAMPLE_OLDER_MS = 30 * 60 * 1000;
 
 type LivePosition = {
   lat: number;
@@ -49,7 +54,6 @@ type LivePosition = {
   course: number | null;
   state: string;
   navStatus: string | null;
-  /** AIS voyage destination string when the transponder reports one. */
   destination: string | null;
   aisPositionAt: string | null;
   sampledAt: string;
@@ -61,20 +65,26 @@ type LiveVessel = {
   vesselName: string;
   colorHex: string;
   live: LivePosition | null;
-  /**
-   * GeoJSON FeatureCollection with a single LineString for the
-   * currently-underway passage. Null when not underway or when we
-   * only have a single fix (not enough to draw a line).
-   */
   activeTrack: GeoJSON.FeatureCollection | null;
 };
 
 type LiveResponse = {
   vessels: LiveVessel[];
   fetchedAt: string;
-  /** True when the user hasn't opted into live AIS tracking. */
   trackingEnabled: boolean;
   message?: string;
+};
+
+type SampleRow = {
+  vessel_id: string;
+  lat: number | string | null;
+  lon: number | string | null;
+  speed_kn: number | string | null;
+  state: string;
+  nav_status: string | null;
+  ais_position_at: string | null;
+  sampled_at: string;
+  raw_position: Record<string, unknown> | null;
 };
 
 function numOrNull(v: unknown): number | null {
@@ -83,6 +93,29 @@ function numOrNull(v: unknown): number | null {
     return Number(v);
   }
   return null;
+}
+
+function liveFromSample(latest: SampleRow, now: number): LivePosition | null {
+  const lat = numOrNull(latest.lat);
+  const lon = numOrNull(latest.lon);
+  if (lat == null || lon == null) return null;
+  const fixMs = Date.parse(latest.ais_position_at ?? latest.sampled_at);
+  const raw = latest.raw_position ?? {};
+  const destRaw = raw.destination;
+  return {
+    lat,
+    lon,
+    speedKn: numOrNull(latest.speed_kn),
+    heading: numOrNull(raw.heading),
+    course: numOrNull(raw.course),
+    state: latest.state,
+    navStatus: latest.nav_status,
+    destination:
+      typeof destRaw === 'string' && destRaw.trim() ? destRaw.trim() : null,
+    aisPositionAt: latest.ais_position_at,
+    sampledAt: latest.sampled_at,
+    isStale: !Number.isFinite(fixMs) || now - fixMs > STALE_AFTER_MS,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -114,7 +147,8 @@ export async function GET(req: NextRequest) {
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
-    if (!hasPassagesMapAccess(profile)) {
+    const vesselBoost = await getCrewVesselFeatureBoost(user.id);
+    if (!hasPassagesMapAccess(profile, vesselBoost)) {
       return NextResponse.json(
         {
           error:
@@ -123,6 +157,8 @@ export async function GET(req: NextRequest) {
         { status: 402 },
       );
     }
+
+    const refreshLive = new URL(req.url).searchParams.get('refresh') === '1';
 
     const role = ((profile as { role?: string }).role || '')
       .toString()
@@ -175,8 +211,6 @@ export async function GET(req: NextRequest) {
       emptyScopeMessage =
         'No managed vessel found — live position unavailable.';
     } else {
-      // Active assignments only — live position is about where the boat
-      // is NOW, not historical vessels.
       const today = todayDateKey();
       const { data: assignmentsRaw, error: assignErr } = await supabaseAdmin
         .from('vessel_assignments')
@@ -206,67 +240,40 @@ export async function GET(req: NextRequest) {
 
     const { data: vesselsRaw, error: vesselErr } = await supabaseAdmin
       .from('vessels')
-      .select('id, name')
+      .select('id, name, mmsi, imo, ais_tracking_enabled')
       .in('id', vesselIds);
     if (vesselErr) throw vesselErr;
+
+    type VesselMeta = {
+      id: string;
+      name: string | null;
+      mmsi: string | null;
+      imo: string | null;
+      ais_tracking_enabled: boolean | null;
+    };
+    const vesselMetaById = new Map<string, VesselMeta>();
     const vesselNameById = new Map<string, string>();
-    for (const v of (vesselsRaw ?? []) as { id: string; name: string | null }[]) {
+    for (const v of (vesselsRaw ?? []) as VesselMeta[]) {
+      vesselMetaById.set(v.id, v);
       vesselNameById.set(v.id, v.name || 'Unnamed vessel');
     }
 
-    // Vessel accounts don't write crew AIS samples yet — return the
-    // vessel roster so the UI can still reconcile, without a live pin.
-    if (isVesselAccount) {
-      const colors = assignOrderedVesselColors(
-        vesselIds.map((id) => ({
-          id,
-          name: vesselNameById.get(id) ?? null,
-        })),
-      );
-      const vessels: LiveVessel[] = vesselIds.map((vesselId) => ({
-        vesselId,
-        vesselName: vesselNameById.get(vesselId) ?? 'Unnamed vessel',
-        colorHex: colors.get(vesselId)?.colorHex ?? '#2563eb',
-        live: null,
-        activeTrack: null,
-      }));
-      const response: LiveResponse = {
-        vessels,
-        fetchedAt: new Date().toISOString(),
-        trackingEnabled,
-        message: trackingEnabled
-          ? 'Historical passages are plotted from AIS history. Live pin for vessel accounts is coming soon.'
-          : 'Enable AIS tracking on your vessel to prepare for live position updates. Historical passages still load from AIS history.',
-      };
-      return NextResponse.json(response);
-    }
-
-    // Pull recent samples for every active vessel in one query. We'll
-    // pick the newest per vessel in JS and build active tracks from
-    // the trailing underway run.
     const lookbackIso = new Date(Date.now() - ACTIVE_TRACK_LOOKBACK_MS).toISOString();
-    const { data: samplesRaw, error: samplesErr } = await supabaseAdmin
-      .from('crew_ais_state_samples')
+    let samplesQuery = supabaseAdmin
+      .from(isVesselAccount ? 'vessel_ais_state_samples' : 'crew_ais_state_samples')
       .select(
         'vessel_id, lat, lon, speed_kn, state, nav_status, ais_position_at, sampled_at, raw_position',
       )
-      .eq('user_id', user.id)
       .in('vessel_id', vesselIds)
       .gte('sampled_at', lookbackIso)
       .order('sampled_at', { ascending: true });
-    if (samplesErr) throw samplesErr;
 
-    type SampleRow = {
-      vessel_id: string;
-      lat: number | string | null;
-      lon: number | string | null;
-      speed_kn: number | string | null;
-      state: string;
-      nav_status: string | null;
-      ais_position_at: string | null;
-      sampled_at: string;
-      raw_position: Record<string, unknown> | null;
-    };
+    if (!isVesselAccount) {
+      samplesQuery = samplesQuery.eq('user_id', user.id);
+    }
+
+    const { data: samplesRaw, error: samplesErr } = await samplesQuery;
+    if (samplesErr) throw samplesErr;
 
     const samplesByVessel = new Map<string, SampleRow[]>();
     for (const row of (samplesRaw ?? []) as SampleRow[]) {
@@ -276,6 +283,64 @@ export async function GET(req: NextRequest) {
         samplesByVessel.set(row.vessel_id, list);
       }
       list.push(row);
+    }
+
+    // Vessel accounts: on map load (`refresh=1`), pull a fresh AIS fix
+    // when tracking is on and samples are missing/old.
+    if (isVesselAccount && refreshLive) {
+      const nowMs = Date.now();
+      await Promise.all(
+        vesselIds.map(async (vesselId) => {
+          const meta = vesselMetaById.get(vesselId);
+          if (!meta?.ais_tracking_enabled) return;
+          if (!meta.mmsi && !meta.imo) return;
+
+          const existing = samplesByVessel.get(vesselId) ?? [];
+          const latest = existing.length > 0 ? existing[existing.length - 1]! : null;
+          if (latest) {
+            const fixMs = Date.parse(latest.ais_position_at ?? latest.sampled_at);
+            if (Number.isFinite(fixMs) && nowMs - fixMs < REFRESH_IF_SAMPLE_OLDER_MS) {
+              return;
+            }
+          }
+
+          try {
+            const position = await fetchVesselPosition({
+              mmsi: meta.mmsi,
+              imo: meta.imo,
+            });
+            const lat = position.lat ?? null;
+            const lon = position.lon ?? null;
+            if (lat == null || lon == null) return;
+            if (isAisPositionStale(position)) return;
+
+            const sampledAt = new Date().toISOString();
+            const aisPositionAt = position.last_position_UTC ?? sampledAt;
+            const navStatus = getNormalizedAisNavStatus(position) || null;
+            const state = mapAisToDailyStatus(position);
+            const synthetic: SampleRow = {
+              vessel_id: vesselId,
+              lat,
+              lon,
+              speed_kn: position.speed ?? null,
+              state,
+              nav_status: navStatus,
+              ais_position_at: aisPositionAt,
+              sampled_at: sampledAt,
+              raw_position: position as unknown as Record<string, unknown>,
+            };
+            const list = samplesByVessel.get(vesselId) ?? [];
+            list.push(synthetic);
+            samplesByVessel.set(vesselId, list);
+          } catch (err) {
+            console.warn(
+              '[passages-map/live] vessel AIS refresh failed',
+              vesselId,
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }),
+      );
     }
 
     const now = Date.now();
@@ -291,31 +356,7 @@ export async function GET(req: NextRequest) {
     for (const vesselId of vesselIds) {
       const samples = samplesByVessel.get(vesselId) ?? [];
       const latest = samples.length > 0 ? samples[samples.length - 1]! : null;
-      const lat = latest ? numOrNull(latest.lat) : null;
-      const lon = latest ? numOrNull(latest.lon) : null;
-
-      let live: LivePosition | null = null;
-      if (latest && lat != null && lon != null) {
-        const fixMs = Date.parse(latest.ais_position_at ?? latest.sampled_at);
-        const raw = latest.raw_position ?? {};
-        const destRaw = raw.destination;
-        live = {
-          lat,
-          lon,
-          speedKn: numOrNull(latest.speed_kn),
-          heading: numOrNull(raw.heading),
-          course: numOrNull(raw.course),
-          state: latest.state,
-          navStatus: latest.nav_status,
-          destination:
-            typeof destRaw === 'string' && destRaw.trim()
-              ? destRaw.trim()
-              : null,
-          aisPositionAt: latest.ais_position_at,
-          sampledAt: latest.sampled_at,
-          isStale: !Number.isFinite(fixMs) || now - fixMs > STALE_AFTER_MS,
-        };
-      }
+      const live = latest ? liveFromSample(latest, now) : null;
 
       let activeTrack: GeoJSON.FeatureCollection | null = null;
       if (live && live.state === 'underway') {
@@ -347,7 +388,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Underway vessels first, then vessels with any live fix, then the rest.
     vessels.sort((a, b) => {
       const score = (v: LiveVessel) => {
         if (v.live?.state === 'underway') return 2;
@@ -357,16 +397,26 @@ export async function GET(req: NextRequest) {
       return score(b) - score(a);
     });
 
+    const hasAnyLive = vessels.some((v) => Boolean(v.live));
+    let message: string | undefined;
+    if (isVesselAccount) {
+      if (!trackingEnabled) {
+        message =
+          'Enable AIS tracking on your vessel to show a live position on the map. Historical passages still load from AIS history.';
+      } else if (!hasAnyLive) {
+        message =
+          'AIS tracking is on, but no recent position was found. Check MMSI/IMO on the vessel profile.';
+      }
+    } else if (!trackingEnabled) {
+      message =
+        'Live AIS tracking is off — enable it on Current Service to see your position update hourly.';
+    }
+
     const response: LiveResponse = {
       vessels,
       fetchedAt: new Date().toISOString(),
       trackingEnabled,
-      ...(!trackingEnabled
-        ? {
-            message:
-              'Live AIS tracking is off — enable it on Current Service to see your position update hourly.',
-          }
-        : {}),
+      ...(message ? { message } : {}),
     };
     return NextResponse.json(response);
   } catch (err) {

@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from "@/lib/supabaseClient"; // adjust path to wherever you exported createClient(...)
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -30,17 +29,25 @@ import {
   UserCog,
   Mail,
   User as UserIcon,
+  CreditCard,
+  CalendarDays,
+  PauseCircle,
+  ArrowRight,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { hasActiveSubscription, isPersonalPlanPausedForVessel } from '@/supabase/database/subscription-helpers';
+import { crewVesselBoostLabel } from '@/lib/crew-vessel-feature-boost';
+import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/lib/types';
 import { format } from 'date-fns';
 import { createCheckoutSession } from '@/app/actions';
 import { CREW_TRIAL_DISPLAY_LABEL } from '@/lib/stripe-checkout-trials';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -269,6 +276,8 @@ export default function ManageSubscriptionPage() {
 
   const { data: userProfileRaw, isLoading: isProfileLoading } =
     useDoc<UserProfile>('users', user?.id);
+  const { boost: vesselBoost, vesselName: boostVesselName } = useCrewVesselFeatureBoost();
+  const vesselFeatureBoostLabel = crewVesselBoostLabel(vesselBoost);
 
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
@@ -301,6 +310,42 @@ export default function ManageSubscriptionPage() {
       hasActiveSubscription(userProfileRaw)
     );
   }, [userProfile, userProfileRaw]);
+
+  const pausedPersonalPlan = useMemo(() => {
+    if (!userProfileRaw) return null;
+    if (!isPersonalPlanPausedForVessel(userProfileRaw)) return null;
+    return {
+      tier:
+        (userProfileRaw as any).personal_plan_paused_tier ||
+        (userProfileRaw as any).personalPlanPausedTier ||
+        'your plan',
+      vesselId:
+        (userProfileRaw as any).personal_plan_paused_for_vessel_id ||
+        (userProfileRaw as any).personalPlanPausedForVesselId ||
+        null,
+    };
+  }, [userProfileRaw]);
+
+  const [pausedVesselName, setPausedVesselName] = useState<string | null>(null);
+  useEffect(() => {
+    const vesselId = pausedPersonalPlan?.vesselId;
+    if (!vesselId || !supabase) {
+      setPausedVesselName(null);
+      return;
+    }
+    let cancelled = false;
+    void supabase
+      .from('vessels')
+      .select('name')
+      .eq('id', vesselId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setPausedVesselName((data?.name as string | undefined) || null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pausedPersonalPlan?.vesselId, supabase]);
 
   // Vessel-linked secondary accounts (Captain / Officer / Engineer / Manager
   // owned by a vessel on the Pro/Fleet plan). These accounts don't have their
@@ -439,8 +484,6 @@ export default function ManageSubscriptionPage() {
       (userProfile as any).subscriptionTier ||
       'free'
     : 'free';
-
-  const currentTier = formatTierName(profileTierRaw);
 
   /** Prefer live Stripe tier when present so UI matches Stripe Dashboard before realtime profile updates. */
   const displayedPlanName = formatTierName(stripeTierLive ?? profileTierRaw);
@@ -760,6 +803,18 @@ export default function ManageSubscriptionPage() {
       return;
     }
 
+    // Crew on a vessel Professional/Fleet assignment use the vessel plan;
+    // their personal Stripe subscription stays paused until they leave.
+    if (pausedPersonalPlan) {
+      toast({
+        title: 'Personal plan paused',
+        description:
+          'Your personal plan is paused while you are assigned to a vessel. It will resume automatically when you leave.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     // For crew_limited users, always allow creating a new subscription
     // (they may not have a Stripe subscription, or may have one that can't be changed)
     if (isCrewLimited) {
@@ -1042,8 +1097,8 @@ export default function ManageSubscriptionPage() {
 
   if (isLoading || isProfileLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
       </div>
     );
   }
@@ -1062,6 +1117,31 @@ export default function ManageSubscriptionPage() {
   const currentPeriodEnd = subscription?.current_period_end
     ? new Date(subscription.current_period_end * 1000)
     : null;
+
+  const matchedPlan = plans.find((p) => isCurrentPlan(p.name));
+  const statusLabel = pausedPersonalPlan
+    ? 'Paused on vessel'
+    : isFullyCanceled
+      ? 'Canceled'
+      : isScheduledToCancelAtPeriodEnd
+        ? 'Cancelling'
+        : isCrewLimited
+          ? 'Vessel-managed'
+          : subscription
+            ? subscription.status.charAt(0).toUpperCase() + subscription.status.slice(1)
+            : hasActiveSubscription(userProfileRaw)
+              ? 'Active'
+              : 'Inactive';
+
+  const statusTone = pausedPersonalPlan
+    ? 'sky'
+    : isFullyCanceled
+      ? 'destructive'
+      : isScheduledToCancelAtPeriodEnd
+        ? 'amber'
+        : subStatus === 'past_due'
+          ? 'amber'
+          : 'emerald';
 
   // Vessel-linked secondary account — they don't have their own subscription;
   // the vessel pays. Show a simplified "managed by your vessel" view with
@@ -1087,26 +1167,30 @@ export default function ManageSubscriptionPage() {
     const ownEmail = (user?.email as string | undefined) || null;
     const youLabel = ownFirstName || ownEmail || 'Your account';
     return (
-      <div className="container mx-auto max-w-2xl px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Subscription</h1>
-          <p className="text-muted-foreground mt-2">
-            This is a vessel-linked account. There&apos;s nothing to pay or manage here.
-          </p>
+      <div className="flex flex-col gap-6 pb-8">
+        <div className="space-y-5">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/20 to-blue-600/10">
+              <CreditCard className="h-6 w-6 text-sky-600 dark:text-sky-400" />
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-3xl font-bold tracking-tight">Subscription</h1>
+              <p className="max-w-xl text-muted-foreground">
+                This is a vessel-linked account — billing is handled by the vessel.
+              </p>
+            </div>
+          </div>
+          <Separator />
         </div>
 
-        {/* Linked-account hero card */}
-        <Card className="overflow-hidden border-primary/30">
-          {/* Top eyebrow */}
-          <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent px-6 py-5 border-b">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary">
+        <Card className="overflow-hidden rounded-2xl border-sky-500/25 shadow-sm">
+          <div className="border-b bg-gradient-to-br from-sky-500/10 via-sky-500/5 to-transparent px-6 py-5">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-300">
               <Link2 className="h-3.5 w-3.5" />
               Vessel-linked account
             </div>
 
-            {/* Link diagram: [You] ── linked ── [Vessel] */}
-            <div className="mt-3 flex items-stretch gap-2 sm:gap-3">
-              {/* You */}
+            <div className="mt-4 flex items-stretch gap-2 sm:gap-3">
               <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5 rounded-xl border bg-background/70 p-3 text-center shadow-sm">
                 <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-muted text-foreground">
                   <UserIcon className="h-4 w-4" />
@@ -1122,24 +1206,19 @@ export default function ManageSubscriptionPage() {
                 </Badge>
               </div>
 
-              {/* Connector */}
               <div className="flex flex-col items-center justify-center px-1">
-                <div className="h-px w-6 bg-primary/40 sm:w-10" aria-hidden />
-                <div className="my-1 flex h-7 w-7 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary shadow-sm">
+                <div className="h-px w-6 bg-sky-500/40 sm:w-10" aria-hidden />
+                <div className="my-1 flex h-7 w-7 items-center justify-center rounded-full border border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300 shadow-sm">
                   <Link2 className="h-3.5 w-3.5" />
                 </div>
-                <div className="h-px w-6 bg-primary/40 sm:w-10" aria-hidden />
-                <div className="mt-1 text-[9px] font-semibold uppercase tracking-wider text-primary">
-                  Linked
-                </div>
+                <div className="h-px w-6 bg-sky-500/40 sm:w-10" aria-hidden />
               </div>
 
-              {/* Vessel */}
-              <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 p-3 text-center shadow-sm">
-                <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-primary/15 text-primary">
+              <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 text-center shadow-sm">
+                <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-300">
                   <Ship className="h-4 w-4" />
                 </div>
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-300">
                   Vessel
                 </div>
                 {isLoadingLinkedInfo && !linkedVesselInfo ? (
@@ -1177,15 +1256,15 @@ export default function ManageSubscriptionPage() {
 
           <CardContent className="space-y-4 pt-5">
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="rounded-xl border bg-muted/30 p-3">
                 <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  <UserCog className="h-3 w-3" /> Your role on this vessel
+                  <UserCog className="h-3 w-3" /> Your role
                 </div>
                 <div className="mt-1 text-sm font-semibold text-foreground">
                   {linkedRoleLabel}
                 </div>
               </div>
-              <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="rounded-xl border bg-muted/30 p-3">
                 <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   <Shield className="h-3 w-3" /> Paid by
                 </div>
@@ -1199,7 +1278,7 @@ export default function ManageSubscriptionPage() {
             </div>
 
             {(managerName || managerEmail) && (
-              <div className="rounded-lg border bg-background p-3">
+              <div className="rounded-xl border bg-background p-3">
                 <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   <Mail className="h-3 w-3" /> Vessel manager
                 </div>
@@ -1212,7 +1291,7 @@ export default function ManageSubscriptionPage() {
                   {managerEmail && (
                     <a
                       href={`mailto:${managerEmail}`}
-                      className="text-sm text-primary hover:underline"
+                      className="text-sm text-sky-700 hover:underline dark:text-sky-300"
                     >
                       {managerEmail}
                     </a>
@@ -1223,16 +1302,6 @@ export default function ManageSubscriptionPage() {
                 </p>
               </div>
             )}
-
-            <div className="rounded-lg border border-dashed bg-muted/20 p-3">
-              <p className="text-xs text-muted-foreground">
-                Want your own personal SeaJourney account with full crew features (sea-time tracking, visa tracker, etc.)? You can sign up separately at{' '}
-                <a className="font-medium text-primary hover:underline" href="/signup">
-                  /signup
-                </a>{' '}
-                using a different email.
-              </p>
-            </div>
           </CardContent>
         </Card>
       </div>
@@ -1240,79 +1309,215 @@ export default function ManageSubscriptionPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">
-          Manage Subscription
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          Change your plan, update billing, or cancel your subscription
-        </p>
+    <div className="flex flex-col gap-8 pb-8">
+      {/* Header */}
+      <div className="space-y-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/20 to-blue-600/10">
+              <CreditCard className="h-6 w-6 text-sky-600 dark:text-sky-400" />
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-3xl font-bold tracking-tight">Subscription</h1>
+              <p className="max-w-xl text-muted-foreground">
+                Your plan, next payment, and billing options in one place.
+              </p>
+            </div>
+          </div>
+          {!isCancelled && subscription && (
+            <Button
+              variant="outline"
+              className="rounded-xl shrink-0"
+              onClick={() =>
+                document.getElementById('available-plans')?.scrollIntoView({ behavior: 'smooth' })
+              }
+            >
+              Change plan
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          )}
+        </div>
+        <Separator />
       </div>
 
-      {/* Current Subscription Info */}
-      {subscription && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Current Subscription</CardTitle>
-            <CardDescription>
-              {isFullyCanceled
-                ? 'This subscription has ended. Start a new plan to continue.'
-                : isScheduledToCancelAtPeriodEnd
-                  ? 'Your subscription is scheduled to cancel at the end of the billing period.'
-                  : 'Your active subscription details'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Plan</p>
-                <p className="text-sm text-muted-foreground">{displayedPlanName}</p>
-              </div>
-              <div>
-                <p className="font-medium">Status</p>
-                <Badge
-                  variant={
-                    isCancelled
-                      ? 'destructive'
-                      : subscription.status === 'active'
-                      ? 'default'
-                      : 'secondary'
-                  }
-                  className="mt-1"
+      {/* Current plan hero */}
+      <Card className="overflow-hidden rounded-2xl border-sky-500/20 shadow-sm">
+        <div className="border-b bg-gradient-to-br from-sky-500/10 via-transparent to-blue-600/5 px-6 py-6 sm:px-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-700 dark:text-sky-300">
+                Current plan
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+                  {pausedPersonalPlan
+                    ? 'Crew Limited'
+                    : displayedPlanName === 'Free'
+                      ? isCrewLimited
+                        ? 'Crew Limited'
+                        : 'Free'
+                      : displayedPlanName.startsWith('Crew') ||
+                          displayedPlanName.startsWith('Vessel')
+                        ? displayedPlanName
+                        : isVesselAccount
+                          ? `Vessel ${displayedPlanName}`
+                          : `Crew ${displayedPlanName}`}
+                </h2>
+                <span
+                  className={cn(
+                    'inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold',
+                    statusTone === 'emerald' &&
+                      'border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300',
+                    statusTone === 'amber' &&
+                      'border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200',
+                    statusTone === 'sky' &&
+                      'border-sky-500/30 bg-sky-500/10 text-sky-800 dark:text-sky-300',
+                    statusTone === 'destructive' &&
+                      'border-destructive/30 bg-destructive/10 text-destructive',
+                  )}
                 >
-                  {isFullyCanceled
-                    ? 'Canceled'
-                    : isScheduledToCancelAtPeriodEnd
-                      ? 'Cancelling'
-                      : subscription.status.charAt(0).toUpperCase() +
-                        subscription.status.slice(1)}
-                </Badge>
+                  {statusLabel}
+                </span>
               </div>
+              {matchedPlan?.description && !pausedPersonalPlan && (
+                <p className="max-w-2xl text-sm text-muted-foreground">
+                  {matchedPlan.description}
+                </p>
+              )}
+              {pausedPersonalPlan && (
+                <p className="max-w-2xl text-sm text-muted-foreground">
+                  Using vessel access while assigned to{' '}
+                  <span className="font-medium text-foreground">
+                    {pausedVesselName || 'a vessel'}
+                  </span>
+                  . Your {formatTierName(pausedPersonalPlan.tier)} plan is paused and will resume
+                  when you leave.
+                </p>
+              )}
+              {isCrewLimited && !pausedPersonalPlan && (
+                <p className="max-w-2xl text-sm text-muted-foreground">
+                  This account is covered by a vessel plan. You can still upgrade to your own personal
+                  crew subscription below.
+                </p>
+              )}
+              {vesselFeatureBoostLabel && (isCrewLimited || pausedPersonalPlan) && (
+                <p className="max-w-2xl text-sm text-emerald-700 dark:text-emerald-400">
+                  {vesselFeatureBoostLabel} active via{' '}
+                  <span className="font-medium">{boostVesselName || 'your current vessel'}</span>
+                  . When you leave that assignment, access returns to your personal plan tier.
+                </p>
+              )}
             </div>
+            {matchedPlan && !pausedPersonalPlan && (
+              <div className="rounded-2xl border bg-background/80 px-5 py-4 text-right shadow-sm backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Price
+                </p>
+                <p className="mt-1 text-3xl font-bold tracking-tight text-foreground">
+                  {matchedPlan.price}
+                </p>
+                <p className="text-sm text-muted-foreground">{matchedPlan.priceSuffix}</p>
+              </div>
+            )}
+          </div>
+        </div>
 
-            {currentPeriodEnd && (
-              <div>
-                <p className="font-medium">
-                  {isScheduledToCancelAtPeriodEnd ? 'Cancels on' : 'Next billing date'}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {format(currentPeriodEnd, 'PPP')}
-                </p>
+        <CardContent className="grid gap-4 p-6 sm:grid-cols-3 sm:p-8">
+          <div className="rounded-xl border bg-muted/20 p-4">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <CalendarDays className="h-3.5 w-3.5" />
+              {isScheduledToCancelAtPeriodEnd
+                ? 'Access until'
+                : isFullyCanceled
+                  ? 'Ended'
+                  : 'Next payment'}
+            </div>
+            <p className="mt-2 text-lg font-semibold text-foreground">
+              {currentPeriodEnd
+                ? format(currentPeriodEnd, 'd MMM yyyy')
+                : pausedPersonalPlan || isCrewLimited
+                  ? 'Covered by vessel'
+                  : '—'}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {isScheduledToCancelAtPeriodEnd
+                ? 'Then moves to Free'
+                : isFullyCanceled
+                  ? 'Subscribe again to restore access'
+                  : currentPeriodEnd
+                    ? 'Billing period renews on this date'
+                    : pausedPersonalPlan
+                      ? 'No personal charge while paused'
+                      : 'No active Stripe billing date'}
+            </p>
+          </div>
+
+          <div className="rounded-xl border bg-muted/20 p-4">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <CreditCard className="h-3.5 w-3.5" />
+              Billing
+            </div>
+            <p className="mt-2 text-lg font-semibold text-foreground">
+              {pausedPersonalPlan
+                ? 'Paused'
+                : isFullyCanceled
+                  ? 'Ended'
+                  : isScheduledToCancelAtPeriodEnd
+                    ? 'Cancels at period end'
+                    : subscription
+                      ? 'Monthly'
+                      : isCrewLimited
+                        ? 'Vessel-paid'
+                        : 'None'}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {pausedPersonalPlan
+                ? `Resumes as ${formatTierName(pausedPersonalPlan.tier)}`
+                : isVesselAccount
+                  ? 'Vessel subscription'
+                  : 'Crew subscription'}
+            </p>
+          </div>
+
+          <div className="rounded-xl border bg-muted/20 p-4">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <Shield className="h-3.5 w-3.5" />
+              Account
+            </div>
+            <p className="mt-2 text-lg font-semibold capitalize text-foreground">
+              {isVesselAccount ? 'Vessel' : userRole || 'Crew'}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {user?.email || 'Signed-in account'}
+            </p>
+          </div>
+        </CardContent>
+
+        {(isScheduledToCancelAtPeriodEnd || isFullyCanceled || pausedPersonalPlan) && (
+          <div className="space-y-3 border-t px-6 py-5 sm:px-8">
+            {pausedPersonalPlan && (
+              <div className="flex items-start gap-3 rounded-xl border border-sky-500/25 bg-sky-500/5 p-4">
+                <PauseCircle className="mt-0.5 h-4 w-4 shrink-0 text-sky-700 dark:text-sky-300" />
+                <div className="text-sm">
+                  <p className="font-medium text-foreground">Personal plan paused</p>
+                  <p className="mt-1 text-muted-foreground">
+                    Your {formatTierName(pausedPersonalPlan.tier)} plan is on hold while you work on{' '}
+                    {pausedVesselName || 'this vessel'}. You will not be billed for it, and it will
+                    resume automatically when your assignment ends.
+                  </p>
+                </div>
               </div>
             )}
 
             {isScheduledToCancelAtPeriodEnd && currentPeriodEnd && (
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-3 bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 rounded-lg">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">
-                      Cancellation scheduled
-                    </p>
-                    <p className="text-xs text-yellow-700 dark:text-yellow-300">
-                      You keep access until {format(currentPeriodEnd, 'PPP')}. You can resume to
-                      keep billing past that date.
+              <div className="flex flex-col gap-3 rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <div className="text-sm">
+                    <p className="font-medium text-foreground">Cancellation scheduled</p>
+                    <p className="mt-1 text-muted-foreground">
+                      You keep access until {format(currentPeriodEnd, 'd MMM yyyy')}. Resume to keep
+                      billing past that date.
                     </p>
                   </div>
                 </div>
@@ -1322,54 +1527,65 @@ export default function ManageSubscriptionPage() {
                   onClick={handleResumeSubscription}
                   className="rounded-xl shrink-0 self-start sm:self-center"
                 >
-                  Resume Subscription
+                  Resume subscription
                 </Button>
               </div>
             )}
 
             {isFullyCanceled && (
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-3 bg-muted/50 border border-border rounded-lg">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Subscription ended</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Stripe no longer has an active subscription to “resume.” Start a new subscription
-                    to continue. In the Stripe Dashboard, search by customer email or Customer ID
-                    (cus_…), not the old subscription id.
+              <div className="flex flex-col gap-3 rounded-xl border bg-muted/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm">
+                  <p className="font-medium text-foreground">Subscription ended</p>
+                  <p className="mt-1 text-muted-foreground">
+                    There is no active Stripe subscription to resume. Choose a plan below to continue.
                   </p>
                 </div>
-                <Button asChild variant="default" size="sm" className="rounded-xl shrink-0">
-                  <Link href="/offers">View plans</Link>
+                <Button
+                  size="sm"
+                  className="rounded-xl shrink-0"
+                  onClick={() =>
+                    document.getElementById('available-plans')?.scrollIntoView({ behavior: 'smooth' })
+                  }
+                >
+                  View plans
                 </Button>
               </div>
             )}
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        )}
+      </Card>
 
-      {/* Invoices/Receipts Section - Only for Vessel Accounts */}
+      {/* Invoices — vessel accounts */}
       {isVesselAccount && (
-        <Card className="mb-8">
+        <Card className="rounded-2xl shadow-sm">
           <CardHeader>
-            <CardTitle>Invoices & Receipts</CardTitle>
-            <CardDescription>
-              Download invoices for your subscription payments
-            </CardDescription>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/20 bg-sky-500/10">
+                <FileText className="h-5 w-5 text-sky-700 dark:text-sky-300" />
+              </div>
+              <div>
+                <CardTitle>Invoices & receipts</CardTitle>
+                <CardDescription>
+                  Download invoices for your vessel subscription payments
+                </CardDescription>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {isLoadingInvoices ? (
-              <div className="flex items-center justify-center py-8">
+              <div className="flex items-center justify-center py-10">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
             ) : invoices.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No invoices found</p>
-                <p className="text-sm mt-2">
-                  Invoices will appear here once you have an active subscription.
+              <div className="rounded-xl border border-dashed px-6 py-10 text-center text-muted-foreground">
+                <FileText className="mx-auto mb-3 h-10 w-10 opacity-40" />
+                <p className="font-medium text-foreground">No invoices yet</p>
+                <p className="mt-1 text-sm">
+                  Invoices appear here once your vessel subscription has been billed.
                 </p>
               </div>
             ) : (
-              <div className="border rounded-lg overflow-hidden">
+              <div className="overflow-hidden rounded-xl border">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1388,15 +1604,16 @@ export default function ManageSubscriptionPage() {
                           {invoice.number || invoice.id.slice(-8)}
                         </TableCell>
                         <TableCell>
-                          {format(new Date(invoice.date), 'MMM dd, yyyy')}
+                          {format(new Date(invoice.date), 'd MMM yyyy')}
                         </TableCell>
                         <TableCell>
                           {invoice.periodStart && invoice.periodEnd ? (
                             <span className="text-sm text-muted-foreground">
-                              {format(new Date(invoice.periodStart), 'MMM dd')} - {format(new Date(invoice.periodEnd), 'MMM dd, yyyy')}
+                              {format(new Date(invoice.periodStart), 'd MMM')} –{' '}
+                              {format(new Date(invoice.periodEnd), 'd MMM yyyy')}
                             </span>
                           ) : (
-                            <span className="text-sm text-muted-foreground">-</span>
+                            <span className="text-sm text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell>
@@ -1411,8 +1628,8 @@ export default function ManageSubscriptionPage() {
                               invoice.status === 'paid'
                                 ? 'default'
                                 : invoice.status === 'open'
-                                ? 'secondary'
-                                : 'destructive'
+                                  ? 'secondary'
+                                  : 'destructive'
                             }
                             className="rounded-xl capitalize"
                           >
@@ -1426,17 +1643,15 @@ export default function ManageSubscriptionPage() {
                               size="sm"
                               onClick={() => {
                                 const url = invoice.invoicePdf || invoice.hostedInvoiceUrl;
-                                if (url) {
-                                  window.open(url, '_blank');
-                                }
+                                if (url) window.open(url, '_blank');
                               }}
                               className="rounded-xl"
                             >
-                              <Download className="h-4 w-4 mr-2" />
+                              <Download className="mr-2 h-4 w-4" />
                               Download
                             </Button>
                           ) : (
-                            <span className="text-sm text-muted-foreground">-</span>
+                            <span className="text-sm text-muted-foreground">—</span>
                           )}
                         </TableCell>
                       </TableRow>
@@ -1449,195 +1664,135 @@ export default function ManageSubscriptionPage() {
         </Card>
       )}
 
-      {/* Available Plans */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold mb-6 text-foreground">
-          Available Plans
-        </h2>
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      {/* Available plans */}
+      <div id="available-plans" className="space-y-5">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">
+            {pausedPersonalPlan ? 'Plans' : 'Change plan'}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {pausedPersonalPlan
+              ? 'Your personal plan stays paused while you are on a vessel Professional plan.'
+              : isVesselAccount
+                ? 'Compare vessel plans and switch when you need more capacity.'
+                : 'Compare crew plans and switch when you are ready.'}
+          </p>
+        </div>
+
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
           {plans.map((plan, index) => {
             const Icon = plan.icon;
-            const isHighlighted = plan.highlighted;
-            const isCurrent = isCurrentPlan(plan.name);
+            const isCurrent = isCurrentPlan(plan.name) && !pausedPersonalPlan;
+            const planLocked = !!pausedPersonalPlan;
 
             return (
               <motion.div
                 key={plan.name}
-                initial={{ opacity: 0, y: 30 }}
+                initial={{ opacity: 0, y: 16 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-                className={isCurrent ? 'scale-105' : ''}
+                transition={{ duration: 0.35, delay: index * 0.06 }}
               >
                 <Card
-                  className={`flex flex-col rounded-2xl border transition-all duration-300 ${
-                    isCurrent ? 'hover:scale-102' : 'hover:scale-105'
-                  } ${
-                    isHighlighted
-                      ? 'border-purple-500/50 ring-2 ring-purple-500/30 dark:border-purple-500/50 dark:ring-purple-500/30'
-                      : plan.color === 'blue'
-                      ? 'border-blue-500/30 ring-1 ring-blue-500/20 dark:border-blue-500/30 dark:ring-blue-500/20'
-                      : plan.color === 'purple'
-                      ? 'border-purple-500/30 ring-1 ring-purple-500/20 dark:border-purple-500/30 dark:ring-purple-500/20'
-                      : plan.color === 'green'
-                      ? 'border-green-600/30 ring-1 ring-green-600/20 dark:border-green-500/30 dark:ring-green-500/20'
-                      : 'border-orange-600/30 ring-1 ring-orange-600/20 dark:border-orange-500/30 dark:ring-orange-500/20'
-                  } ${
-                    isHighlighted
-                      ? 'bg-purple-50/80 dark:bg-purple-950/20'
-                      : plan.color === 'blue'
-                      ? 'bg-slate-50 dark:bg-[rgba(2,22,44,0.6)]'
-                      : 'bg-slate-50 dark:bg-[rgba(2,22,44,0.6)]'
-                  } ${
-                    plan.color === 'blue'
-                      ? 'shadow-lg shadow-blue-500/10 dark:shadow-blue-500/15 hover:shadow-xl hover:shadow-blue-500/20 dark:hover:shadow-blue-500/30'
-                      : plan.color === 'purple'
-                      ? 'shadow-lg shadow-purple-500/15 dark:shadow-purple-500/25 hover:shadow-xl hover:shadow-purple-500/25 dark:hover:shadow-purple-500/40'
-                      : plan.color === 'green'
-                      ? 'shadow-lg shadow-green-600/20 dark:shadow-green-500/25 hover:shadow-xl hover:shadow-green-600/30 dark:hover:shadow-green-500/40'
-                      : plan.name === 'Vessel Fleet'
-                      ? 'shadow-lg shadow-orange-600/20 dark:shadow-orange-500/25 hover:shadow-xl hover:shadow-orange-600/30 dark:hover:shadow-orange-500/40'
-                      : 'shadow-lg shadow-orange-600/20 dark:shadow-orange-500/25 hover:shadow-xl hover:shadow-orange-600/30 dark:hover:shadow-orange-500/40'
-                  } backdrop-blur-sm dark:backdrop-blur-[20px]`}
+                  className={cn(
+                    'flex h-full flex-col rounded-2xl border shadow-sm transition-colors',
+                    isCurrent
+                      ? 'border-sky-500/40 ring-2 ring-sky-500/20'
+                      : 'hover:border-sky-500/25',
+                  )}
                 >
-                  <CardHeader className="flex-grow pb-6">
-                    <div className="flex justify-between items-start mb-4">
-                      {isCurrent && (
-                        <div className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border bg-green-100 dark:bg-green-500/20 border-green-300 dark:border-green-500/50 text-green-700 dark:text-green-400">
-                          <Check className="h-3.5 w-3.5" />
-                          Current Plan
-                        </div>
-                      )}
-                      {plan.comingSoon && (
-                        <div className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto bg-orange-100 dark:bg-orange-500/20 border-orange-300 dark:border-orange-500/50 text-orange-700 dark:text-orange-400">
-                          Coming Soon
-                        </div>
-                      )}
-                      {isHighlighted && !isCurrent && !plan.comingSoon && !isVesselAccount && (
-                        <div className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border ml-auto bg-purple-100 dark:bg-purple-500/20 border-purple-300 dark:border-purple-500/50 text-purple-700 dark:text-purple-400">
-                          <Star className="h-3.5 w-3.5 fill-current" />
-                          Most Popular
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3 mb-4">
-                      <div
-                        className={`h-12 w-12 rounded-xl flex items-center justify-center ${
-                          plan.color === 'blue'
-                            ? 'bg-blue-100 dark:bg-blue-500/20'
-                            : plan.color === 'purple'
-                            ? 'bg-purple-100 dark:bg-purple-500/20'
-                            : plan.color === 'green'
-                            ? 'bg-green-100 dark:bg-green-500/20'
-                            : 'bg-orange-100 dark:bg-orange-500/20'
-                        }`}
-                      >
-                        <Icon
-                          className={`h-6 w-6 ${
-                            plan.color === 'blue'
-                              ? 'text-blue-600 dark:text-blue-400'
-                              : plan.color === 'purple'
-                              ? 'text-purple-600 dark:text-purple-400'
-                              : plan.color === 'green'
-                              ? 'text-green-600 dark:text-green-400'
-                              : 'text-orange-600 dark:text-orange-400'
-                          }`}
-                        />
+                  <CardHeader className="space-y-4 pb-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-sky-500/20 bg-sky-500/10">
+                        <Icon className="h-5 w-5 text-sky-700 dark:text-sky-300" />
                       </div>
-                      <CardTitle className="font-headline text-2xl text-gray-900 dark:text-white">
-                        {plan.name}
-                      </CardTitle>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        {isCurrent && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">
+                            <Check className="h-3 w-3" />
+                            Current
+                          </span>
+                        )}
+                        {plan.comingSoon && (
+                          <span className="inline-flex rounded-full border border-border bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+                            Coming soon
+                          </span>
+                        )}
+                        {plan.highlighted && !isCurrent && !plan.comingSoon && !isVesselAccount && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-[11px] font-semibold text-sky-800 dark:text-sky-300">
+                            <Star className="h-3 w-3 fill-current" />
+                            Popular
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="flex items-baseline gap-2 mb-2">
-                      <span className="text-5xl font-bold tracking-tight text-gray-900 dark:text-white">
-                        {plan.price}
-                      </span>
-                      <span className="text-base font-semibold text-gray-600 dark:text-slate-400">
-                        {plan.priceSuffix}
-                      </span>
+                    <div>
+                      <CardTitle className="text-xl">{plan.name}</CardTitle>
+                      <div className="mt-3 flex items-baseline gap-1.5">
+                        <span className="text-3xl font-bold tracking-tight">{plan.price}</span>
+                        <span className="text-sm text-muted-foreground">{plan.priceSuffix}</span>
+                      </div>
+                      {plan.trialLabel &&
+                        isCrewLimited &&
+                        !pausedPersonalPlan &&
+                        plan.priceId &&
+                        !plan.comingSoon && (
+                          <p className="mt-2 text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                            {plan.trialLabel}
+                          </p>
+                        )}
+                      <CardDescription className="mt-3 text-sm leading-relaxed">
+                        {plan.description}
+                      </CardDescription>
                     </div>
-                    {plan.trialLabel &&
-                      isCrewLimited &&
-                      plan.priceId &&
-                      !plan.comingSoon && (
-                        <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400 mb-1">
-                          {plan.trialLabel}
-                        </p>
-                      )}
-                    <CardDescription className="text-gray-600 dark:text-blue-100/80 text-base mt-4">
-                      {plan.description}
-                    </CardDescription>
                   </CardHeader>
-                  <CardContent className="border-t border-gray-200 dark:border-white/10 pt-6 pb-6">
-                    <ul className="space-y-4 text-sm">
-                      {plan.features.map((feature, idx) => (
-                        <li key={idx} className="flex items-start gap-3">
-                          <div
-                            className={`mt-0.5 h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                              plan.color === 'blue'
-                                ? 'bg-blue-100 dark:bg-blue-500/20'
-                                : plan.color === 'purple'
-                                ? 'bg-purple-100 dark:bg-purple-500/20'
-                                : plan.color === 'green'
-                                ? 'bg-green-100 dark:bg-green-500/20'
-                                : 'bg-orange-100 dark:bg-orange-500/20'
-                            }`}
-                          >
-                            <Check
-                              className={`h-3 w-3 ${
-                                plan.color === 'blue'
-                                  ? 'text-blue-600 dark:text-blue-400'
-                                  : plan.color === 'purple'
-                                  ? 'text-purple-600 dark:text-purple-400'
-                                  : plan.color === 'green'
-                                  ? 'text-green-600 dark:text-green-400'
-                                  : 'text-orange-600 dark:text-orange-400'
-                              }`}
-                            />
-                          </div>
-                          <span className="text-gray-700 dark:text-white/90">{feature}</span>
+
+                  <CardContent className="flex-1 border-t pt-5">
+                    <ul className="space-y-3 text-sm">
+                      {plan.features.map((feature) => (
+                        <li key={feature} className="flex items-start gap-2.5">
+                          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-500/10 text-sky-700 dark:text-sky-300">
+                            <Check className="h-3 w-3" />
+                          </span>
+                          <span className="text-foreground/90">{feature}</span>
                         </li>
                       ))}
                     </ul>
                   </CardContent>
-                  <CardFooter className="pt-0">
+
+                  <CardFooter className="pt-2">
                     {isCurrent ? (
-                      <Button
-                        disabled
-                        className="w-full rounded-xl text-base font-semibold h-12 bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white border-0 shadow-lg"
-                      >
-                        Current Plan
+                      <Button disabled className="h-11 w-full rounded-xl">
+                        Current plan
                       </Button>
                     ) : plan.comingSoon ? (
-                      <Button
-                        disabled
-                        className="w-full rounded-xl text-base font-semibold h-12 bg-gray-100 dark:bg-white/5 text-gray-400 dark:text-white/50 border border-gray-300 dark:border-white/10 cursor-not-allowed"
-                      >
-                        <div className="flex items-center justify-center gap-2">
-                          Available Later {plan.availableDate || '2026'}
-                        </div>
+                      <Button disabled variant="outline" className="h-11 w-full rounded-xl">
+                        Available later {plan.availableDate || '2026'}
+                      </Button>
+                    ) : planLocked ? (
+                      <Button disabled variant="outline" className="h-11 w-full rounded-xl">
+                        Unavailable while paused
                       </Button>
                     ) : (
                       <Button
                         onClick={() => handleChangePlan(plan)}
                         disabled={!plan.priceId || isChangingPlan === plan.name}
-                        className={`w-full rounded-xl text-base font-semibold h-12 ${
-                          isHighlighted
-                            ? 'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white border-0 shadow-lg shadow-purple-500/30 disabled:opacity-50'
-                            : 'bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/20 text-gray-900 dark:text-white border border-gray-300 dark:border-white/20 disabled:opacity-50'
-                        }`}
+                        className={cn(
+                          'h-11 w-full rounded-xl',
+                          plan.highlighted
+                            ? 'bg-sky-600 text-white hover:bg-sky-700'
+                            : '',
+                        )}
+                        variant={plan.highlighted ? 'default' : 'outline'}
                       >
                         {isChangingPlan === plan.name ? (
-                          <div className="flex items-center justify-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Changing...
-                          </div>
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Changing…
+                          </>
                         ) : (
-                          <div className="flex items-center justify-center gap-2">
-                            Switch to This Plan
-                          </div>
+                          'Switch to this plan'
                         )}
                       </Button>
                     )}
@@ -1649,62 +1804,55 @@ export default function ManageSubscriptionPage() {
         </div>
       </div>
 
-      {/* Cancel Subscription */}
-      {subscription && !isCancelled && (
-        <Card className="border-destructive/50">
+      {/* Cancel */}
+      {subscription && !isCancelled && !pausedPersonalPlan && (
+        <Card className="rounded-2xl border-destructive/20 shadow-sm">
           <CardHeader>
-            <CardTitle className="text-destructive">
-              Cancel Subscription
-            </CardTitle>
+            <CardTitle className="text-base text-destructive">Cancel subscription</CardTitle>
             <CardDescription>
-              Cancel your subscription. You will retain access until the end of
-              your billing period.
+              You keep access until the end of your billing period
+              {currentPeriodEnd ? ` (${format(currentPeriodEnd, 'd MMM yyyy')})` : ''}.
             </CardDescription>
           </CardHeader>
           <CardFooter>
             <Button
-              variant="destructive"
+              variant="outline"
               onClick={() => setShowCancelDialog(true)}
-              className="rounded-xl"
+              className="rounded-xl border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
             >
-              <XCircle className="h-4 w-4 mr-2" />
-              Cancel Subscription
+              <XCircle className="mr-2 h-4 w-4" />
+              Cancel subscription
             </Button>
           </CardFooter>
         </Card>
       )}
 
-      {/* Cancel Confirmation Dialog */}
       <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
-        <AlertDialogContent>
+        <AlertDialogContent className="rounded-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancel Subscription?</AlertDialogTitle>
+            <AlertDialogTitle>Cancel subscription?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to cancel your subscription? You will retain
-              access to all premium features until{' '}
+              Are you sure you want to cancel? You keep access until{' '}
               {currentPeriodEnd
-                ? format(currentPeriodEnd, 'PPP')
+                ? format(currentPeriodEnd, 'd MMM yyyy')
                 : 'the end of your billing period'}
-              . After that, your subscription will be cancelled and you will be
-              moved to the free plan.
+              . After that you move to the free plan.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-xl">
-              Keep Subscription
-            </AlertDialogCancel>
+            <AlertDialogCancel className="rounded-xl">Keep subscription</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleCancelSubscription}
               disabled={isCancelling}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl"
+              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isCancelling ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Cancelling...
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Cancelling…
                 </>
               ) : (
-                'Yes, Cancel Subscription'
+                'Yes, cancel subscription'
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { reconcileCrewPersonalPlanForUser } from '@/lib/crew-personal-plan-on-vessel';
 
 export async function POST(req: NextRequest) {
   try {
@@ -301,6 +302,10 @@ export async function POST(req: NextRequest) {
         
         console.log('[APPROVE CAPTAINCY API] Updated vessel assignment for captain:', captainUserId, 'onboard:', shouldSetOnboard);
       }
+
+      void reconcileCrewPersonalPlanForUser(captainUserId).catch((err) =>
+        console.error('[APPROVE CAPTAINCY API] Crew plan reconcile failed', err),
+      );
 
       // Update vessel's vessel_manager_id if not already set
       const { data: vesselData } = await supabaseAdmin

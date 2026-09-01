@@ -7,6 +7,36 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { timestampToISO } from './helpers';
 import type { StateLog, PassageLog, BridgeWatchLog, VesselAssignment, DailyStatus } from '@/lib/types';
 
+function scheduleCrewPlanReconcile(supabase: SupabaseClient, userId: string) {
+  void (async () => {
+    try {
+      if (typeof window === 'undefined') {
+        const { reconcileCrewPersonalPlanForUser } = await import(
+          '@/lib/crew-personal-plan-on-vessel'
+        );
+        await reconcileCrewPersonalPlanForUser(userId);
+        return;
+      }
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      await fetch('/api/crew/reconcile-vessel-plan', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ userId }),
+      });
+    } catch (error) {
+      console.error(
+        '[crew-plan] Failed to reconcile personal plan after assignment change',
+        error,
+      );
+    }
+  })();
+}
+
 /**
  * Get user profile by user ID
  */
@@ -447,6 +477,33 @@ export async function deleteStateLogsForDates(
 }
 
 /**
+ * Delete daily state logs for a user/vessel that fall outside [startDate, endDate].
+ * If endDate is null, only dates before startDate are removed.
+ */
+export async function deleteStateLogsOutsideAssignmentRange(
+  supabase: SupabaseClient,
+  userId: string,
+  vesselId: string,
+  startDate: string,
+  endDate: string | null,
+) {
+  let query = supabase
+    .from('daily_state_logs')
+    .delete()
+    .eq('user_id', userId)
+    .eq('vessel_id', vesselId);
+
+  if (endDate) {
+    query = query.or(`date.lt.${startDate},date.gt.${endDate}`);
+  } else {
+    query = query.lt('date', startDate);
+  }
+
+  const { error } = await query;
+  if (error) throw error;
+}
+
+/**
  * Update user profile (creates user if they don't exist)
  * Uses upsert to handle both insert and update cases gracefully
  * Automatically syncs vessel assignments when activeVesselId changes
@@ -758,6 +815,8 @@ export async function createVesselAssignment(
 
   if (error) throw error;
 
+  scheduleCrewPlanReconcile(supabase, assignmentData.userId);
+
   return {
     id: data.id,
     userId: data.user_id,
@@ -809,6 +868,10 @@ export async function updateVesselAssignment(
 
   if (error) throw error;
 
+  if (updates.endDate !== undefined) {
+    scheduleCrewPlanReconcile(supabase, data.user_id);
+  }
+
   return {
     id: data.id,
     userId: data.user_id,
@@ -848,6 +911,8 @@ export async function syncVesselAssignmentForActiveVessel(
           endDate: today,
         });
       }
+    } else {
+      scheduleCrewPlanReconcile(supabase, userId);
     }
     return;
   }

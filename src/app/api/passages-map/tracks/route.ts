@@ -54,6 +54,7 @@ import { createClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
 import { isFeatureEnabledServer } from '@/lib/feature-flags/server';
 import { resolveLinkedVesselScope } from '@/lib/passages-map/linked-vessel-scope';
 import { DatalasticApiError, fetchVesselHistoryRange } from '@/lib/datalastic/client';
@@ -66,7 +67,7 @@ import {
   type PassageFeature,
 } from '@/lib/passages-map/segment-tracks';
 import { extendPassagesWithSamples } from '@/lib/passages-map/extend-passages-with-samples';
-import { splitFeaturesOnLandCrossings } from '@/lib/passages-map/segment-crosses-land';
+import { rerouteFeaturesAroundLand } from '@/lib/passages-map/route-around-land';
 import {
   addMonthsToKey,
   bucketFeaturesByMonth,
@@ -328,7 +329,9 @@ async function authenticate(req: NextRequest): Promise<
     };
   }
 
-  if (!hasPassagesMapAccess(profile)) {
+  const vesselBoost = await getCrewVesselFeatureBoost(user.id);
+
+  if (!hasPassagesMapAccess(profile, vesselBoost)) {
     return {
       ok: false,
       response: NextResponse.json(
@@ -1148,19 +1151,16 @@ function assembleVesselResponse(
   colorHex: string = '#2563eb',
   skipReason?: string,
 ): VesselResponse {
-  // Stitch fragments → extend with hourly samples → cut any chords that
-  // paint across land (cached bridges from before the land check) →
-  // leave filter. Totals/bbox always recomputed off the final FC.
+  // Route raw AIS chords first (long hops → Messina / island clips),
+  // then smooth, then a cheap second pass for Chaikin tip-clips.
   let working = stitchPassageFeatures(bucket.featureCollection);
   if (recentSamples.length > 0) {
     working = extendPassagesWithSamples(working, recentSamples);
   }
-  working = splitFeaturesOnLandCrossings(working);
   const filtered = filterFeaturesByLeavePeriods(working, leavePeriods);
-
-  // Soften sharp AIS joins for map display. Totals stay on pre-smooth
-  // properties (true sailed distance from raw fixes).
-  const usedFc = smoothPassageFeatureCollection(filtered.featureCollection);
+  const routed = rerouteFeaturesAroundLand(filtered.featureCollection);
+  const smoothed = smoothPassageFeatureCollection(routed);
+  const usedFc = rerouteFeaturesAroundLand(smoothed);
   const usedTotals = aggregateBucketStats(filtered.featureCollection);
   const usedBbox = bboxOfFeatureCollection(usedFc);
 

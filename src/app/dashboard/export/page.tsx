@@ -28,8 +28,9 @@ import { toast } from '@/hooks/use-toast';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments } from '@/supabase/database/queries';
-import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { hasActiveSubscription, hasCrewPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
 import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
+import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import type { Vessel, UserProfile, VesselAssignment } from '@/lib/types';
 import Link from 'next/link';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -127,6 +128,7 @@ export default function ExportPage() {
 
     // Fetch user profile to check subscription
     const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
+    const { boost: vesselBoost } = useCrewVesselFeatureBoost();
     
     const userProfile = useMemo(() => {
         if (!userProfileRaw) return null;
@@ -154,11 +156,6 @@ export default function ExportPage() {
         const role = (userProfile as any).role || userProfile.role || 'crew';
         const entitled = hasActiveSubscription(userProfileRaw);
 
-        // Block crew_limited users
-        if (role === 'crew' && tier === 'crew_limited' && entitled) {
-            return false;
-        }
-
         if (isVesselLinkedFeatureGranted(userProfileRaw, 'export_reports')) {
             return entitled;
         }
@@ -166,14 +163,16 @@ export default function ExportPage() {
             return false;
         }
 
-        // Vessel accounts: allow all active vessel tiers
         if (role === 'vessel') {
             return (tier.startsWith('vessel_') || tier === 'vessel_lite' || tier === 'vessel_basic' || tier === 'vessel_pro' || tier === 'vessel_fleet') && entitled;
         }
 
-        // Crew accounts: premium or pro only (not crew_limited)
-        return (tier === 'premium' || tier === 'pro') && entitled;
-    }, [userProfile, userProfileRaw]);
+        if (role === 'crew' || role === 'captain') {
+            return hasCrewPremiumPlusFeatures(userProfileRaw, vesselBoost);
+        }
+
+        return false;
+    }, [userProfile, userProfileRaw, vesselBoost]);
 
     // Redirect non-premium users to dashboard
     useEffect(() => {

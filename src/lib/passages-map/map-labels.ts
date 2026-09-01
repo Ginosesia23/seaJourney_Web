@@ -17,29 +17,28 @@
  *   (we control this by tier + zoom), and slightly higher per-frame
  *   cost. For ~250 labels total it's negligible.
  *
- * Visibility model
- *   Every label carries a `minZoom` — below that zoom the label's DOM
- *   element gets `display: none`. Zoom thresholds are tuned so we never
- *   render more than ~120 labels at once:
- *
- *     Zoom 1.8+ → tier-1 country names (giants: Russia, USA…)
- *     Zoom 2.4+ → tier-1 cities (mega-hubs)
- *     Zoom 2.8+ → tier-2 country names (normal-sized states)
- *     Zoom 3.4+ → tier-2 cities (regional hubs, capitals)
- *     Zoom 4.2+ → tier-3 country names (micro-states)
- *     Zoom 4.8+ → tier-3 cities (yacht destinations)
- *
- *   The map's `zoom` event drives a single walk over the whole label
- *   set — cheap, no reflow because we only touch style.display.
+ * Visibility model (kept sparse so tracks stay readable):
+ *   Zoom 2.4+ → tier-1 country names (giants)
+ *   Zoom 3.4+ → tier-1 cities (mega-hubs)
+ *   Zoom 3.8+ → tier-2 country names
+ *   Zoom 5.0+ → tier-2 cities
+ *   Zoom 5.6+ → tier-3 country names
+ *   Zoom 6.4+ → tier-3 cities + discovered ports
  */
 
 import { Marker, type Map as MapLibreMap } from 'maplibre-gl';
 
 import { MAJOR_CITIES } from './major-cities';
 import { getCountryLabelPoints } from './country-label-points';
+import { MAJOR_OCEAN_LABELS } from './ocean-chart';
 import type { DiscoveredPlace } from './discover-places';
 
-type LabelKind = 'city' | 'country' | 'discovered-city' | 'discovered-port';
+type LabelKind =
+  | 'city'
+  | 'country'
+  | 'ocean'
+  | 'discovered-city'
+  | 'discovered-port';
 
 type ManagedLabel = {
   marker: Marker;
@@ -67,6 +66,45 @@ export type MapLabelHandle = {
   syncDiscoveredPlaces: (places: DiscoveredPlace[]) => void;
 };
 
+/**
+ * Hide dense text from remote vector basemaps (OpenFreeMap / OpenMapTiles).
+ * We already draw curated city/country/ocean markers; stacking remote place
+ * names on top of tracks made the map unreadable.
+ *
+ * Safe to call repeatedly after every style load.
+ */
+export function thinBasemapTextLabels(map: MapLibreMap): void {
+  const style = map.getStyle();
+  if (!style?.layers?.length) return;
+
+  for (const layer of style.layers) {
+    if (layer.type !== 'symbol') continue;
+    const id = layer.id.toLowerCase();
+    // Keep nothing that competes with passage tracks or our HTML labels.
+    const hide =
+      id.includes('water') ||
+      id.includes('place') ||
+      id.includes('poi') ||
+      id.includes('label') ||
+      id.includes('name') ||
+      id.includes('housenumber') ||
+      id.includes('mountain') ||
+      id.includes('airport') ||
+      id.includes('aerodrome') ||
+      id.includes('transit') ||
+      id.includes('road') ||
+      id.includes('highway');
+    if (!hide) continue;
+    try {
+      if (map.getLayer(layer.id)) {
+        map.setLayoutProperty(layer.id, 'visibility', 'none');
+      }
+    } catch {
+      /* layer may have been removed mid-swap */
+    }
+  }
+}
+
 export function installMapLabels(
   map: MapLibreMap,
   initialTone: 'dark' | 'muted' | 'light',
@@ -75,15 +113,37 @@ export function installMapLabels(
   let tone: 'dark' | 'muted' | 'light' = initialTone;
 
   const cityMinZoomByTier: Record<1 | 2 | 3, number> = {
-    1: 2.4,
-    2: 3.4,
-    3: 4.8,
+    1: 3.4,
+    2: 4.8,
+    3: 5.8,
   };
   const countryMinZoomByTier: Record<1 | 2 | 3, number> = {
-    1: 1.8,
-    2: 2.8,
-    3: 4.2,
+    1: 2.4,
+    2: 3.8,
+    3: 5.6,
   };
+  const oceanMinZoomByTier: Record<1 | 2 | 3, number> = {
+    1: 1.4,
+    2: 3.2,
+    3: 4.8,
+  };
+
+  // ── Ocean / sea labels (curated; always available offline) ──
+  for (const o of MAJOR_OCEAN_LABELS) {
+    const el = document.createElement('div');
+    el.className = 'passages-label passages-label--ocean';
+    el.setAttribute('data-tier', String(o.tier));
+    el.textContent = o.name;
+    const marker = new Marker({ element: el, anchor: 'center' })
+      .setLngLat([o.lon, o.lat])
+      .addTo(map);
+    labels.push({
+      marker,
+      el,
+      minZoom: oceanMinZoomByTier[o.tier] ?? 4,
+      kind: 'ocean',
+    });
+  }
 
   // ── Country name labels ──
   for (const p of getCountryLabelPoints()) {
@@ -100,19 +160,26 @@ export function installMapLabels(
     labels.push({
       marker,
       el,
-      minZoom: countryMinZoomByTier[p.tier] ?? 3.5,
+      minZoom: countryMinZoomByTier[p.tier] ?? 4.5,
       kind: 'country',
     });
   }
 
-  // ── City labels ──
+  // ── City / port / marina labels ──
   for (const c of MAJOR_CITIES) {
+    const isMaritime = c.kind === 'port' || c.kind === 'marina';
     const el = document.createElement('div');
-    el.className = 'passages-label passages-label--city';
+    el.className = isMaritime
+      ? 'passages-label passages-label--city passages-label--port'
+      : 'passages-label passages-label--city';
     el.setAttribute('data-tier', String(c.tier));
-    // Structured markup so we can style the dot + name independently.
+    if (c.kind) el.setAttribute('data-kind', c.kind);
     const dot = document.createElement('span');
     dot.className = 'passages-label__dot';
+    if (isMaritime) {
+      dot.title = c.name;
+      el.title = c.name;
+    }
     const name = document.createElement('span');
     name.className = 'passages-label__name';
     name.textContent = c.name;
@@ -123,18 +190,17 @@ export function installMapLabels(
     labels.push({
       marker,
       el,
-      minZoom: cityMinZoomByTier[c.tier] ?? 4.0,
-      kind: 'city',
+      // Marinas wait a touch longer than regional ports so coasts stay tidy.
+      minZoom:
+        c.kind === 'marina'
+          ? Math.max(cityMinZoomByTier[c.tier] ?? 5.8, 6.2)
+          : (cityMinZoomByTier[c.tier] ?? 5.5),
+      kind: isMaritime ? 'discovered-port' : 'city',
     });
   }
 
-  // Apply the current theme tone to every label's root <div> so CSS
-  // rules scoped by `[data-tone="dark"]` etc. can restyle without a
-  // re-render.
   applyTone(labels, tone);
 
-  // Re-evaluate visibility on every zoom change. Cheap DOM update —
-  // only style.display flips, no reflows for unchanged labels.
   const updateVisibility = () => {
     const z = map.getZoom();
     for (const l of labels) {
@@ -145,12 +211,9 @@ export function installMapLabels(
   };
   updateVisibility();
   map.on('zoom', updateVisibility);
-  // Also run once after `idle` in case the map's first render zoom
-  // differs from what we captured above.
   map.on('idle', updateVisibility);
 
   const syncDiscoveredPlaces = (places: DiscoveredPlace[]) => {
-    // Drop previous discovered markers only.
     for (let i = labels.length - 1; i >= 0; i--) {
       const l = labels[i]!;
       if (!l.discoveredKey) continue;
@@ -159,6 +222,9 @@ export function installMapLabels(
     }
 
     for (const place of places) {
+      // Skip generic geocoded towns — they stack densely along coasts.
+      if (place.kind === 'town') continue;
+
       const isPort = place.kind === 'port';
       const el = document.createElement('div');
       el.className = isPort
@@ -171,21 +237,13 @@ export function installMapLabels(
       name.className = 'passages-label__name';
       name.textContent = place.name;
       el.append(dot, name);
-      if (place.portName && place.portName !== place.name) {
-        const port = document.createElement('span');
-        port.className = 'passages-label__port';
-        port.textContent = place.portName;
-        el.append(port);
-      }
       const marker = new Marker({ element: el, anchor: 'left', offset: [6, 0] })
         .setLngLat([place.lon, place.lat])
         .addTo(map);
       labels.push({
         marker,
         el,
-        // Show a bit earlier than tier-3 world cities — these are
-        // places you've actually sailed, so they're worth emphasizing.
-        minZoom: isPort ? 3.6 : 4.0,
+        minZoom: isPort ? 5.4 : 6.2,
         kind: isPort ? 'discovered-port' : 'discovered-city',
         discoveredKey: place.cellKey,
       });
@@ -217,15 +275,6 @@ function applyTone(
   for (const l of labels) l.el.setAttribute('data-tone', tone);
 }
 
-/**
- * Injected once alongside the map's other scoped CSS. Uses the same
- * dark-glass design language as the popup + legend so labels feel like
- * part of the same layer, not a bolt-on.
- *
- * The `.passages-label` root uses tone-aware colours via
- * `[data-tone="dark"]`, `[data-tone="light"]` etc. — matching what
- * `MapLabelHandle.retheme` sets.
- */
 export const MAP_LABELS_STYLE = `
   .passages-label {
     pointer-events: none;
@@ -238,57 +287,88 @@ export const MAP_LABELS_STYLE = `
     -webkit-font-smoothing: antialiased;
   }
 
-  /* ── Country labels — subtle, all-caps, no marker dot ── */
   .passages-label--country {
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.36);
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
     transform: translateY(0);
     padding: 0 4px;
   }
   .passages-label--country[data-tone="light"] {
-    color: rgba(15, 23, 42, 0.5);
+    color: rgba(15, 23, 42, 0.42);
     text-shadow: 0 1px 2px rgba(255, 255, 255, 0.85);
   }
   .passages-label--country[data-tone="muted"] {
-    color: rgba(226, 232, 240, 0.48);
+    color: rgba(226, 232, 240, 0.4);
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
   }
-  /* Bigger country names (tier 1) render slightly larger to lead
-     the eye first when you zoom out. */
   .passages-label--country[data-tier="1"] {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.55);
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.48);
   }
   .passages-label--country[data-tone="light"][data-tier="1"] {
-    color: rgba(15, 23, 42, 0.62);
+    color: rgba(15, 23, 42, 0.55);
   }
   .passages-label--country[data-tone="muted"][data-tier="1"] {
-    color: rgba(226, 232, 240, 0.6);
+    color: rgba(226, 232, 240, 0.52);
   }
 
-  /* ── City labels — small dot + name to the right ── */
+  .passages-label--ocean {
+    font-size: 11px;
+    font-weight: 500;
+    font-style: italic;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: rgba(147, 197, 230, 0.38);
+    text-shadow: 0 1px 4px rgba(2, 8, 18, 0.7);
+    padding: 0 6px;
+  }
+  .passages-label--ocean[data-tier="1"] {
+    font-size: 13px;
+    letter-spacing: 0.34em;
+    color: rgba(168, 210, 240, 0.44);
+  }
+  .passages-label--ocean[data-tier="3"] {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: rgba(147, 197, 230, 0.34);
+  }
+  .passages-label--ocean[data-tone="light"] {
+    color: rgba(30, 74, 120, 0.42);
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+  }
+  .passages-label--ocean[data-tone="light"][data-tier="1"] {
+    color: rgba(22, 64, 110, 0.5);
+  }
+  .passages-label--ocean[data-tone="muted"] {
+    color: rgba(186, 214, 235, 0.4);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  }
+  .passages-label--ocean[data-tone="muted"][data-tier="1"] {
+    color: rgba(198, 222, 240, 0.48);
+  }
+
   .passages-label--city {
     display: flex;
     align-items: center;
     gap: 4px;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.86);
+    color: rgba(255, 255, 255, 0.82);
     text-shadow:
       0 0 4px rgba(0, 0, 0, 0.8),
       0 1px 2px rgba(0, 0, 0, 0.7);
   }
   .passages-label--city[data-tone="light"] {
-    color: rgba(15, 23, 42, 0.82);
+    color: rgba(15, 23, 42, 0.78);
     text-shadow:
       0 0 3px rgba(255, 255, 255, 0.9),
       0 1px 1px rgba(255, 255, 255, 0.8);
   }
   .passages-label--city[data-tone="muted"] {
-    color: rgba(241, 245, 249, 0.85);
+    color: rgba(241, 245, 249, 0.8);
     text-shadow:
       0 0 4px rgba(0, 0, 0, 0.55),
       0 1px 2px rgba(0, 0, 0, 0.45);
@@ -309,7 +389,6 @@ export const MAP_LABELS_STYLE = `
       0 0 3px rgba(255, 255, 255, 0.9),
       0 0 0 1px rgba(255, 255, 255, 0.75);
   }
-  /* Tier 1 cities get a slightly bigger dot + bolder name */
   .passages-label--city[data-tier="1"] {
     font-size: 12px;
     font-weight: 600;
@@ -318,24 +397,21 @@ export const MAP_LABELS_STYLE = `
     width: 5px;
     height: 5px;
   }
-  /* Tier 3 cities render one shade lighter so tier-1/2 remain the eye
-     leads at any zoom. */
   .passages-label--city[data-tier="3"] {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(255, 255, 255, 0.55);
   }
   .passages-label--city[data-tone="light"][data-tier="3"] {
-    color: rgba(15, 23, 42, 0.62);
+    color: rgba(15, 23, 42, 0.58);
   }
 
-  /* ── Places unlocked by sailing — slightly warmer / earlier than base ── */
   .passages-label--discovered {
     font-size: 11px;
     font-weight: 560;
-    color: rgba(186, 230, 253, 0.95);
+    color: rgba(186, 230, 253, 0.92);
   }
   .passages-label--discovered[data-tone="light"] {
-    color: rgba(3, 105, 161, 0.9);
+    color: rgba(3, 105, 161, 0.88);
   }
   .passages-label--discovered .passages-label__dot {
     background: rgba(125, 211, 252, 0.95);
@@ -351,13 +427,17 @@ export const MAP_LABELS_STYLE = `
     height: 5px;
     border-radius: 1px;
     transform: rotate(45deg);
+    background: rgba(125, 211, 252, 0.95);
+    box-shadow:
+      0 0 4px rgba(14, 165, 233, 0.5),
+      0 0 0 1px rgba(0, 0, 0, 0.35);
+    pointer-events: auto;
+    cursor: default;
   }
-  .passages-label__port {
-    margin-left: 4px;
-    font-size: 9px;
-    font-weight: 500;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    opacity: 0.72;
+  .passages-label--port[data-tone="light"] .passages-label__dot {
+    background: rgba(2, 132, 199, 0.92);
+  }
+  .passages-label--port[data-kind="marina"] .passages-label__name {
+    font-weight: 560;
   }
 `;

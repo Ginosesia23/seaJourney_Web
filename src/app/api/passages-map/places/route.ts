@@ -11,6 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
 import { isFeatureEnabledServer } from '@/lib/feature-flags/server';
 import { reverseGeocodeStructured } from '@/lib/geocoding/reverse-geocode';
 import {
@@ -91,7 +92,8 @@ async function assertAccess(userId: string): Promise<
       ),
     };
   }
-  if (!hasPassagesMapAccess(profile as any) && !isAdmin) {
+  const vesselBoost = await getCrewVesselFeatureBoost(userId);
+  if (!hasPassagesMapAccess(profile as any, vesselBoost) && !isAdmin) {
     return { error: NextResponse.json({ error: 'Upgrade required' }, { status: 403 }) };
   }
   return { profile: profile as Record<string, unknown> };

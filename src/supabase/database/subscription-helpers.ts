@@ -4,6 +4,10 @@
  */
 
 import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
+import {
+  getEffectiveCrewFeatureTier,
+  type CrewVesselFeatureBoost,
+} from '@/lib/crew-vessel-feature-boost';
 
 /**
  * Tiers that don't represent a paying customer:
@@ -55,6 +59,15 @@ export function isVesselManagedFreeTier(userProfile: any): boolean {
   if (!userProfile) return false;
   const tier = (userProfile.subscription_tier || userProfile.subscriptionTier || '').toString().toLowerCase();
   return VESSEL_MANAGED_FREE_TIERS.has(tier);
+}
+
+/** True when a crew personal plan is paused because they are on a vessel-paid assignment. */
+export function isPersonalPlanPausedForVessel(userProfile: any): boolean {
+  if (!userProfile) return false;
+  return !!(
+    userProfile.personal_plan_paused_at ||
+    userProfile.personalPlanPausedAt
+  );
 }
 
 /**
@@ -239,8 +252,25 @@ export function hasVesselPremiumPlusFeatures(userProfile: any): boolean {
   return VESSEL_PREMIUM_PLUS_TIERS.has(tier) && hasActiveSubscription(userProfile);
 }
 
+function crewFeatureTier(
+  userProfile: any,
+  vesselBoost?: CrewVesselFeatureBoost | null,
+): string {
+  if (!userProfile) return 'free';
+  const role = ((userProfile as any).role || userProfile.role || '')
+    .toString()
+    .toLowerCase();
+  if (role === 'crew' || role === 'captain') {
+    return getEffectiveCrewFeatureTier(userProfile, vesselBoost ?? null);
+  }
+  return getTierLower(userProfile);
+}
+
 /** AIS history import: Vessel Premium+ managers or Premium/Professional crew (not managed free tiers). */
-export function hasAisHistoryImportTier(userProfile: any): boolean {
+export function hasAisHistoryImportTier(
+  userProfile: any,
+  vesselBoost?: CrewVesselFeatureBoost | null,
+): boolean {
   if (!userProfile) return false;
 
   const role = ((userProfile as any).role || userProfile.role || '')
@@ -257,7 +287,8 @@ export function hasAisHistoryImportTier(userProfile: any): boolean {
   }
 
   if (role === 'crew' || role === 'captain') {
-    if (VESSEL_MANAGED_FREE_TIERS.has(tier)) return false;
+    const tier = crewFeatureTier(userProfile, vesselBoost);
+    if (tier === CREW_LIMITED_TIER) return false;
     return CREW_PREMIUM_PLUS_TIERS.has(tier);
   }
 
@@ -270,7 +301,10 @@ export function hasAisHistoryImportTier(userProfile: any): boolean {
  * get this — they'd need to upgrade. Vessel accounts have their own dedicated
  * `hasVesselAisTrackingTier` gate.
  */
-export function hasCrewAisLiveTrackingTier(userProfile: any): boolean {
+export function hasCrewAisLiveTrackingTier(
+  userProfile: any,
+  vesselBoost?: CrewVesselFeatureBoost | null,
+): boolean {
   if (!userProfile) return false;
 
   const role = ((userProfile as any).role || userProfile.role || '')
@@ -280,8 +314,8 @@ export function hasCrewAisLiveTrackingTier(userProfile: any): boolean {
   if (role !== 'crew' && role !== 'captain') return false;
   if (!hasActiveSubscription(userProfile)) return false;
 
-  const tier = getTierLower(userProfile);
-  if (VESSEL_MANAGED_FREE_TIERS.has(tier)) return false;
+  const tier = crewFeatureTier(userProfile, vesselBoost);
+  if (tier === CREW_LIMITED_TIER) return false;
   return CREW_PREMIUM_PLUS_TIERS.has(tier);
 }
 
@@ -296,10 +330,13 @@ export function hasCrewAisLiveTrackingTier(userProfile: any): boolean {
  *
  * Both `pro` and `professional` are accepted — the two slugs are treated as
  * equivalent throughout billing/offers (see `src/app/actions.ts`).
- * `crew_limited` / `vessel_linked` never qualify.
+ * `crew_limited` / `vessel_linked` never qualify unless vessel Professional boost applies.
  * Admins bypass for support / debugging.
  */
-export function hasProfessionalCrewTier(userProfile: any): boolean {
+export function hasProfessionalCrewTier(
+  userProfile: any,
+  vesselBoost?: CrewVesselFeatureBoost | null,
+): boolean {
   if (!userProfile) return false;
 
   const role = ((userProfile as any).role || userProfile.role || '')
@@ -309,8 +346,8 @@ export function hasProfessionalCrewTier(userProfile: any): boolean {
   if (role !== 'crew' && role !== 'captain') return false;
   if (!hasActiveSubscription(userProfile)) return false;
 
-  const tier = getTierLower(userProfile);
-  if (VESSEL_MANAGED_FREE_TIERS.has(tier)) return false;
+  const tier = crewFeatureTier(userProfile, vesselBoost);
+  if (tier === CREW_LIMITED_TIER) return false;
   return tier === 'professional' || tier === 'pro';
 }
 
@@ -327,8 +364,11 @@ export function hasProfessionalCrewTier(userProfile: any): boolean {
  * Delete the TEMP block below to lock crew access back to Professional.
  * ─────────────────────────────────────────────────────────────────────
  */
-export function hasPassagesMapAccess(userProfile: any): boolean {
-  if (hasProfessionalCrewTier(userProfile)) return true;
+export function hasPassagesMapAccess(
+  userProfile: any,
+  vesselBoost?: CrewVesselFeatureBoost | null,
+): boolean {
+  if (hasProfessionalCrewTier(userProfile, vesselBoost)) return true;
   if (hasVesselPremiumPlusFeatures(userProfile)) return true;
   if (
     hasActiveSubscription(userProfile) &&
@@ -345,8 +385,25 @@ export function hasPassagesMapAccess(userProfile: any): boolean {
     .toLowerCase();
   if (role !== 'crew' && role !== 'captain') return false;
   if (!hasActiveSubscription(userProfile)) return false;
-  const tier = getTierLower(userProfile);
-  if (VESSEL_MANAGED_FREE_TIERS.has(tier)) return false;
+  const tier = crewFeatureTier(userProfile, vesselBoost);
+  if (tier === CREW_LIMITED_TIER) return false;
   return tier === 'premium';
   // END TEMP
+}
+
+/** Premium+ crew feature access (passage log, visa tracker, export, etc.). */
+export function hasCrewPremiumPlusFeatures(
+  userProfile: any,
+  vesselBoost?: CrewVesselFeatureBoost | null,
+): boolean {
+  if (!userProfile) return false;
+  const role = ((userProfile as any).role || userProfile.role || '')
+    .toString()
+    .toLowerCase();
+  if (role === 'admin') return true;
+  if (role !== 'crew' && role !== 'captain') return false;
+  if (!hasActiveSubscription(userProfile)) return false;
+  const tier = crewFeatureTier(userProfile, vesselBoost);
+  if (tier === CREW_LIMITED_TIER) return false;
+  return CREW_PREMIUM_PLUS_TIERS.has(tier);
 }

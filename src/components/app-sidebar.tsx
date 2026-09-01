@@ -88,12 +88,15 @@ import { signOutLocal } from "@/lib/auth-utils"
 import {
   hasActiveSubscription as hasActiveSubscriptionEntitlement,
   hasAisHistoryImportTier,
+  hasCrewPremiumPlusFeatures,
   hasPaidDashboardAccess,
   hasPassagesMapAccess as hasPassagesMapAccessGate,
   hasVesselPremiumPlusFeatures,
   isVesselLinkedAccount,
   isCrewLimitedAccount,
 } from "@/supabase/database/subscription-helpers"
+import { isCrewLimitedNavigationRestricted } from "@/lib/crew-vessel-feature-boost"
+import { useCrewVesselFeatureBoost } from "@/contexts/crew-vessel-feature-boost-context"
 import { getSubscriptionTierAccentColor } from "@/lib/subscription-tier-colors"
 import { useFeatureFlags } from "@/hooks/use-feature-flags"
 import type { FeatureFlagKey } from "@/lib/feature-flags/catalog"
@@ -298,6 +301,12 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     return isCrewLimitedAccount(userProfile);
   }, [userProfile]);
 
+  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
+
+  const isCrewNavRestricted = React.useMemo(() => {
+    return isCrewLimitedNavigationRestricted(userProfile, vesselBoost);
+  }, [userProfile, vesselBoost]);
+
   const hasPaidAccess = React.useMemo(() => {
     if (!userProfile) return false;
     return hasPaidDashboardAccess(userProfile);
@@ -313,42 +322,16 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
 
   const restrictedAllowedHrefs = React.useMemo(() => {
     if (isVesselLinked) return new Set(vesselLinkedAllowedHrefs(userProfile));
-    if (isCrewLimited) return new Set<string>(CREW_LIMITED_ALLOWED_HREFS);
+    if (isCrewNavRestricted) return new Set<string>(CREW_LIMITED_ALLOWED_HREFS);
     return null;
-  }, [isVesselLinked, isCrewLimited, userProfile]);
+  }, [isVesselLinked, isCrewNavRestricted, userProfile]);
 
   // Check if user has premium/pro subscription for visa tracker access
   const hasPremiumAccess = React.useMemo(() => {
     if (!userProfile) return false;
-    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
-    const role = (userProfile as any).role || userProfile.role || 'crew';
-    const entitled = hasActiveSubscriptionEntitlement(userProfile);
-
-    // Vessel accounts: allow all active vessel tiers
-    if (role === 'vessel') {
-      const tierLower = tier.toLowerCase();
-      return (
-        (tierLower.startsWith('vessel_') ||
-          tierLower === 'vessel_lite' ||
-          tierLower === 'vessel_basic' ||
-          tierLower === 'vessel_pro' ||
-          tierLower === 'vessel_fleet') &&
-        entitled
-      );
-    }
-
-    // Crew accounts: premium, pro, or professional (but not crew_limited)
-    return (tier === 'premium' || tier === 'pro' || tier === 'professional') && entitled;
-  }, [userProfile]);
-
-  /** Passage log: Premium+ crew (not crew_limited), vessel tiers, admin */
-  const hasPassageLogAccess = React.useMemo(() => {
-    if (!userProfile) return false;
     const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toLowerCase();
     const role = (userProfile as any).role || userProfile.role || 'crew';
     const entitled = hasActiveSubscriptionEntitlement(userProfile);
-
-    if (role === 'admin') return true;
 
     if (role === 'vessel') {
       return (
@@ -361,11 +344,30 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
       );
     }
 
-    if (isCrewLimited) return false;
+    return hasCrewPremiumPlusFeatures(userProfile, vesselBoost);
+  }, [userProfile, vesselBoost]);
 
-    const passageCrewTiers = ['premium', 'pro', 'professional'];
-    return passageCrewTiers.includes(tier) && entitled;
-  }, [userProfile, isCrewLimited]);
+  /** Passage log: Premium+ crew (not crew_limited without boost), vessel tiers, admin */
+  const hasPassageLogAccess = React.useMemo(() => {
+    if (!userProfile) return false;
+    const role = (userProfile as any).role || userProfile.role || 'crew';
+
+    if (role === 'admin') return true;
+
+    if (role === 'vessel') {
+      const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toLowerCase();
+      return (
+        (tier.startsWith('vessel_') ||
+          tier === 'vessel_lite' ||
+          tier === 'vessel_basic' ||
+          tier === 'vessel_pro' ||
+          tier === 'vessel_fleet') &&
+        hasActiveSubscriptionEntitlement(userProfile)
+      );
+    }
+
+    return hasCrewPremiumPlusFeatures(userProfile, vesselBoost);
+  }, [userProfile, vesselBoost]);
 
   /** Vessel Premium+ features: roles, watch schedule, onboard tracker */
   const hasVesselPremiumPlus = React.useMemo(() => {
@@ -375,8 +377,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
 
   const hasAisHistoryImportAccess = React.useMemo(() => {
     if (!userProfile) return false;
-    return hasAisHistoryImportTier(userProfile);
-  }, [userProfile]);
+    return hasAisHistoryImportTier(userProfile, vesselBoost);
+  }, [userProfile, vesselBoost]);
 
   /**
    * Passages Map: gated by `hasPassagesMapAccess` in subscription-helpers.
@@ -384,8 +386,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
    */
   const hasPassagesMapAccess = React.useMemo(() => {
     if (!userProfile) return false;
-    return hasPassagesMapAccessGate(userProfile);
-  }, [userProfile]);
+    return hasPassagesMapAccessGate(userProfile, vesselBoost);
+  }, [userProfile, vesselBoost]);
 
   const VESSEL_PREMIUM_PLUS_NAV = new Set([
     '/dashboard/watch-schedule',
@@ -438,7 +440,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
 
     if (item.disabled) return false;
     if (item.crewLimitedOnly && !isCrewLimited) return false;
-    if (item.hideForCrewLimited && isCrewLimited) return false;
+    if (item.hideForCrewLimited && isCrewNavRestricted) return false;
     if (item.href === '/dashboard/vessel-documents' && !hasPaidAccess) return false;
     if (item.featureFlag && !isFeatureEnabled(item.featureFlag)) return false;
 
@@ -479,6 +481,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     userProfile,
     isVesselLinked,
     isCrewLimited,
+    isCrewNavRestricted,
     hasPaidAccess,
     isFeatureEnabled,
     restrictedAllowedHrefs,
@@ -1030,7 +1033,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const isSeaTimeRequest = item.href === '/dashboard/sea-time-request';
                   const isCertificates = item.href === '/dashboard/certificates';
                   const isAisImport = item.href === '/dashboard/ais-import';
-                  const hideLockedTeasers = isCrewLimited || isVesselLinked;
+                  const hideLockedTeasers = isCrewNavRestricted || isVesselLinked;
                   const requiresPremium =
                     !hideLockedTeasers &&
                     (isVisaTracker || isBridgeWatch || isSeaTimeRequest || isCertificates || isExport) &&

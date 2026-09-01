@@ -51,6 +51,7 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
+  Check,
   Maximize2,
   Download,
   BookMarked,
@@ -60,6 +61,7 @@ import {
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
@@ -70,6 +72,14 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
@@ -86,10 +96,31 @@ import {
   getOfflineLandGeoJson,
   getOfflineCountryLayers,
   loadHighDetailWorldGeo,
+  applyPremiumBasemapPaint,
   OFFLINE_THEME_FOR_STYLE,
 } from '@/lib/passages-map/build-offline-style';
+import {
+  installChartOverlays,
+  removeChartOverlays,
+} from '@/lib/passages-map/ocean-chart';
+import {
+  hasRemoteVectorTiles,
+  harbourFeatureName,
+  harbourHoverHtml,
+  HARBOUR_DOTS_LAYER,
+  HARBOUR_LABELS_LAYER,
+  HARBOUR_POPUP_STYLE,
+  installRemoteChartDetail,
+  removeRemoteChartDetail,
+} from '@/lib/passages-map/remote-chart-detail';
 import { ensureMaplibreWorkerConfigured } from '@/lib/passages-map/setup-maplibre-worker';
-import { segmentCrossesLand } from '@/lib/passages-map/segment-crosses-land';
+import {
+  routeWaterPath,
+} from '@/lib/passages-map/route-around-land';
+import {
+  densifyLineAgainstBasemap,
+  refineFeatureCollectionOnBasemap,
+} from '@/lib/passages-map/refine-track-on-basemap';
 import {
   renderPassagePopupHtml,
   renderLiveTrackPopupHtml,
@@ -98,6 +129,7 @@ import {
 import {
   installMapLabels,
   MAP_LABELS_STYLE,
+  thinBasemapTextLabels,
   type MapLabelHandle,
 } from '@/lib/passages-map/map-labels';
 import {
@@ -159,8 +191,76 @@ if (typeof window !== 'undefined') {
  * (minimal light). The tone drives track paint on top of the basemap.
  */
 type MapStyleId = 'deep-sea' | 'atlas' | 'chart';
-
 type BasemapTone = 'dark' | 'muted' | 'light';
+
+/**
+ * Light-basemap chrome overrides. Dark-glass panels wash out over the
+ * Chart (paper) theme; this remaps the overlay’s white/transparent
+ * utilities to opaque light surfaces + dark type without rewriting
+ * every child class.
+ */
+const MAP_CHROME_LIGHT_STYLE = `
+  [data-map-chrome="light"] {
+    color: rgb(15 23 42);
+  }
+  [data-map-chrome="light"].map-chrome-panel,
+  [data-map-chrome="light"] .map-chrome-panel {
+    background: rgba(255, 255, 255, 0.96) !important;
+    border-color: rgba(15, 23, 42, 0.12) !important;
+    box-shadow:
+      0 18px 40px rgba(15, 23, 42, 0.14),
+      0 0 0 1px rgba(15, 23, 42, 0.04) !important;
+    backdrop-filter: blur(16px);
+  }
+  [data-map-chrome="light"] [class*="text-white"] {
+    color: rgb(15 23 42) !important;
+  }
+  [data-map-chrome="light"] [class*="text-white/"] {
+    color: rgb(71 85 105) !important;
+  }
+  [data-map-chrome="light"] [class*="text-white/2"],
+  [data-map-chrome="light"] [class*="text-white/3"] {
+    color: rgb(148 163 184) !important;
+  }
+  [data-map-chrome="light"] [class*="border-white/"] {
+    border-color: rgba(15, 23, 42, 0.1) !important;
+  }
+  [data-map-chrome="light"] [class*="bg-white/"] {
+    background-color: rgba(15, 23, 42, 0.04) !important;
+  }
+  [data-map-chrome="light"] [class*="ring-white/"] {
+    --tw-ring-color: rgba(15, 23, 42, 0.08) !important;
+  }
+  [data-map-chrome="light"] [class*="hover:bg-white"]:hover {
+    background-color: rgba(15, 23, 42, 0.06) !important;
+  }
+  [data-map-chrome="light"] [class*="hover:text-white"]:hover {
+    color: rgb(15 23 42) !important;
+  }
+  [data-map-chrome="light"] [class*="text-sky-"] {
+    color: rgb(3 105 161) !important;
+  }
+  [data-map-chrome="light"] [class*="text-emerald-"] {
+    color: rgb(4 120 87) !important;
+  }
+  [data-map-chrome="light"] [class*="bg-sky-"] {
+    background-color: rgba(14, 165, 233, 0.12) !important;
+  }
+  [data-map-chrome="light"] [class*="bg-emerald-"] {
+    background-color: rgba(16, 185, 129, 0.12) !important;
+  }
+  [data-map-chrome="light"] [class*="ring-offset-slate-950"] {
+    --tw-ring-offset-color: #fff !important;
+  }
+  [data-map-chrome="light"] option {
+    background: #fff;
+    color: rgb(15 23 42);
+  }
+`;
+
+function mapChromeTone(styleId: MapStyleId): BasemapTone {
+  return MAP_STYLES[styleId].tone;
+}
 
 type MapStyleConfig = {
   id: MapStyleId;
@@ -217,6 +317,14 @@ const MAP_STYLES: Record<MapStyleId, MapStyleConfig> = {
 };
 
 const DEFAULT_STYLE_ID: MapStyleId = 'deep-sea';
+
+/** Offline Natural Earth is only cartographically clean to ~z9. */
+const OFFLINE_MAX_ZOOM = 9;
+/**
+ * OpenFreeMap planet tiles go to z14; allow a little overzoom so harbour
+ * approaches stay usable without looking stretched past recognition.
+ */
+const REMOTE_MAX_ZOOM = 15;
 const STYLE_STORAGE_KEY = 'passages-map:style';
 
 /**
@@ -327,11 +435,13 @@ const TRACK_PAINT_BY_TONE: Record<
 
 /**
  * Dedicated accent for LIVE position + active underway track.
- * Kept intentionally off the per-vessel palette so live never reads
- * as "just another historical passage".
+ * Sky (not neon emerald) so it reads as SeaJourney chrome and stays
+ * distinct from per-vessel historical passage colours.
  */
-const LIVE_ACCENT = '#34d399';
-const LIVE_ACCENT_DEEP = '#059669';
+const LIVE_ACCENT = '#0ea5e9';
+const LIVE_ACCENT_DEEP = '#0369a1';
+const LIVE_ACCENT_SOFT = '#7dd3fc';
+const LIVE_TRACK_INK = '#0c4a6e';
 
 type VesselTotals = {
   passageCount: number;
@@ -408,6 +518,8 @@ type LivePosition = {
 
 const LIVE_TRACK_LINE_LAYER = 'live-active-tracks:line';
 const LIVE_TRACK_CASING_LAYER = 'live-active-tracks:casing';
+const LIVE_TRACK_SHEEN_LAYER = 'live-active-tracks:sheen';
+const LIVE_TRACK_GLOW_LAYER = 'live-active-tracks:glow';
 const SCRUB_SOURCE_ID = 'passages-scrub-point';
 const SCRUB_HALO_LAYER_ID = 'passages-scrub-point:halo';
 const SCRUB_LAYER_ID = 'passages-scrub-point:circle';
@@ -446,10 +558,11 @@ export default function PassagesMapPage() {
   );
   const { isEnabled: isFeatureEnabled, isLoading: isFlagsLoading } =
     useFeatureFlags();
+  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
 
   const eligible = React.useMemo(
-    () => hasPassagesMapAccess(userProfile),
-    [userProfile],
+    () => hasPassagesMapAccess(userProfile, vesselBoost),
+    [userProfile, vesselBoost],
   );
   const featureOn = isFeatureEnabled('passages_map');
   const isVesselAccount = React.useMemo(() => {
@@ -932,20 +1045,21 @@ export default function PassagesMapPage() {
 
   // Live positions + active underway tracks. Independent of the month
   // view — a vessel underway should show up even when browsing July.
-  // Polls every LIVE_POLL_MS while the tab is visible; pauses in the
-  // background so we don't burn requests for nothing.
-  const fetchLive = React.useCallback(async () => {
+  // First load uses ?refresh=1 so vessel accounts hit AIS once for a
+  // fresh pin; later polls read cached samples only.
+  const fetchLive = React.useCallback(async (opts?: { refresh?: boolean }) => {
     if (!session?.access_token) return;
     try {
-      const res = await fetch('/api/passages-map/live', {
+      const qs = opts?.refresh ? '?refresh=1' : '';
+      const res = await fetch(`/api/passages-map/live${qs}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       if (!res.ok) return;
       const json = (await res.json()) as LiveResponse;
 
       // Detect underway → finished transitions and fold the live track
-      // into the historical FeatureCollection immediately so the dashed
-      // emerald line becomes a solid past passage of the vessel colour.
+      // into the historical FeatureCollection immediately so the live
+      // sky line becomes a solid past passage of the vessel colour.
       const nextUnderway = new Map<string, GeoJSON.FeatureCollection>();
       for (const v of json.vessels) {
         if (v.live?.state === 'underway' && v.activeTrack) {
@@ -1035,7 +1149,7 @@ export default function PassagesMapPage() {
 
   React.useEffect(() => {
     if (!eligible || !session?.access_token) return;
-    void fetchLive();
+    void fetchLive({ refresh: true });
     const id = window.setInterval(() => {
       if (document.visibilityState === 'visible') void fetchLive();
     }, LIVE_POLL_MS);
@@ -1218,6 +1332,7 @@ export default function PassagesMapPage() {
 
   return (
     <div className="relative flex h-full w-full bg-slate-950">
+      <style dangerouslySetInnerHTML={{ __html: MAP_CHROME_LIGHT_STYLE }} />
       <PassagesMapCanvas
         ref={canvasRef}
         vessels={tracks?.vessels ?? []}
@@ -1258,8 +1373,11 @@ export default function PassagesMapPage() {
         otherwise silently show stale tracks.
       */}
       {isLoading && tracks && (
-        <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2">
-          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/85 px-4 py-2 text-xs font-medium text-white/85 shadow-xl shadow-black/40 backdrop-blur-xl">
+        <div
+          className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2"
+          data-map-chrome={mapChromeTone(styleId)}
+        >
+          <div className="map-chrome-panel flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/85 px-4 py-2 text-xs font-medium text-white/85 shadow-xl shadow-black/40 backdrop-blur-xl">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-400" />
             {view.mode === 'all'
               ? 'Loading all-time history…'
@@ -1269,8 +1387,11 @@ export default function PassagesMapPage() {
       )}
 
       {tripToast && (
-        <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex max-w-[min(92vw,420px)] items-center gap-2.5 rounded-full border border-white/12 bg-slate-950/90 px-4 py-2.5 shadow-2xl shadow-black/50 backdrop-blur-xl">
+        <div
+          className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 animate-in fade-in slide-in-from-top-2 duration-300"
+          data-map-chrome={mapChromeTone(styleId)}
+        >
+          <div className="map-chrome-panel flex max-w-[min(92vw,420px)] items-center gap-2.5 rounded-full border border-white/12 bg-slate-950/90 px-4 py-2.5 shadow-2xl shadow-black/50 backdrop-blur-xl">
             <span
               className="h-2.5 w-2.5 shrink-0 rounded-full shadow-[0_0_10px_currentColor]"
               style={{ backgroundColor: tripToast.colorHex, color: tripToast.colorHex }}
@@ -1292,8 +1413,11 @@ export default function PassagesMapPage() {
         !selectedPassage &&
         logbookMissingCount > 0 &&
         (tracks?.totals.passageCount ?? 0) > 0 && (
-          <div className="absolute bottom-6 left-1/2 z-20 w-[min(92vw,440px)] -translate-x-1/2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div className="flex items-start gap-3 rounded-2xl border border-sky-400/25 bg-slate-950/92 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl">
+          <div
+            className="absolute bottom-6 left-1/2 z-20 w-[min(92vw,440px)] -translate-x-1/2 animate-in fade-in slide-in-from-bottom-2 duration-300"
+            data-map-chrome={mapChromeTone(styleId)}
+          >
+            <div className="map-chrome-panel flex items-start gap-3 rounded-2xl border border-sky-400/25 bg-slate-950/92 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl">
               <BookPlus className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-white">
@@ -1444,12 +1568,16 @@ export default function PassagesMapPage() {
       />
 
       {selectedPassageMeta && (
-        <div className="pointer-events-none absolute bottom-5 left-1/2 z-30 w-[min(92vw,720px)] -translate-x-1/2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div
+          className="pointer-events-none absolute bottom-5 left-1/2 z-30 w-[min(92vw,720px)] -translate-x-1/2 animate-in fade-in slide-in-from-bottom-2 duration-300"
+          data-map-chrome={mapChromeTone(styleId)}
+        >
           <PassageTimelineBar
             meta={selectedPassageMeta}
             progress={scrubProgress}
             sample={scrubSample}
             onProgressChange={handleScrubProgress}
+            className="map-chrome-panel"
             onClose={() => {
               canvasRef.current?.clearHover();
               setSelectedPassage(null);
@@ -1602,6 +1730,8 @@ const PassagesMapCanvas = React.forwardRef<
     featureId: number;
     kind?: 'past' | 'live';
   } | null>(null);
+  /** True while the pointer is over a harbour/marina POI tip. */
+  const harbourHoverRef = React.useRef(false);
   // Sticky selection from sidebar click / map click — survives mouseleave
   // so the chosen track stays highlighted (blue or green) until another
   // passage is chosen or Esc.
@@ -1634,10 +1764,13 @@ const PassagesMapCanvas = React.forwardRef<
   }, [discoveredPlaces]);
 
   // Which style tier the map is currently rendering. Starts on 'offline'
-  // (bundled topojson, always works). We attempt to upgrade to 'remote'
-  // (vector tiles) in the background; if that succeeds we stay there,
-  // if it fails or times out we quietly stay on 'offline'.
-  const styleTierRef = React.useRef<'offline' | 'remote'>('offline');
+  // (bundled topojson, always works). 'pending-remote' means we've asked
+  // MapLibre to load OpenFreeMap but the style JSON isn't ready yet —
+  // do NOT install offline continents during that window, and do NOT
+  // claim remote overlays are installed until vector sources exist.
+  const styleTierRef = React.useRef<'offline' | 'pending-remote' | 'remote'>(
+    'offline',
+  );
   const remoteUpgradeTimerRef = React.useRef<number | null>(null);
   // Whether the offline country overlay (fill + stroke, from bundled
   // topojson) is currently installed on the map. Reset whenever we
@@ -1649,6 +1782,8 @@ const PassagesMapCanvas = React.forwardRef<
   // re-applies the upgrade (the cached FeatureCollections make the
   // subsequent swap effectively instant).
   const highDetailAppliedRef = React.useRef(false);
+  /** True while waiting for zoom ≥ threshold before applying 10m geo. */
+  const highDetailZoomWaitRef = React.useRef(false);
   // Which style is currently applied on the underlying MapLibre map.
   // The style-swap effect below reads this to avoid a no-op setStyle
   // on mount (which would interrupt the initial style load with a
@@ -1662,43 +1797,48 @@ const PassagesMapCanvas = React.forwardRef<
    * "map is ready enough to accept new sources" — load, styledata,
    * idle — because on some environments only one of those fires. It's
    * idempotent so calling it multiple times is safe.
+   *
+   * IMPORTANT: when we've upgraded to remote vector tiles, do NOT paint
+   * Natural Earth land on top — that hides accurate OSM coastlines and
+   * is exactly why zoomed-in views looked crude / "inaccurate".
    */
   const installCountryOverlay = React.useCallback((map: MapLibreMap) => {
-    if (countryOverlayInstalledRef.current) return;
+    // Always thin remote basemap text when present — safe no-op on offline styles.
+    thinBasemapTextLabels(map);
+
+    const theme = OFFLINE_THEME_FOR_STYLE[styleIdRef.current] ?? 'dark';
+    // Retint remote OpenFreeMap greys into SeaJourney navy/slate chrome.
+    applyPremiumBasemapPaint(map, theme);
+
     if (!map.isStyleLoaded()) return;
+
+    // Prefer detecting remote tiles from the live style — styleTier can
+    // lag behind setStyle, and claiming "remote" before sources exist
+    // used to mark overlays installed forever with no coast/harbour layers.
+    if (hasRemoteVectorTiles(map)) {
+      styleTierRef.current = 'remote';
+      tearDownOfflineCountryOverlay(map);
+      map.setMaxZoom(REMOTE_MAX_ZOOM);
+      // Always refresh — theme swaps and late source availability need this.
+      installRemoteChartDetail(map, theme);
+      void installChartOverlays(map, theme);
+      countryOverlayInstalledRef.current = true;
+      return;
+    }
+
+    if (styleTierRef.current === 'pending-remote') {
+      // Mid-upgrade: style wiped, OpenMapTiles not in getStyle() yet.
+      return;
+    }
+
+    if (countryOverlayInstalledRef.current) return;
+
+    // Remote OpenMapTiles already include land, water, and coastlines at
+    // OSM precision. Overlaying 1:10m Natural Earth would cover that detail.
+    // (Handled above when hasRemoteVectorTiles is true.)
+
     try {
-      // Idempotent teardown of any prior overlay (e.g. left behind by
-      // a stale setStyle) so we can rebuild it cleanly against the
-      // current theme.
-      const layersToTearDown = [
-        'land-coastline',
-        'country-borders',
-        'land-fill',
-        // Legacy layer ids from earlier iterations — still remove them
-        // defensively in case a hot reload left stale layers around.
-        'countries-stroke',
-        'countries-fill',
-      ];
-      for (const id of layersToTearDown) {
-        try {
-          if (map.getLayer(id)) map.removeLayer(id);
-        } catch {
-          /* ignore */
-        }
-      }
-      for (const id of [
-        'offline-land',
-        'offline-coastline',
-        'offline-borders',
-        // Legacy source id from when borders were stroked polygons.
-        'offline-countries',
-      ]) {
-        try {
-          if (map.getSource(id)) map.removeSource(id);
-        } catch {
-          /* ignore */
-        }
-      }
+      tearDownOfflineCountryOverlay(map);
 
       // Three separate sources:
       //   offline-land      — fill polygons (fill layer only)
@@ -1739,11 +1879,12 @@ const PassagesMapCanvas = React.forwardRef<
         tolerance: 0,
       });
 
-      const theme = OFFLINE_THEME_FOR_STYLE[styleIdRef.current] ?? 'dark';
       for (const layer of getOfflineCountryLayers({ theme })) {
         map.addLayer(layer);
       }
       countryOverlayInstalledRef.current = true;
+      styleTierRef.current = 'offline';
+      map.setMaxZoom(OFFLINE_MAX_ZOOM);
       const canvas = map.getCanvas();
       // eslint-disable-next-line no-console
       console.info('[passages-map] country overlay installed', {
@@ -1755,19 +1896,8 @@ const PassagesMapCanvas = React.forwardRef<
         theme,
       });
 
-      // ── Progressive detail upgrade ──
-      //
-      // Kick off a lazy load of the 1:10 million dataset. The dynamic
-      // import is code-split so the initial JS bundle doesn't grow;
-      // when it resolves (typically a few hundred ms later on a warm
-      // connection), we hot-swap the source data in place using
-      // `setData`. MapLibre re-tiles the new geometry against the
-      // existing paint expressions, so the coastline visibly sharpens
-      // WITHOUT a camera reset or reload.
-      //
-      // Guarded via `highDetailAppliedRef` so we only ever swap once
-      // per map instance — subsequent style changes reuse the cached
-      // high-detail data via `getOfflineLandGeoJson` upgrade below.
+      void installChartOverlays(map, theme);
+      removeRemoteChartDetail(map);
       void applyHighDetailUpgrade(map);
     } catch (err) {
       console.warn('[passages-map] failed to install country overlay', err);
@@ -1776,20 +1906,27 @@ const PassagesMapCanvas = React.forwardRef<
 
   /**
    * Fire-and-forget upgrade of the offline continent geometry from the
-   * 1:50m dataset to Natural Earth's 1:10m dataset. Idempotent per
-   * map instance via `highDetailAppliedRef` — safe to call from every
-   * `installCountryOverlay` invocation.
-   *
-   * Race conditions we care about:
-   *   - The user swaps basemap while the load is in flight → the
-   *     `map.getSource()` check inside the `.then` covers this (new
-   *     sources are recreated with the same ids on every install, so
-   *     `setData` still hits the right source).
-   *   - The map unmounts while the load is in flight → `map.getSource`
-   *     will throw (map is disposed); we swallow that in the try/catch.
+   * 1:50m dataset to Natural Earth's 1:10m dataset. Deferred until the
+   * camera is past world zoom — swapping dense 10m meshes at z1–2
+   * caused visible retile flicker / seam flashes on the full globe.
    */
   const applyHighDetailUpgrade = React.useCallback(async (map: MapLibreMap) => {
     if (highDetailAppliedRef.current) return;
+
+    const MIN_ZOOM_FOR_10M = 2.0;
+    if (map.getZoom() < MIN_ZOOM_FOR_10M) {
+      if (highDetailZoomWaitRef.current) return;
+      highDetailZoomWaitRef.current = true;
+      const onZoom = () => {
+        if (map.getZoom() < MIN_ZOOM_FOR_10M) return;
+        map.off('zoomend', onZoom);
+        highDetailZoomWaitRef.current = false;
+        void applyHighDetailUpgrade(map);
+      };
+      map.on('zoomend', onZoom);
+      return;
+    }
+
     highDetailAppliedRef.current = true; // guard eagerly to prevent duplicate loads
     try {
       const hi = await loadHighDetailWorldGeo();
@@ -1797,8 +1934,10 @@ const PassagesMapCanvas = React.forwardRef<
         // Load failed — reset the guard so a future basemap swap can
         // retry (network might just have been transiently unavailable).
         highDetailAppliedRef.current = false;
+        highDetailZoomWaitRef.current = false;
         return;
       }
+      // Still offline? Remote upgrade may have torn these sources down.
       const landSrc = map.getSource('offline-land') as GeoJSONSource | undefined;
       const coastlineSrc = map.getSource('offline-coastline') as
         | GeoJSONSource
@@ -1806,6 +1945,7 @@ const PassagesMapCanvas = React.forwardRef<
       const bordersSrc = map.getSource('offline-borders') as
         | GeoJSONSource
         | undefined;
+      if (!landSrc && !coastlineSrc && !bordersSrc) return;
       if (landSrc) landSrc.setData(hi.land as any);
       if (coastlineSrc) coastlineSrc.setData(hi.coastline as any);
       if (bordersSrc) bordersSrc.setData(hi.borders as any);
@@ -1820,6 +1960,7 @@ const PassagesMapCanvas = React.forwardRef<
       // eslint-disable-next-line no-console
       console.warn('[passages-map] high-detail upgrade failed', err);
       highDetailAppliedRef.current = false;
+      highDetailZoomWaitRef.current = false;
     }
   }, []);
 
@@ -1865,7 +2006,10 @@ const PassagesMapCanvas = React.forwardRef<
           if (mapRef.current !== map) return;
           if (styleIdRef.current !== styleId) return;
           if (remoteUpgradeAbortRef.current !== controller) return;
-          styleTierRef.current = 'remote';
+          // Stay pending until OpenMapTiles sources appear in getStyle().
+          // Setting 'remote' here raced installCountryOverlay and permanently
+          // skipped coast/harbour layers when the source wasn't ready yet.
+          styleTierRef.current = 'pending-remote';
           // eslint-disable-next-line no-console
           console.info('[passages-map] upgrading to remote tiles', {
             styleId,
@@ -1875,11 +2019,17 @@ const PassagesMapCanvas = React.forwardRef<
           countryOverlayInstalledRef.current = false;
           ownedSourceIdsRef.current.clear();
           vesselLineLayerIdsRef.current.clear();
+          map.setMaxZoom(REMOTE_MAX_ZOOM);
+          removeChartOverlays(map);
+          removeRemoteChartDetail(map);
           map.setStyle(remoteUrl);
         })
         .catch((err) => {
           window.clearTimeout(timeoutId);
           if (controller.signal.aborted) return;
+          if (styleTierRef.current === 'pending-remote') {
+            styleTierRef.current = 'offline';
+          }
           // eslint-disable-next-line no-console
           console.info(
             '[passages-map] remote tile upgrade unavailable — staying offline',
@@ -1945,6 +2095,10 @@ const PassagesMapCanvas = React.forwardRef<
         center: [0, 20],
         zoom: 1.6,
         minZoom: 0.5,
+        // Cap until remote tiles upgrade — Natural Earth looks soft past ~z9.
+        maxZoom: OFFLINE_MAX_ZOOM,
+        // Soften tile cross-fades so DEM/raster swaps don't flash seams.
+        fadeDuration: 400,
         // Extra world copies amplify antimeridian / tile-edge artefacts
         // on our offline GeoJSON land layer for no real benefit here.
         renderWorldCopies: false,
@@ -1987,6 +2141,57 @@ const PassagesMapCanvas = React.forwardRef<
       // is cheaper than attaching per-layer handlers when vessels
       // come/go (and simpler to reason about).
       map.on('mousemove', (e) => {
+        // Harbour / marina dots — show the place name on hover before
+        // we consider passage tracks (so a port under a track still tips).
+        const harbourLayers: string[] = [];
+        if (map.getLayer(HARBOUR_DOTS_LAYER)) harbourLayers.push(HARBOUR_DOTS_LAYER);
+        if (map.getLayer(HARBOUR_LABELS_LAYER)) {
+          harbourLayers.push(HARBOUR_LABELS_LAYER);
+        }
+        if (harbourLayers.length > 0) {
+          try {
+            const pad = 10;
+            const box: [[number, number], [number, number]] = [
+              [e.point.x - pad, e.point.y - pad],
+              [e.point.x + pad, e.point.y + pad],
+            ];
+            const harbourFeats = map.queryRenderedFeatures(box, {
+              layers: harbourLayers,
+            });
+            if (harbourFeats.length > 0) {
+              const hFeat = harbourFeats[0]!;
+              const name = harbourFeatureName(hFeat);
+              if (name) {
+                if (hoveredPassageRef.current) clearPassageHover(map);
+                harbourHoverRef.current = true;
+                map.getCanvas().style.cursor = 'pointer';
+                const kind = String(
+                  hFeat.properties?.subclass ??
+                    hFeat.properties?.class ??
+                    '',
+                );
+                const coords = (hFeat.geometry as GeoJSON.Point | undefined)
+                  ?.coordinates as [number, number] | undefined;
+                const lngLat = coords
+                  ? { lng: coords[0], lat: coords[1] }
+                  : e.lngLat;
+                popupRef.current
+                  ?.setLngLat(lngLat)
+                  .setHTML(harbourHoverHtml(name, kind || null))
+                  .addTo(map);
+                return;
+              }
+            }
+          } catch {
+            /* ignore during style swaps */
+          }
+        }
+        if (harbourHoverRef.current) {
+          harbourHoverRef.current = false;
+          popupRef.current?.remove();
+          map.getCanvas().style.cursor = '';
+        }
+
         // Only query layers that ACTUALLY exist on the map right now.
         // Between vessel-list changes and MapLibre's async layer teardown
         // the ref can briefly contain ids for layers that no longer
@@ -1994,10 +2199,13 @@ const PassagesMapCanvas = React.forwardRef<
         // in v6 — which would blow up the rest of this handler and
         // silently break hover for the whole session.
         const layerIds: string[] = [];
-        // Live track first so its emerald line wins when stacked on a
+        // Live track first so its sky line wins when stacked on a
         // historical passage.
         if (map.getLayer(LIVE_TRACK_LINE_LAYER)) {
           layerIds.push(LIVE_TRACK_LINE_LAYER);
+        }
+        if (map.getLayer(LIVE_TRACK_SHEEN_LAYER)) {
+          layerIds.push(LIVE_TRACK_SHEEN_LAYER);
         }
         if (map.getLayer(LIVE_TRACK_CASING_LAYER)) {
           layerIds.push(LIVE_TRACK_CASING_LAYER);
@@ -2389,6 +2597,16 @@ const PassagesMapCanvas = React.forwardRef<
       // `load` on some environments. Keep it as a third recovery hook
       // for the overlay layers in case both styledata and load stall.
       let loggedFirstIdle = false;
+      let harbourRefineTimer: number | null = null;
+      let harbourRefinePasses = 0;
+      let harbourRefineZoomBucket = -1;
+      map.on('zoomend', () => {
+        const bucket = Math.floor(map.getZoom() * 2);
+        if (bucket !== harbourRefineZoomBucket) {
+          harbourRefineZoomBucket = bucket;
+          harbourRefinePasses = 0;
+        }
+      });
       map.on('idle', () => {
         installCountryOverlay(map);
         if (!styleLoadedRef.current && map.isStyleLoaded()) {
@@ -2420,6 +2638,44 @@ const PassagesMapCanvas = React.forwardRef<
             sidebarCollapsedRef.current,
           );
         }
+
+        // Harbour / strait tiles finish after zoom — two refine passes
+        // once the basemap has pier geometry.
+        if (
+          styleLoadedRef.current &&
+          map.getZoom() >= 9 &&
+          harbourRefinePasses < 2
+        ) {
+          if (harbourRefineTimer != null) {
+            window.clearTimeout(harbourRefineTimer);
+          }
+          harbourRefineTimer = window.setTimeout(() => {
+            harbourRefineTimer = null;
+            if (mapRef.current !== map || map.getZoom() < 9) return;
+            if (harbourRefinePasses >= 2) return;
+            harbourRefinePasses += 1;
+            applyVesselLayers(
+              map,
+              vesselsRef.current,
+              hiddenRef.current,
+              ownedSourceIdsRef.current,
+              styleIdRef.current,
+              vesselLineLayerIdsRef.current,
+              vesselMetaRef.current,
+              focusedVesselIdRef.current,
+              selectedPassageRef.current,
+            );
+            applyLiveOverlay(
+              map,
+              liveVesselsRef.current,
+              hiddenRef.current,
+              liveMarkersRef.current,
+              vesselsRef.current,
+              popupRef.current,
+            );
+          }, 450);
+        }
+
         // One-shot render-state snapshot when the map first goes idle.
         // If continents / tracks aren't visible in the browser, this
         // log tells us whether they were actually added to the map or
@@ -2450,6 +2706,15 @@ const PassagesMapCanvas = React.forwardRef<
       requestAnimationFrame(() => {
         if (mapRef.current === map) map.resize();
       });
+
+      // After offline first paint, probe OpenFreeMap for OSM-detail
+      // coasts + harbour POIs. Theme swaps also call this; without it
+      // on boot the map stayed on Natural Earth forever.
+      remoteUpgradeTimerRef.current = window.setTimeout(() => {
+        remoteUpgradeTimerRef.current = null;
+        if (mapRef.current !== map) return;
+        tryRemoteUpgrade(map, styleIdRef.current);
+      }, 250);
     };
 
     rafHandle = requestAnimationFrame(boot);
@@ -2490,6 +2755,7 @@ const PassagesMapCanvas = React.forwardRef<
       styleTierRef.current = 'offline';
       countryOverlayInstalledRef.current = false;
       highDetailAppliedRef.current = false;
+      highDetailZoomWaitRef.current = false;
       ownedSourceIdsRef.current.clear();
     };
   }, [tryRemoteUpgrade, installCountryOverlay]);
@@ -2564,24 +2830,32 @@ const PassagesMapCanvas = React.forwardRef<
   //
   // Fix: force `diff: false` so every theme click does a full rebuild,
   // then wait for the new style to finish loading and explicitly
-  // re-install continents + vessel tracks. Don't rely on the boot-time
-  // `styledata` handler alone — it can race with the mid-swap state.
+  // re-install continents + vessel tracks. Only mark the style as
+  // applied AFTER reinstall succeeds — otherwise React Strict Mode /
+  // effect cleanup can cancel mid-swap and permanently no-op.
+  const styleSwapGenRef = React.useRef(0);
   React.useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (appliedStyleIdRef.current === styleId) return; // no-op guard
+    if (appliedStyleIdRef.current === styleId) return;
 
     let cancelled = false;
+    let completed = false;
     let detachReady: (() => void) | null = null;
+    const gen = ++styleSwapGenRef.current;
+
+    const stillCurrent = () =>
+      !cancelled && gen === styleSwapGenRef.current && mapRef.current === map;
 
     const reinstallAfterSwap = () => {
-      if (cancelled) return;
+      if (!stillCurrent()) return;
       if (!map.isStyleLoaded()) return;
       styleLoadedRef.current = true;
       // Reset so installCountryOverlay actually rebuilds with the new
       // theme colours (its own guard short-circuits otherwise).
       countryOverlayInstalledRef.current = false;
       highDetailAppliedRef.current = false;
+      highDetailZoomWaitRef.current = false;
       ownedSourceIdsRef.current.clear();
       vesselLineLayerIdsRef.current.clear();
       installCountryOverlay(map);
@@ -2604,7 +2878,26 @@ const PassagesMapCanvas = React.forwardRef<
         vesselsRef.current,
         popupRef.current,
       );
-      labelHandleRef.current?.retheme(MAP_STYLES[styleId].tone);
+      // Rebuild labels so port/marina chrome + tone always match the
+      // active theme (retheme alone can't add newly curated places).
+      labelHandleRef.current?.dispose();
+      labelHandleRef.current = installMapLabels(
+        map,
+        MAP_STYLES[styleId].tone,
+      );
+      labelHandleRef.current.syncDiscoveredPlaces(
+        discoveredPlacesRef.current,
+      );
+      try {
+        map.resize();
+        map.triggerRepaint();
+      } catch {
+        /* ignore */
+      }
+      // Mark applied only after a successful reinstall so a cancelled
+      // Strict Mode pass can't permanently skip the next attempt.
+      appliedStyleIdRef.current = styleId;
+      completed = true;
       // eslint-disable-next-line no-console
       console.info('[passages-map] basemap theme applied', { styleId });
       // After the offline theme is on screen, probe the matching remote
@@ -2613,15 +2906,19 @@ const PassagesMapCanvas = React.forwardRef<
     };
 
     const doSwap = () => {
-      if (cancelled) return;
+      if (!stillCurrent()) return;
       // Abort any remote upgrade still probing the previous theme.
       remoteUpgradeAbortRef.current?.abort();
       styleLoadedRef.current = false;
       styleTierRef.current = 'offline';
       countryOverlayInstalledRef.current = false;
       highDetailAppliedRef.current = false;
+      highDetailZoomWaitRef.current = false;
       ownedSourceIdsRef.current.clear();
       vesselLineLayerIdsRef.current.clear();
+      map.setMaxZoom(OFFLINE_MAX_ZOOM);
+      removeChartOverlays(map);
+      removeRemoteChartDetail(map);
 
       // Build a FRESH style object each swap. Reusing the module-level
       // offlineStyle reference + MapLibre's default diff can no-op or
@@ -2629,7 +2926,6 @@ const PassagesMapCanvas = React.forwardRef<
       const theme = OFFLINE_THEME_FOR_STYLE[styleId] ?? 'dark';
       const nextStyle = buildOfflineWorldStyle({ theme });
       map.setStyle(nextStyle, { diff: false });
-      appliedStyleIdRef.current = styleId;
 
       // Labels are DOM Markers — survive setStyle. Retheme immediately
       // so they match the new ocean/land palette even before layers
@@ -2655,8 +2951,7 @@ const PassagesMapCanvas = React.forwardRef<
         map.off('idle', onIdle);
       };
 
-      // If the style somehow loaded synchronously (tiny offline style),
-      // reinstall immediately rather than waiting for another event.
+      // Offline styles are tiny — often load synchronously.
       if (map.isStyleLoaded()) {
         detachReady();
         detachReady = null;
@@ -2680,6 +2975,11 @@ const PassagesMapCanvas = React.forwardRef<
     return () => {
       cancelled = true;
       detachReady?.();
+      // If we never finished, clear the applied marker so the next
+      // effect (or a remount) can retry this styleId.
+      if (!completed && appliedStyleIdRef.current === styleId) {
+        appliedStyleIdRef.current = null;
+      }
     };
   }, [styleId, installCountryOverlay, tryRemoteUpgrade]);
 
@@ -2735,7 +3035,8 @@ const PassagesMapCanvas = React.forwardRef<
               timelineActiveRef.current,
             ),
             duration: 900,
-            maxZoom: 11,
+            maxZoom:
+              styleTierRef.current === 'remote' ? 14 : OFFLINE_MAX_ZOOM,
           },
         );
 
@@ -2904,11 +3205,13 @@ const PassagesMapCanvas = React.forwardRef<
       <div
         ref={containerRef}
         className="passages-map-canvas absolute inset-0 h-full w-full bg-[#070e1a]"
+        data-tone={MAP_STYLES[styleId].tone}
       />
       {/*
         Restyle MapLibre's default controls to match the premium overlay:
         dark-glass background, subtle border, brighter icons on hover. Scoped
         by `.passages-map-canvas` so nothing else on the app is affected.
+        Chart (light) tone gets opaque white chrome so controls don't wash out.
       */}
       <style
         dangerouslySetInnerHTML={{
@@ -2959,7 +3262,40 @@ const PassagesMapCanvas = React.forwardRef<
             .passages-map-canvas .maplibregl-ctrl-attrib-button {
               background-color: rgba(255, 255, 255, 0.85) !important;
             }
+
+            .passages-map-canvas[data-tone="light"] .maplibregl-ctrl-group {
+              background: rgba(255, 255, 255, 0.96) !important;
+              border: 1px solid rgba(15, 23, 42, 0.12) !important;
+              box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14) !important;
+            }
+            .passages-map-canvas[data-tone="light"] .maplibregl-ctrl-group button span {
+              filter: none;
+              opacity: 0.72;
+            }
+            .passages-map-canvas[data-tone="light"] .maplibregl-ctrl-group button:hover span {
+              opacity: 1;
+            }
+            .passages-map-canvas[data-tone="light"] .maplibregl-ctrl-group button + button {
+              border-top: 1px solid rgba(15, 23, 42, 0.08) !important;
+            }
+            .passages-map-canvas[data-tone="light"] .maplibregl-ctrl-scale {
+              background: rgba(255, 255, 255, 0.95) !important;
+              border-color: rgba(15, 23, 42, 0.18) !important;
+              color: rgba(15, 23, 42, 0.8) !important;
+            }
+            .passages-map-canvas[data-tone="light"] .maplibregl-ctrl-attrib {
+              background: rgba(255, 255, 255, 0.92) !important;
+              color: rgba(15, 23, 42, 0.55) !important;
+            }
+            .passages-map-canvas[data-tone="light"] .maplibregl-ctrl-attrib a {
+              color: rgb(3, 105, 161) !important;
+            }
+            .passages-map-canvas[data-tone="light"] .maplibregl-ctrl-attrib-button {
+              background-color: rgba(15, 23, 42, 0.75) !important;
+            }
+
             ${PASSAGE_POPUP_STYLE}
+            ${HARBOUR_POPUP_STYLE}
             ${MAP_LABELS_STYLE}
             ${LIVE_MARKER_STYLE}
           `,
@@ -3037,7 +3373,10 @@ function applyVesselLayers(
     });
 
     const fcWithIds = assignFeatureIds(
-      vessel.featureCollection ?? { type: 'FeatureCollection', features: [] },
+      refineFeatureCollectionOnBasemap(
+        map,
+        vessel.featureCollection ?? { type: 'FeatureCollection', features: [] },
+      ),
     );
     const endpointsFc = deriveEndpointsFC(fcWithIds);
 
@@ -3626,88 +3965,136 @@ function setPassageSelectedState(
 }
 
 /**
- * CSS for the live-vessel markers. Underway uses a distinct emerald
- * chevron (not the vessel's historical colour) so live never blends
- * into past passage endpoints.
+ * Remove the Natural Earth offline land/coast/border overlay if present.
+ * Used before reinstalling on offline styles, and to ensure remote
+ * OpenMapTiles aren't covered by simplified continents.
+ */
+function tearDownOfflineCountryOverlay(map: MapLibreMap) {
+  for (const id of [
+    'land-coastline',
+    'land-coastline-halo',
+    'country-borders',
+    'land-fill',
+    'countries-stroke',
+    'countries-fill',
+  ]) {
+    try {
+      if (map.getLayer(id)) map.removeLayer(id);
+    } catch {
+      /* ignore */
+    }
+  }
+  for (const id of [
+    'offline-land',
+    'offline-coastline',
+    'offline-borders',
+    'offline-countries',
+  ]) {
+    try {
+      if (map.getSource(id)) map.removeSource(id);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * CSS for the live-vessel markers. AIS-style vessel glyph (not a
+ * circular pin) in SeaJourney sky so live reads as maritime chrome,
+ * distinct from historical passage endpoints.
  */
 const LIVE_MARKER_STYLE = `
   .passages-live-marker {
     position: relative;
-    width: 28px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
     pointer-events: none;
   }
   .passages-live-marker__pulse {
     position: absolute;
-    inset: 2px;
+    left: 50%;
+    top: 50%;
+    width: 28px;
+    height: 28px;
+    margin: -14px 0 0 -14px;
     border-radius: 50%;
-    background: ${LIVE_ACCENT};
+    border: 1.5px solid ${LIVE_ACCENT};
     opacity: 0.4;
-    animation: passages-live-pulse 2s ease-out infinite;
+    animation: passages-live-pulse 2.6s ease-out infinite;
   }
   .passages-live-marker__pulse--stale,
   .passages-live-marker:not(.passages-live-marker--underway) .passages-live-marker__pulse {
     animation: none;
     opacity: 0.15;
+    border-color: #94a3b8;
   }
-  .passages-live-marker__boat {
+  .passages-live-marker__vessel {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 0;
-    height: 0;
-    margin-left: -7px;
-    margin-top: -9px;
-    border-left: 7px solid transparent;
-    border-right: 7px solid transparent;
-    border-bottom: 16px solid ${LIVE_ACCENT};
-    filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.75));
-    transform-origin: 50% 70%;
+    width: 22px;
+    height: 28px;
+    margin: -16px 0 0 -11px;
+    transform-origin: 50% 62%;
+    filter: drop-shadow(0 2px 4px rgba(3, 105, 161, 0.55));
   }
-  .passages-live-marker__boat::after {
-    content: '';
-    position: absolute;
-    left: -3.5px;
-    top: 5px;
-    width: 0;
-    height: 0;
-    border-left: 3.5px solid transparent;
-    border-right: 3.5px solid transparent;
-    border-bottom: 8px solid #ecfdf5;
+  .passages-live-marker__vessel svg {
+    display: block;
+    width: 100%;
+    height: 100%;
   }
-  .passages-live-marker:not(.passages-live-marker--underway) .passages-live-marker__boat {
-    border-bottom-color: #94a3b8;
-    filter: drop-shadow(0 0 4px rgba(148, 163, 184, 0.45));
+  .passages-live-marker:not(.passages-live-marker--underway) .passages-live-marker__vessel {
+    filter: drop-shadow(0 2px 3px rgba(15, 23, 42, 0.35));
   }
-  .passages-live-marker:not(.passages-live-marker--underway) .passages-live-marker__boat::after {
-    border-bottom-color: #f8fafc;
+  .passages-live-marker:not(.passages-live-marker--underway) .passages-live-marker__vessel .hull {
+    fill: #64748b;
+  }
+  .passages-live-marker:not(.passages-live-marker--underway) .passages-live-marker__vessel .rim {
+    stroke: #e2e8f0;
+  }
+  .passages-live-marker:not(.passages-live-marker--underway) .passages-live-marker__vessel .keel {
+    fill: #334155;
   }
   .passages-live-marker--stale {
-    opacity: 0.55;
+    opacity: 0.62;
   }
   .passages-live-marker__badge {
     position: absolute;
     left: 50%;
-    top: -11px;
+    top: -12px;
     transform: translateX(-50%);
-    padding: 1px 4px;
-    border-radius: 3px;
-    background: ${LIVE_ACCENT_DEEP};
-    color: #ecfdf5;
-    font: 700 8px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    letter-spacing: 0.08em;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: rgba(3, 105, 161, 0.95);
+    color: #f0f9ff;
+    font: 650 8px/1.15 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
     white-space: nowrap;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(125, 211, 252, 0.4);
+    box-shadow: 0 2px 6px rgba(3, 105, 161, 0.3);
   }
   .passages-live-marker:not(.passages-live-marker--underway) .passages-live-marker__badge {
     display: none;
   }
   @keyframes passages-live-pulse {
-    0% { transform: scale(0.5); opacity: 0.5; }
-    70% { transform: scale(1.9); opacity: 0; }
-    100% { transform: scale(1.9); opacity: 0; }
+    0% { transform: scale(0.65); opacity: 0.45; }
+    70% { transform: scale(1.7); opacity: 0; }
+    100% { transform: scale(1.7); opacity: 0; }
   }
 `;
+
+const LIVE_MARKER_VESSEL_HTML = `
+  <span class="passages-live-marker__pulse"></span>
+  <span class="passages-live-marker__vessel">
+    <svg viewBox="0 0 22 28" aria-hidden="true">
+      <path class="hull" d="M11 1.5 L20.5 25.5 L11 21.2 L1.5 25.5 Z" fill="${LIVE_ACCENT}"/>
+      <path class="keel" d="M11 6.2 L15.2 20.6 L11 18.4 L6.8 20.6 Z" fill="${LIVE_TRACK_INK}"/>
+      <path class="rim" d="M11 1.5 L20.5 25.5 L11 21.2 L1.5 25.5 Z" fill="none" stroke="#f0f9ff" stroke-width="1.4" stroke-linejoin="round"/>
+    </svg>
+  </span>
+  <span class="passages-live-marker__badge">Live</span>
+`.trim();
 
 /** Pull coordinates from the live activeTrack, always ending at the pin. */
 function collectLiveTrackCoordinates(
@@ -3758,7 +4145,7 @@ function haversineNmQuick(
 
 /**
  * If the newest historical passage ends short of the live track, prepend
- * its endpoint so the emerald line fills the gap from "yesterday's half"
+ * its endpoint so the live line fills the gap from "yesterday's half"
  * through to the vessel pin.
  */
 function bridgeLiveToHistorical(
@@ -3808,9 +4195,15 @@ function bridgeLiveToHistorical(
   const impliedKn = gapNm / hours;
   if (impliedKn > 35) return liveCoords;
 
-  // Never draw the emerald connector through an island.
-  if (segmentCrossesLand(histEnd[0], histEnd[1], liveStart[0], liveStart[1])) {
-    return liveCoords;
+  // Bend around land when the straight connector would cut inland.
+  const waterBridge = routeWaterPath(
+    histEnd[0],
+    histEnd[1],
+    liveStart[0],
+    liveStart[1],
+  );
+  if (waterBridge.length >= 2) {
+    return [...waterBridge.slice(0, -1), ...liveCoords];
   }
 
   return [histEnd, ...liveCoords];
@@ -3820,7 +4213,7 @@ function bridgeLiveToHistorical(
  * Draw live vessel pins (HTML Markers) + the active underway track
  * (GeoJSON line source). Idempotent — safe to call on every poll.
  *
- * Live tracks always use LIVE_ACCENT (emerald), never the vessel's
+ * Live tracks use SeaJourney sky chrome (LIVE_ACCENT), never the vessel's
  * historical colour, so they stay visually distinct from past passages.
  * When the cached past track ends short of the live pin (stale month
  * cache / overnight sample gap), we bridge from the newest passage
@@ -3854,10 +4247,15 @@ function applyLiveOverlay(
     if (!marker) {
       const el = document.createElement('div');
       el.className = 'passages-live-marker';
-      el.innerHTML =
-        '<span class="passages-live-marker__pulse"></span><span class="passages-live-marker__boat"></span><span class="passages-live-marker__badge">LIVE</span>';
+      el.innerHTML = LIVE_MARKER_VESSEL_HTML;
       marker = new Marker({ element: el, anchor: 'center' });
       markers.set(vessel.vesselId, marker);
+    } else {
+      // Hot-reload may still have circle/chevron markup — swap once.
+      const elExisting = marker.getElement();
+      if (!elExisting.querySelector('.passages-live-marker__vessel')) {
+        elExisting.innerHTML = LIVE_MARKER_VESSEL_HTML;
+      }
     }
 
     const el = marker.getElement();
@@ -3866,12 +4264,13 @@ function applyLiveOverlay(
     const pulse = el.querySelector('.passages-live-marker__pulse');
     pulse?.classList.toggle('passages-live-marker__pulse--stale', live.isStale);
 
-    // Rotate the chevron by AIS heading/course when we have it so the
-    // live icon points the way the vessel is facing.
-    const boat = el.querySelector('.passages-live-marker__boat') as HTMLElement | null;
+    // Rotate the AIS vessel glyph by heading/course when we have it.
+    const vesselEl = el.querySelector(
+      '.passages-live-marker__vessel',
+    ) as HTMLElement | null;
     const bearing = live.heading ?? live.course;
-    if (boat) {
-      boat.style.transform =
+    if (vesselEl) {
+      vesselEl.style.transform =
         typeof bearing === 'number' && Number.isFinite(bearing)
           ? `rotate(${bearing}deg)`
           : 'rotate(0deg)';
@@ -3908,12 +4307,16 @@ function applyLiveOverlay(
       live,
     );
     if (bridged.length >= 2) {
+      const drawn =
+        map.getZoom() >= 9
+          ? densifyLineAgainstBasemap(map, smoothLineCoordinates(bridged))
+          : smoothLineCoordinates(bridged);
       trackFeatures.push({
         type: 'Feature',
         id: 0,
         geometry: {
           type: 'LineString',
-          coordinates: smoothLineCoordinates(bridged),
+          coordinates: drawn,
         },
         properties: {
           kind: 'live-active',
@@ -3937,17 +4340,39 @@ function applyLiveOverlay(
   };
 
   const TRACK_SOURCE = 'live-active-tracks';
-  const TRACK_GLOW = 'live-active-tracks:glow';
+  const TRACK_GLOW = LIVE_TRACK_GLOW_LAYER;
   const TRACK_CASING = LIVE_TRACK_CASING_LAYER;
   const TRACK_LINE = LIVE_TRACK_LINE_LAYER;
+  const TRACK_SHEEN = LIVE_TRACK_SHEEN_LAYER;
 
   const existing = map.getSource(TRACK_SOURCE) as GeoJSONSource | undefined;
   if (existing) {
     existing.setData(trackFc as any);
   } else {
     map.addSource(TRACK_SOURCE, { type: 'geojson', data: trackFc as any });
-    // Bright emerald live stack — deliberately louder than past tracks,
-    // with a soft dark understroke so the dash reads on any ocean tone.
+  }
+
+  // Upgrade older emerald/dashed stacks (or missing sheen) to the
+  // SeaJourney chart recipe without waiting for a full map remount.
+  let needsLiveRecipe = !map.getLayer(TRACK_SHEEN);
+  if (!needsLiveRecipe && map.getLayer(TRACK_LINE)) {
+    try {
+      const dash = map.getPaintProperty(TRACK_LINE, 'line-dasharray');
+      needsLiveRecipe = Array.isArray(dash);
+    } catch {
+      needsLiveRecipe = false;
+    }
+  }
+  if (needsLiveRecipe) {
+    for (const id of [TRACK_SHEEN, TRACK_LINE, TRACK_CASING, TRACK_GLOW]) {
+      if (map.getLayer(id)) map.removeLayer(id);
+    }
+  }
+
+  if (!map.getLayer(TRACK_LINE)) {
+    // Same chart-ink sandwich as past passages: soft glow → deep casing
+    // → solid sky core → thin sheen. Solid (not dashed) so live reads as
+    // SeaJourney product chrome rather than a neon progress polyline.
     map.addLayer({
       id: TRACK_GLOW,
       type: 'line',
@@ -3955,16 +4380,16 @@ function applyLiveOverlay(
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': LIVE_ACCENT,
-        'line-opacity': 0.38,
+        'line-opacity': 0.22,
         'line-width': [
           'interpolate',
           ['linear'],
           ['zoom'],
-          0, 7,
-          8, 16,
-          12, 20,
+          0, 5.5,
+          8, 12,
+          12, 16,
         ],
-        'line-blur': 2.2,
+        'line-blur': 1.6,
       },
     });
     map.addLayer({
@@ -3973,15 +4398,15 @@ function applyLiveOverlay(
       source: TRACK_SOURCE,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#022c22',
-        'line-opacity': 0.78,
+        'line-color': LIVE_TRACK_INK,
+        'line-opacity': 0.72,
         'line-width': [
           'interpolate',
           ['linear'],
           ['zoom'],
-          0, 3.6,
-          8, 7.2,
-          12, 9,
+          0, 3.4,
+          8, 6.6,
+          12, 8.2,
         ],
       },
     });
@@ -3992,18 +4417,33 @@ function applyLiveOverlay(
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': LIVE_ACCENT,
-        'line-opacity': 1,
+        'line-opacity': 0.96,
         'line-width': [
           'interpolate',
           ['linear'],
           ['zoom'],
-          0, 2.1,
-          8, 4.2,
-          12, 5.2,
+          0, 1.9,
+          8, 3.6,
+          12, 4.6,
         ],
-        // Longer dashes + tighter gaps = underway “in progress” without
-        // looking like a dotted polyline.
-        'line-dasharray': [2.6, 1.35],
+      },
+    });
+    map.addLayer({
+      id: TRACK_SHEEN,
+      type: 'line',
+      source: TRACK_SOURCE,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': LIVE_ACCENT_SOFT,
+        'line-opacity': 0.55,
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          0, 0.7,
+          8, 1.35,
+          12, 1.7,
+        ],
       },
     });
   }
@@ -4013,6 +4453,7 @@ function applyLiveOverlay(
     if (map.getLayer(TRACK_GLOW)) map.moveLayer(TRACK_GLOW);
     if (map.getLayer(TRACK_CASING)) map.moveLayer(TRACK_CASING);
     if (map.getLayer(TRACK_LINE)) map.moveLayer(TRACK_LINE);
+    if (map.getLayer(TRACK_SHEEN)) map.moveLayer(TRACK_SHEEN);
   } catch {
     /* ignore — layer order best-effort */
   }
@@ -4680,10 +5121,11 @@ function PassagesLegendOverlay({
         'pointer-events-none absolute left-0 top-0 z-10 flex w-full max-w-[352px] flex-col p-3 sm:p-4',
         collapsed ? 'h-auto' : 'h-full',
       )}
+      data-map-chrome={mapChromeTone(styleId)}
     >
       <div
         className={cn(
-          'pointer-events-auto flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/88 shadow-2xl shadow-black/50 ring-1 ring-white/5 backdrop-blur-xl',
+          'map-chrome-panel pointer-events-auto flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/88 shadow-2xl shadow-black/50 ring-1 ring-white/5 backdrop-blur-xl',
           collapsed ? 'max-h-none' : 'max-h-full',
         )}
       >
@@ -4724,7 +5166,7 @@ function PassagesLegendOverlay({
 
         {!collapsed && (
           <>
-        {/* Compact tools: navigate map + basemap */}
+        {/* Compact tools */}
         <div className="flex items-center gap-1 border-b border-white/10 px-2 py-1.5">
           <Button
             type="button"
@@ -4838,13 +5280,13 @@ function PassagesLegendOverlay({
         )}
 
         {underwayCount > 0 ? (
-          <div className="flex items-center gap-2 border-b border-emerald-400/15 bg-emerald-400/[0.07] px-4 py-2 text-[11px] text-emerald-100/85">
+          <div className="flex items-center gap-2 border-b border-sky-400/15 bg-sky-400/[0.07] px-4 py-2 text-[11px] text-sky-100/85">
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-400" />
             </span>
             <span>
-              <span className="font-semibold text-emerald-100">
+              <span className="font-semibold text-sky-100">
                 {underwayCount} vessel{underwayCount === 1 ? '' : 's'} underway
               </span>
               {' — '}live track on the map
@@ -4956,7 +5398,7 @@ function PassagesLegendOverlay({
                                 className={cn(
                                   'shrink-0 rounded-md px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider',
                                   isUnderway
-                                    ? 'bg-emerald-400/20 text-emerald-200 ring-1 ring-emerald-400/30'
+                                    ? 'bg-sky-400/20 text-sky-100 ring-1 ring-sky-400/35'
                                     : livePos.isStale
                                       ? 'bg-white/5 text-white/40'
                                       : 'bg-slate-400/15 text-slate-200',
@@ -5282,30 +5724,91 @@ function StyleSwitcher({
   current: MapStyleId;
   onChange: (next: MapStyleId) => void;
 }) {
-  const currentStyle = MAP_STYLES[current];
-  const CurrentIcon = currentStyle.icon;
+  const swatch: Record<MapStyleId, { sea: string; land: string }> = {
+    'deep-sea': { sea: '#07111f', land: '#2a3a52' },
+    atlas: { sea: '#152033', land: '#3d4f66' },
+    chart: { sea: '#c5d4e4', land: '#eef2f6' },
+  };
+  const active = MAP_STYLES[current];
+  const ActiveIcon = active.icon;
+  const activeColors = swatch[current];
+
   return (
-    <div className="relative">
-      <label className="sr-only" htmlFor="passages-map-style">
-        Map basemap
-      </label>
-      <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] pl-1.5 pr-1">
-        <CurrentIcon className="h-3.5 w-3.5 text-white/55" />
-        <select
-          id="passages-map-style"
-          value={current}
-          onChange={(e) => onChange(e.target.value as MapStyleId)}
-          className="h-8 max-w-[7.5rem] cursor-pointer appearance-none bg-transparent py-1 pr-5 text-[11px] font-medium text-white/85 outline-none"
-          title="Map basemap style"
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-8 max-w-[9.5rem] items-center gap-1.5 rounded-md border border-white/10 bg-black/25 px-2 text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+          aria-label={`Basemap: ${active.label}`}
+          title={`${active.label} — ${active.hint}`}
         >
-          {(Object.keys(MAP_STYLES) as MapStyleId[]).map((id) => (
-            <option key={id} value={id} className="bg-slate-950 text-white">
-              {MAP_STYLES[id].label}
-            </option>
-          ))}
-        </select>
-      </div>
-    </div>
+          <span
+            aria-hidden
+            className="h-2.5 w-2.5 shrink-0 rounded-sm"
+            style={{
+              background: `linear-gradient(135deg, ${activeColors.sea} 50%, ${activeColors.land} 50%)`,
+              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.15)',
+            }}
+          />
+          <ActiveIcon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+          <span className="truncate text-[11px] font-medium tracking-wide">
+            {active.label}
+          </span>
+          <ChevronDown className="ml-0.5 h-3 w-3 shrink-0 opacity-50" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={6}
+        className="z-[60] w-48 border-white/10 bg-slate-950/95 text-white shadow-xl shadow-black/50 backdrop-blur-xl"
+      >
+        <DropdownMenuLabel className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-white/40">
+          Basemap
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator className="bg-white/10" />
+        {(Object.keys(MAP_STYLES) as MapStyleId[]).map((id) => {
+          const cfg = MAP_STYLES[id];
+          const Icon = cfg.icon;
+          const colors = swatch[id];
+          const isActive = id === current;
+          return (
+            <DropdownMenuItem
+              key={id}
+              onSelect={() => {
+                if (id !== current) onChange(id);
+              }}
+              className={cn(
+                'cursor-pointer gap-2.5 rounded-md px-2 py-2 text-white/70 focus:bg-white/10 focus:text-white',
+                isActive && 'bg-white/[0.08] text-white',
+              )}
+            >
+              <span
+                aria-hidden
+                className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                style={{
+                  background: `linear-gradient(135deg, ${colors.sea} 50%, ${colors.land} 50%)`,
+                  boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.15)',
+                }}
+              />
+              <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12px] font-medium leading-tight">
+                  {cfg.label}
+                </span>
+                <span className="block text-[10px] leading-tight text-white/40">
+                  {cfg.hint}
+                </span>
+              </span>
+              {isActive ? (
+                <Check className="h-3.5 w-3.5 shrink-0 text-sky-300" />
+              ) : (
+                <span className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

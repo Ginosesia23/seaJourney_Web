@@ -68,7 +68,8 @@ import {
 } from '@/lib/ais/historical-import';
 import type { DailyStatus, UserProfile, Vessel } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { hasAisHistoryImportTier } from '@/lib/vessel-ais-access';
+import { hasAisHistoryImportTier } from '@/supabase/database/subscription-helpers';
+import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments } from '@/supabase/database/queries';
@@ -141,6 +142,7 @@ export default function AISImportPage() {
     'users',
     user?.id,
   );
+  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
 
   const userProfile = userProfileRaw
     ? ({
@@ -153,7 +155,7 @@ export default function AISImportPage() {
     : null;
 
   const isVesselManager = userProfile?.role === 'vessel';
-  const eligible = hasAisHistoryImportTier(userProfileRaw);
+  const eligible = hasAisHistoryImportTier(userProfileRaw, vesselBoost);
   const activeVesselId = userProfile?.activeVesselId;
 
   const [selectedVesselId, setSelectedVesselId] = useState<string>('');

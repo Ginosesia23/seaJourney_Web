@@ -7,6 +7,7 @@ import {
   Loader2, 
   Plus,
   Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -17,8 +18,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
-import { getVesselAssignments, createVesselAssignment, updateVesselAssignment, updateUserProfile, deleteVesselStateLogs, getVesselStateLogs } from '@/supabase/database/queries';
-import type { Vessel, VesselAssignment, UserProfile } from '@/lib/types';
+import { getVesselAssignments, createVesselAssignment, updateVesselAssignment, updateUserProfile, deleteVesselStateLogs, deleteStateLogsOutsideAssignmentRange, getVesselStateLogs } from '@/supabase/database/queries';
+import type { Vessel, VesselAssignment, UserProfile, StateLog } from '@/lib/types';
 import { UnifiedVesselSearchPicker } from '@/components/dashboard/unified-vessel-search-picker';
 import { VesselHistoryCard } from '@/components/dashboard/vessel-history-card';
 import { useToast } from '@/hooks/use-toast';
@@ -38,6 +39,12 @@ export default function VesselHistoryPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isResuming, setIsResuming] = useState<string | null>(null); // Track which assignment is being resumed
+  const [rangeTrimConfirm, setRangeTrimConfirm] = useState<{
+    startDateStr: string;
+    endDateStr: string;
+    position: string;
+    outOfRangeLogs: StateLog[];
+  } | null>(null);
   
   // Form state for adding new assignment
   const [newAssignmentVesselId, setNewAssignmentVesselId] = useState<string>('');
@@ -210,6 +217,19 @@ export default function VesselHistoryPage() {
       return null;
     }
     return null;
+  };
+
+  const logsOutsideAssignmentRange = (
+    logs: StateLog[],
+    startDateStr: string,
+    endDateStr: string | null,
+  ): StateLog[] => {
+    return logs.filter((log) => {
+      if (!log.date) return false;
+      if (log.date < startDateStr) return true;
+      if (endDateStr && log.date > endDateStr) return true;
+      return false;
+    });
   };
 
   // Handle opening add dialog
@@ -632,21 +652,78 @@ export default function VesselHistoryPage() {
         return;
       }
 
-      // Update assignment
+      const logs = await getVesselStateLogs(
+        supabase,
+        editingAssignment.vesselId,
+        user.id,
+      );
+      const outOfRangeLogs = logsOutsideAssignmentRange(
+        logs,
+        startDateStr,
+        endDateStr,
+      );
+
+      if (outOfRangeLogs.length > 0) {
+        setRangeTrimConfirm({
+          startDateStr,
+          endDateStr: endDateStr || '',
+          position: editPosition || '',
+          outOfRangeLogs,
+        });
+        setIsEditDialogOpen(false);
+        setIsSaving(false);
+        return;
+      }
+
+      await applyEditedAssignment(startDateStr, endDateStr, []);
+    } catch (error: any) {
+      console.error('[VESSEL HISTORY] Error updating assignment:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update assignment. Please try again.',
+        variant: 'destructive',
+      });
+      setIsSaving(false);
+    }
+  };
+
+  const applyEditedAssignment = async (
+    startDateStr: string,
+    endDateStr: string | null,
+    datesToDelete: string[],
+  ) => {
+    if (!user?.id || !editingAssignment) return;
+
+    setIsSaving(true);
+    try {
+      if (datesToDelete.length > 0) {
+        await deleteStateLogsOutsideAssignmentRange(
+          supabase,
+          user.id,
+          editingAssignment.vesselId,
+          startDateStr,
+          endDateStr,
+        );
+      }
+
       await updateVesselAssignment(supabase, editingAssignment.id, {
         startDate: startDateStr,
         endDate: endDateStr || null,
         position: editPosition || null,
       });
 
+      const deletedCount = datesToDelete.length;
       toast({
         title: 'Assignment Updated',
-        description: 'Vessel assignment has been successfully updated.',
+        description:
+          deletedCount > 0
+            ? `End date saved. ${deletedCount} daily state ${deletedCount === 1 ? 'entry' : 'entries'} outside this range ${deletedCount === 1 ? 'was' : 'were'} removed.`
+            : 'Vessel assignment has been successfully updated.',
       });
 
-      // Refresh assignments
       const assignmentsData = await getVesselAssignments(supabase, user.id);
       setAssignments(assignmentsData);
+      setRangeTrimConfirm(null);
       handleCloseEditDialog();
     } catch (error: any) {
       console.error('[VESSEL HISTORY] Error updating assignment:', error);
@@ -1189,6 +1266,117 @@ export default function VesselHistoryPage() {
                     </>
                   ) : (
                     'Update Assignment'
+                  )}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm clearing daily state outside the new assignment range */}
+      <Dialog
+        open={!!rangeTrimConfirm}
+        onOpenChange={(open) => {
+          if (!open && !isSaving) {
+            setRangeTrimConfirm(null);
+            setIsEditDialogOpen(true);
+          }
+        }}
+      >
+        <DialogContent className="rounded-xl">
+          <DialogHeader>
+            <DialogTitle>Confirm new end date</DialogTitle>
+            <DialogDescription>
+              Daily state outside this assignment range will be permanently deleted.
+            </DialogDescription>
+          </DialogHeader>
+          {rangeTrimConfirm && editingAssignment && (
+            <>
+              <div className="space-y-3 py-1">
+                <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+                  <div className="font-medium text-foreground mb-2">New assignment range</div>
+                  <div className="text-muted-foreground">
+                    <span className="font-medium text-foreground">Vessel:</span>{' '}
+                    {vesselMap.get(editingAssignment.vesselId)?.name || 'Unknown vessel'}
+                  </div>
+                  <div className="text-muted-foreground">
+                    <span className="font-medium text-foreground">Dates:</span>{' '}
+                    {format(parse(rangeTrimConfirm.startDateStr, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
+                    {' – '}
+                    {rangeTrimConfirm.endDateStr
+                      ? format(parse(rangeTrimConfirm.endDateStr, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')
+                      : 'Present'}
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-50 p-3 text-sm dark:bg-amber-950/30">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <div className="text-amber-950 dark:text-amber-100">
+                    <p className="font-medium">
+                      {rangeTrimConfirm.outOfRangeLogs.length} daily state{' '}
+                      {rangeTrimConfirm.outOfRangeLogs.length === 1 ? 'entry' : 'entries'} fall
+                      outside this range and will be deleted.
+                    </p>
+                    <p className="mt-1 text-amber-800 dark:text-amber-200/90">
+                      That includes any state logged after the new end date
+                      {rangeTrimConfirm.outOfRangeLogs.some(
+                        (log) => log.date < rangeTrimConfirm.startDateStr,
+                      )
+                        ? ', and any state before the new start date'
+                        : ''}
+                      . This cannot be undone.
+                    </p>
+                    {(() => {
+                      const dates = rangeTrimConfirm.outOfRangeLogs
+                        .map((log) => log.date)
+                        .sort();
+                      const first = dates[0];
+                      const last = dates[dates.length - 1];
+                      if (!first || !last) return null;
+                      return (
+                        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300/80">
+                          Affected dates:{' '}
+                          {format(parse(first, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}
+                          {first !== last
+                            ? ` – ${format(parse(last, 'yyyy-MM-dd', new Date()), 'MMM d, yyyy')}`
+                            : ''}
+                        </p>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRangeTrimConfirm(null);
+                    setIsEditDialogOpen(true);
+                  }}
+                  disabled={isSaving}
+                  className="rounded-xl"
+                >
+                  Go back
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="rounded-xl"
+                  disabled={isSaving}
+                  onClick={() =>
+                    applyEditedAssignment(
+                      rangeTrimConfirm.startDateStr,
+                      rangeTrimConfirm.endDateStr || null,
+                      rangeTrimConfirm.outOfRangeLogs.map((log) => log.date),
+                    )
+                  }
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Updating...
+                    </>
+                  ) : (
+                    'Confirm end date and delete state'
                   )}
                 </Button>
               </DialogFooter>

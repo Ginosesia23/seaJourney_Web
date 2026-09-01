@@ -271,9 +271,17 @@ export default function AdminUserDetailPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2 self-start sm:self-center">
-            {(target.role === 'crew' || target.role === 'captain') && (
+            {(target.role === 'crew' ||
+              target.role === 'captain' ||
+              target.role === 'vessel') && (
               <Button asChild variant="outline" size="sm">
-                <Link href="/dashboard/crew-subscriptions">
+                <Link
+                  href={
+                    target.role === 'vessel'
+                      ? '/dashboard/vessel-subscriptions'
+                      : '/dashboard/crew-subscriptions'
+                  }
+                >
                   Manage subscription
                 </Link>
               </Button>

@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-helpers';
+import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { AisDebugGate } from '@/components/dashboard/ais-debug-gate';
 
 type PreviewSample = {
@@ -96,7 +97,8 @@ type CrewAisDebugPanelProps = {
  * a sample or update the calendar.
  */
 export function CrewAisDebugPanel({ accessToken, profileRaw }: CrewAisDebugPanelProps) {
-  const eligible = hasCrewAisLiveTrackingTier(profileRaw);
+  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
+  const eligible = hasCrewAisLiveTrackingTier(profileRaw, vesselBoost);
   if (!eligible) return null;
 
   return (

@@ -58,6 +58,10 @@ const THEME_COLORS: Record<
     ocean: string;
     /** Fill colour applied to continuous landmass. */
     landFill: string;
+    /** Soft understroke behind the coastline for depth. */
+    coastlineHalo: string;
+    coastlineHaloWidth: number;
+    coastlineHaloOpacity: number;
     /** Thin outline drawn around each continent — the "coastline". */
     coastline: string;
     coastlineWidth: number;
@@ -68,40 +72,154 @@ const THEME_COLORS: Record<
     borderOpacity: number;
   }
 > = {
-  // Premium dark — deeper ocean, lifted land, crisp coastlines.
+  // Deep Sea — inked navy ocean, lifted slate land, silver coast.
   dark: {
-    ocean: '#070e1a',
-    landFill: '#27344f',
-    coastline: '#7a91b4',
-    coastlineWidth: 0.85,
-    coastlineOpacity: 1,
-    border: '#455772',
-    borderWidth: 0.5,
-    borderOpacity: 0.62,
-  },
-  // Muted mid-tone — antique chart on parchment.
-  muted: {
-    ocean: '#172333',
-    landFill: '#3a4d68',
-    coastline: '#8aa0c0',
-    coastlineWidth: 0.85,
-    coastlineOpacity: 1,
-    border: '#5a6e8a',
-    borderWidth: 0.5,
-    borderOpacity: 0.6,
-  },
-  // Minimal light — paper ocean, clearer grey continents.
-  light: {
-    ocean: '#e4ebf4',
-    landFill: '#c5d0e0',
-    coastline: '#536480',
-    coastlineWidth: 0.75,
-    coastlineOpacity: 0.95,
-    border: '#8fa0b6',
+    ocean: '#040b16',
+    landFill: '#1c2b42',
+    coastlineHalo: '#0a1628',
+    coastlineHaloWidth: 2.4,
+    coastlineHaloOpacity: 0.55,
+    coastline: '#9bb0cf',
+    coastlineWidth: 0.9,
+    coastlineOpacity: 0.92,
+    border: '#3a4f6d',
     borderWidth: 0.45,
-    borderOpacity: 0.65,
+    borderOpacity: 0.48,
+  },
+  // Atlas — dusk chart, cooler mid-tones without going muddy.
+  muted: {
+    ocean: '#121f30',
+    landFill: '#334860',
+    coastlineHalo: '#1a2a3e',
+    coastlineHaloWidth: 2.2,
+    coastlineHaloOpacity: 0.5,
+    coastline: '#a7bdd8',
+    coastlineWidth: 0.88,
+    coastlineOpacity: 0.95,
+    border: '#4d6482',
+    borderWidth: 0.45,
+    borderOpacity: 0.5,
+  },
+  // Chart — cool paper ocean, porcelain land, ink coast.
+  light: {
+    ocean: '#d5e4f2',
+    landFill: '#b4c6da',
+    coastlineHalo: '#9eb4cc',
+    coastlineHaloWidth: 2.0,
+    coastlineHaloOpacity: 0.45,
+    coastline: '#3d5570',
+    coastlineWidth: 0.8,
+    coastlineOpacity: 0.9,
+    border: '#7f95ad',
+    borderWidth: 0.42,
+    borderOpacity: 0.55,
   },
 };
+
+/**
+ * Remote OpenFreeMap styles treat `background` as land and `water` as
+ * the ocean fill. These paints retint them into SeaJourney chrome so
+ * Deep Sea isn't flat greyscale and Chart/Atlas feel more curated.
+ */
+const REMOTE_PREMIUM_PAINT: Record<
+  OfflineTheme,
+  {
+    land: string;
+    ocean: string;
+    wood: string;
+    park: string;
+    building: string;
+    residential: string;
+    ice: string;
+    roadMinor: string;
+    roadMajor: string;
+    roadCasing: string;
+  }
+> = {
+  dark: {
+    land: '#162338',
+    ocean: '#050d18',
+    wood: '#1a2e24',
+    park: '#1b2c38',
+    building: '#0f1a2a',
+    residential: '#142033',
+    ice: '#1a2838',
+    roadMinor: '#24344c',
+    roadMajor: '#2c3f5a',
+    roadCasing: 'rgba(70, 95, 130, 0.45)',
+  },
+  muted: {
+    land: '#3a5068',
+    ocean: '#1a283a',
+    wood: '#355045',
+    park: '#3a5560',
+    building: '#2a3c50',
+    residential: '#33485e',
+    ice: '#4a6078',
+    roadMinor: '#4a6280',
+    roadMajor: '#556d8a',
+    roadCasing: 'rgba(90, 115, 145, 0.5)',
+  },
+  light: {
+    land: '#e8eef5',
+    ocean: '#c5d6e8',
+    wood: '#d4e0d6',
+    park: '#d8e4ec',
+    building: '#dce4ee',
+    residential: '#e2e9f1',
+    ice: '#f2f6fa',
+    roadMinor: '#d0dae6',
+    roadMajor: '#ffffff',
+    roadCasing: 'rgb(190, 205, 220)',
+  },
+};
+
+/**
+ * Retint remote OpenMapTiles land/water/road paints into the SeaJourney
+ * premium palette. Safe no-op on offline styles (those layer ids absent).
+ */
+export function applyPremiumBasemapPaint(
+  map: {
+    getLayer: (id: string) => unknown;
+    setPaintProperty: (...args: any[]) => void;
+  },
+  theme: OfflineTheme,
+): void {
+  const p = REMOTE_PREMIUM_PAINT[theme];
+  const set = (id: string, prop: string, value: unknown) => {
+    if (!map.getLayer(id)) return;
+    try {
+      map.setPaintProperty(id, prop, value);
+    } catch {
+      /* layer may not support the paint key */
+    }
+  };
+
+  // OpenFreeMap: background = land plane, water = ocean polygons.
+  set('background', 'background-color', p.land);
+  set('water', 'fill-color', p.ocean);
+  set('waterway', 'line-color', p.ocean);
+  set('landcover_wood', 'fill-color', p.wood);
+  set('landcover_wood', 'fill-opacity', theme === 'light' ? 0.55 : 0.7);
+  set('landuse_park', 'fill-color', p.park);
+  set('landuse_park', 'fill-opacity', theme === 'light' ? 0.45 : 0.55);
+  set('landuse_residential', 'fill-color', p.residential);
+  set('landuse_residential', 'fill-opacity', 0.35);
+  set('landcover_ice_shelf', 'fill-color', p.ice);
+  set('landcover_glacier', 'fill-color', p.ice);
+  set('building', 'fill-color', p.building);
+  set('building', 'fill-outline-color', p.ocean);
+  set('road_area_pier', 'fill-color', p.land);
+  set('road_pier', 'line-color', p.land);
+
+  set('highway_path', 'line-color', p.roadMinor);
+  set('highway_minor', 'line-color', p.roadMinor);
+  set('highway_major_subtle', 'line-color', p.roadMinor);
+  set('highway_major_casing', 'line-color', p.roadCasing);
+  set('highway_major_inner', 'line-color', p.roadMajor);
+  set('highway_motorway_casing', 'line-color', p.roadCasing);
+  set('highway_motorway_subtle', 'line-color', p.roadMinor);
+}
 
 /**
  * Build a MapLibre style from bundled country polygons.
@@ -400,9 +518,10 @@ export async function loadHighDetailWorldGeo(): Promise<{
  * match the current basemap tone.
  *
  * Order (bottom → top):
- *   1. `land-fill`      — solid fill of every continent and island
- *   2. `country-borders`— thin subtle line between countries (mesh)
- *   3. `land-coastline` — coastline mesh around every landmass
+ *   1. `land-fill`           — solid fill of every continent and island
+ *   2. `country-borders`     — thin subtle line between countries (mesh)
+ *   3. `land-coastline-halo` — soft depth understroke
+ *   4. `land-coastline`      — crisp silver coastline
  *
  * The caller MUST have first added THREE sources named exactly
  * `offline-land`, `offline-borders`, and `offline-coastline`.
@@ -441,18 +560,47 @@ export function getOfflineCountryLayers(opts: {
           ['linear'],
           ['zoom'],
           1.2, 0,
-          2.0, colors.borderOpacity * 0.5,
+          2.0, colors.borderOpacity * 0.45,
           3.5, colors.borderOpacity,
-          8, colors.borderOpacity * 0.95,
+          8, colors.borderOpacity * 0.85,
         ],
         'line-width': [
           'interpolate',
           ['linear'],
           ['zoom'],
-          2, colors.borderWidth * 0.6,
+          2, colors.borderWidth * 0.55,
           4, colors.borderWidth,
-          7, colors.borderWidth * 1.55,
-          11, colors.borderWidth * 2.2,
+          7, colors.borderWidth * 1.4,
+          11, colors.borderWidth * 1.9,
+        ],
+      },
+    },
+    {
+      id: 'land-coastline-halo',
+      type: 'line',
+      source: 'offline-coastline',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': colors.coastlineHalo,
+        // Hide at world zoom — wide blurred halos read as banding /
+        // tile seams when the full globe is in view.
+        'line-opacity': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          1.5, 0,
+          2.8, colors.coastlineHaloOpacity * 0.55,
+          4, colors.coastlineHaloOpacity,
+        ],
+        'line-blur': 1.1,
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          0, colors.coastlineHaloWidth * 0.6,
+          3, colors.coastlineHaloWidth,
+          7, colors.coastlineHaloWidth * 1.55,
+          11, colors.coastlineHaloWidth * 2.1,
         ],
       },
     },
@@ -463,17 +611,23 @@ export function getOfflineCountryLayers(opts: {
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': colors.coastline,
-        'line-opacity': colors.coastlineOpacity,
+        'line-opacity': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          0.8, colors.coastlineOpacity * 0.55,
+          2, colors.coastlineOpacity,
+        ],
         'line-width': [
           'interpolate',
           ['linear'],
           ['zoom'],
-          0, colors.coastlineWidth * 0.7,
-          2, colors.coastlineWidth,
-          4, colors.coastlineWidth * 1.25,
-          7, colors.coastlineWidth * 1.85,
-          10, colors.coastlineWidth * 2.6,
-          13, colors.coastlineWidth * 3.2,
+          0, colors.coastlineWidth * 0.45,
+          2, colors.coastlineWidth * 0.75,
+          4, colors.coastlineWidth * 1.15,
+          7, colors.coastlineWidth * 1.7,
+          10, colors.coastlineWidth * 2.35,
+          13, colors.coastlineWidth * 3.0,
         ],
       },
     },

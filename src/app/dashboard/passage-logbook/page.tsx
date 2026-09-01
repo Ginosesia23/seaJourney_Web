@@ -42,8 +42,9 @@ import {
 } from '@/supabase/database/queries';
 import type { Vessel, UserProfile, PassageLog, StateLog, VesselAssignment } from '@/lib/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { hasActiveSubscription, hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import { hasActiveSubscription, hasCrewPremiumPlusFeatures, hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
 import { isVesselLinkedFeatureGranted, vesselLinkedOwnedVesselId } from '@/lib/vessel-linked-features';
+import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import {
   findLinkedOrOverlappingPassage,
   isAisSourcedPassage,
@@ -385,6 +386,7 @@ export default function PassageLogbookPage() {
 
   // Fetch user profile to check subscription tier
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
+  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
   
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
@@ -600,7 +602,6 @@ export default function PassageLogbookPage() {
     if (!userProfile || !userProfileRaw) return false;
     const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toLowerCase();
     const role = (userProfile as any).role || userProfile.role || 'crew';
-    const entitled = hasActiveSubscription(userProfileRaw);
 
     if (role === 'admin') return true;
 
@@ -611,25 +612,26 @@ export default function PassageLogbookPage() {
           tier === 'vessel_basic' ||
           tier === 'vessel_pro' ||
           tier === 'vessel_fleet') &&
-        entitled
+        hasActiveSubscription(userProfileRaw)
       );
     }
 
-    if (tier === 'crew_limited' && entitled) return false;
-    if (isVesselLinkedFeatureGranted(userProfileRaw, 'passage_logbook')) return entitled;
+    if (isVesselLinkedFeatureGranted(userProfileRaw, 'passage_logbook')) {
+      return hasActiveSubscription(userProfileRaw);
+    }
     if (tier === 'vessel_linked') return false;
 
-    return PASSAGE_LOG_CREW_TIERS.has(tier) && entitled;
-  }, [userProfile, userProfileRaw]);
+    return hasCrewPremiumPlusFeatures(userProfileRaw, vesselBoost);
+  }, [userProfile, userProfileRaw, vesselBoost]);
 
   const canMatchAis = useMemo(
     () =>
       Boolean(
         userProfileRaw &&
-          hasPassagesMapAccess(userProfileRaw) &&
+          hasPassagesMapAccess(userProfileRaw, vesselBoost) &&
           isFeatureEnabled('passages_map'),
       ),
-    [userProfileRaw, isFeatureEnabled],
+    [userProfileRaw, vesselBoost, isFeatureEnabled],
   );
 
   const refreshMapMissingCount = useCallback(async () => {

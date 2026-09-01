@@ -23,8 +23,9 @@ import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, VisaTracker, VisaEntry } from '@/lib/types';
-import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { hasActiveSubscription, hasCrewPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
 import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
+import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -104,6 +105,7 @@ export default function VisaTrackerPage() {
 
   // Fetch user profile
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
+  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
   
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
@@ -133,9 +135,12 @@ export default function VisaTrackerPage() {
 
     if (isVesselLinkedFeatureGranted(userProfileRaw, 'visa_tracker')) return entitled;
 
-    // Crew accounts: premium or pro only
-    return (tier === 'premium' || tier === 'pro') && entitled;
-  }, [userProfile, userProfileRaw]);
+    if (role === 'crew' || role === 'captain') {
+      return hasCrewPremiumPlusFeatures(userProfileRaw, vesselBoost);
+    }
+
+    return false;
+  }, [userProfile, userProfileRaw, vesselBoost]);
 
   // Redirect non-premium users to dashboard
   useEffect(() => {

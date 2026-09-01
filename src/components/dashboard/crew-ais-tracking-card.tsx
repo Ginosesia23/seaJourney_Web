@@ -12,6 +12,7 @@ import { toast } from '@/hooks/use-toast';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
 import { AisWrongStateReportButton } from '@/components/dashboard/ais-wrong-state-report-button';
 import { hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-helpers';
+import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import type { DailyStatus } from '@/lib/types';
 
 /** Auto-sync at most once per hour while this page is open. */
@@ -73,7 +74,8 @@ export function CrewAisTrackingCard({
   todayState,
   onStateUpdated,
 }: Props) {
-  const eligible = hasCrewAisLiveTrackingTier(profileRaw);
+  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
+  const eligible = hasCrewAisLiveTrackingTier(profileRaw, vesselBoost);
   const [status, setStatus] = useState<CrewAisStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);

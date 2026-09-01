@@ -13,7 +13,6 @@
  */
 
 import { haversineNm } from '@/lib/ais/analyze-daily-state';
-import { segmentCrossesLand } from '@/lib/passages-map/segment-crosses-land';
 import type {
   PassageFeature,
   PassageFeatureCollection,
@@ -113,10 +112,8 @@ export function extendPassagesWithSamples(
       // Real stop (or teleport) — stop extending this passage.
       break;
     }
-    if (segmentCrossesLand(lastLon, lastLat, s.lon, s.lat)) {
-      // Don't paint a shortcut over an island to reach the next sample.
-      break;
-    }
+    // Land-cutting hops are fine here — assembleVesselResponse runs
+    // rerouteFeaturesAroundLand before the map sees the line.
 
     coords.push([s.lon, s.lat]);
     addedNm += segNm;

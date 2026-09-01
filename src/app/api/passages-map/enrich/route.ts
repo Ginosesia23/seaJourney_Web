@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
 import { isFeatureEnabledServer } from '@/lib/feature-flags/server';
 import { updatePassageLog } from '@/supabase/database/queries';
 import { resolvePassageEndpointNames } from '@/lib/passages-map/resolve-endpoint-name';
@@ -244,7 +245,8 @@ async function requireMapUser(req: NextRequest): Promise<
   if (profileErr || !profile) {
     return { error: NextResponse.json({ error: 'Profile not found' }, { status: 404 }) };
   }
-  if (!hasPassagesMapAccess(profile)) {
+  const vesselBoost = await getCrewVesselFeatureBoost(user.id);
+  if (!hasPassagesMapAccess(profile, vesselBoost)) {
     return {
       error: NextResponse.json(
         { error: 'Passages map is not included on your plan' },

@@ -11,6 +11,10 @@ import {
   mapStripeSubscriptionStatusToDb,
   normalizeTier,
 } from "@/lib/stripe-subscription-helpers";
+import {
+  reconcileCrewPersonalPlansForManager,
+  shouldSkipStripeTierSyncWhilePaused,
+} from "@/lib/crew-personal-plan-on-vessel";
 
 export const runtime = "nodejs";
 
@@ -195,7 +199,7 @@ async function sendSubscriptionEmail(args: {
  */
 async function syncUserFromSubscription(
   sub: StripeType.Subscription,
-): Promise<{ before: any; after: any; userId: string | null } | null> {
+): Promise<{ before: any; after: any; userId: string | null; skippedDueToVesselPause?: boolean } | null> {
   const customerId = sub.customer as string;
 
   // Resolve user id (metadata preferred, fallback to DB lookup by customerId)
@@ -236,12 +240,20 @@ async function syncUserFromSubscription(
   const { data: before, error: beforeErr } = await supabaseAdmin
     .from("users")
     .select(
-      "id, email, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, cancel_at_period_end, current_period_end, updated_at",
+      "id, email, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, cancel_at_period_end, current_period_end, updated_at, personal_plan_paused_at, personal_plan_paused_subscription_id",
     )
     .eq("id", userId)
     .maybeSingle();
 
   console.log("[SYNC] before:", { before, beforeErr });
+
+  if (shouldSkipStripeTierSyncWhilePaused(before, sub.id)) {
+    console.log(
+      "[SYNC] Skipping Stripe tier write — personal plan is paused for a vessel assignment",
+      { userId, subscriptionId: sub.id },
+    );
+    return { before, after: before, userId, skippedDueToVesselPause: true };
+  }
 
   /**
    * Stale events: Stripe can deliver `customer.subscription.updated` / `deleted` for an *old*
@@ -405,6 +417,19 @@ export async function POST(req: NextRequest) {
           break;
         }
 
+        const { data: existingCheckoutUser } = await supabaseAdmin
+          .from("users")
+          .select("personal_plan_paused_at")
+          .eq("id", userId)
+          .maybeSingle();
+        if (existingCheckoutUser?.personal_plan_paused_at) {
+          console.log(
+            "[STRIPE WEBHOOK] checkout.session.completed skipped — personal plan paused for vessel",
+            { userId, subscriptionId },
+          );
+          break;
+        }
+
         const { data: updated, error } = await supabaseAdmin
           .from("users")
           .update({
@@ -503,6 +528,20 @@ export async function POST(req: NextRequest) {
         });
 
         const syncResult = await syncUserFromSubscription(full as StripeType.Subscription);
+
+        if (full.status === "active" || full.status === "trialing" || full.status === "past_due") {
+          const managerId = syncResult?.userId || userId;
+          if (managerId) {
+            void reconcileCrewPersonalPlansForManager(managerId).catch((err) =>
+              console.error("[STRIPE WEBHOOK] Crew plan reconcile after vessel sub update failed", err),
+            );
+          }
+        }
+
+        if (syncResult?.skippedDueToVesselPause) {
+          console.log("[STRIPE WEBHOOK] Skipping billing emails — personal plan paused for vessel");
+          break;
+        }
 
         // Use syncResult data if available, otherwise use what we fetched
         const beforeStatus = syncResult?.before?.subscription_status;
@@ -699,6 +738,33 @@ export async function POST(req: NextRequest) {
           } else {
             console.warn("[STRIPE WEBHOOK] No user found for customer ID:", customerId);
           }
+        }
+
+        const { data: pausedRow } = userId
+          ? await supabaseAdmin
+              .from("users")
+              .select(
+                "personal_plan_paused_at, personal_plan_paused_subscription_id",
+              )
+              .eq("id", userId)
+              .maybeSingle()
+          : { data: null };
+
+        if (
+          pausedRow?.personal_plan_paused_at &&
+          pausedRow.personal_plan_paused_subscription_id === partial.id
+        ) {
+          await supabaseAdmin
+            .from("users")
+            .update({
+              personal_plan_paused_subscription_id: null,
+            })
+            .eq("id", userId);
+          console.log(
+            "[STRIPE WEBHOOK] Paused personal subscription deleted in Stripe; keeping crew_limited until assignment ends",
+            { userId, subscriptionId: partial.id },
+          );
+          break;
         }
 
         // Try to retrieve subscription (might fail if already deleted)

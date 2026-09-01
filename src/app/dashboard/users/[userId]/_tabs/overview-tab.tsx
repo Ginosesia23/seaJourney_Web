@@ -20,6 +20,7 @@ import { useSupabase } from '@/supabase';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { AuthStatusCard } from './auth-status-card';
+import { AdminAccountTypeCard } from '@/components/admin/admin-account-type-card';
 
 type Props = {
   target: Record<string, any>;
@@ -184,6 +185,19 @@ export function OverviewTab({
           isSelf={isSelf}
         />
       </div>
+
+      <AdminAccountTypeCard
+        target={{
+          id: target.id,
+          role: target.role,
+          subscription_tier: target.subscription_tier,
+          subscription_status: target.subscription_status,
+          stripe_subscription_id: target.stripe_subscription_id,
+          active_vessel_id: target.active_vessel_id,
+        }}
+        isSelf={isSelf}
+        onUpdated={onTargetPatch}
+      />
 
       {/* Analytics exclusion */}
       <Card className="rounded-2xl border-dashed lg:col-span-3">

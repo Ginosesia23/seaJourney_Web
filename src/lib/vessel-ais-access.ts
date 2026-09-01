@@ -7,6 +7,7 @@ import {
   hasAisHistoryImportTier,
   VESSEL_PREMIUM_PLUS_TIERS,
 } from '@/supabase/database/subscription-helpers';
+import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
 
 export { hasAisHistoryImportTier };
 
@@ -81,7 +82,9 @@ export async function authenticateAisHistoryUser(
   const authResult = await authenticateBearerUser(request, supabaseAdmin);
   if ('error' in authResult) return authResult;
 
-  if (!hasAisHistoryImportTier(authResult.auth.profile)) {
+  const vesselBoost = await getCrewVesselFeatureBoost(authResult.auth.userId);
+
+  if (!hasAisHistoryImportTier(authResult.auth.profile, vesselBoost)) {
     return {
       error: NextResponse.json(
         {

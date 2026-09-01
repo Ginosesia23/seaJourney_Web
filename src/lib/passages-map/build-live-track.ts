@@ -13,7 +13,7 @@
  * (a single live fix is enough for the marker; a track needs ≥ 2).
  */
 
-import { segmentCrossesLand } from '@/lib/passages-map/segment-crosses-land';
+import { densifyLineAwayFromLand } from '@/lib/passages-map/route-around-land';
 import { smoothLineCoordinates } from '@/lib/passages-map/smooth-track';
 import { haversineNm } from '@/lib/ais/analyze-daily-state';
 
@@ -89,8 +89,8 @@ export function buildActiveLiveTrack(
 
     if (dtMs > MAX_BRIDGE_GAP_MS) break;
 
-    // Never walk the live track backwards across an island.
-    if (segmentCrossesLand(prev.lon, prev.lat, curr.lon, curr.lat)) break;
+    // Land-cutting hops stay in the live track — densifyLineAwayFromLand
+    // bends them around the coast before draw.
 
     if (dtMs > 4 * 60 * 60 * 1000) {
       const kn = dtMs > 0 ? segNm / (dtMs / 3_600_000) : null;
@@ -129,7 +129,8 @@ export function buildActiveLiveTrack(
   }
   if (coordinates.length < 2) return null;
 
-  const drawn = smoothLineCoordinates(coordinates);
+  const routed = densifyLineAwayFromLand(coordinates);
+  const drawn = smoothLineCoordinates(routed);
 
   const first = slice[0]!;
   const last = slice[slice.length - 1]!;

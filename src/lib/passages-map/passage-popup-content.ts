@@ -258,10 +258,10 @@ export const PASSAGE_POPUP_STYLE = `
     color: rgba(255, 255, 255, 0.5);
   }
   .passages-popup-eyebrow--live {
-    color: rgba(52, 211, 153, 0.9);
+    color: rgba(125, 211, 252, 0.95);
   }
   .passages-popup-body--live {
-    border-color: rgba(52, 211, 153, 0.22);
+    border-color: rgba(14, 165, 233, 0.28);
   }
   .passages-popup-grid--live {
     grid-template-columns: 1fr;
@@ -436,7 +436,7 @@ function formatDuration(ms?: number): string {
 
 export type LiveTrackPopupProps = {
   vesselName: string;
-  /** Accent for the LIVE badge / swatch — typically emerald. */
+  /** Accent for the LIVE badge / swatch — SeaJourney sky. */
   colorHex: string;
   lat?: number;
   lon?: number;

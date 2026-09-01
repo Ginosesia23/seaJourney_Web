@@ -4,8 +4,10 @@ import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { hasPaidDashboardAccess as checkDashboardAccess, isCrewLimitedAccount, isVesselLinkedAccount } from '@/supabase/database/subscription-helpers';
-import { isCrewLimitedHrefAllowed, isVesselLinkedHrefAllowed } from '@/lib/vessel-linked-features';
+import { hasPaidDashboardAccess as checkDashboardAccess, isVesselLinkedAccount } from '@/supabase/database/subscription-helpers';
+import { isVesselLinkedHrefAllowed } from '@/lib/vessel-linked-features';
+import { isCrewDashboardHrefAllowed } from '@/lib/crew-vessel-feature-boost';
+import { CrewVesselFeatureBoostProvider, useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { Loader2 } from 'lucide-react';
 import { AppSidebar } from '@/components/app-sidebar';
@@ -37,6 +39,8 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     data: userProfile,
     isLoading: isProfileLoading,
   } = useDoc<UserProfile>('users', user?.id);
+
+  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
 
 
   // Paid (or vessel-managed) entitlement — free / inactive accounts stay on /offers
@@ -135,7 +139,7 @@ useEffect(() => {
       router.replace('/dashboard');
       return;
     }
-    if (isCrewLimitedAccount(userProfile) && !isCrewLimitedHrefAllowed(pathname)) {
+    if (!isCrewDashboardHrefAllowed(pathname, userProfile, vesselBoost)) {
       router.replace('/dashboard');
     }
   }, [
@@ -146,6 +150,7 @@ useEffect(() => {
     hasActiveSubscription,
     pathname,
     userProfile,
+    vesselBoost,
     isRouteEnabled,
     router,
   ]);
@@ -177,7 +182,7 @@ useEffect(() => {
     (!isRouteEnabled(pathname) ||
       (isVesselLinkedAccount(userProfile) &&
         !isVesselLinkedHrefAllowed(userProfile, pathname)) ||
-      (isCrewLimitedAccount(userProfile) && !isCrewLimitedHrefAllowed(pathname)))
+      !isCrewDashboardHrefAllowed(pathname, userProfile, vesselBoost))
   ) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
@@ -218,5 +223,12 @@ useEffect(() => {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  return <DashboardContent>{children}</DashboardContent>;
+  const { user } = useUser();
+  const { data: userProfile } = useDoc<UserProfile>('users', user?.id);
+
+  return (
+    <CrewVesselFeatureBoostProvider userProfile={userProfile}>
+      <DashboardContent>{children}</DashboardContent>
+    </CrewVesselFeatureBoostProvider>
+  );
 }

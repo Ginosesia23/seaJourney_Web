@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
+import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
 import { isFeatureEnabledServer } from '@/lib/feature-flags/server';
 import { createPassageLog } from '@/supabase/database/queries';
 import { resolvePassageEndpointNames } from '@/lib/passages-map/resolve-endpoint-name';
@@ -78,7 +79,8 @@ export async function POST(req: NextRequest) {
     if (profileErr || !profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
-    if (!hasPassagesMapAccess(profile)) {
+    const vesselBoost = await getCrewVesselFeatureBoost(user.id);
+    if (!hasPassagesMapAccess(profile, vesselBoost)) {
       return NextResponse.json(
         { error: 'Passages map is not included on your plan' },
         { status: 402 },
@@ -302,7 +304,8 @@ export async function GET(req: NextRequest) {
       )
       .eq('id', user.id)
       .single();
-    if (!profile || !hasPassagesMapAccess(profile)) {
+    const vesselBoost = await getCrewVesselFeatureBoost(user.id);
+    if (!profile || !hasPassagesMapAccess(profile, vesselBoost)) {
       return NextResponse.json(
         { error: 'Passages map is not included on your plan' },
         { status: 402 },

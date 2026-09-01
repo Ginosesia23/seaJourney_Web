@@ -18,10 +18,12 @@ import { cn } from '@/lib/utils';
 import type { UserProfile } from '@/lib/types';
 import {
   hasPaidDashboardAccess,
+  hasCrewPremiumPlusFeatures,
   isCrewLimitedAccount,
   isVesselLinkedAccount,
 } from '@/supabase/database/subscription-helpers';
 import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
+import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { TestimonialsWorkspace } from '@/components/career-documents/testimonials-workspace';
 import { ProofOfServicePanel } from '@/components/career-documents/proof-of-service-panel';
@@ -59,6 +61,7 @@ function CareerDocumentsHubInner() {
   const searchParams = useSearchParams();
   const { isEnabled } = useFeatureFlags();
   const { data: userProfileRaw, isLoading } = useDoc<UserProfile>('users', user?.id);
+  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
 
   const profile = useMemo(() => {
     if (!userProfileRaw) return null;
@@ -74,14 +77,17 @@ function CareerDocumentsHubInner() {
   const isLinked = Boolean(profile && isVesselLinkedAccount(profile));
   const isCrewLimited = Boolean(profile && isCrewLimitedAccount(profile));
   const isPaid = Boolean(profile && hasPaidDashboardAccess(profile));
+  const hasPremiumCrewFeatures = Boolean(
+    profile && hasCrewPremiumPlusFeatures(profile, vesselBoost),
+  );
 
   const canTestimonials =
-    !isCrewLimited &&
+    hasPremiumCrewFeatures &&
     isEnabled('testimonials') &&
     (!isLinked || isVesselLinkedFeatureGranted(profile, 'testimonials'));
 
   const canProof =
-    !isCrewLimited &&
+    hasPremiumCrewFeatures &&
     isEnabled('proof_of_service') &&
     (!isLinked || isVesselLinkedFeatureGranted(profile, 'proof_of_service'));
 

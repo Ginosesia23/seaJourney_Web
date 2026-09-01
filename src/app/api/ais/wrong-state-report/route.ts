@@ -5,6 +5,7 @@ import { computeDetectionSnapshotForDay } from '@/lib/ais/replay-ais-day';
 import type { DailyStatus } from '@/lib/types';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-helpers';
+import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
 import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-access';
 
 const VALID_STATES = new Set<DailyStatus>([
@@ -107,7 +108,8 @@ export async function POST(req: NextRequest) {
     if (role === 'vessel') {
       return NextResponse.json({ error: 'Crew AIS reports only' }, { status: 403 });
     }
-    if (!hasCrewAisLiveTrackingTier(profile)) {
+    const vesselBoost = await getCrewVesselFeatureBoost(auth.userId);
+    if (!hasCrewAisLiveTrackingTier(profile, vesselBoost)) {
       return NextResponse.json(
         { error: 'Crew AIS tracking is not available on your plan' },
         { status: 403 },

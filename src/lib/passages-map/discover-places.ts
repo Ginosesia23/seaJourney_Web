@@ -17,10 +17,10 @@ import {
 export const PLACE_CELL_DEG = 0.1;
 
 /** Sample along a long passage about every this many nautical miles. */
-const SAMPLE_EVERY_NM = 55;
+const SAMPLE_EVERY_NM = 90;
 
 /** Cap how many brand-new cells we ask the API to resolve per batch. */
-export const MAX_DISCOVER_PER_BATCH = 18;
+export const MAX_DISCOVER_PER_BATCH = 10;
 
 export type DiscoveredPlaceKind = 'city' | 'town' | 'port';
 
@@ -162,7 +162,7 @@ export function resolveSampleFromCurated(
 /** Collapse places that share a name within `mergeNm` — keep first. */
 export function dedupeDiscoveredPlaces(
   places: DiscoveredPlace[],
-  mergeNm = 18,
+  mergeNm = 28,
 ): DiscoveredPlace[] {
   const out: DiscoveredPlace[] = [];
   for (const p of places) {

@@ -52,6 +52,11 @@ export interface UserProfile {
    * See `src/lib/vessel-linked-features.ts`. Core pages are always available.
    */
   linkedAccountFeatures?: string[] | null;
+  /** Personal plan paused while assigned to a Vessel Professional / Fleet vessel. */
+  personalPlanPausedAt?: string | null;
+  personalPlanPausedTier?: string | null;
+  personalPlanPausedSubscriptionId?: string | null;
+  personalPlanPausedForVesselId?: string | null;
 }
 
 /** Roles a vessel manager (Pro/Fleet tier) can create as a linked secondary account. */
