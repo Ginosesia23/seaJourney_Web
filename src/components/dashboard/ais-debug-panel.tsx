@@ -13,7 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-access';
+import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-tier';
 import { getAisNavStatus, normalizeAisNavStatus } from '@/lib/ais/map-ais-to-state';
 import { AisDebugGate } from '@/components/dashboard/ais-debug-gate';
 

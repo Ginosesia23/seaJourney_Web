@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
-import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-access';
+import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-tier';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
 import { AisWrongStateReportButton } from '@/components/dashboard/ais-wrong-state-report-button';
 import type { DailyStatus } from '@/lib/types';
